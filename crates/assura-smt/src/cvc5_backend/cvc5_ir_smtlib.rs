@@ -164,7 +164,7 @@ impl IrTermBuilder for SmtlibIrBuilder<'_, '_> {
 
     fn on_result_construct(&mut self, type_id: &str) {
         let tag = crate::cvc5_builtins::pattern_hash_name(type_id);
-        let tag_name = sanitize_smtlib_name(&format!("__ir_tag_{type_id}"));
+        let tag_name = sanitize_smtlib_name(&crate::encode_atom_policy::ir_tag_name(type_id));
         declare_int_var(self.script, self.vars, &tag_name);
         self.script
             .push_str(&format!("(assert (= {tag_name} {tag}))\n"));
@@ -202,7 +202,9 @@ impl IrTermBuilder for SmtlibIrBuilder<'_, '_> {
             if let Some(names) = self.enc_ctx.type_ctx.field_names_for(type_name) {
                 let field_name_refs: Vec<&str> = names.to_vec();
                 ensure_struct_adt_smtlib(self.enc, self.script, type_name, &field_name_refs);
-                let fname = sanitize_smtlib_name(&format!("__adt_{type_name}_{field_name}"));
+                let fname = sanitize_smtlib_name(&crate::encode_atom_policy::adt_accessor_uf_name(
+                    type_name, field_name,
+                ));
                 return format!("({fname} {base})");
             }
         }
@@ -211,7 +213,9 @@ impl IrTermBuilder for SmtlibIrBuilder<'_, '_> {
             .get(&slot)
             .map(|t| t.replace('<', "_").replace('>', ""))
             .unwrap_or_else(|| "val".into());
-        let fname = sanitize_smtlib_name(&format!("__ir_field_{ty_suffix}_{index}"));
+        let fname = sanitize_smtlib_name(&crate::encode_atom_policy::ir_field_uf_name(
+            &ty_suffix, index,
+        ));
         format!("({fname} {base})")
     }
 
@@ -242,12 +246,14 @@ impl IrTermBuilder for SmtlibIrBuilder<'_, '_> {
                 .collect();
             let val = self.enc.fresh_name();
             declare_int_var(self.script, self.vars, &val);
-            let tag_fn = sanitize_smtlib_name(&format!("__adt_tag_{type_id}"));
+            let tag_fn = sanitize_smtlib_name(&crate::encode_atom_policy::adt_tag_uf_name(type_id));
             self.script
                 .push_str(&format!("(assert (= ({tag_fn} {val}) 0))\n"));
             for (i, accessor) in field_names.iter().enumerate() {
                 if let Some(arg) = args.get(i) {
-                    let acc_fn = sanitize_smtlib_name(&format!("__adt_{type_id}_{accessor}"));
+                    let acc_fn = sanitize_smtlib_name(
+                        &crate::encode_atom_policy::adt_accessor_uf_name(type_id, accessor),
+                    );
                     self.script
                         .push_str(&format!("(assert (= ({acc_fn} {val}) {arg}))\n"));
                 }
@@ -258,7 +264,7 @@ impl IrTermBuilder for SmtlibIrBuilder<'_, '_> {
             .iter()
             .map(|(_, s)| self.load_slot(slots, *s))
             .collect();
-        let fname = sanitize_smtlib_name(&format!("__ir_construct_{type_id}"));
+        let fname = sanitize_smtlib_name(&crate::encode_atom_policy::ir_construct_uf_name(type_id));
         format!("({fname} {})", args.join(" "))
     }
 }

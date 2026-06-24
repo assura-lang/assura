@@ -54,6 +54,7 @@ pub use result::{
 mod clause_gate_policy;
 mod clause_policy;
 mod encode_atom_policy;
+mod encode_method_policy;
 mod encode_quantifier_policy;
 mod encode_raw_ops_policy;
 mod ir_encode;

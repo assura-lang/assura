@@ -129,7 +129,7 @@ pub(crate) fn flatten_field_chain(expr: &Expr) -> String {
             format!("{prefix}__{field}")
         }
         Expr::Ident(name) => name.clone(),
-        _ => format!("__obj_{:p}", expr as *const _),
+        _ => crate::encode_atom_policy::obj_ptr_name(format!("{:p}", expr as *const _)),
     }
 }
 

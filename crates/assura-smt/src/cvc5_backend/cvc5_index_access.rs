@@ -4,7 +4,8 @@
 //! re-exports them for stable `cvc5_index_access` import paths.
 
 // Re-exported for stable `cvc5_index_access` import paths (policy owns impls).
-#[cfg_attr(not(test), allow(unused_imports))]
+// INDEX_UF_NAME is consumed via direct encode_atom_policy paths in production; keep re-export.
+#[allow(unused_imports, reason = "stable cvc5_index_access re-export surface")]
 pub(crate) use crate::encode_atom_policy::{INDEX_UF_NAME, index_access_smtlib};
 
 #[cfg(feature = "cvc5-verify")]

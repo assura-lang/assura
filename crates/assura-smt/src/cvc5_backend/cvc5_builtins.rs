@@ -1,44 +1,25 @@
 //! Shared CVC5 builtin classification and SMT-LIB rendering.
 //!
 //! Native encoding (`encode_known_builtin_cvc5`) and shell-out (`expr_to_smtlib`)
-//! share the same builtin name/arity table defined here.
+//! share the same builtin name/arity table. **Policy** lives in
+//! [`crate::encode_method_policy`]; this module re-exports stable `cvc5_builtins`
+//! import paths and keeps CVC5-only thin aliases (`is_bool_field`).
 
-/// FNV-1a hash for constructor tag matching (same algorithm as Z3 backend).
-pub(crate) fn pattern_hash_name(name: &str) -> i64 {
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in name.as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    hash as i64
-}
+// -------------------------------------------------------------------------
+// Re-exports: encode_method_policy (encode convergence step 4)
+// -------------------------------------------------------------------------
+// Stable `cvc5_builtins::*` paths; some symbols are only consumed via
+// `cvc5_verify` / tests, so allow unused in default lib builds.
 
-/// UFs that return Bool in the native encoder (integer-encoding mode).
-#[cfg(feature = "cvc5-verify")]
-pub(crate) const BOOL_RETURNING_UFS: &[&str] = &[
-    "contains",
-    "is_empty",
-    "is_some",
-    "is_none",
-    "is_ok",
-    "is_err",
-    "any",
-    "all",
-    "contains_key",
-    "starts_with",
-    "ends_with",
-    "is_subset",
-    "is_superset",
-];
-
-#[cfg(feature = "cvc5-verify")]
-pub(crate) fn is_bool_returning_uf(name: &str) -> bool {
-    BOOL_RETURNING_UFS.contains(&name)
-}
-
-/// Field/method names treated as Bool-valued in native encoding.
-#[cfg(feature = "cvc5-verify")]
-pub(crate) const BOOL_FIELD_NAMES: &[&str] = &["is_empty", "is_some", "is_none", "is_ok", "is_err"];
+#[allow(
+    unused_imports,
+    reason = "stable cvc5_builtins re-export surface for shell/native/tests"
+)]
+pub(crate) use crate::encode_method_policy::{
+    BOOL_FIELD_NAMES, BOOL_RETURNING_UFS, KnownBuiltin, MEASURE_EMPTY_CONST_NAME,
+    classify_known_builtin, is_bool_field_name, is_bool_returning_uf, known_builtin_to_smtlib,
+    pattern_hash_name,
+};
 
 /// Field/method names with non-negativity size axioms in native encoding.
 ///
@@ -46,125 +27,16 @@ pub(crate) const BOOL_FIELD_NAMES: &[&str] = &["is_empty", "is_some", "is_none",
 #[cfg(feature = "cvc5-verify")]
 pub(crate) use crate::encode_atom_policy::SIZE_FIELD_NAMES;
 
+/// CVC5-facing alias for [`is_bool_field_name`] (stable call sites under `cvc5_builtins`).
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn is_bool_field(name: &str) -> bool {
-    BOOL_FIELD_NAMES.contains(&name)
+    is_bool_field_name(name)
 }
 
+/// CVC5-facing alias for [`crate::encode_atom_policy::is_size_field_name`].
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn is_size_field(name: &str) -> bool {
     crate::encode_atom_policy::is_size_field_name(name)
-}
-
-/// Builtin operations shared between native and shell-out backends.
-/// Mirrors Z3 `encode_call` semantics (#364) for CVC5 parity.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum KnownBuiltin {
-    Abs,
-    Min,
-    Max,
-    Substring,
-    Concat,
-    Append,
-    IndexOf,
-    CharAt,
-    Replace,
-    Split,
-    Trim,
-    Clone,
-    Reverse,
-    Clear,
-    Push,
-    Pop,
-    Insert,
-    Remove,
-    Slice,
-    Take,
-    Drop,
-    Tail,
-    First,
-    /// Array/map element access (`get(coll, key)`); not a bool predicate.
-    Get,
-    Set,
-    Put,
-}
-
-/// Classify a call by sanitized name and total arity (receiver + args for methods).
-pub(crate) fn classify_known_builtin(op: &str, arity: usize) -> Option<KnownBuiltin> {
-    match (op, arity) {
-        ("abs", 1) => Some(KnownBuiltin::Abs),
-        ("min", 2) => Some(KnownBuiltin::Min),
-        ("max", 2) => Some(KnownBuiltin::Max),
-        ("substring" | "substr", 3) => Some(KnownBuiltin::Substring),
-        ("concat", 2) => Some(KnownBuiltin::Concat),
-        ("append", 2) => Some(KnownBuiltin::Append),
-        ("index_of" | "find" | "indexOf", 2) => Some(KnownBuiltin::IndexOf),
-        ("char_at" | "charAt" | "code_unit_at", 2) => Some(KnownBuiltin::CharAt),
-        ("replace", 3) => Some(KnownBuiltin::Replace),
-        ("split", 2) => Some(KnownBuiltin::Split),
-        ("trim" | "to_lowercase" | "to_uppercase" | "to_lower" | "to_upper", 1) => {
-            Some(KnownBuiltin::Trim)
-        }
-        ("clone" | "to_string" | "to_owned" | "as_str", 1) => Some(KnownBuiltin::Clone),
-        ("reverse", 1) => Some(KnownBuiltin::Reverse),
-        ("clear", 1) => Some(KnownBuiltin::Clear),
-        ("push" | "push_back" | "push_front", 2) => Some(KnownBuiltin::Push),
-        ("pop" | "pop_back" | "pop_front", 1) => Some(KnownBuiltin::Pop),
-        ("insert", 3) => Some(KnownBuiltin::Insert),
-        ("remove" | "remove_at", 2) => Some(KnownBuiltin::Remove),
-        ("slice", 3) => Some(KnownBuiltin::Slice),
-        ("take", 2) => Some(KnownBuiltin::Take),
-        ("drop", 2) => Some(KnownBuiltin::Drop),
-        ("tail" | "rest", 1) => Some(KnownBuiltin::Tail),
-        ("first" | "last" | "head" | "front" | "back", 1) => Some(KnownBuiltin::First),
-        ("get", 2) => Some(KnownBuiltin::Get),
-        ("set", 3) => Some(KnownBuiltin::Set),
-        ("put", 3) => Some(KnownBuiltin::Put),
-        _ => None,
-    }
-}
-
-/// Render a known builtin as SMT-LIB2 prefix notation.
-pub(crate) fn known_builtin_to_smtlib(op: &str, args: &[String]) -> Option<String> {
-    let kind = classify_known_builtin(op, args.len())?;
-    match kind {
-        KnownBuiltin::Abs => {
-            let x = &args[0];
-            Some(format!("(ite (>= {x} 0) {x} (- {x}))"))
-        }
-        KnownBuiltin::Min => {
-            let (a, b) = (&args[0], &args[1]);
-            Some(format!("(ite (<= {a} {b}) {a} {b})"))
-        }
-        KnownBuiltin::Max => {
-            let (a, b) = (&args[0], &args[1]);
-            Some(format!("(ite (>= {a} {b}) {a} {b})"))
-        }
-        KnownBuiltin::Substring => Some(format!("(substring {} {} {})", args[0], args[1], args[2])),
-        KnownBuiltin::Concat | KnownBuiltin::Append => {
-            Some(format!("(__concat {} {})", args[0], args[1]))
-        }
-        KnownBuiltin::IndexOf => Some(format!("(index_of {} {})", args[0], args[1])),
-        KnownBuiltin::CharAt => Some(format!("(char_at {} {})", args[0], args[1])),
-        KnownBuiltin::Replace => Some(format!("(replace {} {} {})", args[0], args[1], args[2])),
-        KnownBuiltin::Split => Some(format!("(split {} {})", args[0], args[1])),
-        KnownBuiltin::Trim
-        | KnownBuiltin::Clone
-        | KnownBuiltin::Reverse
-        | KnownBuiltin::Clear
-        | KnownBuiltin::Pop
-        | KnownBuiltin::Tail
-        | KnownBuiltin::First => Some(format!("({op} {})", args[0])),
-        KnownBuiltin::Push | KnownBuiltin::Remove | KnownBuiltin::Take | KnownBuiltin::Drop => {
-            Some(format!("({op} {} {})", args[0], args[1]))
-        }
-        KnownBuiltin::Get => Some(format!("(get {} {})", args[0], args[1])),
-        KnownBuiltin::Insert | KnownBuiltin::Slice => {
-            Some(format!("({op} {} {} {})", args[0], args[1], args[2]))
-        }
-        KnownBuiltin::Set => Some(format!("(set {} {} {})", args[0], args[1], args[2])),
-        KnownBuiltin::Put => Some(format!("(put {} {} {})", args[0], args[1], args[2])),
-    }
 }
 
 #[cfg(test)]
@@ -242,10 +114,8 @@ mod tests {
         assert_eq!(classify_known_builtin("get", 1), None);
     }
 
-    #[cfg(feature = "cvc5-verify")]
     #[test]
-    fn bool_uf_membership() {
-        assert!(is_bool_returning_uf("contains"));
-        assert!(!is_bool_returning_uf("concat"));
+    fn reexports_measure_empty() {
+        assert_eq!(MEASURE_EMPTY_CONST_NAME, "__empty");
     }
 }

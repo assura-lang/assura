@@ -197,14 +197,20 @@ impl<'a, 'v, 's> IrTermBuilder for Cvc5IrBuilder<'a, 'v, 's, '_> {
             && let Some(field_name) = self.enc_ctx.type_ctx.field_name_at(ir_ty, index)
         {
             let type_name = base_type_name(ir_ty);
-            return self.mk_unary_uf(&format!("__adt_{type_name}_{field_name}"), base);
+            return self.mk_unary_uf(
+                &crate::encode_atom_policy::adt_accessor_uf_name(type_name, field_name),
+                base,
+            );
         }
         let ty_suffix = ctx
             .slot_types
             .get(&slot)
             .map(|t| t.replace('<', "_").replace('>', ""))
             .unwrap_or_else(|| "val".into());
-        self.mk_unary_uf(&format!("__ir_field_{ty_suffix}_{index}"), base)
+        self.mk_unary_uf(
+            &crate::encode_atom_policy::ir_field_uf_name(&ty_suffix, index),
+            base,
+        )
     }
 
     fn encode_construct(
@@ -221,7 +227,10 @@ impl<'a, 'v, 's> IrTermBuilder for Cvc5IrBuilder<'a, 'v, 's, '_> {
             .iter()
             .map(|(_, s)| self.load_slot(slots, *s))
             .collect();
-        self.mk_nary_uf(&format!("__ir_construct_{type_id}"), &args)
+        self.mk_nary_uf(
+            &crate::encode_atom_policy::ir_construct_uf_name(type_id),
+            &args,
+        )
     }
 }
 

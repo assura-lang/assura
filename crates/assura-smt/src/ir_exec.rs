@@ -34,7 +34,7 @@ pub fn apply_ir_body_constraints<B: IrTermBuilder>(
 
     for instr in &func.body {
         if instr.target != RESULT_SLOT && !slots.contains_key(&instr.target) {
-            let name = format!("__ir_slot_{}", instr.target);
+            let name = crate::encode_atom_policy::ir_slot_name(instr.target);
             let v = builder.get_or_create_named(&name);
             slots.insert(instr.target, v);
         }
@@ -191,7 +191,7 @@ mod tests {
         }
 
         fn canonical_length_for_name(&mut self, name: &str) -> Self::Term {
-            self.get_or_create_named(&format!("__len_{name}"))
+            self.get_or_create_named(&crate::encode_atom_policy::ir_exec_len_name(name))
         }
 
         fn encode_field(

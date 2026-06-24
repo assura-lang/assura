@@ -382,6 +382,69 @@ pub(crate) fn measure_append_uf_name(measure: &str) -> String {
     format!("__append_{measure}")
 }
 
+/// IR block result temporary (`__ir_block{block_id}_result`).
+pub(crate) fn ir_block_result_name(block_id: impl std::fmt::Display) -> String {
+    format!("__ir_block{block_id}_result")
+}
+
+/// IR block slot temporary (`__ir_block{block_id}_slot_{slot}`).
+pub(crate) fn ir_block_slot_name(
+    block_id: impl std::fmt::Display,
+    slot: impl std::fmt::Display,
+) -> String {
+    format!("__ir_block{block_id}_slot_{slot}")
+}
+
+/// IR block label (`__ir_block_{block_id}`).
+pub(crate) fn ir_block_label_name(block_id: impl std::fmt::Display) -> String {
+    format!("__ir_block_{block_id}")
+}
+
+/// IR call temporary prefix (`__ir_call_{func}_`).
+pub(crate) fn ir_call_temp_prefix(func: &str) -> String {
+    format!("__ir_call_{func}_")
+}
+
+/// IR call UIF (`__ir_call_{func}`).
+pub(crate) fn ir_call_uf_name(func: &str) -> String {
+    format!("__ir_call_{func}")
+}
+
+/// IR typestate UIF (`__ir_state_{state}`).
+pub(crate) fn ir_state_uf_name(state: &str) -> String {
+    format!("__ir_state_{state}")
+}
+
+/// IR type tag temporary (`__ir_tag_{type_id}`).
+pub(crate) fn ir_tag_name(type_id: &str) -> String {
+    format!("__ir_tag_{type_id}")
+}
+
+/// IR instruction slot temporary (`__ir_slot_{target}`).
+pub(crate) fn ir_slot_name(target: impl std::fmt::Display) -> String {
+    format!("__ir_slot_{target}")
+}
+
+/// Named length temporary for IR exec (`__len_{name}`).
+///
+/// Used from `ir_exec` tests and available for backend `canonical_length_for_name` impls.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn ir_exec_len_name(name: &str) -> String {
+    format!("__len_{name}")
+}
+
+/// Opaque object pointer fallback (`__obj_{ptr}`).
+pub(crate) fn obj_ptr_name(ptr: impl std::fmt::Display) -> String {
+    format!("__obj_{ptr}")
+}
+
+/// ADT constructor value temporary (`__adt_val_{counter}_{ctor}`).
+/// Referenced from CVC5 ADT encode (`cvc5-verify` only in default builds).
+#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
+pub(crate) fn adt_val_fresh_name(counter: impl std::fmt::Display, ctor_name: &str) -> String {
+    format!("__adt_val_{counter}_{ctor_name}")
+}
+
 /// Whether a model/counterexample variable name is internal encoder noise (shared filter heuristic).
 pub(crate) fn is_internal_encoder_var(name: &str) -> bool {
     name.starts_with("__str_")
@@ -410,6 +473,13 @@ pub(crate) fn is_internal_encoder_var(name: &str) -> bool {
         || name.starts_with("__bv_as_real_")
         || name.starts_with("__ax_")
         || name.starts_with("__append_")
+        || name == "__empty"
+        || name.starts_with("__ir_slot_")
+        || name.starts_with("__ir_state_")
+        || name.starts_with("__ir_tag_")
+        || name.starts_with("__ir_call_")
+        || name.starts_with("__ir_block")
+        || name.starts_with("__adt_val_")
 }
 
 #[cfg(test)]

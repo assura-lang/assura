@@ -23,11 +23,9 @@ pub(crate) use crate::encode_raw_ops_policy::{
     is_raw_spec_skip_keyword, parse_raw_quantifier_slice, raw_op_info, raw_op_is_comparison,
 };
 
-// Re-exported for tests and stable `cvc5_raw_ops` import paths (policy owns impls).
-#[cfg_attr(not(test), allow(unused_imports))]
-pub(crate) use crate::encode_raw_ops_policy::{
-    domain_contains_guard_smtlib, range_guard_smtlib, wrap_ast_quantifier_smtlib,
-};
+// Test-only re-export (policy owns impls; production callers use encode_quantifier_policy).
+#[cfg(test)]
+pub(crate) use crate::encode_raw_ops_policy::wrap_ast_quantifier_smtlib;
 
 // AST binop SMT-LIB text: encode_atom_policy
 pub(crate) use crate::encode_atom_policy::{
