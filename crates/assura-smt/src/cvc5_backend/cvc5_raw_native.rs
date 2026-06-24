@@ -143,7 +143,7 @@ fn parse_raw_atom_cvc5<'a>(
                 .cloned()
                 .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &old_name));
             let field = sanitize_smtlib_name(&inner_tokens[2]);
-            let func_name = crate::encode_atom_policy::field_uif_name(field);
+            let func_name = crate::encode_atom_policy::field_uif_name(&field);
             let fun_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
             let func = tm.mk_const(fun_sort, &func_name);
             let result = tm.mk_term(cvc5::Kind::ApplyUf, &[func, old_var]);
