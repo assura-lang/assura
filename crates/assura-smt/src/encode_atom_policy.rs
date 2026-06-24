@@ -583,6 +583,19 @@ mod tests {
     }
 
     #[test]
+    fn sanitize_and_append_dotted_segment() {
+        assert_eq!(sanitize_smt_name("a.b"), "a_b");
+        let mut name = sanitize_smt_name("state");
+        append_raw_dotted_segment(&mut name, "field");
+        assert_eq!(name, "state_field");
+    }
+
+    #[test]
+    fn float_rational_encoding() {
+        assert_eq!(float_literal_to_smtlib("1.5"), "(/ 1500000 1000000)");
+    }
+
+    #[test]
     fn int_and_apply_atoms() {
         assert_eq!(encode_int_literal_smtlib("-3"), "(- 3)");
         assert_eq!(encode_int_literal_smtlib("7"), "7");

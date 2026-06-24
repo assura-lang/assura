@@ -1,7 +1,7 @@
 //! Shared unmodelable-feature detection and field-chain helpers (one compiler brain).
 //!
 //! Z3 and CVC5 previously maintained nearly identical walkers (`encoder/unmodelable.rs`
-//! vs `cvc5_common` `*_cvc5` helpers). Both backends delegate here so adding/removing
+//! vs historical CVC5-named helpers). Both backends delegate here so adding/removing
 //! an unmodelable case happens once. This is **not** full expression encode unification;
 //! it only unifies the pre-solver "can we model this clause body?" gate walk.
 //!
