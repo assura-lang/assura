@@ -10,13 +10,10 @@ use assura_ast::{Expr, SpExpr};
 use crate::encode_atom_policy::sanitize_smt_name;
 
 // Re-exports: encode_quantifier_policy (encode convergence step 3)
-// Callers import via `cvc5_quantifier_encode`; default builds only hit re-exports from shell paths.
-#[cfg_attr(
-    not(any(test, feature = "cvc5-verify")),
-    allow(
-        unused_imports,
-        reason = "stable import path for shell/native call sites"
-    )
+// Callers import via `cvc5_quantifier_encode`; default/test builds may only use one symbol.
+#[allow(
+    unused_imports,
+    reason = "stable import path for shell/native call sites; not all symbols used in every cfg"
 )]
 pub(crate) use crate::encode_quantifier_policy::{
     encode_ast_quantifier_smtlib, encode_quantifier_domain_guard_smtlib,
