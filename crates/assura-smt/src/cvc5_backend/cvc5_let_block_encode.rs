@@ -9,7 +9,11 @@ use assura_ast::SpExpr;
 #[cfg(any(test, feature = "cvc5-verify"))]
 use crate::encode_atom_policy::sanitize_smt_name;
 
-// Stable import paths for `cvc5_expr_smtlib` / callers.
+// Stable import paths; shell may use encode_let_policy directly.
+#[allow(
+    unused_imports,
+    reason = "re-export surface; cvc5_expr_smtlib prefers encode_let_policy"
+)]
 pub(crate) use crate::encode_let_policy::{encode_block_smtlib, encode_let_smtlib};
 
 #[cfg(feature = "cvc5-verify")]
