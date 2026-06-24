@@ -2,9 +2,7 @@
 
 use assura_ast::{Expr, SpExpr, Spanned};
 
-use crate::cvc5_common::{
-    flatten_field_chain_cvc5, has_deep_field_chain_cvc5, is_self_rooted_cvc5,
-};
+use crate::unmodelable::{flatten_field_chain_sp, has_deep_field_chain_sp, is_self_rooted_sp};
 
 /// How a field access `obj.field` should be encoded.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,8 +16,8 @@ pub(crate) enum FieldAccessPlan {
 /// Decide flatten-vs-UF encoding for `obj.field`.
 pub(crate) fn plan_field_access(obj: &SpExpr, field: &str) -> FieldAccessPlan {
     let full_expr = Spanned::no_span(Expr::Field(Box::new(obj.clone()), field.to_string()));
-    if has_deep_field_chain_cvc5(&full_expr) || is_self_rooted_cvc5(&full_expr) {
-        FieldAccessPlan::Flatten(flatten_field_chain_cvc5(&full_expr))
+    if has_deep_field_chain_sp(&full_expr) || is_self_rooted_sp(&full_expr) {
+        FieldAccessPlan::Flatten(flatten_field_chain_sp(&full_expr))
     } else {
         FieldAccessPlan::ShallowUf {
             field: field.to_string(),

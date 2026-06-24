@@ -2,14 +2,14 @@ use crate::VerificationResult;
 use crate::cvc5_backend::{
     collect_vars, derive_narrowings, expr_to_smtlib, parse_smtlib_model, verify_contract_cvc5,
 };
-use crate::cvc5_common::{
-    collect_apply_refs_from_expr, collect_unmodelable_reasons_cvc5,
-    expr_has_unmodelable_features_cvc5, field_chain_depth_cvc5, flatten_field_chain_cvc5,
-    has_deep_field_chain_cvc5, is_self_rooted_cvc5,
-};
 #[cfg(feature = "cvc5-verify")]
 use crate::cvc5_quantifier_encode::infer_quantifier_patterns_cvc5;
 use crate::encode_atom_policy::is_internal_encoder_var;
+use crate::lemma_inject_policy::collect_apply_refs_from_expr;
+use crate::unmodelable::{
+    collect_unmodelable_reasons, expr_has_unmodelable_features, field_chain_depth_sp,
+    flatten_field_chain_sp, has_deep_field_chain_sp, is_self_rooted_sp,
+};
 use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, Pattern, Spanned, UnaryOp};
 use std::collections::HashSet;
 
@@ -1027,7 +1027,7 @@ fn test_typestate_now_modelable() {
     // #262: Raw tokens with @ are now modelable (encoded as integer equality)
     let expr = Spanned::no_span(Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]));
     assert!(
-        !expr_has_unmodelable_features_cvc5(&expr),
+        !expr_has_unmodelable_features(&expr),
         "typestate @ annotation should be modelable after #262"
     );
 }
@@ -1036,7 +1036,7 @@ fn test_typestate_now_modelable() {
 fn test_no_unmodelable_reason_for_typestate() {
     // #262: Typestate no longer produces unmodelable reasons
     let expr = Spanned::no_span(Expr::Raw(vec!["file".into(), "@".into(), "Open".into()]));
-    let reasons = collect_unmodelable_reasons_cvc5(&expr);
+    let reasons = collect_unmodelable_reasons(&expr);
     assert!(
         reasons.is_empty(),
         "typestate should produce no unmodelable reasons after #262, got: {:?}",
@@ -1053,7 +1053,7 @@ fn test_modelable_normal_expr() {
         rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
     });
     assert!(
-        !expr_has_unmodelable_features_cvc5(&expr),
+        !expr_has_unmodelable_features(&expr),
         "normal binop should be modelable"
     );
 }
@@ -1071,7 +1071,7 @@ fn test_typestate_nested_in_binop_modelable() {
         ]))),
     });
     assert!(
-        !expr_has_unmodelable_features_cvc5(&expr),
+        !expr_has_unmodelable_features(&expr),
         "typestate nested in binop should be modelable after #262"
     );
 }
@@ -1089,7 +1089,7 @@ fn test_typestate_in_if_branch_modelable() {
         else_branch: None,
     });
     assert!(
-        !expr_has_unmodelable_features_cvc5(&expr),
+        !expr_has_unmodelable_features(&expr),
         "typestate in if-then should be modelable after #262"
     );
 }
@@ -1107,7 +1107,7 @@ fn test_typestate_in_forall_body_modelable() {
         ]))),
     });
     assert!(
-        !expr_has_unmodelable_features_cvc5(&expr),
+        !expr_has_unmodelable_features(&expr),
         "typestate in forall body should be modelable after #262"
     );
 }
@@ -1293,29 +1293,29 @@ fn test_smtlib_match_float_pattern_rational() {
 // -------------------------------------------------------------------
 
 #[test]
-fn test_is_self_rooted_cvc5_ident_self() {
+fn test_is_self_rooted_sp_ident_self() {
     let expr = Spanned::no_span(Expr::Ident("self".into()));
-    assert!(is_self_rooted_cvc5(&expr));
+    assert!(is_self_rooted_sp(&expr));
 }
 
 #[test]
-fn test_is_self_rooted_cvc5_ident_other() {
+fn test_is_self_rooted_sp_ident_other() {
     let expr = Spanned::no_span(Expr::Ident("x".into()));
-    assert!(!is_self_rooted_cvc5(&expr));
+    assert!(!is_self_rooted_sp(&expr));
 }
 
 #[test]
-fn test_is_self_rooted_cvc5_field_chain() {
+fn test_is_self_rooted_sp_field_chain() {
     // self.value
     let expr = Spanned::no_span(Expr::Field(
         Box::new(Spanned::no_span(Expr::Ident("self".into()))),
         "value".into(),
     ));
-    assert!(is_self_rooted_cvc5(&expr));
+    assert!(is_self_rooted_sp(&expr));
 }
 
 #[test]
-fn test_is_self_rooted_cvc5_deep_chain() {
+fn test_is_self_rooted_sp_deep_chain() {
     // self.inner.value
     let expr = Spanned::no_span(Expr::Field(
         Box::new(Spanned::no_span(Expr::Field(
@@ -1324,28 +1324,28 @@ fn test_is_self_rooted_cvc5_deep_chain() {
         ))),
         "value".into(),
     ));
-    assert!(is_self_rooted_cvc5(&expr));
+    assert!(is_self_rooted_sp(&expr));
 }
 
 #[test]
-fn test_field_chain_depth_cvc5_ident() {
+fn test_field_chain_depth_sp_ident() {
     assert_eq!(
-        field_chain_depth_cvc5(&Spanned::no_span(Expr::Ident("x".into()))),
+        field_chain_depth_sp(&Spanned::no_span(Expr::Ident("x".into()))),
         0
     );
 }
 
 #[test]
-fn test_field_chain_depth_cvc5_single() {
+fn test_field_chain_depth_sp_single() {
     let expr = Spanned::no_span(Expr::Field(
         Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         "y".into(),
     ));
-    assert_eq!(field_chain_depth_cvc5(&expr), 1);
+    assert_eq!(field_chain_depth_sp(&expr), 1);
 }
 
 #[test]
-fn test_field_chain_depth_cvc5_deep() {
+fn test_field_chain_depth_sp_deep() {
     // a.b.c -> depth 2
     let expr = Spanned::no_span(Expr::Field(
         Box::new(Spanned::no_span(Expr::Field(
@@ -1354,17 +1354,17 @@ fn test_field_chain_depth_cvc5_deep() {
         ))),
         "c".into(),
     ));
-    assert_eq!(field_chain_depth_cvc5(&expr), 2);
+    assert_eq!(field_chain_depth_sp(&expr), 2);
 }
 
 #[test]
-fn test_has_deep_field_chain_cvc5() {
+fn test_has_deep_field_chain_sp() {
     // a.b -> depth 1, not deep
     let shallow = Spanned::no_span(Expr::Field(
         Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         "b".into(),
     ));
-    assert!(!has_deep_field_chain_cvc5(&shallow));
+    assert!(!has_deep_field_chain_sp(&shallow));
 
     // a.b.c -> depth 2, deep
     let deep = Spanned::no_span(Expr::Field(
@@ -1374,21 +1374,21 @@ fn test_has_deep_field_chain_cvc5() {
         ))),
         "c".into(),
     ));
-    assert!(has_deep_field_chain_cvc5(&deep));
+    assert!(has_deep_field_chain_sp(&deep));
 }
 
 #[test]
-fn test_flatten_field_chain_cvc5_simple() {
+fn test_flatten_field_chain_sp_simple() {
     // a.b -> "a__b"
     let expr = Spanned::no_span(Expr::Field(
         Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         "b".into(),
     ));
-    assert_eq!(flatten_field_chain_cvc5(&expr), "a__b");
+    assert_eq!(flatten_field_chain_sp(&expr), "a__b");
 }
 
 #[test]
-fn test_flatten_field_chain_cvc5_deep() {
+fn test_flatten_field_chain_sp_deep() {
     // state.head.extra.extra_max -> "state__head__extra__extra_max"
     let expr = Spanned::no_span(Expr::Field(
         Box::new(Spanned::no_span(Expr::Field(
@@ -1401,19 +1401,19 @@ fn test_flatten_field_chain_cvc5_deep() {
         "extra_max".into(),
     ));
     assert_eq!(
-        flatten_field_chain_cvc5(&expr),
+        flatten_field_chain_sp(&expr),
         "state__head__extra__extra_max"
     );
 }
 
 #[test]
-fn test_flatten_field_chain_cvc5_ident() {
+fn test_flatten_field_chain_sp_ident() {
     // a.b -> "a__b"
     let expr = Spanned::no_span(Expr::Field(
         Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         "b".into(),
     ));
-    assert_eq!(flatten_field_chain_cvc5(&expr), "a__b");
+    assert_eq!(flatten_field_chain_sp(&expr), "a__b");
 }
 
 #[test]
