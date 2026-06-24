@@ -381,7 +381,10 @@ impl Encoder {
         }
 
         // Native string theory: length(str_val) uses Z3's str.len
-        if self.use_string_theory && matches!(func_name, "len" | "length") && args.len() == 1 {
+        if self.use_string_theory
+            && crate::encode_atom_policy::is_length_method_name(func_name)
+            && args.len() == 1
+        {
             let arg_val = self.encode_expr(&args[0]);
             if let Z3Value::Str(s) = &arg_val {
                 let len = s.length();
@@ -392,7 +395,7 @@ impl Encoder {
         }
 
         // Canonical length for simple identifiers (#267).
-        if matches!(func_name, "len" | "length")
+        if crate::encode_atom_policy::is_length_method_name(func_name)
             && args.len() == 1
             && let Expr::Ident(name) = &args[0].node
         {
@@ -593,7 +596,7 @@ impl Encoder {
             "split" if arg_vals.len() == 2 => {
                 let result = self.fresh_int();
                 let one = ast::Int::from_i64(1);
-                let len_decl = self.make_func("len", 1);
+                let len_decl = self.make_func(crate::encode_atom_policy::LEN_UF_NAME, 1);
                 let res_len = len_decl
                     .apply(&[&result as &dyn z3::ast::Ast])
                     .as_int()
@@ -793,7 +796,7 @@ impl Encoder {
         if func_name == "get" && arg_vals.len() == 2 {
             let coll = &arg_vals[0];
             let key = &arg_vals[1];
-            let get_decl = self.make_func("get", 2);
+            let get_decl = self.make_func(crate::encode_atom_policy::GET_UF_NAME, 2);
             let via_get = get_decl
                 .apply(&[coll as &dyn z3::ast::Ast, key as &dyn z3::ast::Ast])
                 .as_int()
@@ -818,7 +821,7 @@ impl Encoder {
             // Weak index non-negativity (callers often require i >= 0 separately).
             self.background_axioms.push(idx.ge(&zero));
             // Read-over-write via both get and __index (keep aliases aligned).
-            let get_decl = self.make_func("get", 2);
+            let get_decl = self.make_func(crate::encode_atom_policy::GET_UF_NAME, 2);
             let get_at_idx = get_decl
                 .apply(&[&result as &dyn z3::ast::Ast, idx as &dyn z3::ast::Ast])
                 .as_int()
@@ -843,7 +846,7 @@ impl Encoder {
             let value = &arg_vals[2];
             let new_map = self.fresh_int();
             // Read-over-write axiom: get(put(m, k, v), k) == v
-            let get_decl = self.make_func("get", 2);
+            let get_decl = self.make_func(crate::encode_atom_policy::GET_UF_NAME, 2);
             let get_result = get_decl
                 .apply(&[&new_map as &dyn z3::ast::Ast, key as &dyn z3::ast::Ast])
                 .as_int()
@@ -862,7 +865,7 @@ impl Encoder {
             let old_size = self.collection_len_of(map_expr, map_val, "size");
             let old_len = self.collection_len_of(map_expr, map_val, "len");
             self.background_axioms.push(old_size.eq(&old_len));
-            let size_decl = self.make_func("size", 1);
+            let size_decl = self.make_func(crate::encode_atom_policy::SIZE_UF_NAME, 1);
             let new_size = size_decl
                 .apply(&[&new_map as &dyn z3::ast::Ast])
                 .as_int()
@@ -873,7 +876,7 @@ impl Encoder {
             self.background_axioms.push(new_size.ge(&zero));
             // Key present => size at least 1.
             self.background_axioms.push(new_size.ge(&one));
-            let len_decl = self.make_func("len", 1);
+            let len_decl = self.make_func(crate::encode_atom_policy::LEN_UF_NAME, 1);
             let new_len = len_decl
                 .apply(&[&new_map as &dyn z3::ast::Ast])
                 .as_int()
@@ -882,9 +885,7 @@ impl Encoder {
             return Z3Value::Int(new_map);
         }
         // Size-like methods get non-negativity axiom; unify len/length/size/__field_len.
-        if matches!(func_name, "len" | "length" | "size" | "count" | "capacity")
-            && arg_vals.len() == 1
-        {
+        if crate::encode_atom_policy::is_size_field_name(func_name) && arg_vals.len() == 1 {
             let coll_expr = &args[0].node;
             let coll = &arg_vals[0];
             // Named collections: always use the canonical length variable.
@@ -912,7 +913,7 @@ impl Encoder {
             self.background_axioms.push(via_fl.eq(&len_val));
             return Z3Value::Int(len_val);
         }
-        if matches!(func_name, "len" | "length" | "size" | "count" | "capacity") {
+        if crate::encode_atom_policy::is_size_field_name(func_name) {
             let decl = self.make_func(func_name, arg_vals.len());
             let arg_refs: Vec<&dyn z3::ast::Ast> =
                 arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
@@ -940,14 +941,14 @@ impl Encoder {
     /// comment on `verify_clauses_with_types` for details.
     pub(crate) fn encode_field_access(&mut self, obj: &SpExpr, field: &str) -> Z3Value {
         // Canonical length for simple identifiers (#267).
-        if matches!(field, "len" | "length")
+        if crate::encode_atom_policy::is_length_method_name(field)
             && let Expr::Ident(name) = &obj.node
         {
             return Z3Value::Int(self.canonical_length(name));
         }
 
         // Native string theory: .length() on a Str value uses Z3's str.len
-        if self.use_string_theory && matches!(field, "len" | "length") {
+        if self.use_string_theory && crate::encode_atom_policy::is_length_method_name(field) {
             let obj_val = self.encode_expr(obj);
             if let Z3Value::Str(s) = &obj_val {
                 let len = s.length();
@@ -974,7 +975,7 @@ impl Encoder {
                 return Z3Value::Bool(v);
             }
             // Size fields at any depth get non-negativity axiom
-            if matches!(field, "len" | "length" | "size" | "capacity" | "count") {
+            if crate::encode_atom_policy::is_size_field_name(field) {
                 let v = self.get_or_create_int(&flat_name);
                 let zero = ast::Int::from_i64(0);
                 self.background_axioms.push(v.ge(&zero));
@@ -999,7 +1000,7 @@ impl Encoder {
             return Z3Value::Bool(result.as_bool().unwrap_or_else(|| self.fresh_bool()));
         }
         // Size fields: return Int with non-negativity axiom
-        if matches!(field, "len" | "length" | "size" | "capacity" | "count") {
+        if crate::encode_atom_policy::is_size_field_name(field) {
             let decl = self.make_func(&func_name, 1);
             let result = decl.apply(&[&obj_val as &dyn z3::ast::Ast]);
             let len_val = result.as_int().unwrap_or_else(|| self.fresh_int());

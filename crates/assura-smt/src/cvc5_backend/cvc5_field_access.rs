@@ -72,7 +72,8 @@ where
     use crate::cvc5_builtins::{is_bool_field, is_size_field};
     use crate::cvc5_encoder_state::canonical_length_cvc5;
 
-    if matches!(field, "len" | "length")
+    if (field == crate::encode_atom_policy::LEN_UF_NAME
+        || field == crate::encode_atom_policy::LENGTH_METHOD_NAME)
         && let Expr::Ident(name) = &obj.node
     {
         return Some(canonical_length_cvc5(tm, name, vars, state));
@@ -116,7 +117,11 @@ pub(crate) fn encode_shallow_field_cvc5<'a>(
 ) -> cvc5::Term<'a> {
     use crate::cvc5_builtins::{is_bool_field, is_size_field};
 
-    if use_string_theory && matches!(field, "len" | "length") && obj_val.sort().is_string() {
+    if use_string_theory
+        && (field == crate::encode_atom_policy::LEN_UF_NAME
+            || field == crate::encode_atom_policy::LENGTH_METHOD_NAME)
+        && obj_val.sort().is_string()
+    {
         let len = tm.mk_term(cvc5::Kind::StringLength, &[obj_val]);
         let zero = tm.mk_integer(0);
         axioms.push(tm.mk_term(cvc5::Kind::Geq, &[len.clone(), zero]));

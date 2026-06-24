@@ -41,8 +41,10 @@ pub(crate) fn is_bool_returning_uf(name: &str) -> bool {
 pub(crate) const BOOL_FIELD_NAMES: &[&str] = &["is_empty", "is_some", "is_none", "is_ok", "is_err"];
 
 /// Field/method names with non-negativity size axioms in native encoding.
+///
+/// Re-exported from [`crate::encode_atom_policy`] for stable `cvc5_builtins` paths.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) const SIZE_FIELD_NAMES: &[&str] = &["len", "length", "size", "capacity", "count"];
+pub(crate) use crate::encode_atom_policy::SIZE_FIELD_NAMES;
 
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn is_bool_field(name: &str) -> bool {
@@ -51,7 +53,7 @@ pub(crate) fn is_bool_field(name: &str) -> bool {
 
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn is_size_field(name: &str) -> bool {
-    SIZE_FIELD_NAMES.contains(&name)
+    crate::encode_atom_policy::is_size_field_name(name)
 }
 
 /// Builtin operations shared between native and shell-out backends.

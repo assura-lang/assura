@@ -228,10 +228,10 @@ fn parse_raw_atom_cvc5<'a>(
 
     if next + 1 < tokens.len() && tokens[next] == "@" {
         let state_name = &tokens[next + 1];
-        let ts_var_name = format!("__typestate_{name}");
+        let ts_var_name = crate::encode_atom_policy::typestate_var_name(&name);
         let ts_var = vars
-            .entry(ts_var_name)
-            .or_insert_with(|| tm.mk_const(tm.integer_sort(), &format!("__typestate_{name}")))
+            .entry(ts_var_name.clone())
+            .or_insert_with(|| tm.mk_const(tm.integer_sort(), &ts_var_name))
             .clone();
         let state_val = tm.mk_integer(pattern_hash_name(state_name));
         return Some((
@@ -277,7 +277,7 @@ fn parse_raw_atom_cvc5<'a>(
             }
             "length" if arg_vals.is_empty() => {
                 let uf_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                let uf = tm.mk_const(uf_sort, "__length");
+                let uf = tm.mk_const(uf_sort, crate::encode_atom_policy::RAW_LENGTH_UF_NAME);
                 let base_var = vars
                     .get(&name)
                     .cloned()
