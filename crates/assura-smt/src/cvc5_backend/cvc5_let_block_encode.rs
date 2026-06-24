@@ -3,8 +3,10 @@
 //! SMT-LIB **policy** lives in [`crate::encode_let_policy`]; this module re-exports
 //! it and keeps CVC5-native term encode (var map + last-expr block).
 
+#[cfg(any(test, feature = "cvc5-verify"))]
 use assura_ast::SpExpr;
 
+#[cfg(any(test, feature = "cvc5-verify"))]
 use crate::encode_atom_policy::sanitize_smt_name;
 
 // Stable import paths for `cvc5_expr_smtlib` / callers.
