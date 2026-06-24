@@ -117,9 +117,9 @@ impl Encoder {
 
             // --- old(expr): encode inner with __old suffix ---
             Expr::Old(inner) => match &inner.as_ref().node {
-                // old(x) -> x__old
+                // old(x) -> x__old (source-name snapshot; Z3 keeps `result` as `result`)
                 Expr::Ident(name) => {
-                    let old_name = format!("{name}__old");
+                    let old_name = crate::encode_atom_policy::old_snapshot_name(name);
                     let v = self.get_or_create_int(&old_name);
                     Z3Value::Int(v)
                 }
@@ -376,7 +376,7 @@ impl Encoder {
                 for (i, elem) in elems.iter().enumerate() {
                     let elem_val = self.encode_expr(elem);
                     // Assert: __list_get(list, i) == elem_val
-                    let accessor = self.make_func("__list_get", 2);
+                    let accessor = self.make_func(crate::encode_atom_policy::LIST_GET_UF_NAME, 2);
                     let idx = ast::Int::from_i64(i as i64);
                     let accessed = accessor
                         .apply(&[&list_val as &dyn z3::ast::Ast, &idx as &dyn z3::ast::Ast])
@@ -545,14 +545,14 @@ impl Encoder {
             let end = p + 1;
             // Parse inner expression, then rename all variables to __old
             if inner_tokens.len() == 1 {
-                // old(x) -> x__old
-                let old_name = format!("{}__old", inner_tokens[0]);
+                // old(x) -> x__old (source-name snapshot)
+                let old_name = crate::encode_atom_policy::old_snapshot_name(&inner_tokens[0]);
                 let v = self.get_or_create_int(&old_name);
                 return (Z3Value::Int(v), end);
             }
             // old(x.field) -> encode field access on x__old
             if inner_tokens.len() == 3 && inner_tokens[1] == "." {
-                let old_name = format!("{}__old", inner_tokens[0]);
+                let old_name = crate::encode_atom_policy::old_snapshot_name(&inner_tokens[0]);
                 let old_var = self.get_or_create_int(&old_name);
                 let field = &inner_tokens[2];
                 let func_name = crate::encode_atom_policy::field_uif_name(field);
