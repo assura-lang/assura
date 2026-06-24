@@ -29,7 +29,7 @@ pub(crate) fn cvc5_shell_query_to_verification_result(
 ) -> VerificationResult {
     match query {
         Cvc5Result::Unsat => {
-            cvc5_interpret_clause_check_result(desc, kind, Cvc5ClauseSatOutcome::Unsat)
+            cvc5_interpret_clause_check_result(desc, kind, Cvc5ClauseSatOutcome::unsat())
         }
         Cvc5Result::Sat(model_str) => cvc5_interpret_clause_check_result(
             desc,
@@ -37,7 +37,7 @@ pub(crate) fn cvc5_shell_query_to_verification_result(
             cvc5_sat_outcome_from_smtlib_model(model_str),
         ),
         Cvc5Result::Timeout => {
-            cvc5_interpret_clause_check_result(desc, kind, Cvc5ClauseSatOutcome::Timeout)
+            cvc5_interpret_clause_check_result(desc, kind, Cvc5ClauseSatOutcome::timeout())
         }
         Cvc5Result::Error(reason) => VerificationResult::Unknown {
             clause_desc: desc.to_string(),

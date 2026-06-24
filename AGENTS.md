@@ -660,6 +660,7 @@ passes on the latest SHA (not only `test` / `clippy`).
 | `clause_gate_policy` | Per-clause unmodelable result, session cache key/tags, encode-failure shape | Divergent cache keys or limitation reason strings |
 | `unmodelable` | Expr walk for unmodelable gate + field-chain flatten/self-root helpers | Separate Z3 `encoder/unmodelable` vs CVC5 `*_cvc5` copies |
 | `verify_labels` | Clause/invariant/feature descriptors + lemma ensures collection | CVC5 `{:?}` kind strings vs Z3 `::ensures`; duplicate lemma maps |
+| `solver_outcome_policy` | SAT/UNSAT/timeout/unknown → `VerificationResult` (validity vs sat) | Divergent invariant UNSAT vs ensures UNSAT handling |
 | `ir_lower::IrTermBuilder` | Term construction only (Z3 / CVC5 / SMT-LIB builders) | IR semantics |
 | Z3 / CVC5 / portfolio | `check-sat`, models, timeouts | Re-interpreting IR differently |
 | SMT-LIB / shell CVC5 | Transport when `cvc5-verify` off | Second IR/havoc policy |
@@ -687,6 +688,9 @@ passes on the latest SHA (not only `test` / `clippy`).
 2f. Clause descriptors and lemma collection go in `verify_labels` (`Foo::ensures`,
    not `Foo::Ensures` via `Debug`). Full Z3/CVC5 **expr encode** is still not
    unified; do not claim it is.
+2g. Post-`check-sat` result interpretation (invariant sat vs ensures validity)
+   goes in `solver_outcome_policy`; backends only produce `ClauseSatOutcome`
+   (model/core extraction stays backend-specific).
 3. Known unimplemented encodings use `VerificationResult::unknown_not_encoded`
    (includes `KNOWN_SMT_LIMITATION_MARKER`); CLI treats those as warnings.
 4. `VerifyOptions::enable_cache` defaults **off** (IR sidecar / encoder
