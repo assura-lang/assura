@@ -90,6 +90,37 @@ pub(crate) fn old_flat_field_smtlib(flat_name: &str) -> String {
     old_snapshot_name(flat_name)
 }
 
+/// Shallow / flattened field **sort + axiom** class (solver-neutral).
+///
+/// Used after [`plan_field_access`] resolves flatten vs shallow so Z3
+/// `encode_field_access` and CVC5 `encode_shallow_field_cvc5` / flatten arms
+/// agree on bool vs size-nonneg vs default int before term construction.
+/// String-theory length on shallow receivers remains backend-local (sort /
+/// `use_string_theory` checks in Z3/CVC5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FieldValueKind {
+    /// Boolean field table ([`crate::encode_method_policy::is_bool_field_name`]).
+    Bool,
+    /// Size/length-like field with non-negativity axiom ([`is_size_field_name`]).
+    SizeNonNeg,
+    /// Default uninterpreted int (or bool/int UF result sort at backend).
+    Int,
+}
+
+/// Classify a source field name for flatten/shallow encode (not the plan shape).
+pub(crate) fn classify_field_value_kind(field: &str) -> FieldValueKind {
+    use crate::encode_atom_policy::is_size_field_name;
+    use crate::encode_method_policy::is_bool_field_name;
+
+    if is_bool_field_name(field) {
+        FieldValueKind::Bool
+    } else if is_size_field_name(field) {
+        FieldValueKind::SizeNonNeg
+    } else {
+        FieldValueKind::Int
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,5 +189,20 @@ mod tests {
     fn shallow_field_smtlib_shape() {
         assert_eq!(shallow_field_smtlib("len", "buf"), "(__field_len buf)");
         assert_eq!(old_flat_field_smtlib("state__head"), "state__head__old");
+    }
+
+    #[test]
+    fn field_value_kind_tables() {
+        assert_eq!(classify_field_value_kind("is_empty"), FieldValueKind::Bool);
+        assert_eq!(classify_field_value_kind("len"), FieldValueKind::SizeNonNeg);
+        assert_eq!(
+            classify_field_value_kind("length"),
+            FieldValueKind::SizeNonNeg
+        );
+        assert_eq!(classify_field_value_kind("head"), FieldValueKind::Int);
+        assert_eq!(
+            classify_field_value_kind("capacity"),
+            FieldValueKind::SizeNonNeg
+        );
     }
 }

@@ -926,26 +926,28 @@ impl Encoder {
     /// comment on `verify_clauses_with_types` for details.
     pub(crate) fn encode_field_access(&mut self, obj: &SpExpr, field: &str) -> Z3Value {
         // #198 / #267: plan via encode_field_policy (canonical length, flatten, shallow).
+        use crate::encode_field_policy::{FieldValueKind, classify_field_value_kind};
         match crate::encode_field_policy::plan_field_access(obj, field) {
             crate::encode_field_policy::FieldAccessPlan::CanonicalLength { obj_name } => {
                 return Z3Value::Int(self.canonical_length(&obj_name));
             }
             crate::encode_field_policy::FieldAccessPlan::Flatten(flat_name) => {
-                // Boolean-valued fields at any depth (table in encode_method_policy).
-                if crate::encode_method_policy::is_bool_field_name(field) {
-                    let v = ast::Bool::new_const(flat_name.as_str());
-                    return Z3Value::Bool(v);
-                }
-                // Size fields at any depth get non-negativity axiom
-                if crate::encode_atom_policy::is_size_field_name(field) {
-                    let v = self.get_or_create_int(&flat_name);
-                    let zero = ast::Int::from_i64(0);
-                    self.background_axioms.push(v.ge(&zero));
-                    return Z3Value::Int(v);
-                }
-                // General field: create as Int variable (Nat fields get >= 0)
-                let v = self.get_or_create_int(&flat_name);
-                return Z3Value::Int(v);
+                return match classify_field_value_kind(field) {
+                    FieldValueKind::Bool => {
+                        let v = ast::Bool::new_const(flat_name.as_str());
+                        Z3Value::Bool(v)
+                    }
+                    FieldValueKind::SizeNonNeg => {
+                        let v = self.get_or_create_int(&flat_name);
+                        let zero = ast::Int::from_i64(0);
+                        self.background_axioms.push(v.ge(&zero));
+                        Z3Value::Int(v)
+                    }
+                    FieldValueKind::Int => {
+                        let v = self.get_or_create_int(&flat_name);
+                        Z3Value::Int(v)
+                    }
+                };
             }
             crate::encode_field_policy::FieldAccessPlan::ShallowUf { .. } => {}
         }
@@ -967,27 +969,28 @@ impl Encoder {
 
         let obj_val = self.encode_expr(obj).as_int(&mut self.fresh_counter);
         let func_name = crate::encode_field_policy::field_uf_smtlib_name(field);
-        // Boolean-valued fields (table in encode_method_policy).
-        if crate::encode_method_policy::is_bool_field_name(field) {
-            let bool_sort = z3::Sort::bool();
-            let int_sort = z3::Sort::int();
-            let decl = z3::FuncDecl::new(func_name.as_str(), &[&int_sort], &bool_sort);
-            let result = decl.apply(&[&obj_val as &dyn z3::ast::Ast]);
-            return Z3Value::Bool(result.as_bool().unwrap_or_else(|| self.fresh_bool()));
+        match classify_field_value_kind(field) {
+            FieldValueKind::Bool => {
+                let bool_sort = z3::Sort::bool();
+                let int_sort = z3::Sort::int();
+                let decl = z3::FuncDecl::new(func_name.as_str(), &[&int_sort], &bool_sort);
+                let result = decl.apply(&[&obj_val as &dyn z3::ast::Ast]);
+                Z3Value::Bool(result.as_bool().unwrap_or_else(|| self.fresh_bool()))
+            }
+            FieldValueKind::SizeNonNeg => {
+                let decl = self.make_func(&func_name, 1);
+                let result = decl.apply(&[&obj_val as &dyn z3::ast::Ast]);
+                let len_val = result.as_int().unwrap_or_else(|| self.fresh_int());
+                let zero = ast::Int::from_i64(0);
+                self.background_axioms.push(len_val.ge(&zero));
+                Z3Value::Int(len_val)
+            }
+            FieldValueKind::Int => {
+                let decl = self.make_func(&func_name, 1);
+                let result = decl.apply(&[&obj_val as &dyn z3::ast::Ast]);
+                Z3Value::Int(result.as_int().unwrap_or_else(|| self.fresh_int()))
+            }
         }
-        // Size fields: return Int with non-negativity axiom
-        if crate::encode_atom_policy::is_size_field_name(field) {
-            let decl = self.make_func(&func_name, 1);
-            let result = decl.apply(&[&obj_val as &dyn z3::ast::Ast]);
-            let len_val = result.as_int().unwrap_or_else(|| self.fresh_int());
-            // Assert len >= 0 as a background axiom
-            let zero = ast::Int::from_i64(0);
-            self.background_axioms.push(len_val.ge(&zero));
-            return Z3Value::Int(len_val);
-        }
-        let decl = self.make_func(&func_name, 1);
-        let result = decl.apply(&[&obj_val as &dyn z3::ast::Ast]);
-        Z3Value::Int(result.as_int().unwrap_or_else(|| self.fresh_int()))
     }
 
     /// Encode indexing as uninterpreted function: __index(collection, index).
