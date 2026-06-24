@@ -340,7 +340,7 @@ impl Encoder {
                 let func_name = match &func.as_ref().node {
                     Expr::Ident(name) => name.clone(),
                     Expr::Field(_, field) => field.clone(),
-                    _ => format!("__call_{}", self.fresh_counter),
+                    _ => crate::encode_atom_policy::call_fresh_name(self.fresh_counter),
                 };
                 self.encode_call(&func_name, args)
             }

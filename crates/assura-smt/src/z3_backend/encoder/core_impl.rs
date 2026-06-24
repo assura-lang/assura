@@ -1036,7 +1036,7 @@ impl Encoder {
         // Model arrays as Array<Int, Int> for uniform element access.
         let int_sort = z3::Sort::int();
         let _arr_sort = z3::Sort::array(&int_sort, &int_sort);
-        let arr_name = format!("__arr_{}", self.fresh_counter);
+        let arr_name = crate::encode_atom_policy::arr_fresh_name(self.fresh_counter);
         self.fresh_counter += 1;
         let arr = z3::ast::Array::new_const(arr_name.as_str(), &int_sort, &int_sort);
         // Constrain: the array is associated with this collection
@@ -1171,7 +1171,7 @@ impl Encoder {
         if ctor_specs.is_empty() {
             return None;
         }
-        let adt_name = format!("__match_adt_{}", self.fresh_counter);
+        let adt_name = crate::encode_atom_policy::match_adt_fresh_name(self.fresh_counter);
         self.fresh_counter += 1;
         let accessor_refs: Vec<Vec<&str>> = ctor_specs
             .iter()

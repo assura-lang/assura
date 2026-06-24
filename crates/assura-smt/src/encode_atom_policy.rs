@@ -119,12 +119,30 @@ pub(crate) fn list_fresh_name(counter: impl std::fmt::Display) -> String {
     format!("__list_{counter}")
 }
 
+/// Placeholder list object for SMT-LIB list encode when no element is present.
+pub(crate) const LIST_FRESH_PLACEHOLDER: &str = "__list_fresh";
+
 /// Fresh tuple object constant (`__tuple_{n}`).
 ///
 /// Referenced from CVC5 tuple encode (`cvc5-verify` only in default builds).
 #[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
 pub(crate) fn tuple_fresh_name(counter: impl std::fmt::Display) -> String {
     format!("__tuple_{counter}")
+}
+
+/// Fresh array/object constant (`__arr_{n}`) used by Z3 index/array encode.
+pub(crate) fn arr_fresh_name(counter: impl std::fmt::Display) -> String {
+    format!("__arr_{counter}")
+}
+
+/// Fresh match ADT scrutinee constant (`__match_adt_{n}`).
+pub(crate) fn match_adt_fresh_name(counter: impl std::fmt::Display) -> String {
+    format!("__match_adt_{counter}")
+}
+
+/// Fresh call-result constant when the callee name is unknown (`__call_{n}`).
+pub(crate) fn call_fresh_name(counter: impl std::fmt::Display) -> String {
+    format!("__call_{counter}")
 }
 
 /// Tuple element accessor UIF (`__tuple_{arity}_{index}`).
@@ -284,6 +302,9 @@ pub(crate) fn is_internal_encoder_var(name: &str) -> bool {
         || name.starts_with("__obj_")
         || name.starts_with("__ir_")
         || name.starts_with("__canonical_len_")
+        || name.starts_with("__match_adt_")
+        || name.starts_with("__call_")
+        || name.starts_with("__old_fresh_")
 }
 
 #[cfg(test)]
@@ -309,8 +330,12 @@ mod tests {
         assert_eq!(length_uf_names(), [LEN_UF_NAME, FIELD_LEN_UF_NAME]);
         assert_eq!(fresh_temp_name(3), "__fresh_3");
         assert_eq!(list_fresh_name(1), "__list_1");
+        assert_eq!(LIST_FRESH_PLACEHOLDER, "__list_fresh");
         assert_eq!(tuple_fresh_name(2), "__tuple_2");
         assert_eq!(tuple_accessor_name(3, 0), "__tuple_3_0");
+        assert_eq!(arr_fresh_name(7), "__arr_7");
+        assert_eq!(match_adt_fresh_name(2), "__match_adt_2");
+        assert_eq!(call_fresh_name(9), "__call_9");
         assert_eq!(LIST_GET_UF_NAME, "__list_get");
         assert_eq!(CONTAINS_UF_NAME, "__contains");
         assert_eq!(CONCAT_UF_NAME, "__concat");
@@ -322,6 +347,9 @@ mod tests {
         assert_eq!(concat_binop_smtlib("a", "b"), "(__concat a b)");
         assert!(is_internal_encoder_var("__field_len"));
         assert!(is_internal_encoder_var(RESULT_VAR_NAME));
+        assert!(is_internal_encoder_var("__match_adt_0"));
+        assert!(is_internal_encoder_var("__call_1"));
+        assert!(is_internal_encoder_var("__old_fresh_4"));
         assert!(!is_internal_encoder_var("payload_length"));
     }
 
