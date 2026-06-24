@@ -357,6 +357,31 @@ pub(crate) fn concat_binop_smtlib(l: &str, r: &str) -> String {
     format!("({CONCAT_UF_NAME} {l} {r})")
 }
 
+/// Termination measure axiom temporary (`__ax_{measure}_xs`).
+pub(crate) fn measure_ax_xs_name(measure: &str) -> String {
+    format!("__ax_{measure}_xs")
+}
+
+/// Termination measure axiom temporary (`__ax_{measure}_xs2`).
+pub(crate) fn measure_ax_xs2_name(measure: &str) -> String {
+    format!("__ax_{measure}_xs2")
+}
+
+/// Termination measure axiom temporary (`__ax_{measure}_x`).
+pub(crate) fn measure_ax_x_name(measure: &str) -> String {
+    format!("__ax_{measure}_x")
+}
+
+/// Termination measure axiom temporary (`__ax_{measure}_eq_xs`).
+pub(crate) fn measure_ax_eq_xs_name(measure: &str) -> String {
+    format!("__ax_{measure}_eq_xs")
+}
+
+/// Append axiom function name (`__append_{measure}`).
+pub(crate) fn measure_append_uf_name(measure: &str) -> String {
+    format!("__append_{measure}")
+}
+
 /// Whether a model/counterexample variable name is internal encoder noise (shared filter heuristic).
 pub(crate) fn is_internal_encoder_var(name: &str) -> bool {
     name.starts_with("__str_")
@@ -383,6 +408,8 @@ pub(crate) fn is_internal_encoder_var(name: &str) -> bool {
         || name.starts_with("__typestate_")
         || name.starts_with("__adt_")
         || name.starts_with("__bv_as_real_")
+        || name.starts_with("__ax_")
+        || name.starts_with("__append_")
 }
 
 #[cfg(test)]
@@ -433,6 +460,8 @@ mod tests {
         assert_eq!(ir_field_uf_name("pair", 0), "__ir_field_pair_0");
         assert_eq!(ir_construct_uf_name("T1"), "__ir_construct_T1");
         assert_eq!(bv_as_real_name(32), "__bv_as_real_32");
+        assert_eq!(measure_ax_xs_name("m"), "__ax_m_xs");
+        assert_eq!(measure_append_uf_name("m"), "__append_m");
         assert_eq!(LIST_GET_UF_NAME, "__list_get");
         assert_eq!(CONTAINS_UF_NAME, "__contains");
         assert_eq!(CONCAT_UF_NAME, "__concat");

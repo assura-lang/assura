@@ -320,7 +320,9 @@ fn assert_measure_axioms(
         match &axiom.tag {
             MeasureAxiomTag::NonNegative => {
                 // forall xs: measure(xs) >= 0
-                let xs = ast::Int::new_const(format!("__ax_{}_xs", measure.name));
+                let xs = ast::Int::new_const(
+                    crate::encode_atom_policy::measure_ax_xs_name(&measure.name).as_str(),
+                );
                 let app = func_decl.apply(&[&xs]);
                 let Some(app_int) = app.as_int() else {
                     continue;
@@ -345,12 +347,16 @@ fn assert_measure_axioms(
                 // We model append as a fresh uninterpreted function
                 let int_sort = z3::Sort::int();
                 let append_fn = z3::FuncDecl::new(
-                    format!("__append_{}", measure.name),
+                    crate::encode_atom_policy::measure_append_uf_name(&measure.name),
                     &[&int_sort, &int_sort],
                     &int_sort,
                 );
-                let xs = ast::Int::new_const(format!("__ax_{}_xs2", measure.name));
-                let x = ast::Int::new_const(format!("__ax_{}_x", measure.name));
+                let xs = ast::Int::new_const(
+                    crate::encode_atom_policy::measure_ax_xs2_name(&measure.name).as_str(),
+                );
+                let x = ast::Int::new_const(
+                    crate::encode_atom_policy::measure_ax_x_name(&measure.name).as_str(),
+                );
                 let appended = append_fn.apply(&[&xs, &x]);
                 let measure_appended = func_decl.apply(&[&appended]);
                 let measure_xs = func_decl.apply(&[&xs]);
@@ -369,7 +375,9 @@ fn assert_measure_axioms(
             MeasureAxiomTag::EquivalentTo(other_name) => {
                 // forall xs: measure(xs) == other_measure(xs)
                 if let Some(other_decl) = all_func_decls.get(other_name) {
-                    let xs = ast::Int::new_const(format!("__ax_{}_eq_xs", measure.name));
+                    let xs = ast::Int::new_const(
+                        crate::encode_atom_policy::measure_ax_eq_xs_name(&measure.name).as_str(),
+                    );
                     let this_app = func_decl.apply(&[&xs]);
                     let other_app = other_decl.apply(&[&xs]);
                     let Some(this_int) = this_app.as_int() else {
