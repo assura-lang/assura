@@ -22,8 +22,6 @@ pub(crate) fn pattern_hash_name(name: &str) -> i64 {
 }
 
 /// UFs that return Bool in integer-encoding mode (native CVC5 / Z3 method dispatch).
-/// Referenced from CVC5 native method dispatch (`cvc5-verify` only in default builds).
-#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
 pub(crate) const BOOL_RETURNING_UFS: &[&str] = &[
     "contains",
     "is_empty",
@@ -40,16 +38,13 @@ pub(crate) const BOOL_RETURNING_UFS: &[&str] = &[
     "is_superset",
 ];
 
-#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
 pub(crate) fn is_bool_returning_uf(name: &str) -> bool {
     BOOL_RETURNING_UFS.contains(&name)
 }
 
-/// Field/method names treated as Bool-valued in native encoding.
-#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
+/// Field/method names treated as Bool-valued in native encoding / Z3 field access.
 pub(crate) const BOOL_FIELD_NAMES: &[&str] = &["is_empty", "is_some", "is_none", "is_ok", "is_err"];
 
-#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
 pub(crate) fn is_bool_field_name(name: &str) -> bool {
     BOOL_FIELD_NAMES.contains(&name)
 }

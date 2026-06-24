@@ -424,22 +424,8 @@ impl Encoder {
             return Z3Value::Int(result);
         }
         // Methods known to return Bool (UF with optional length / size links below).
-        if matches!(
-            func_name,
-            "contains"
-                | "is_empty"
-                | "is_some"
-                | "is_none"
-                | "is_ok"
-                | "is_err"
-                | "any"
-                | "all"
-                | "contains_key"
-                | "starts_with"
-                | "ends_with"
-                | "is_subset"
-                | "is_superset"
-        ) {
+        // Table lives in encode_method_policy (parity with CVC5 / methods.rs).
+        if crate::encode_method_policy::is_bool_returning_uf(func_name) {
             let bool_sort = z3::Sort::bool();
             let int_sort = z3::Sort::int();
             let param_sorts: Vec<&z3::Sort> = (0..arg_vals.len()).map(|_| &int_sort).collect();
@@ -449,10 +435,7 @@ impl Encoder {
             let result = decl.apply(&arg_refs);
             let b = result.as_bool().unwrap_or_else(|| self.fresh_bool());
             // is_empty(x) <=> len(x) == 0 (sound for sequences/maps with size).
-            if crate::encode_method_policy::is_bool_returning_uf(func_name)
-                && func_name == "is_empty"
-                && arg_vals.len() == 1
-            {
+            if func_name == "is_empty" && arg_vals.len() == 1 {
                 let coll = &arg_vals[0];
                 let coll_expr = &args[0].node;
                 let len_val = self.collection_len_of(coll_expr, coll, "len");
@@ -463,10 +446,7 @@ impl Encoder {
                 self.background_axioms.push(len_is_zero.implies(&b));
             }
             // contains(s, sub) => len(s) >= len(sub) (contiguous substring; sound).
-            if crate::encode_method_policy::is_bool_returning_uf(func_name)
-                && func_name == "contains"
-                && arg_vals.len() == 2
-            {
+            if func_name == "contains" && arg_vals.len() == 2 {
                 let hay_expr = &args[0].node;
                 let needle_expr = &args[1].node;
                 let hay_len = self.collection_len_of(hay_expr, &arg_vals[0], "len");
@@ -780,27 +760,13 @@ impl Encoder {
             }
             _ => {}
         }
-        // Built-in functions with known semantics
-        match func_name {
-            // abs(x) => if x >= 0 then x else -x
-            _ if crate::encode_method_policy::is_abs_builtin(func_name, arg_vals.len()) => {
-                let x = &arg_vals[0];
-                let zero = ast::Int::from_i64(0);
-                let neg_x = x.unary_minus();
-                let cond = x.ge(&zero);
-                return Z3Value::Int(cond.ite(x, &neg_x));
-            }
-            // min(a, b) => if a <= b then a else b
-            "min" if arg_vals.len() == 2 => {
-                let (a, b) = (&arg_vals[0], &arg_vals[1]);
-                return Z3Value::Int(a.le(b).ite(a, b));
-            }
-            // max(a, b) => if a >= b then a else b
-            "max" if arg_vals.len() == 2 => {
-                let (a, b) = (&arg_vals[0], &arg_vals[1]);
-                return Z3Value::Int(a.ge(b).ite(a, b));
-            }
-            _ => {}
+        // abs(x) => if x >= 0 then x else -x (policy arity; min/max handled above).
+        if crate::encode_method_policy::is_abs_builtin(func_name, arg_vals.len()) {
+            let x = &arg_vals[0];
+            let zero = ast::Int::from_i64(0);
+            let neg_x = x.unary_minus();
+            let cond = x.ge(&zero);
+            return Z3Value::Int(cond.ite(x, &neg_x));
         }
         // get(coll, key_or_idx): uninterpreted; unify `get` with `__index` for arrays.
         if crate::encode_method_policy::is_collection_access_builtin(func_name, arg_vals.len())
@@ -991,11 +957,8 @@ impl Encoder {
         {
             let flat_name =
                 flatten_field_chain(&Expr::Field(Box::new(obj.clone()), field.to_string()));
-            // Boolean-valued fields at any depth
-            if matches!(
-                field,
-                "is_empty" | "is_some" | "is_none" | "is_ok" | "is_err"
-            ) {
+            // Boolean-valued fields at any depth (table in encode_method_policy).
+            if crate::encode_method_policy::is_bool_field_name(field) {
                 let v = ast::Bool::new_const(flat_name.as_str());
                 return Z3Value::Bool(v);
             }
@@ -1013,11 +976,8 @@ impl Encoder {
 
         let obj_val = self.encode_expr(obj).as_int(&mut self.fresh_counter);
         let func_name = crate::encode_atom_policy::field_uif_name(field);
-        // Boolean-valued fields
-        if matches!(
-            field,
-            "is_empty" | "is_some" | "is_none" | "is_ok" | "is_err"
-        ) {
+        // Boolean-valued fields (table in encode_method_policy).
+        if crate::encode_method_policy::is_bool_field_name(field) {
             let bool_sort = z3::Sort::bool();
             let int_sort = z3::Sort::int();
             let decl = z3::FuncDecl::new(func_name.as_str(), &[&int_sort], &bool_sort);
@@ -1087,15 +1047,10 @@ impl Encoder {
 
     /// Hash a pattern name to a stable i64 for Z3 encoding.
     ///
-    /// Uses FNV-1a instead of DefaultHasher for determinism across Rust
-    /// versions (DefaultHasher may change its algorithm between releases).
+    /// Delegates to [`crate::encode_method_policy::pattern_hash_name`] (FNV-1a,
+    /// shared with CVC5 match/IR tag encoding).
     pub(crate) fn pattern_hash(&self, name: &str) -> i64 {
-        let mut hash: u64 = 0xcbf29ce484222325; // FNV offset basis
-        for byte in name.as_bytes() {
-            hash ^= *byte as u64;
-            hash = hash.wrapping_mul(0x100000001b3); // FNV prime
-        }
-        hash as i64
+        crate::encode_method_policy::pattern_hash_name(name)
     }
 
     /// Encode a literal value to Z3.

@@ -128,10 +128,7 @@ impl Encoder {
                     let old_obj = self.encode_expr(&Spanned::no_span(Expr::Old(obj.clone())));
                     let old_obj_int = old_obj.as_int(&mut self.fresh_counter);
                     let func_name = crate::encode_atom_policy::field_uif_name(field);
-                    if matches!(
-                        field.as_str(),
-                        "is_empty" | "is_some" | "is_none" | "is_ok" | "is_err"
-                    ) {
+                    if crate::encode_method_policy::is_bool_field_name(field) {
                         let bool_sort = z3::Sort::bool();
                         let int_sort = z3::Sort::int();
                         let decl = z3::FuncDecl::new(func_name.as_str(), &[&int_sort], &bool_sort);
