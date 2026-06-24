@@ -962,7 +962,9 @@ impl Encoder {
     /// [`crate::encode_binop_policy::AstBinOpKind`]; arithmetic/logic/compare
     /// remain full `BinOp` match for BV/Real/Int overloads (Z3-only).
     pub(crate) fn encode_binop(&mut self, lhs: &SpExpr, op: &BinOp, rhs: &SpExpr) -> Z3Value {
-        use crate::encode_binop_policy::{AstBinOpKind, classify_ast_binop, is_comparison_ast_binop};
+        use crate::encode_binop_policy::{
+            AstBinOpKind, classify_ast_binop, is_comparison_ast_binop,
+        };
 
         // Comparison chaining: a < b < c  =>  (a < b) && (b < c)
         // The parser produces BinOp(BinOp(a, <, b), <, c). We detect
