@@ -179,7 +179,10 @@ pub fn verify_structural_invariant_inductive(
     #[cfg(not(feature = "cvc5-verify"))]
     {
         vec![VerificationResult::Unknown {
-            clause_desc: format!("{parent_name}: structural_invariant"),
+            clause_desc: crate::verify_labels::feature_clause_desc(
+                parent_name,
+                "structural_invariant",
+            ),
             reason: not_encoded_reason("structural_invariant"),
         }]
     }
@@ -201,7 +204,10 @@ pub fn verify_structural_invariant_inductive(
     // Skip unmodelable bodies
     if expr_has_unmodelable_features(body) {
         all_results.push(VerificationResult::Unknown {
-            clause_desc: format!("{parent_name}: structural_invariant (establishment)"),
+            clause_desc: crate::verify_labels::feature_clause_desc(
+                parent_name,
+                "structural_invariant (establishment)",
+            ),
             reason: not_encoded_reason("structural_invariant clause uses features"),
         });
         return all_results;
@@ -211,7 +217,10 @@ pub fn verify_structural_invariant_inductive(
     if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
     {
         all_results.push(VerificationResult::Unknown {
-            clause_desc: format!("{parent_name}: structural_invariant"),
+            clause_desc: crate::verify_labels::feature_clause_desc(
+                parent_name,
+                "structural_invariant",
+            ),
             reason: not_encoded_reason("structural_invariant"),
         });
         return all_results;
@@ -220,7 +229,10 @@ pub fn verify_structural_invariant_inductive(
     // ---- Step 1: Establishment ----
     // Assert requires, negate invariant body, check UNSAT.
     {
-        let desc = format!("{parent_name}: structural_invariant (establishment)");
+        let desc = crate::verify_labels::feature_clause_desc(
+            parent_name,
+            "structural_invariant (establishment)",
+        );
         let solver = Solver::new();
         let mut params = z3::Params::new();
         params.set_u32("timeout", 2000);
@@ -256,7 +268,10 @@ pub fn verify_structural_invariant_inductive(
     // This models: after an operation that satisfies its postconditions,
     // the invariant must still hold.
     {
-        let desc = format!("{parent_name}: structural_invariant (preservation)");
+        let desc = crate::verify_labels::feature_clause_desc(
+            parent_name,
+            "structural_invariant (preservation)",
+        );
         let solver = Solver::new();
         let mut params = z3::Params::new();
         params.set_u32("timeout", 2000);

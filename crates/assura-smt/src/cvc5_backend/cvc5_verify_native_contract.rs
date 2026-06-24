@@ -32,7 +32,7 @@ pub(crate) fn verify_contract_cvc5_native(
 
     if verifiable.len() <= 1 {
         for clause in &verifiable {
-            let desc = format!("{contract_name}::{:?}", clause.kind);
+            let desc = crate::cvc5_verify_shared::cvc5_clause_desc(contract_name, &clause.kind);
             let input = Cvc5ClauseVerifyInput {
                 desc: &desc,
                 body: &clause.body,
@@ -104,7 +104,7 @@ fn verify_contract_cvc5_native_incremental(
     }
 
     for clause in &prepared.verifiable {
-        let desc = format!("{contract_name}::{:?}", clause.kind);
+        let desc = crate::cvc5_verify_shared::cvc5_clause_desc(contract_name, &clause.kind);
 
         let cache_key = cvc5_clause_cache_key(&desc, &clause.kind, &clause.body);
         if let Some(cached_result) = cvc5_lookup_cached_clause(session.cache, &cache_key, &desc) {

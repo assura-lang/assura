@@ -64,6 +64,7 @@ mod ir_type_ctx;
 mod prelude_policy;
 mod unmodelable;
 mod verify_context;
+mod verify_labels;
 
 /// Public entry point functions for SMT verification.
 mod entry;

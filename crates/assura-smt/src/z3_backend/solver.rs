@@ -9,24 +9,9 @@ use z3::{Model, Params, SatResult, Solver, ast};
 // Clause description helper
 // -----------------------------------------------------------------------
 
+/// Z3-backend facade; implementation in [`crate::verify_labels`].
 pub(super) fn clause_desc(parent_name: &str, kind: &ClauseKind) -> String {
-    let kind_str = match kind {
-        ClauseKind::Requires => "requires",
-        ClauseKind::Ensures => "ensures",
-        ClauseKind::Invariant => "invariant",
-        ClauseKind::Effects => "effects",
-        ClauseKind::Modifies => "modifies",
-        ClauseKind::Input => "input",
-        ClauseKind::Output => "output",
-        ClauseKind::Errors => "errors",
-        ClauseKind::Rule => "rule",
-        ClauseKind::DataFlow => "data_flow",
-        ClauseKind::MustNot => "must_not",
-        ClauseKind::Decreases => "decreases",
-        ClauseKind::Ordering => "ordering",
-        ClauseKind::Other(s) => s.as_str(),
-    };
-    format!("{parent_name}::{kind_str}")
+    crate::verify_labels::clause_desc(parent_name, kind)
 }
 
 // -----------------------------------------------------------------------

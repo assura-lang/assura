@@ -48,7 +48,7 @@ pub(crate) fn verify_contract_cvc5_shellout(
 
     if verifiable.len() <= 1 {
         for clause in &verifiable {
-            let desc = format!("{contract_name}::{:?}", clause.kind);
+            let desc = crate::cvc5_verify_shared::cvc5_clause_desc(contract_name, &clause.kind);
             let input = Cvc5ClauseVerifyInput {
                 desc: &desc,
                 body: &clause.body,
@@ -73,7 +73,7 @@ fn verify_contract_cvc5_shellout_incremental(
     let mut pending: Vec<PendingShellClause> = Vec::new();
 
     for (index, clause) in prepared.verifiable.iter().enumerate() {
-        let desc = format!("{contract_name}::{:?}", clause.kind);
+        let desc = crate::cvc5_verify_shared::cvc5_clause_desc(contract_name, &clause.kind);
         let cache_key = cvc5_clause_cache_key(&desc, &clause.kind, &clause.body);
 
         if let Some(cached) = cvc5_lookup_cached_clause(session.cache, &cache_key, &desc) {

@@ -343,7 +343,7 @@ fn verify_clauses_with_types(
 
 /// Verify a standalone invariant expression (e.g., service invariant).
 fn verify_invariant_expr(parent_name: &str, expr: &SpExpr, results: &mut Vec<VerificationResult>) {
-    let desc = format!("{parent_name}::invariant");
+    let desc = crate::verify_labels::invariant_desc(parent_name);
     let solver = Solver::new();
     let mut encoder = Encoder::new();
     encoder.init_adt_infrastructure();
@@ -356,27 +356,6 @@ fn verify_invariant_expr(parent_name: &str, expr: &SpExpr, results: &mut Vec<Ver
 // -----------------------------------------------------------------------
 // Entry point
 // -----------------------------------------------------------------------
-
-/// Collect all lemma definitions from the source AST.
-///
-/// Returns a map from lemma name to its ensures clause bodies.
-fn collect_lemma_defs(typed: &TypedFile) -> std::collections::HashMap<String, Vec<&SpExpr>> {
-    let mut lemmas = std::collections::HashMap::new();
-    for decl in &typed.resolved.source.decls {
-        if let Decl::FnDef(f) = &decl.node
-            && f.is_lemma
-        {
-            let ensures: Vec<&SpExpr> = f
-                .clauses
-                .iter()
-                .filter(|c| c.kind == ClauseKind::Ensures)
-                .map(|c| &c.body)
-                .collect();
-            lemmas.insert(f.name.clone(), ensures);
-        }
-    }
-    lemmas
-}
 
 /// Verify a quantified formula using Z3.
 ///
@@ -510,7 +489,7 @@ pub(crate) fn verify_impl_with_timeout(
     let file_type_env = extras.and_then(|e| e.type_env).or(Some(&typed.type_env));
 
     // T044: collect all lemma definitions for apply injection
-    let lemma_defs = collect_lemma_defs(typed);
+    let lemma_defs = crate::verify_labels::collect_lemma_defs(typed);
 
     // #180: collect feature_max constants so the encoder binds them
     // to concrete values instead of creating free Z3 variables.

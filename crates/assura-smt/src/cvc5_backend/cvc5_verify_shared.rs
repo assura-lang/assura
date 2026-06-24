@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use assura_ast::{Clause, ClauseKind, Decl, SpExpr};
+use assura_ast::{Clause, ClauseKind, SpExpr};
 
 use crate::CounterexampleModel;
 use crate::VerificationResult;
@@ -107,29 +107,16 @@ pub(crate) fn cvc5_interpret_clause_check_result(
     }
 }
 
-/// Collect lemma definitions from a typed file's declarations.
-///
-/// Maps each lemma name to its ensures clause bodies. This mirrors
-/// `z3_backend::collect_lemma_defs` but is available without the
-/// `z3-verify` feature.
+/// Collect lemma definitions from a typed file (shared [`crate::verify_labels`]).
 pub(crate) fn collect_lemma_defs_for_cvc5(
     typed: &assura_types::TypedFile,
 ) -> std::collections::HashMap<String, Vec<&SpExpr>> {
-    let mut lemmas = std::collections::HashMap::new();
-    for decl in &typed.resolved.source.decls {
-        if let Decl::FnDef(f) = &decl.node
-            && f.is_lemma
-        {
-            let ensures: Vec<&SpExpr> = f
-                .clauses
-                .iter()
-                .filter(|c| c.kind == ClauseKind::Ensures)
-                .map(|c| &c.body)
-                .collect();
-            lemmas.insert(f.name.clone(), ensures);
-        }
-    }
-    lemmas
+    crate::verify_labels::collect_lemma_defs(typed)
+}
+
+/// CVC5 clause descriptor (stable `parent::kind` labels, not `Debug` of `ClauseKind`).
+pub(crate) fn cvc5_clause_desc(contract_name: &str, kind: &ClauseKind) -> String {
+    crate::verify_labels::clause_desc(contract_name, kind)
 }
 
 /// Prepared state shared by native and shell-out CVC5 contract verification.
