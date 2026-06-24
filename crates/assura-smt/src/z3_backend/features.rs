@@ -397,7 +397,8 @@ fn assert_measure_axioms(
                 // Both are modeled as integers; empty_map and empty_set
                 // map to the same distinguished constant __empty, so
                 // measure(__empty) == 0 (using the empty constant).
-                let empty_map = ast::Int::new_const("__empty_map");
+                let empty_map =
+                    ast::Int::new_const(crate::encode_atom_policy::EMPTY_MAP_CONST_NAME);
                 let app = func_decl.apply(&[&empty_map]);
                 let Some(app_int) = app.as_int() else {
                     continue;

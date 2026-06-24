@@ -460,10 +460,14 @@ pub(crate) fn adt_val_fresh_name(counter: impl std::fmt::Display, ctor_name: &st
     format!("__adt_val_{counter}_{ctor_name}")
 }
 
+/// Empty map constant for measure axiom encoding (`measure(__empty_map) == 0`).
+pub(crate) const EMPTY_MAP_CONST_NAME: &str = "__empty_map";
+
 /// Exact internal names (not prefix-matched).
 ///
-/// Includes [`crate::encode_method_policy::MEASURE_EMPTY_CONST_NAME`].
-pub(crate) const INTERNAL_ENCODER_EXACT_NAMES: &[&str] = &["__empty"];
+/// Includes [`crate::encode_method_policy::MEASURE_EMPTY_CONST_NAME`] and
+/// [`EMPTY_MAP_CONST_NAME`].
+pub(crate) const INTERNAL_ENCODER_EXACT_NAMES: &[&str] = &["__empty", EMPTY_MAP_CONST_NAME];
 
 /// Prefixes for internal encoder / model-filter variable names.
 ///

@@ -51,7 +51,7 @@ fn verify_feature_body(
     #[cfg(not(feature = "cvc5-verify"))]
     {
         VerificationResult::unknown_not_encoded(
-            format!("{parent_name}: {feature_label}"),
+            crate::verify_labels::feature_clause_desc(parent_name, feature_label),
             feature_label,
         )
     }
@@ -69,7 +69,7 @@ fn verify_feature_body(
     body: &SpExpr,
     sibling_clauses: &[Clause],
 ) -> VerificationResult {
-    let desc = format!("{parent_name}: {feature_label}");
+    let desc = crate::verify_labels::feature_clause_desc(parent_name, feature_label);
 
     // Skip clauses with unmodelable features (typestate, etc.)
     if expr_has_unmodelable_features(body) {
@@ -126,7 +126,7 @@ fn verify_feature_body(
         .into_iter()
         .next()
         .unwrap_or(VerificationResult::Unknown {
-            clause_desc: format!("{parent_name}: {feature_label}"),
+            clause_desc: crate::verify_labels::feature_clause_desc(parent_name, feature_label),
             reason: "no result from solver".into(),
         })
 }
