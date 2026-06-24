@@ -775,33 +775,27 @@ impl Encoder {
             // Extract the base function name (last segment after dots)
             let func_name = name.rsplit('.').next().unwrap_or(&name);
 
-            // Built-in functions with known semantics (dispatch via encode_method_policy).
-            if crate::encode_method_policy::is_abs_builtin(func_name, arg_vals.len()) {
+            // Dispatch via classify_encode_call for all known call kinds
+            // (parity with CVC5 encode_uf_call_cvc5 / shell encode_call_smtlib).
+            use crate::encode_call_policy::{EncodeCallKind, classify_encode_call};
+            let call_kind = classify_encode_call(func_name, arg_vals.len());
+
+            if matches!(call_kind, EncodeCallKind::Abs) {
                 let x = &arg_vals[0];
                 let zero = ast::Int::from_i64(0);
                 let neg_x = x.unary_minus();
                 let cond = x.ge(&zero);
                 return (Z3Value::Int(cond.ite(x, &neg_x)), end);
             }
-            if crate::encode_method_policy::is_min_max_builtin(func_name, arg_vals.len()) {
+            if matches!(call_kind, EncodeCallKind::MinMax) {
                 let (a, b) = (&arg_vals[0], &arg_vals[1]);
-                let result =
-                    if crate::encode_method_policy::is_min_builtin(func_name, arg_vals.len()) {
-                        a.le(b).ite(a, b)
-                    } else {
-                        debug_assert!(crate::encode_method_policy::is_max_builtin(
-                            func_name,
-                            arg_vals.len()
-                        ));
-                        a.ge(b).ite(a, b)
-                    };
+                let result = if func_name == "min" {
+                    a.le(b).ite(a, b)
+                } else {
+                    a.ge(b).ite(a, b)
+                };
                 return (Z3Value::Int(result), end);
             }
-
-            // Post-builtin UF/size/bool: same classify_encode_call order as encode_call
-            // (parity with CVC5 encode_uf_call_cvc5 / shell encode_call_smtlib).
-            use crate::encode_call_policy::{EncodeCallKind, classify_encode_call};
-            let call_kind = classify_encode_call(func_name, arg_vals.len());
             if matches!(call_kind, EncodeCallKind::BoolReturningUf) {
                 let bool_sort = z3::Sort::bool();
                 let int_sort = z3::Sort::int();
