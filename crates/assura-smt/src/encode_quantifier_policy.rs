@@ -18,8 +18,7 @@ use crate::encode_raw_ops_policy::{
 
 /// Uninterpreted `__domain_contains(domain, var)` UF name (collection quantifiers).
 ///
-/// Referenced from CVC5 native quantifier encode (`cvc5-verify` only in default builds).
-#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
+/// Used by Z3 `guard_quantifier_body` and CVC5 `guard_quantifier_body_cvc5`.
 pub(crate) const DOMAIN_CONTAINS_UF_NAME: &str = "__domain_contains";
 
 /// Placeholder domain constant when encoding fails to produce a domain term.
