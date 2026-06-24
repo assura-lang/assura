@@ -3,25 +3,13 @@
 //! SMT-LIB atom text delegates to [`crate::encode_atom_policy`]; CVC5-native term
 //! builders below remain CVC5-specific.
 
-use assura_ast::Literal;
-
 #[cfg(feature = "cvc5-verify")]
-use assura_ast::{Expr, SpExpr};
+use assura_ast::{Expr, Literal, SpExpr};
 
-use crate::cvc5_common::sanitize_smtlib_name;
-
-// Thin re-exports / wrappers for stable `cvc5_*` import paths (SMT-LIB + tests).
-// Some are only referenced from `tests_cvc5_smtlib` / smtlib modules in default builds.
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "public within crate for smtlib/shell/tests; policy owns implementations"
-    )
-)]
+// Stable names for `cvc5_expr_smtlib` / `cvc5_raw_encode` (impls in encode_atom_policy).
 pub(crate) use crate::encode_atom_policy::{
     apply_lemma_const_name as encode_apply_smtlib, encode_ident_name as encode_ident_smtlib,
-    encode_int_literal_smtlib, encode_literal_smtlib, encode_raw_single_token_smtlib,
+    encode_literal_smtlib, encode_raw_single_token_smtlib,
 };
 
 /// Vacuous raw expression in SMT-LIB2.
