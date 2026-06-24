@@ -205,7 +205,10 @@ fn collect_trigger_calls_cvc5<'a>(
                     if expr_references_var(a, bound_var) {
                         uf_args.push(bound_cvc5.clone());
                     } else {
-                        uf_args.push(tm.mk_const(tm.integer_sort(), "__trigger_other"));
+                        uf_args.push(tm.mk_const(
+                            tm.integer_sort(),
+                            crate::encode_atom_policy::TRIGGER_OTHER_NAME,
+                        ));
                     }
                 }
                 let app = tm.mk_term(cvc5::Kind::ApplyUf, &uf_args);
