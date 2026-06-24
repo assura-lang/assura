@@ -32,7 +32,7 @@ impl IrSmtlibEncoder {
     fn fresh_name(&mut self) -> String {
         let n = self.fresh_counter;
         self.fresh_counter += 1;
-        format!("__fresh_{n}")
+        crate::encode_atom_policy::fresh_temp_name(n)
     }
 }
 

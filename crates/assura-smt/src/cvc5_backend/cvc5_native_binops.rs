@@ -5,7 +5,7 @@ pub(crate) fn alloc_fresh_int_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     fresh_counter: &mut usize,
 ) -> cvc5::Term<'a> {
-    let fresh_name = format!("__fresh_{fresh_counter}");
+    let fresh_name = crate::encode_atom_policy::fresh_temp_name(*fresh_counter);
     *fresh_counter += 1;
     tm.mk_const(tm.integer_sort(), &fresh_name)
 }
@@ -52,7 +52,7 @@ pub(crate) fn encode_contains_binop_cvc5<'a>(
     elem: cvc5::Term<'a>,
 ) -> cvc5::Term<'a> {
     let func_sort = tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.boolean_sort());
-    let contains = tm.mk_const(func_sort, "__contains");
+    let contains = tm.mk_const(func_sort, crate::encode_atom_policy::CONTAINS_UF_NAME);
     tm.mk_term(cvc5::Kind::ApplyUf, &[contains, collection, elem])
 }
 

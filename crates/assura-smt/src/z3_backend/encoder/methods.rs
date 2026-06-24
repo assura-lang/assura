@@ -1102,7 +1102,7 @@ impl Encoder {
             BinOp::In | BinOp::NotIn => {
                 let l = lv.as_int(&mut self.fresh_counter);
                 let r = rv.as_int(&mut self.fresh_counter);
-                let decl = self.make_func("__contains", 2);
+                let decl = self.make_func(crate::encode_atom_policy::CONTAINS_UF_NAME, 2);
                 let result = decl.apply(&[&r as &dyn z3::ast::Ast, &l as &dyn z3::ast::Ast]);
                 let contains_int = result.as_int().unwrap_or_else(|| self.fresh_int());
                 // __contains returns 0 for false, non-zero for true

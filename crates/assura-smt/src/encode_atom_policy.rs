@@ -137,6 +137,16 @@ pub(crate) fn tuple_accessor_name(arity: usize, index: usize) -> String {
 /// Used by Z3 list encode and CVC5 `encode_list_cvc5`.
 pub(crate) const LIST_GET_UF_NAME: &str = "__list_get";
 
+/// Membership / `in` UIF (`__contains`).
+///
+/// Shared by Z3 encoder, CVC5 native binops, and SMT-LIB `in_binop_smtlib`.
+pub(crate) const CONTAINS_UF_NAME: &str = "__contains";
+
+/// String/bytes concatenation UIF (`__concat`).
+///
+/// Shared by SMT-LIB `concat_binop_smtlib` and CVC5/Z3 concat paths.
+pub(crate) const CONCAT_UF_NAME: &str = "__concat";
+
 /// Integer literal as SMT-LIB2 text (negatives use `(- n)`).
 pub(crate) fn encode_int_literal_smtlib(n: &str) -> String {
     if let Some(stripped) = n.strip_prefix('-') {
@@ -222,15 +232,15 @@ pub(crate) fn range_binop_smtlib(l: &str, r: &str) -> String {
 }
 
 pub(crate) fn in_binop_smtlib(elem: &str, coll: &str) -> String {
-    format!("(__contains {coll} {elem})")
+    format!("({CONTAINS_UF_NAME} {coll} {elem})")
 }
 
 pub(crate) fn not_in_binop_smtlib(elem: &str, coll: &str) -> String {
-    format!("(not (__contains {coll} {elem}))")
+    format!("(not ({CONTAINS_UF_NAME} {coll} {elem}))")
 }
 
 pub(crate) fn concat_binop_smtlib(l: &str, r: &str) -> String {
-    format!("(__concat {l} {r})")
+    format!("({CONCAT_UF_NAME} {l} {r})")
 }
 
 /// Whether a model/counterexample variable name is internal encoder noise (shared filter heuristic).
@@ -281,6 +291,10 @@ mod tests {
         assert_eq!(tuple_fresh_name(2), "__tuple_2");
         assert_eq!(tuple_accessor_name(3, 0), "__tuple_3_0");
         assert_eq!(LIST_GET_UF_NAME, "__list_get");
+        assert_eq!(CONTAINS_UF_NAME, "__contains");
+        assert_eq!(CONCAT_UF_NAME, "__concat");
+        assert_eq!(in_binop_smtlib("x", "s"), "(__contains s x)");
+        assert_eq!(concat_binop_smtlib("a", "b"), "(__concat a b)");
         assert!(is_internal_encoder_var("__field_len"));
         assert!(is_internal_encoder_var(RESULT_VAR_NAME));
         assert!(!is_internal_encoder_var("payload_length"));
