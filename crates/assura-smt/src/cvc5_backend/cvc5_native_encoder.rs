@@ -102,6 +102,25 @@ pub(crate) fn encode_expr_cvc5<'a>(
         Expr::Literal(lit) => encode_literal_cvc5(tm, lit, state),
         Expr::Ident(name) => Some(encode_ident_cvc5(tm, name, vars)),
         Expr::BinOp { op, lhs, rhs } => {
+            // Comparison chaining: a < b < c  =>  (a < b) && (b < c)
+            // Parity with Z3 encode_binop (uses shared is_comparison_ast_binop).
+            if crate::encode_binop_policy::is_comparison_ast_binop(op)
+                && let Expr::BinOp {
+                    lhs: inner_lhs,
+                    op: inner_op,
+                    rhs: inner_rhs,
+                } = &lhs.node
+                && crate::encode_binop_policy::is_comparison_ast_binop(inner_op)
+            {
+                let il = encode_expr_cvc5(tm, inner_lhs, &mut *vars, &mut *state)?;
+                let mid = encode_expr_cvc5(tm, inner_rhs, &mut *vars, &mut *state)?;
+                let r_val = encode_expr_cvc5(tm, rhs, &mut *vars, &mut *state)?;
+                // Re-encode middle for right comparison (terms are ref-counted).
+                let mid2 = encode_expr_cvc5(tm, inner_rhs, &mut *vars, &mut *state)?;
+                let left_cmp = encode_ast_binop_cvc5(tm, inner_op, il, mid, state)?;
+                let right_cmp = encode_ast_binop_cvc5(tm, op, mid2, r_val, state)?;
+                return Some(tm.mk_term(cvc5::Kind::And, &[left_cmp, right_cmp]));
+            }
             let l = encode_expr_cvc5(tm, lhs, &mut *vars, &mut *state)?;
             let r = encode_expr_cvc5(tm, rhs, &mut *vars, &mut *state)?;
             encode_ast_binop_cvc5(tm, op, l, r, state)

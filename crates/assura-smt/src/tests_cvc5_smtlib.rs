@@ -1800,5 +1800,60 @@ fn test_smtlib_method_trim() {
 }
 
 // -------------------------------------------------------------------
+// Comparison chaining: a < b < c => (and (< a b) (< b c))
+// -------------------------------------------------------------------
+
+#[test]
+fn test_smtlib_comparison_chain_lt() {
+    // a < b < c => (and (< a b) (< b c))
+    let inner = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        op: BinOp::Lt,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
+    let outer = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(inner),
+        op: BinOp::Lt,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("c".into()))),
+    });
+    assert_eq!(expr_to_smtlib(&outer), Some("(and (< a b) (< b c))".into()));
+}
+
+#[test]
+fn test_smtlib_comparison_chain_mixed() {
+    // a <= b < c => (and (<= a b) (< b c))
+    let inner = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        op: BinOp::Lte,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
+    let outer = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(inner),
+        op: BinOp::Lt,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("c".into()))),
+    });
+    assert_eq!(
+        expr_to_smtlib(&outer),
+        Some("(and (<= a b) (< b c))".into())
+    );
+}
+
+#[test]
+fn test_smtlib_non_comparison_no_chain() {
+    // a + b < c should NOT chain (+ is not a comparison)
+    let inner = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        op: BinOp::Add,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
+    let outer = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(inner),
+        op: BinOp::Lt,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("c".into()))),
+    });
+    assert_eq!(expr_to_smtlib(&outer), Some("(< (+ a b) c)".into()));
+}
+
+// -------------------------------------------------------------------
 // CVC5 match pattern tests (native API, issue #252)
 // -------------------------------------------------------------------
