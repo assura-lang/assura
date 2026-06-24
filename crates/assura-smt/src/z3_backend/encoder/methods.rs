@@ -32,12 +32,8 @@ impl Encoder {
                 }
             }
             Expr::Literal(Literal::Float(s)) => {
-                // Encode as Z3 Real. Parse the float string and convert
-                // to a rational (numerator/denominator) for exact encoding.
-                // No clamping: use full f64 range.
-                let f: f64 = s.parse().unwrap_or(0.0);
-                let denom = 1_000_000i64;
-                let numer = (f * denom as f64) as i64;
+                // Encode as Z3 Real via shared rational parts (encode_atom_policy).
+                let (numer, denom) = crate::encode_atom_policy::float_to_rational_parts(s);
                 Z3Value::Real(ast::Real::from_rational(numer, denom))
             }
             Expr::Literal(Literal::Str(s)) => {
@@ -623,11 +619,8 @@ impl Encoder {
         }
 
         // --- Float literal ---
-        if tok.contains('.')
-            && let Ok(f) = tok.parse::<f64>()
-        {
-            let denom = 1_000_000i64;
-            let numer = (f * denom as f64) as i64;
+        if tok.contains('.') && tok.parse::<f64>().is_ok() {
+            let (numer, denom) = crate::encode_atom_policy::float_to_rational_parts(tok);
             return (
                 Z3Value::Real(ast::Real::from_rational(numer, denom)),
                 start + 1,
@@ -636,10 +629,7 @@ impl Encoder {
 
         // #200: Skip taint/ghost/region/validate keywords in raw tokens;
         // they are specification-level annotations, not Z3 variables.
-        if matches!(
-            tok.as_str(),
-            "taint" | "untrusted" | "validated" | "ghost" | "Region" | "validate"
-        ) {
+        if crate::encode_raw_ops_policy::is_raw_spec_skip_keyword(tok) {
             // Skip the keyword and continue parsing the next token
             return self.parse_raw_atom(tokens, start + 1);
         }
