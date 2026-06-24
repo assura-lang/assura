@@ -39,6 +39,23 @@ pub fn expr_to_smtlib(expr: &SpExpr) -> Option<String> {
         Expr::Literal(lit) => encode_literal_smtlib(lit),
         Expr::Ident(name) => Some(encode_ident_smtlib(name)),
         Expr::BinOp { op, lhs, rhs } => {
+            // Comparison chaining: a < b < c  =>  (and (< a b) (< b c))
+            // Parity with Z3 encode_binop (uses shared is_comparison_ast_binop).
+            if crate::encode_binop_policy::is_comparison_ast_binop(op)
+                && let Expr::BinOp {
+                    lhs: inner_lhs,
+                    op: inner_op,
+                    rhs: inner_rhs,
+                } = &lhs.node
+                && crate::encode_binop_policy::is_comparison_ast_binop(inner_op)
+            {
+                let il = expr_to_smtlib(inner_lhs)?;
+                let mid = expr_to_smtlib(inner_rhs)?;
+                let r_str = expr_to_smtlib(rhs)?;
+                let left_cmp = encode_ast_binop_smtlib(inner_op, &il, &mid)?;
+                let right_cmp = encode_ast_binop_smtlib(op, &mid, &r_str)?;
+                return Some(format!("(and {left_cmp} {right_cmp})"));
+            }
             let l = expr_to_smtlib(lhs)?;
             let r = expr_to_smtlib(rhs)?;
             encode_ast_binop_smtlib(op, &l, &r)
