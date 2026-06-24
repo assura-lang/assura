@@ -74,6 +74,9 @@ pub(crate) fn is_abs_builtin(op: &str, arity: usize) -> bool {
 }
 
 /// Whether `op` is a get/set/put collection accessor at the given arity.
+///
+/// Prefer [`is_get_builtin`] / [`is_set_builtin`] / [`is_put_builtin`] at encode sites.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn is_collection_access_builtin(op: &str, arity: usize) -> bool {
     matches!(
         classify_known_builtin(op, arity),
