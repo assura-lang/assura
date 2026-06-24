@@ -272,56 +272,77 @@ fn parse_raw_atom_cvc5<'a>(
         }
         let end = p + 1;
 
+        // Extract base function name (last segment after dot-join separator).
         let func_name = name.rsplit("__").next().unwrap_or(&name);
 
-        match func_name {
-            "abs" if arg_vals.len() == 1 => {
-                let x = arg_vals[0].clone();
-                let zero = tm.mk_integer(0);
-                let neg_x = tm.mk_term(cvc5::Kind::Neg, std::slice::from_ref(&x));
-                let cond = tm.mk_term(cvc5::Kind::Geq, &[x.clone(), zero]);
-                return Some((tm.mk_term(cvc5::Kind::Ite, &[cond, x, neg_x]), end));
-            }
-            "min" if arg_vals.len() == 2 => {
-                let (a, b) = (arg_vals[0].clone(), arg_vals[1].clone());
-                let cond = tm.mk_term(cvc5::Kind::Leq, &[a.clone(), b.clone()]);
-                return Some((tm.mk_term(cvc5::Kind::Ite, &[cond, a, b]), end));
-            }
-            "max" if arg_vals.len() == 2 => {
-                let (a, b) = (arg_vals[0].clone(), arg_vals[1].clone());
-                let cond = tm.mk_term(cvc5::Kind::Geq, &[a.clone(), b.clone()]);
-                return Some((tm.mk_term(cvc5::Kind::Ite, &[cond, a, b]), end));
-            }
-            "length" if arg_vals.is_empty() => {
-                let uf_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                let uf = tm.mk_const(uf_sort, crate::encode_atom_policy::RAW_LENGTH_UF_NAME);
-                let base_var = vars
-                    .get(&name)
-                    .cloned()
-                    .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &name));
-                let result = tm.mk_term(cvc5::Kind::ApplyUf, &[uf, base_var]);
-                let zero = tm.mk_integer(0);
-                let axiom = tm.mk_term(cvc5::Kind::Geq, &[result.clone(), zero]);
-                state.axioms.push(axiom);
-                return Some((result, end));
-            }
-            _ => {
-                if arg_vals.is_empty() {
-                    let v = vars
-                        .get(&name)
-                        .cloned()
-                        .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &name));
-                    return Some((v, end));
-                }
-                let n_args = arg_vals.len();
-                let domain: Vec<_> = (0..n_args).map(|_| tm.integer_sort()).collect();
-                let fun_sort = tm.mk_fun_sort(&domain, tm.integer_sort());
-                let func = tm.mk_const(fun_sort, &name);
-                let mut all_args = vec![func];
-                all_args.extend(arg_vals);
-                return Some((tm.mk_term(cvc5::Kind::ApplyUf, &all_args), end));
-            }
+        // Dispatch via classify_encode_call (parity with Z3 parse_raw_atom).
+        use crate::encode_call_policy::{EncodeCallKind, classify_encode_call};
+        let call_kind = classify_encode_call(func_name, arg_vals.len());
+
+        if matches!(call_kind, EncodeCallKind::Abs) && arg_vals.len() == 1 {
+            let x = arg_vals[0].clone();
+            let zero = tm.mk_integer(0);
+            let neg_x = tm.mk_term(cvc5::Kind::Neg, std::slice::from_ref(&x));
+            let cond = tm.mk_term(cvc5::Kind::Geq, &[x.clone(), zero]);
+            return Some((tm.mk_term(cvc5::Kind::Ite, &[cond, x, neg_x]), end));
         }
+        if matches!(call_kind, EncodeCallKind::MinMax) && arg_vals.len() == 2 {
+            let (a, b) = (arg_vals[0].clone(), arg_vals[1].clone());
+            let cond = if func_name == "min" {
+                tm.mk_term(cvc5::Kind::Leq, &[a.clone(), b.clone()])
+            } else {
+                tm.mk_term(cvc5::Kind::Geq, &[a.clone(), b.clone()])
+            };
+            return Some((tm.mk_term(cvc5::Kind::Ite, &[cond, a, b]), end));
+        }
+        if matches!(call_kind, EncodeCallKind::BoolReturningUf) {
+            let arity = arg_vals.len().max(1);
+            let domain: Vec<_> = (0..arity).map(|_| tm.integer_sort()).collect();
+            let fun_sort = tm.mk_fun_sort(&domain, tm.boolean_sort());
+            let func = tm.mk_const(fun_sort, func_name);
+            let args = if arg_vals.is_empty() {
+                vec![func.clone(), tm.mk_const(tm.integer_sort(), "__dummy")]
+            } else {
+                let mut a = vec![func.clone()];
+                a.extend(arg_vals);
+                a
+            };
+            return Some((tm.mk_term(cvc5::Kind::ApplyUf, &args), end));
+        }
+        if matches!(call_kind, EncodeCallKind::SizeFieldUf) {
+            let arity = arg_vals.len().max(1);
+            let domain: Vec<_> = (0..arity).map(|_| tm.integer_sort()).collect();
+            let fun_sort = tm.mk_fun_sort(&domain, tm.integer_sort());
+            let func = tm.mk_const(fun_sort, func_name);
+            let args = if arg_vals.is_empty() {
+                vec![func.clone(), tm.mk_const(tm.integer_sort(), "__dummy")]
+            } else {
+                let mut a = vec![func.clone()];
+                a.extend(arg_vals);
+                a
+            };
+            let result = tm.mk_term(cvc5::Kind::ApplyUf, &args);
+            let zero = tm.mk_integer(0);
+            let axiom = tm.mk_term(cvc5::Kind::Geq, &[result.clone(), zero]);
+            state.axioms.push(axiom);
+            return Some((result, end));
+        }
+
+        // Fallback: uninterpreted function or zero-arg variable lookup.
+        if arg_vals.is_empty() {
+            let v = vars
+                .get(&name)
+                .cloned()
+                .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &name));
+            return Some((v, end));
+        }
+        let n_args = arg_vals.len();
+        let domain: Vec<_> = (0..n_args).map(|_| tm.integer_sort()).collect();
+        let fun_sort = tm.mk_fun_sort(&domain, tm.integer_sort());
+        let func = tm.mk_const(fun_sort, &name);
+        let mut all_args = vec![func];
+        all_args.extend(arg_vals);
+        return Some((tm.mk_term(cvc5::Kind::ApplyUf, &all_args), end));
     }
 
     let v = vars

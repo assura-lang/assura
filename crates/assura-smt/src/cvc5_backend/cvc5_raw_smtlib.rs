@@ -177,6 +177,21 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
         }
         let end = p + 1;
 
+        // Dispatch via classify_encode_call (parity with Z3/CVC5 native raw).
+        let func_name = name.rsplit("__").next().unwrap_or(&name);
+        use crate::encode_call_policy::{EncodeCallKind, classify_encode_call};
+        let call_kind = classify_encode_call(func_name, arg_strs.len());
+
+        if matches!(call_kind, EncodeCallKind::Abs) && arg_strs.len() == 1 {
+            let x = &arg_strs[0];
+            return Some((format!("(ite (>= {x} 0) {x} (- {x}))"), end));
+        }
+        if matches!(call_kind, EncodeCallKind::MinMax) && arg_strs.len() == 2 {
+            let (a, b) = (&arg_strs[0], &arg_strs[1]);
+            let cmp = if func_name == "min" { "<=" } else { ">=" };
+            return Some((format!("(ite ({cmp} {a} {b}) {a} {b})"), end));
+        }
+
         if arg_strs.is_empty() {
             return Some((name, end));
         }
@@ -271,5 +286,46 @@ mod tests {
         ];
         let result = encode_raw_tokens_smtlib(&tokens).unwrap();
         assert!(result.starts_with("(and (= __typestate_conn "));
+    }
+
+    #[test]
+    fn abs_call_encodes_as_ite() {
+        let tokens = vec!["abs".into(), "(".into(), "x".into(), ")".into()];
+        assert_eq!(
+            encode_raw_tokens_smtlib(&tokens),
+            Some("(ite (>= x 0) x (- x))".into())
+        );
+    }
+
+    #[test]
+    fn min_call_encodes_as_ite() {
+        let tokens = vec![
+            "min".into(),
+            "(".into(),
+            "a".into(),
+            ",".into(),
+            "b".into(),
+            ")".into(),
+        ];
+        assert_eq!(
+            encode_raw_tokens_smtlib(&tokens),
+            Some("(ite (<= a b) a b)".into())
+        );
+    }
+
+    #[test]
+    fn max_call_encodes_as_ite() {
+        let tokens = vec![
+            "max".into(),
+            "(".into(),
+            "a".into(),
+            ",".into(),
+            "b".into(),
+            ")".into(),
+        ];
+        assert_eq!(
+            encode_raw_tokens_smtlib(&tokens),
+            Some("(ite (>= a b) a b)".into())
+        );
     }
 }
