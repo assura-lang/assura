@@ -664,7 +664,9 @@ passes on the latest SHA (not only `test` / `clippy`).
 | `portfolio_policy` | Multi-solver result merge priority (Z3/CVC5 portfolio) | Divergent Verified/CE/Unknown/Timeout selection |
 | `lemma_inject_policy` | `apply` ref collection + which lemma ensures to assert | Divergent lemma sets between Z3/CVC5 injection loops |
 | `trigger_seed_policy` | Call/MethodCall walk seeding `TriggerManager` for e-matching | Divergent/incomplete Z3 vs CVC5 trigger registration |
+| `encode_atom_policy` | Atom/naming + SMT-LIB binop/literal shapes (`result`, `__apply_`, floats) | Divergent encoder constants / SMT-LIB atom text |
 | `ir_lower::IrTermBuilder` | Term construction only (Z3 / CVC5 / SMT-LIB builders) | IR semantics |
+| Z3 `Encoder` / CVC5 `encode_expr_cvc5` | Solver **terms** from `Expr` (still separate) | Claiming full expr-encode is unified |
 | Z3 / CVC5 / portfolio | `check-sat`, models, timeouts | Re-interpreting IR differently |
 | SMT-LIB / shell CVC5 | Transport when `cvc5-verify` off | Second IR/havoc policy |
 
@@ -701,6 +703,11 @@ passes on the latest SHA (not only `test` / `clippy`).
 2j. `TriggerManager` seeding from clause/expr trees (Call/MethodCall names)
    goes in `trigger_seed_policy`; pattern validation and term encode stay
    backend-local.
+2k. Atom/naming and SMT-LIB atom/binop **text** conventions go in
+   `encode_atom_policy` (`result`→`__result`, `__apply_`, float rational
+   denom, standard `BinOp` operators). Full `Expr` → solver **term** encode
+   (Z3 `Encoder` vs `encode_expr_cvc5`) is still **not** unified; extend
+   this module incrementally, do not claim one `encode_expr` yet.
 3. Known unimplemented encodings use `VerificationResult::unknown_not_encoded`
    (includes `KNOWN_SMT_LIMITATION_MARKER`); CLI treats those as warnings.
 4. `VerifyOptions::enable_cache` defaults **off** (IR sidecar / encoder

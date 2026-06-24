@@ -1,54 +1,37 @@
 //! Shared CVC5 utilities used by shell-out and native backends.
+//!
+//! Atom/naming helpers delegate to [`crate::encode_atom_policy`] (encode convergence groundwork).
 
 use assura_ast::SpExpr;
 
-/// Rational denominator for Float literal encoding (matches Z3/CVC5 native).
-pub(crate) const FLOAT_RATIONAL_DENOM: i64 = 1_000_000;
-
 /// Sanitize an Assura identifier for SMT-LIB2/CVC5 names.
 pub(crate) fn sanitize_smtlib_name(name: &str) -> String {
-    name.replace('.', "_")
+    crate::encode_atom_policy::sanitize_smt_name(name)
 }
 
 /// Append a dotted raw-token segment (`tok . segment`) to a sanitized base name.
-///
-/// Uses a single `_` separator so `state . field` becomes `state_field`, matching
-/// `sanitize_smtlib_name("state.field")` and shell-out raw parsing.
 pub(crate) fn append_raw_dotted_segment(base: &mut String, segment: &str) {
-    base.push('_');
-    base.push_str(&sanitize_smtlib_name(segment));
+    crate::encode_atom_policy::append_raw_dotted_segment(base, segment);
 }
 
 /// Map `result` to the encoder's return-value name.
 pub(crate) fn smtlib_result_name() -> &'static str {
-    "__result"
+    crate::encode_atom_policy::RESULT_VAR_NAME
 }
 
 /// Canonical length variable name for shell-out SMT-LIB (`__canonical_len_{name}`).
 pub(crate) fn canonical_length_smtlib_name(name: &str) -> String {
-    format!("__canonical_len_{}", sanitize_smtlib_name(name))
+    crate::encode_atom_policy::canonical_length_name(name)
 }
 
 /// SMT-LIB name for an `old()` snapshot of an identifier.
 pub(crate) fn old_ident_smtlib_name(name: &str) -> String {
-    if name == "result" {
-        "__result__old".to_string()
-    } else {
-        format!("{}__old", sanitize_smtlib_name(name))
-    }
+    crate::encode_atom_policy::old_ident_name(name)
 }
 
 /// Render a float literal as SMT-LIB rational `(/ numer denom)`.
 pub(crate) fn float_literal_to_smtlib(f: &str) -> String {
-    let (numer, denom) = float_to_rational_parts(f);
-    format!("(/ {numer} {denom})")
-}
-
-/// Convert a float string to `(numerator, denominator)` rational parts.
-pub(crate) fn float_to_rational_parts(f: &str) -> (i64, i64) {
-    let fv: f64 = f.parse().unwrap_or(0.0);
-    let numer = (fv * FLOAT_RATIONAL_DENOM as f64) as i64;
-    (numer, FLOAT_RATIONAL_DENOM)
+    crate::encode_atom_policy::float_literal_to_smtlib(f)
 }
 
 // -------------------------------------------------------------------------
@@ -95,22 +78,7 @@ pub(crate) fn flatten_field_chain_cvc5(expr: &SpExpr) -> String {
 // -------------------------------------------------------------------------
 
 pub(crate) fn is_internal_cvc5_var(name: &str) -> bool {
-    name.starts_with("__str_")
-        || name.starts_with("__tuple_")
-        || name.starts_with("__list_")
-        || name.starts_with("__fresh_")
-        || name.starts_with("__field_")
-        || name.starts_with("__index")
-        || name.starts_with("__len")
-        || name.starts_with("__arr_")
-        || name.starts_with("__domain_contains")
-        || name.starts_with("__apply_")
-        || name.starts_with("__coerce")
-        || name.starts_with("__trigger_")
-        || name.starts_with("__list_get")
-        || name.starts_with("__result")
-        || name.starts_with("__contains")
-        || name.starts_with("__obj_")
+    crate::encode_atom_policy::is_internal_encoder_var(name)
 }
 
 // -------------------------------------------------------------------------

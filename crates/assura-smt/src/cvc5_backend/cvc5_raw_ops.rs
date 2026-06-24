@@ -257,43 +257,27 @@ pub(crate) fn domain_as_range(domain: &SpExpr) -> Option<(&SpExpr, &SpExpr)> {
 
 /// Format a standard (non-special) AST binary operator as SMT-LIB2.
 pub(crate) fn format_standard_ast_binop_smtlib(op: &BinOp, l: &str, r: &str) -> Option<String> {
-    let smt_op = match op {
-        BinOp::Add => "+",
-        BinOp::Sub => "-",
-        BinOp::Mul => "*",
-        BinOp::Div => "div",
-        BinOp::Mod => "mod",
-        BinOp::Eq => "=",
-        BinOp::Lt => "<",
-        BinOp::Lte => "<=",
-        BinOp::Gt => ">",
-        BinOp::Gte => ">=",
-        BinOp::And => "and",
-        BinOp::Or => "or",
-        BinOp::Implies => "=>",
-        BinOp::Neq | BinOp::Range | BinOp::In | BinOp::NotIn | BinOp::Concat => return None,
-    };
-    Some(format!("({smt_op} {l} {r})"))
+    crate::encode_atom_policy::format_standard_ast_binop_smtlib(op, l, r)
 }
 
 pub(crate) fn format_neq_ast_binop_smtlib(l: &str, r: &str) -> String {
-    format!("(not (= {l} {r}))")
+    crate::encode_atom_policy::format_neq_ast_binop_smtlib(l, r)
 }
 
 pub(crate) fn range_binop_smtlib(l: &str, r: &str) -> String {
-    format!("(let ((__range_fresh (+ {l} 0))) (and (>= __range_fresh {l}) (< __range_fresh {r})))")
+    crate::encode_atom_policy::range_binop_smtlib(l, r)
 }
 
 pub(crate) fn in_binop_smtlib(elem: &str, coll: &str) -> String {
-    format!("(__contains {coll} {elem})")
+    crate::encode_atom_policy::in_binop_smtlib(elem, coll)
 }
 
 pub(crate) fn not_in_binop_smtlib(elem: &str, coll: &str) -> String {
-    format!("(not (__contains {coll} {elem}))")
+    crate::encode_atom_policy::not_in_binop_smtlib(elem, coll)
 }
 
 pub(crate) fn concat_binop_smtlib(l: &str, r: &str) -> String {
-    format!("(__concat {l} {r})")
+    crate::encode_atom_policy::concat_binop_smtlib(l, r)
 }
 
 /// Map standard AST `BinOp` variants to native CVC5 kinds.

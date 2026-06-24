@@ -53,6 +53,7 @@ pub use result::{
 /// Shared IR expression encoding helpers.
 mod clause_gate_policy;
 mod clause_policy;
+mod encode_atom_policy;
 mod ir_encode;
 mod ir_exec;
 mod ir_generate;

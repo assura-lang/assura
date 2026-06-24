@@ -1,62 +1,32 @@
 //! Shared atom-level encoding: literals, idents, raw single tokens, and apply.
+//!
+//! SMT-LIB atom text delegates to [`crate::encode_atom_policy`]; CVC5-native term
+//! builders below remain CVC5-specific.
 
 use assura_ast::Literal;
 
 #[cfg(feature = "cvc5-verify")]
 use assura_ast::{Expr, SpExpr};
 
-use crate::cvc5_common::{float_literal_to_smtlib, sanitize_smtlib_name, smtlib_result_name};
+use crate::cvc5_common::sanitize_smtlib_name;
 
-#[cfg(feature = "cvc5-verify")]
-use crate::cvc5_common::float_to_rational_parts;
-
-/// Render an integer literal as SMT-LIB2 (negatives use `(- n)` form).
-pub(crate) fn encode_int_literal_smtlib(n: &str) -> String {
-    if let Some(stripped) = n.strip_prefix('-') {
-        format!("(- {stripped})")
-    } else {
-        n.to_string()
-    }
-}
-
-/// Render a literal as SMT-LIB2.
-pub(crate) fn encode_literal_smtlib(lit: &Literal) -> Option<String> {
-    match lit {
-        Literal::Int(n) => Some(encode_int_literal_smtlib(n)),
-        Literal::Bool(b) => Some(b.to_string()),
-        Literal::Float(f) => Some(float_literal_to_smtlib(f)),
-        Literal::Str(s) => Some(format!("__str_{}", sanitize_smtlib_name(s))),
-    }
-}
-
-/// Render an identifier as SMT-LIB2 (`result` maps to `__result`).
-pub(crate) fn encode_ident_smtlib(name: &str) -> String {
-    if name == "result" {
-        smtlib_result_name().to_string()
-    } else {
-        sanitize_smtlib_name(name)
-    }
-}
+// Thin re-exports / wrappers for stable `cvc5_*` import paths (SMT-LIB + tests).
+// Some are only referenced from `tests_cvc5_smtlib` / smtlib modules in default builds.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "public within crate for smtlib/shell/tests; policy owns implementations"
+    )
+)]
+pub(crate) use crate::encode_atom_policy::{
+    apply_lemma_const_name as encode_apply_smtlib, encode_ident_name as encode_ident_smtlib,
+    encode_int_literal_smtlib, encode_literal_smtlib, encode_raw_single_token_smtlib,
+};
 
 /// Vacuous raw expression in SMT-LIB2.
 pub(crate) fn encode_raw_empty_smtlib() -> String {
-    "true".to_string()
-}
-
-/// Fast path for a single raw token in SMT-LIB2 (matches native single-token semantics).
-pub(crate) fn encode_raw_single_token_smtlib(token: &str) -> Option<String> {
-    if token == "true" || token == "false" {
-        return Some(token.to_string());
-    }
-    if token.parse::<i64>().is_ok() {
-        return Some(encode_int_literal_smtlib(token));
-    }
-    Some(encode_ident_smtlib(token))
-}
-
-/// Render lemma apply as a named boolean constant.
-pub(crate) fn encode_apply_smtlib(lemma_name: &str) -> String {
-    format!("__apply_{lemma_name}")
+    crate::encode_atom_policy::encode_raw_empty_smtlib().to_string()
 }
 
 #[cfg(feature = "cvc5-verify")]
@@ -72,7 +42,7 @@ pub(crate) fn encode_literal_cvc5<'a>(
         }
         Literal::Bool(b) => Some(tm.mk_boolean(*b)),
         Literal::Float(f_str) => {
-            let (numer, denom) = float_to_rational_parts(f_str);
+            let (numer, denom) = crate::encode_atom_policy::float_to_rational_parts(f_str);
             Some(tm.mk_real_from_rational(numer, denom))
         }
         Literal::Str(s) => Some(encode_string_literal_cvc5(tm, s, state)),
@@ -94,7 +64,7 @@ pub(crate) fn encode_string_literal_cvc5<'a>(
         return str_val;
     }
 
-    let const_name = format!("__str_{s}");
+    let const_name = crate::encode_atom_policy::string_literal_const_name(s);
     let str_val = tm.mk_const(tm.integer_sort(), &const_name);
     if !state.string_constants.contains(&const_name) {
         for prev in &state.string_constants {
@@ -147,7 +117,7 @@ pub(crate) fn encode_raw_single_token_cvc5<'a>(
     if let Ok(n) = token.parse::<i64>() {
         return Some(tm.mk_integer(n));
     }
-    let key = sanitize_smtlib_name(token);
+    let key = crate::encode_atom_policy::sanitize_smt_name(token);
     Some(
         vars.get(&key)
             .cloned()
@@ -183,7 +153,10 @@ mod tests {
 
     #[test]
     fn int_negative_uses_prefix_form() {
-        assert_eq!(encode_int_literal_smtlib("-3"), "(- 3)");
+        assert_eq!(
+            crate::encode_atom_policy::encode_int_literal_smtlib("-3"),
+            "(- 3)"
+        );
     }
 
     #[test]
