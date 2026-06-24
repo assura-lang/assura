@@ -147,6 +147,27 @@ pub(crate) const CONTAINS_UF_NAME: &str = "__contains";
 /// Shared by SMT-LIB `concat_binop_smtlib` and CVC5/Z3 concat paths.
 pub(crate) const CONCAT_UF_NAME: &str = "__concat";
 
+/// Collection index accessor UIF (`__index(coll, idx)`).
+///
+/// Used by Z3 `encode_index`, CVC5 `cvc5_index_access`, and `cvc5_native_builtins`.
+pub(crate) const INDEX_UF_NAME: &str = "__index";
+
+/// Length UIF used for index bounds axioms only (`__len(coll)`).
+///
+/// Distinct from [`LEN_UF_NAME`] (`"len"`, collection/string method alias) and
+/// [`FIELD_LEN_UF_NAME`] (`__field_len`, field/method length accessor).
+pub(crate) const INDEX_BOUNDS_LEN_UF_NAME: &str = "__len";
+
+/// Placeholder for multi-arg trigger patterns when an arg is not the quantified var.
+///
+/// Shared by Z3 and CVC5 quantifier trigger encoding.
+pub(crate) const TRIGGER_OTHER_NAME: &str = "__trigger_other";
+
+/// Render `(__index coll idx)` in SMT-LIB2.
+pub(crate) fn index_access_smtlib(coll: &str, idx: &str) -> String {
+    format!("({INDEX_UF_NAME} {coll} {idx})")
+}
+
 /// Integer literal as SMT-LIB2 text (negatives use `(- n)`).
 pub(crate) fn encode_int_literal_smtlib(n: &str) -> String {
     if let Some(stripped) = n.strip_prefix('-') {
@@ -293,6 +314,10 @@ mod tests {
         assert_eq!(LIST_GET_UF_NAME, "__list_get");
         assert_eq!(CONTAINS_UF_NAME, "__contains");
         assert_eq!(CONCAT_UF_NAME, "__concat");
+        assert_eq!(INDEX_UF_NAME, "__index");
+        assert_eq!(INDEX_BOUNDS_LEN_UF_NAME, "__len");
+        assert_eq!(TRIGGER_OTHER_NAME, "__trigger_other");
+        assert_eq!(index_access_smtlib("buf", "i"), "(__index buf i)");
         assert_eq!(in_binop_smtlib("x", "s"), "(__contains s x)");
         assert_eq!(concat_binop_smtlib("a", "b"), "(__concat a b)");
         assert!(is_internal_encoder_var("__field_len"));

@@ -238,7 +238,9 @@ impl Encoder {
                             if expr_references_var(a, bound_var) {
                                 ast::Dynamic::from_ast(bound_z3)
                             } else {
-                                ast::Dynamic::from_ast(&ast::Int::new_const("__trigger_other"))
+                                ast::Dynamic::from_ast(&ast::Int::new_const(
+                                    crate::encode_atom_policy::TRIGGER_OTHER_NAME,
+                                ))
                             }
                         })
                         .collect();
@@ -684,7 +686,7 @@ impl Encoder {
                 self.assert_collection_len_eq(&result, &new_len, "len");
                 self.background_axioms.push(idx.ge(&zero));
                 self.background_axioms.push(idx.le(&old_len));
-                let get_decl = self.make_func("__index", 2);
+                let get_decl = self.make_func(crate::encode_atom_policy::INDEX_UF_NAME, 2);
                 let at_idx = get_decl
                     .apply(&[&result as &dyn z3::ast::Ast, idx as &dyn z3::ast::Ast])
                     .as_int()
@@ -796,7 +798,7 @@ impl Encoder {
                 .apply(&[coll as &dyn z3::ast::Ast, key as &dyn z3::ast::Ast])
                 .as_int()
                 .unwrap_or_else(|| self.fresh_int());
-            let idx_decl = self.make_func("__index", 2);
+            let idx_decl = self.make_func(crate::encode_atom_policy::INDEX_UF_NAME, 2);
             let via_idx = idx_decl
                 .apply(&[coll as &dyn z3::ast::Ast, key as &dyn z3::ast::Ast])
                 .as_int()
@@ -822,7 +824,7 @@ impl Encoder {
                 .as_int()
                 .unwrap_or_else(|| self.fresh_int());
             self.background_axioms.push(get_at_idx.eq(val));
-            let idx_decl = self.make_func("__index", 2);
+            let idx_decl = self.make_func(crate::encode_atom_policy::INDEX_UF_NAME, 2);
             let via_idx = idx_decl
                 .apply(&[&result as &dyn z3::ast::Ast, idx as &dyn z3::ast::Ast])
                 .as_int()
@@ -1020,7 +1022,7 @@ impl Encoder {
         let zero = ast::Int::from_i64(0);
         let ge_zero = idx_val.ge(&zero);
         // len(collection) via uninterpreted function
-        let len_decl = self.make_func("__len", 1);
+        let len_decl = self.make_func(crate::encode_atom_policy::INDEX_BOUNDS_LEN_UF_NAME, 1);
         let len_result = len_decl.apply(&[&coll_val as &dyn z3::ast::Ast]);
         let len_val = len_result.as_int().unwrap_or_else(|| self.fresh_int());
         // len >= 0
@@ -1045,7 +1047,7 @@ impl Encoder {
         let result = selected.as_int().unwrap_or_else(|| self.fresh_int());
 
         // Also add an uninterpreted function so Z3 can reason about indexing
-        let decl = self.make_func("__index", 2);
+        let decl = self.make_func(crate::encode_atom_policy::INDEX_UF_NAME, 2);
         let uif_result = decl.apply(&[
             &coll_val as &dyn z3::ast::Ast,
             &idx_val as &dyn z3::ast::Ast,

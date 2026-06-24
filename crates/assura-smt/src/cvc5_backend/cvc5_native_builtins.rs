@@ -453,7 +453,13 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Leq, &[idx.clone(), old_len]));
-            let get_func = intern_uf_cvc5(tm, state, "__index", 2, false);
+            let get_func = intern_uf_cvc5(
+                tm,
+                state,
+                crate::encode_atom_policy::INDEX_UF_NAME,
+                2,
+                false,
+            );
             let at_idx = tm.mk_term(
                 cvc5::Kind::ApplyUf,
                 &[get_func, result.clone(), idx.clone()],
@@ -519,7 +525,13 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             let key = &args[1];
             let get_func = intern_uf_cvc5(tm, state, "get", 2, false);
             let via_get = tm.mk_term(cvc5::Kind::ApplyUf, &[get_func, coll.clone(), key.clone()]);
-            let idx_func = intern_uf_cvc5(tm, state, "__index", 2, false);
+            let idx_func = intern_uf_cvc5(
+                tm,
+                state,
+                crate::encode_atom_policy::INDEX_UF_NAME,
+                2,
+                false,
+            );
             let via_idx = tm.mk_term(cvc5::Kind::ApplyUf, &[idx_func, coll.clone(), key.clone()]);
             state
                 .axioms
@@ -541,7 +553,13 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Equal, &[get_result_i, v.clone()]));
-            let idx_func = intern_uf_cvc5(tm, state, "__index", 2, false);
+            let idx_func = intern_uf_cvc5(
+                tm,
+                state,
+                crate::encode_atom_policy::INDEX_UF_NAME,
+                2,
+                false,
+            );
             let via_idx = tm.mk_term(cvc5::Kind::ApplyUf, &[idx_func, result.clone(), i.clone()]);
             state
                 .axioms
