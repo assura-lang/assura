@@ -112,33 +112,22 @@ pub(crate) fn verify_taint_safety_cvc5(
     _validation_fns: &[String],
     sensitive_uses: &[(String, assura_types::TaintLabel)],
 ) -> VerificationResult {
-    use assura_types::TaintLabel;
+    use crate::encode_atom_policy::taint_label_to_int;
 
     let tm = cvc5::TermManager::new();
     let mut solver = new_cvc5_solver(&tm, Cvc5SolverOpts::default());
 
     let mut var_map: HashMap<String, cvc5::Term> = HashMap::new();
-    let zero = tm.mk_integer(0);
-    let one = tm.mk_integer(1);
-    let two = tm.mk_integer(2);
 
     // Create taint level variables
     for (name, label) in taint_labels {
-        let level = match label {
-            TaintLabel::Untrusted => zero.clone(),
-            TaintLabel::Validated => one.clone(),
-            TaintLabel::Trusted => two.clone(),
-        };
+        let level = tm.mk_integer(taint_label_to_int(*label));
         var_map.insert(name.clone(), level);
     }
 
     // Check sensitive uses: each must have taint level >= required
     for (name, required_label) in sensitive_uses {
-        let required_level = match required_label {
-            TaintLabel::Untrusted => zero.clone(),
-            TaintLabel::Validated => one.clone(),
-            TaintLabel::Trusted => two.clone(),
-        };
+        let required_level = tm.mk_integer(taint_label_to_int(*required_label));
         if let Some(actual) = var_map.get(name) {
             let check = tm.mk_term(cvc5::Kind::Geq, &[actual.clone(), required_level]);
             let neg = tm.mk_term(cvc5::Kind::Not, &[check]);

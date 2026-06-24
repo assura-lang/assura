@@ -146,6 +146,18 @@ pub(crate) fn is_length_method_name(name: &str) -> bool {
     name == LEN_UF_NAME || name == LENGTH_METHOD_NAME
 }
 
+/// Map a [`assura_types::TaintLabel`] to its integer lattice value.
+///
+/// Lattice: `Untrusted(0) < Validated(1) < Trusted(2)`.
+/// Used by both Z3 and CVC5 backends for SEC.1 taint safety encoding.
+pub(crate) fn taint_label_to_int(label: assura_types::TaintLabel) -> i64 {
+    match label {
+        assura_types::TaintLabel::Untrusted => 0,
+        assura_types::TaintLabel::Validated => 1,
+        assura_types::TaintLabel::Trusted => 2,
+    }
+}
+
 /// Typestate snapshot variable (`__typestate_{name}`).
 pub(crate) fn typestate_var_name(name: &str) -> String {
     format!("__typestate_{}", sanitize_smt_name(name))
