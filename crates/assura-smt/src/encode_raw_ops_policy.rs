@@ -219,7 +219,9 @@ pub(crate) fn format_raw_quantifier_smtlib(is_forall: bool, var: &str, body: &st
     format!("({quant} (({var} Int)) {body})")
 }
 
-/// Collection-domain guard for AST quantifiers.
+/// Collection-domain guard for AST quantifiers (`__domain_contains`).
+///
+/// UF name matches [`crate::encode_quantifier_policy::DOMAIN_CONTAINS_UF_NAME`].
 pub(crate) fn domain_contains_guard_smtlib(domain: &str, var: &str) -> String {
     format!("(__domain_contains {domain} {var})")
 }
