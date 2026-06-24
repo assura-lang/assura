@@ -87,21 +87,20 @@ fn collect_length_bounds(expr: &SpExpr, out: &mut Vec<LengthBound>) {
 /// Return the identifier whose `.length()` is called, if any.
 pub fn length_object(expr: &SpExpr) -> Option<&str> {
     match &expr.node {
+        // Method: receiver.length() / .len() with no extra args (encode_call_policy).
         Expr::MethodCall {
             receiver,
             method,
             args,
-        } if crate::encode_atom_policy::is_length_method_name(method) && args.is_empty() => {
+        } if crate::encode_call_policy::is_receiver_length_method(method, args.len()) => {
             match &receiver.as_ref().node {
                 Expr::Ident(name) => Some(name.as_str()),
                 _ => None,
             }
         }
-        Expr::Field(obj, field) if crate::encode_atom_policy::is_length_method_name(field) => {
-            match &obj.as_ref().node {
-                Expr::Ident(name) => Some(name.as_str()),
-                _ => None,
-            }
+        // Field: ident.len / ident.length (encode_field_policy::ident_length_field_obj_name).
+        Expr::Field(obj, field) => {
+            crate::encode_field_policy::ident_length_field_obj_name(obj.as_ref(), field)
         }
         _ => None,
     }
