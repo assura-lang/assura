@@ -132,7 +132,8 @@ where
     for arg in args {
         let _ = encode(arg, vars, state);
     }
-    Some(tm.mk_const(tm.boolean_sort(), &format!("__apply_{lemma_name}")))
+    let apply_name = crate::encode_atom_policy::apply_lemma_const_name(lemma_name);
+    Some(tm.mk_const(tm.boolean_sort(), &apply_name))
 }
 
 #[cfg(test)]

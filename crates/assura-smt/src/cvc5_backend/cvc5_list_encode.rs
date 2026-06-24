@@ -3,7 +3,7 @@
 pub(crate) const LIST_FRESH_PLACEHOLDER: &str = "__list_fresh";
 
 #[cfg(feature = "cvc5-verify")]
-pub(crate) const LIST_GET_UF_NAME: &str = "__list_get";
+pub(crate) use crate::encode_atom_policy::LIST_GET_UF_NAME;
 
 /// Shell-out list encoding (placeholder until full list axioms land in SMT-LIB path).
 pub(crate) fn encode_list_smtlib() -> String {
@@ -19,12 +19,12 @@ pub(crate) fn encode_list_cvc5<'a>(
     fresh_counter: &mut usize,
     len_func: &cvc5::Term<'a>,
 ) -> cvc5::Term<'a> {
-    let list_name = format!("__list_{fresh_counter}");
+    let list_name = crate::encode_atom_policy::list_fresh_name(*fresh_counter);
     *fresh_counter += 1;
     let list_val = tm.mk_const(tm.integer_sort(), &list_name);
 
     let get_sort = tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.integer_sort());
-    let get_func = tm.mk_const(get_sort, LIST_GET_UF_NAME);
+    let get_func = tm.mk_const(get_sort, crate::encode_atom_policy::LIST_GET_UF_NAME);
 
     for (i, elem_val) in elem_vals.iter().enumerate() {
         let idx = tm.mk_integer(i as i64);

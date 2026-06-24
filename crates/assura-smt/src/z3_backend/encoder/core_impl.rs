@@ -288,13 +288,15 @@ impl Encoder {
     /// Create a fresh unconstrained boolean.
     pub(crate) fn fresh_bool(&mut self) -> ast::Bool {
         self.fresh_counter += 1;
-        ast::Bool::new_const(format!("__fresh_{}", self.fresh_counter))
+        ast::Bool::new_const(
+            crate::encode_atom_policy::fresh_temp_name(self.fresh_counter).as_str(),
+        )
     }
 
     /// Create a fresh unconstrained integer.
     pub(crate) fn fresh_int(&mut self) -> ast::Int {
         self.fresh_counter += 1;
-        ast::Int::new_const(format!("__fresh_{}", self.fresh_counter))
+        ast::Int::new_const(crate::encode_atom_policy::fresh_temp_name(self.fresh_counter).as_str())
     }
 
     /// Create an uninterpreted function declaration (Int^arity -> Int).

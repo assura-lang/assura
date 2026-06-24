@@ -664,7 +664,7 @@ passes on the latest SHA (not only `test` / `clippy`).
 | `portfolio_policy` | Multi-solver result merge priority (Z3/CVC5 portfolio) | Divergent Verified/CE/Unknown/Timeout selection |
 | `lemma_inject_policy` | `apply` ref collection + which lemma ensures to assert | Divergent lemma sets between Z3/CVC5 injection loops |
 | `trigger_seed_policy` | Call/MethodCall walk seeding `TriggerManager` for e-matching | Divergent/incomplete Z3 vs CVC5 trigger registration |
-| `encode_atom_policy` | Atom/naming + SMT-LIB binop/literal shapes (`result`, `__apply_`, `__field_`, floats, internal-var filter) | Divergent encoder constants / SMT-LIB atom text |
+| `encode_atom_policy` | Atom/naming + SMT-LIB binop/literal shapes (`result`, `__apply_`, `__field_`, `__fresh_`/`__list_`/`__tuple_`, floats, internal-var filter) | Divergent encoder constants / SMT-LIB atom text |
 | `encode_raw_ops_policy` | Raw Pratt ops, quantifier/range-guard SMT-LIB, token slice helpers | Divergent shell vs native raw operator/quantifier text |
 | `ir_lower::IrTermBuilder` | Term construction only (Z3 / CVC5 / SMT-LIB builders) | IR semantics |
 | Z3 `Encoder` / CVC5 `encode_expr_cvc5` | Solver **terms** from `Expr` (still separate) | Claiming full expr-encode is unified |
@@ -706,10 +706,11 @@ passes on the latest SHA (not only `test` / `clippy`).
    backend-local.
 2k. Atom/naming and SMT-LIB atom/binop **text** conventions go in
    `encode_atom_policy` (`result`→`__result`, `__apply_`, `__field_`,
-   canonical length names, float rational denom, `is_internal_encoder_var`,
-   standard `BinOp` operators). Full `Expr` → solver **term** encode
-   (Z3 `Encoder` vs `encode_expr_cvc5`) is still **not** unified; extend
-   this module incrementally, do not claim one `encode_expr` yet.
+   `__fresh_` / `__list_` / `__tuple_` / `__list_get`, canonical length
+   names, float rational denom, `is_internal_encoder_var`, standard `BinOp`
+   operators). Full `Expr` → solver **term** encode (Z3 `Encoder` vs
+   `encode_expr_cvc5`) is still **not** unified; extend this module
+   incrementally, do not claim one `encode_expr` yet.
 2l. Raw-token Pratt operators, quantifier/range/domain-guard **SMT-LIB
    shapes**, and token-slice helpers go in `encode_raw_ops_policy`. CVC5
    keeps `domain_as_range` (`SpExpr`) and `apply_raw_op_cvc5` / Kind maps
