@@ -129,9 +129,20 @@ mod tests {
     fn old_shallow_field_plan() {
         let obj = Box::new(Spanned::no_span(Expr::Ident("buf".into())));
         let inner = Spanned::no_span(Expr::Field(obj, "len".into()));
+        // ident.len is FieldAccessPlan::CanonicalLength; old() maps it to shallow on the ident.
         assert!(matches!(
             plan_old_access(&inner),
             OldAccessPlan::ShallowField { field, .. } if field == "len"
+        ));
+    }
+
+    #[test]
+    fn old_non_length_shallow_field() {
+        let obj = Box::new(Spanned::no_span(Expr::Ident("buf".into())));
+        let inner = Spanned::no_span(Expr::Field(obj, "head".into()));
+        assert!(matches!(
+            plan_old_access(&inner),
+            OldAccessPlan::ShallowField { field, .. } if field == "head"
         ));
     }
 
