@@ -1,10 +1,10 @@
 //! Shared index-access encoding for CVC5 shell-out and native backends.
 //!
-//! UF names and SMT-LIB text live in [`crate::encode_atom_policy`]; this module
-//! re-exports them for stable `cvc5_index_access` import paths.
+//! Index **plans** live in [`crate::encode_index_policy`]; UF names / SMT-LIB2
+//! in [`crate::encode_atom_policy`]. This module re-exports stable import paths
+//! and keeps native term + bounds axiom construction.
 
-// Re-exported for stable `cvc5_index_access` import paths (policy owns impls).
-// INDEX_UF_NAME is consumed via direct encode_atom_policy paths in production; keep re-export.
+// Re-exported for stable `cvc5_index_access` import paths (atom owns impls).
 #[allow(unused_imports, reason = "stable cvc5_index_access re-export surface")]
 pub(crate) use crate::encode_atom_policy::{INDEX_UF_NAME, index_access_smtlib};
 
@@ -20,29 +20,44 @@ pub(crate) fn encode_index_access_cvc5<'a>(
     idx_val: cvc5::Term<'a>,
     axioms: &mut Vec<cvc5::Term<'a>>,
 ) -> cvc5::Term<'a> {
+    use crate::encode_atom_policy::{INDEX_BOUNDS_LEN_UF_NAME, INDEX_UF_NAME};
+    use crate::encode_index_policy::{IndexAccessPlan, plan_index_access};
+
+    let plan = plan_index_access(true);
+    debug_assert!(matches!(
+        plan,
+        IndexAccessPlan::UfWithOptionalBounds {
+            emit_bounds_axioms: true
+        }
+    ));
+
     let zero = tm.mk_integer(0);
     axioms.push(tm.mk_term(cvc5::Kind::Geq, &[idx_val.clone(), zero.clone()]));
 
     let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-    let len_func = tm.mk_const(
-        len_sort,
-        crate::encode_atom_policy::INDEX_BOUNDS_LEN_UF_NAME,
-    );
+    let len_func = tm.mk_const(len_sort, INDEX_BOUNDS_LEN_UF_NAME);
     let len_val = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, coll_val.clone()]);
     axioms.push(tm.mk_term(cvc5::Kind::Geq, &[len_val.clone(), zero]));
     axioms.push(tm.mk_term(cvc5::Kind::Lt, &[idx_val.clone(), len_val]));
 
     let idx_sort = tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.integer_sort());
-    let idx_func = tm.mk_const(idx_sort, crate::encode_atom_policy::INDEX_UF_NAME);
+    let idx_func = tm.mk_const(idx_sort, INDEX_UF_NAME);
     tm.mk_term(cvc5::Kind::ApplyUf, &[idx_func, coll_val, idx_val])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::encode_index_policy::{IndexAccessPlan, plan_index_access};
 
     #[test]
     fn index_access_smtlib_renders_uf() {
         assert_eq!(index_access_smtlib("buf", "i"), "(__index buf i)");
+        assert_eq!(
+            plan_index_access(false),
+            IndexAccessPlan::UfWithOptionalBounds {
+                emit_bounds_axioms: false
+            }
+        );
     }
 }
