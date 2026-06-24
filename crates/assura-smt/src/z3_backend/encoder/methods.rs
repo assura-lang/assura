@@ -63,7 +63,8 @@ impl Encoder {
                     }
 
                     // String length axiom: len("hello") == 5
-                    let len_decl = self.make_func("__field_len", 1);
+                    let len_decl = self
+                        .make_func(crate::encode_atom_policy::field_uif_name("len").as_str(), 1);
                     let len_result = len_decl
                         .apply(&[&str_val as &dyn z3::ast::Ast])
                         .as_int()
@@ -127,7 +128,7 @@ impl Encoder {
                 Expr::Field(obj, field) => {
                     let old_obj = self.encode_expr(&Spanned::no_span(Expr::Old(obj.clone())));
                     let old_obj_int = old_obj.as_int(&mut self.fresh_counter);
-                    let func_name = format!("__field_{field}");
+                    let func_name = crate::encode_atom_policy::field_uif_name(field);
                     if matches!(
                         field.as_str(),
                         "is_empty" | "is_some" | "is_none" | "is_ok" | "is_err"
@@ -555,7 +556,7 @@ impl Encoder {
                 let old_name = format!("{}__old", inner_tokens[0]);
                 let old_var = self.get_or_create_int(&old_name);
                 let field = &inner_tokens[2];
-                let func_name = format!("__field_{field}");
+                let func_name = crate::encode_atom_policy::field_uif_name(field);
                 let decl = self.make_func(&func_name, 1);
                 let result = decl.apply(&[&old_var as &dyn z3::ast::Ast]);
                 let val = result.as_int().unwrap_or_else(|| self.fresh_int());

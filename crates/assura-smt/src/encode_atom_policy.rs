@@ -60,6 +60,11 @@ pub(crate) fn apply_lemma_const_name(lemma_name: &str) -> String {
     format!("__apply_{lemma_name}")
 }
 
+/// Uninterpreted field/property accessor UIF name (`__field_{field}`).
+pub(crate) fn field_uif_name(field: &str) -> String {
+    format!("__field_{field}")
+}
+
 /// Integer literal as SMT-LIB2 text (negatives use `(- n)`).
 pub(crate) fn encode_int_literal_smtlib(n: &str) -> String {
     if let Some(stripped) = n.strip_prefix('-') {
@@ -188,6 +193,11 @@ mod tests {
         assert_eq!(encode_ident_name("a.b"), "a_b");
         assert_eq!(old_ident_name("result"), "__result__old");
         assert_eq!(old_ident_name("x.y"), "x_y__old");
+        assert_eq!(canonical_length_name("buf"), "__canonical_len_buf");
+        assert_eq!(field_uif_name("len"), "__field_len");
+        assert!(is_internal_encoder_var("__field_len"));
+        assert!(is_internal_encoder_var(RESULT_VAR_NAME));
+        assert!(!is_internal_encoder_var("payload_length"));
     }
 
     #[test]

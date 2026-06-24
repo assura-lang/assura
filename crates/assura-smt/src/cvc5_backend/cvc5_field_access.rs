@@ -28,7 +28,7 @@ pub(crate) fn plan_field_access(obj: &SpExpr, field: &str) -> FieldAccessPlan {
 }
 
 pub(crate) fn field_uf_smtlib_name(field: &str) -> String {
-    format!("__field_{field}")
+    crate::encode_atom_policy::field_uif_name(field)
 }
 
 /// Render a shallow field UF in SMT-LIB2: `(__field_f obj)`.
