@@ -711,14 +711,16 @@ impl Encoder {
             }
             if crate::encode_method_policy::is_min_max_builtin(func_name, arg_vals.len()) {
                 let (a, b) = (&arg_vals[0], &arg_vals[1]);
-                let result = if matches!(
-                    crate::encode_method_policy::classify_known_builtin(func_name, arg_vals.len()),
-                    Some(crate::encode_method_policy::KnownBuiltin::Min)
-                ) {
-                    a.le(b).ite(a, b)
-                } else {
-                    a.ge(b).ite(a, b)
-                };
+                let result =
+                    if crate::encode_method_policy::is_min_builtin(func_name, arg_vals.len()) {
+                        a.le(b).ite(a, b)
+                    } else {
+                        debug_assert!(crate::encode_method_policy::is_max_builtin(
+                            func_name,
+                            arg_vals.len()
+                        ));
+                        a.ge(b).ite(a, b)
+                    };
                 return (Z3Value::Int(result), end);
             }
 

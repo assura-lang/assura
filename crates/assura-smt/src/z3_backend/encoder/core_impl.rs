@@ -413,12 +413,13 @@ impl Encoder {
             let a = &arg_vals[0];
             let b = &arg_vals[1];
             let a_le_b = a.le(b);
-            let result = if matches!(
-                crate::encode_method_policy::classify_known_builtin(func_name, arg_vals.len()),
-                Some(crate::encode_method_policy::KnownBuiltin::Min)
-            ) {
+            let result = if crate::encode_method_policy::is_min_builtin(func_name, arg_vals.len()) {
                 a_le_b.ite(a, b)
             } else {
+                debug_assert!(crate::encode_method_policy::is_max_builtin(
+                    func_name,
+                    arg_vals.len()
+                ));
                 a_le_b.ite(b, a)
             };
             return Z3Value::Int(result);
@@ -749,12 +750,7 @@ impl Encoder {
             return Z3Value::Int(cond.ite(x, &neg_x));
         }
         // get(coll, key_or_idx): uninterpreted; unify `get` with `__index` for arrays.
-        if crate::encode_method_policy::is_collection_access_builtin(func_name, arg_vals.len())
-            && matches!(
-                crate::encode_method_policy::classify_known_builtin(func_name, arg_vals.len()),
-                Some(crate::encode_method_policy::KnownBuiltin::Get)
-            )
-        {
+        if crate::encode_method_policy::is_get_builtin(func_name, arg_vals.len()) {
             let coll = &arg_vals[0];
             let key = &arg_vals[1];
             let get_decl = self.make_func(crate::encode_atom_policy::GET_UF_NAME, 2);
@@ -772,12 +768,7 @@ impl Encoder {
         }
         // Array set(arr, index, value): store axiom + length preserve.
         // set(a, i, v) returns a new array where get(result, i) == v.
-        if crate::encode_method_policy::is_collection_access_builtin(func_name, arg_vals.len())
-            && matches!(
-                crate::encode_method_policy::classify_known_builtin(func_name, arg_vals.len()),
-                Some(crate::encode_method_policy::KnownBuiltin::Set)
-            )
-        {
+        if crate::encode_method_policy::is_set_builtin(func_name, arg_vals.len()) {
             let arr_expr = &args[0].node;
             let arr = &arg_vals[0];
             let idx = &arg_vals[1];
@@ -805,12 +796,7 @@ impl Encoder {
             return Z3Value::Int(result);
         }
         // Map put(map, key, value): get(put(m,k,v), k) == v; size non-decreasing.
-        if crate::encode_method_policy::is_collection_access_builtin(func_name, arg_vals.len())
-            && matches!(
-                crate::encode_method_policy::classify_known_builtin(func_name, arg_vals.len()),
-                Some(crate::encode_method_policy::KnownBuiltin::Put)
-            )
-        {
+        if crate::encode_method_policy::is_put_builtin(func_name, arg_vals.len()) {
             let map_expr = &args[0].node;
             let map_val = &arg_vals[0];
             let key = &arg_vals[1];

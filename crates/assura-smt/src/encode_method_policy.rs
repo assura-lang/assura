@@ -74,11 +74,39 @@ pub(crate) fn is_abs_builtin(op: &str, arity: usize) -> bool {
 }
 
 /// Whether `op` is a get/set/put collection accessor at the given arity.
+///
+/// Prefer [`is_get_builtin`] / [`is_set_builtin`] / [`is_put_builtin`] at encode sites.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn is_collection_access_builtin(op: &str, arity: usize) -> bool {
     matches!(
         classify_known_builtin(op, arity),
         Some(KnownBuiltin::Get | KnownBuiltin::Set | KnownBuiltin::Put)
     )
+}
+
+/// Whether `op` is get at arity 2.
+pub(crate) fn is_get_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Get))
+}
+
+/// Whether `op` is set at arity 3.
+pub(crate) fn is_set_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Set))
+}
+
+/// Whether `op` is put at arity 3.
+pub(crate) fn is_put_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Put))
+}
+
+/// Whether `op` is min at arity 2 (not max).
+pub(crate) fn is_min_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Min))
+}
+
+/// Whether `op` is max at arity 2 (not min).
+pub(crate) fn is_max_builtin(op: &str, arity: usize) -> bool {
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Max))
 }
 
 /// Whether `op` is substring/substr at arity 3 (Z3 length-axiom path).
@@ -369,6 +397,12 @@ mod tests {
         assert!(is_collection_access_builtin("get", 2));
         assert!(is_collection_access_builtin("set", 3));
         assert!(is_collection_access_builtin("put", 3));
+        assert!(is_get_builtin("get", 2));
+        assert!(is_set_builtin("set", 3));
+        assert!(is_put_builtin("put", 3));
+        assert!(is_min_builtin("min", 2));
+        assert!(is_max_builtin("max", 2));
+        assert!(!is_min_builtin("max", 2));
         assert!(is_substring_builtin("substring", 3));
         assert!(is_substring_builtin("substr", 3));
         assert!(is_concat_append_builtin("concat", 2));
