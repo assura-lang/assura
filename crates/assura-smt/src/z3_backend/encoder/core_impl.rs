@@ -1053,9 +1053,7 @@ impl Encoder {
                 }
             }
             Literal::Float(s) => {
-                let f: f64 = s.parse().unwrap_or(0.0);
-                let denom = 1_000_000i64;
-                let numer = (f * denom as f64) as i64;
+                let (numer, denom) = crate::encode_atom_policy::float_to_rational_parts(s);
                 Z3Value::Real(ast::Real::from_rational(numer, denom))
             }
             Literal::Bool(b) => Z3Value::Bool(ast::Bool::from_bool(*b)),
