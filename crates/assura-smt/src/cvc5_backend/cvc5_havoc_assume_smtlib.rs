@@ -1,7 +1,7 @@
 //! Havoc+assume SMT-LIB2 encoding for the CVC5 shell-out path (#267).
 
-use crate::cvc5_common::canonical_length_smtlib_name;
 use crate::cvc5_ir_smtlib::append_ir_body_constraints_smtlib;
+use crate::encode_atom_policy::canonical_length_name;
 use crate::havoc_assume::{
     HavocAssumeEffects, HavocAssumeInput, HavocAssumeSmtlibTarget, apply_havoc_assume_policy,
 };
@@ -20,7 +20,7 @@ pub(crate) fn append_havoc_assume_smtlib(
     impl HavocAssumeEffects for SmtlibHavocEffects<'_, '_> {
         fn collection_result_nonneg(&mut self) {
             declare_canonical_len(self.target, "result");
-            let name = canonical_length_smtlib_name("result");
+            let name = canonical_length_name("result");
             self.target
                 .script
                 .push_str(&format!("(assert (>= {name} 0))\n"));
@@ -29,8 +29,8 @@ pub(crate) fn append_havoc_assume_smtlib(
         fn length_identity_le(&mut self, result_name: &str, input_name: &str) {
             declare_canonical_len(self.target, result_name);
             declare_canonical_len(self.target, input_name);
-            let len_result = canonical_length_smtlib_name(result_name);
-            let len_input = canonical_length_smtlib_name(input_name);
+            let len_result = canonical_length_name(result_name);
+            let len_input = canonical_length_name(input_name);
             self.target
                 .script
                 .push_str(&format!("(assert (>= {len_result} 0))\n"));
@@ -63,7 +63,7 @@ pub(crate) fn append_havoc_assume_smtlib(
 }
 
 fn declare_canonical_len(target: &mut HavocAssumeSmtlibTarget<'_>, name: &str) {
-    let key = canonical_length_smtlib_name(name);
+    let key = canonical_length_name(name);
     if target.vars.insert(key.clone()) {
         target
             .script

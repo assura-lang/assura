@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use assura_ast::{Expr, SpExpr};
 
-use crate::cvc5_common::smtlib_result_name;
+use crate::encode_atom_policy::RESULT_VAR_NAME;
 use crate::encode_atom_policy::sanitize_smt_name;
 
 /// Collect all variable names referenced in an expression.
@@ -12,7 +12,7 @@ pub fn collect_vars(expr: &SpExpr, vars: &mut HashSet<String>) {
     match &expr.node {
         Expr::Ident(name) => {
             if name == "result" {
-                vars.insert(smtlib_result_name().to_string());
+                vars.insert(RESULT_VAR_NAME.to_string());
             } else {
                 vars.insert(sanitize_smt_name(name));
             }

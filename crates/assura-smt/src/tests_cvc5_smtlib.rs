@@ -5,10 +5,11 @@ use crate::cvc5_backend::{
 use crate::cvc5_common::{
     collect_apply_refs_from_expr, collect_unmodelable_reasons_cvc5,
     expr_has_unmodelable_features_cvc5, field_chain_depth_cvc5, flatten_field_chain_cvc5,
-    has_deep_field_chain_cvc5, is_internal_cvc5_var, is_self_rooted_cvc5,
+    has_deep_field_chain_cvc5, is_self_rooted_cvc5,
 };
 #[cfg(feature = "cvc5-verify")]
 use crate::cvc5_quantifier_encode::infer_quantifier_patterns_cvc5;
+use crate::encode_atom_policy::is_internal_encoder_var;
 use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, Pattern, Spanned, UnaryOp};
 use std::collections::HashSet;
 
@@ -753,38 +754,38 @@ fn test_parse_model_skips_coerce() {
 }
 
 // -------------------------------------------------------------------
-// is_internal_cvc5_var and counterexample model filtering (#260)
+// is_internal_encoder_var and counterexample model filtering (#260)
 // -------------------------------------------------------------------
 
 #[test]
-fn test_is_internal_cvc5_var_internal_prefixes() {
-    assert!(is_internal_cvc5_var("__str_hello"));
-    assert!(is_internal_cvc5_var("__tuple_0"));
-    assert!(is_internal_cvc5_var("__list_vals"));
-    assert!(is_internal_cvc5_var("__fresh_3"));
-    assert!(is_internal_cvc5_var("__field_len"));
-    assert!(is_internal_cvc5_var("__index_0"));
-    assert!(is_internal_cvc5_var("__len_buf"));
-    assert!(is_internal_cvc5_var("__arr_data"));
-    assert!(is_internal_cvc5_var("__domain_contains_x"));
-    assert!(is_internal_cvc5_var("__apply_func"));
-    assert!(is_internal_cvc5_var("__coerce_1"));
-    assert!(is_internal_cvc5_var("__trigger_pat"));
-    assert!(is_internal_cvc5_var("__list_get_0"));
-    assert!(is_internal_cvc5_var("__result"));
-    assert!(is_internal_cvc5_var("__contains"));
-    assert!(is_internal_cvc5_var("__obj_ptr"));
+fn test_is_internal_encoder_var_internal_prefixes() {
+    assert!(is_internal_encoder_var("__str_hello"));
+    assert!(is_internal_encoder_var("__tuple_0"));
+    assert!(is_internal_encoder_var("__list_vals"));
+    assert!(is_internal_encoder_var("__fresh_3"));
+    assert!(is_internal_encoder_var("__field_len"));
+    assert!(is_internal_encoder_var("__index_0"));
+    assert!(is_internal_encoder_var("__len_buf"));
+    assert!(is_internal_encoder_var("__arr_data"));
+    assert!(is_internal_encoder_var("__domain_contains_x"));
+    assert!(is_internal_encoder_var("__apply_func"));
+    assert!(is_internal_encoder_var("__coerce_1"));
+    assert!(is_internal_encoder_var("__trigger_pat"));
+    assert!(is_internal_encoder_var("__list_get_0"));
+    assert!(is_internal_encoder_var("__result"));
+    assert!(is_internal_encoder_var("__contains"));
+    assert!(is_internal_encoder_var("__obj_ptr"));
 }
 
 #[test]
-fn test_is_internal_cvc5_var_user_variables() {
-    assert!(!is_internal_cvc5_var("x"));
-    assert!(!is_internal_cvc5_var("buffer_size"));
-    assert!(!is_internal_cvc5_var("payload_length"));
-    assert!(!is_internal_cvc5_var("n"));
-    assert!(!is_internal_cvc5_var("result_count"));
-    assert!(!is_internal_cvc5_var("max_size"));
-    assert!(!is_internal_cvc5_var("i"));
+fn test_is_internal_encoder_var_user_variables() {
+    assert!(!is_internal_encoder_var("x"));
+    assert!(!is_internal_encoder_var("buffer_size"));
+    assert!(!is_internal_encoder_var("payload_length"));
+    assert!(!is_internal_encoder_var("n"));
+    assert!(!is_internal_encoder_var("result_count"));
+    assert!(!is_internal_encoder_var("max_size"));
+    assert!(!is_internal_encoder_var("i"));
 }
 
 #[test]

@@ -1,10 +1,10 @@
 //! SMT-LIB2 Pratt parser for multi-token `Expr::Raw` expressions (shell-out path).
 
-use crate::cvc5_common::append_raw_dotted_segment;
 use crate::cvc5_raw_ops::{
     comma_chunk_ranges, find_matching_delim, format_raw_binop_smtlib, format_raw_quantifier_smtlib,
     is_raw_spec_skip_keyword, parse_raw_quantifier_slice, raw_op_info, raw_op_is_comparison,
 };
+use crate::encode_atom_policy::append_raw_dotted_segment;
 use crate::encode_atom_policy::sanitize_smt_name;
 
 /// Encode multi-token raw expressions as SMT-LIB2.

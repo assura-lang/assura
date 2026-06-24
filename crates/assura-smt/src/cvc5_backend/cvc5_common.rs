@@ -1,47 +1,10 @@
 //! Shared CVC5 utilities used by shell-out and native backends.
 //!
-//! Atom/naming helpers delegate to [`crate::encode_atom_policy`] (encode convergence groundwork).
-//! Prefer importing `sanitize_smt_name` / other policy helpers directly at new call sites;
-//! [`sanitize_smtlib_name`] remains a thin alias for tests and any remaining `cvc5_common` paths.
+//! Atom/naming lives in [`crate::encode_atom_policy`] (import directly at encode sites).
+//! This module keeps CVC5-facing aliases for unmodelable/field-chain walks and lemma
+//! apply-ref collection (`tests_cvc5_smtlib` / verify paths).
 
 use assura_ast::SpExpr;
-
-/// Sanitize an Assura identifier for SMT-LIB2/CVC5 names.
-///
-/// Thin alias of [`crate::encode_atom_policy::sanitize_smt_name`]; prefer the policy import.
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn sanitize_smtlib_name(name: &str) -> String {
-    crate::encode_atom_policy::sanitize_smt_name(name)
-}
-
-/// Append a dotted raw-token segment (`tok . segment`) to a sanitized base name.
-pub(crate) fn append_raw_dotted_segment(base: &mut String, segment: &str) {
-    crate::encode_atom_policy::append_raw_dotted_segment(base, segment);
-}
-
-/// Map `result` to the encoder's return-value name.
-pub(crate) fn smtlib_result_name() -> &'static str {
-    crate::encode_atom_policy::RESULT_VAR_NAME
-}
-
-/// Canonical length variable name for shell-out SMT-LIB (`__canonical_len_{name}`).
-pub(crate) fn canonical_length_smtlib_name(name: &str) -> String {
-    crate::encode_atom_policy::canonical_length_name(name)
-}
-
-/// SMT-LIB name for an `old()` snapshot of an identifier.
-pub(crate) fn old_ident_smtlib_name(name: &str) -> String {
-    crate::encode_atom_policy::old_ident_name(name)
-}
-
-/// Render a float literal as SMT-LIB rational `(/ numer denom)`.
-pub(crate) fn float_literal_to_smtlib(f: &str) -> String {
-    crate::encode_atom_policy::float_literal_to_smtlib(f)
-}
-
-// -------------------------------------------------------------------------
-// Deep field-chain flattening (#250)
-// -------------------------------------------------------------------------
 
 // -------------------------------------------------------------------------
 // Field chain + unmodelable walk (shared `crate::unmodelable`; CVC5 name aliases)
@@ -79,17 +42,6 @@ pub(crate) fn flatten_field_chain_cvc5(expr: &SpExpr) -> String {
 }
 
 // -------------------------------------------------------------------------
-// Counterexample model filtering
-// -------------------------------------------------------------------------
-
-/// Thin alias for tests and CVC5-facing call sites; production model filters use
-/// [`crate::encode_atom_policy::is_counterexample_user_var`].
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn is_internal_cvc5_var(name: &str) -> bool {
-    crate::encode_atom_policy::is_internal_encoder_var(name)
-}
-
-// -------------------------------------------------------------------------
 // Lemma apply-ref collection (delegates to lemma_inject_policy)
 // -------------------------------------------------------------------------
 
@@ -100,6 +52,9 @@ pub(crate) fn collect_apply_refs_from_expr(expr: &SpExpr) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::encode_atom_policy::{
+        append_raw_dotted_segment, float_literal_to_smtlib, sanitize_smt_name,
+    };
     use assura_ast::{Expr, Spanned};
 
     fn spb(e: Expr) -> Box<SpExpr> {
@@ -107,10 +62,10 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_dots() {
-        assert_eq!(sanitize_smtlib_name("a.b"), "a_b");
+    fn sanitize_dots_via_atom_policy() {
+        assert_eq!(sanitize_smt_name("a.b"), "a_b");
 
-        let mut name = sanitize_smtlib_name("state");
+        let mut name = sanitize_smt_name("state");
         append_raw_dotted_segment(&mut name, "field");
         assert_eq!(name, "state_field");
     }

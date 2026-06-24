@@ -5,7 +5,6 @@ use crate::cvc5_adt::{Cvc5AdtDef, adt_is_constructor_smt, define_adt_cvc5};
 use crate::cvc5_atom_encode::{encode_apply_smtlib, encode_ident_smtlib, encode_literal_smtlib};
 use crate::cvc5_binop_encode::{encode_ast_binop_smtlib, encode_ast_unary_smtlib};
 use crate::cvc5_call_encode::{encode_call_smtlib, encode_method_call_smtlib};
-use crate::cvc5_common::canonical_length_smtlib_name;
 use crate::cvc5_field_access::{FieldAccessPlan, plan_field_access, shallow_field_smtlib};
 use crate::cvc5_if_encode::encode_if_smtlib;
 use crate::cvc5_index_access::index_access_smtlib;
@@ -17,6 +16,7 @@ use crate::cvc5_quantifier_encode::encode_ast_quantifier_smtlib;
 use crate::cvc5_raw_encode::encode_raw_expr_smtlib;
 use crate::cvc5_tuple_encode::encode_tuple_smtlib;
 use crate::cvc5_wrapper_encode::encode_wrapper_smtlib;
+use crate::encode_atom_policy::canonical_length_name;
 
 /// Baseline Option ADT for shell-out match encoding (#263).
 static SHELL_MATCH_ADT: OnceLock<Cvc5AdtDef> = OnceLock::new();
@@ -77,7 +77,7 @@ pub fn expr_to_smtlib(expr: &SpExpr) -> Option<String> {
             if matches!(field.as_str(), "len" | "length")
                 && let Expr::Ident(name) = &obj.as_ref().node
             {
-                return Some(canonical_length_smtlib_name(name));
+                return Some(canonical_length_name(name));
             }
             match plan_field_access(obj, field) {
                 FieldAccessPlan::Flatten(name) => Some(name),
