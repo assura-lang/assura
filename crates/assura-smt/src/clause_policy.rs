@@ -286,4 +286,37 @@ mod tests {
         // Feature may return Unknown/Verified depending on feature; must not panic.
         let _ = features.len();
     }
+
+    /// Z3 uses full polarity; CVC5 coarse path must agree on which kinds assert body vs negate.
+    #[test]
+    fn z3_and_cvc5_polarity_align_on_assert_vs_negate() {
+        let kinds = [
+            ClauseKind::Ensures,
+            ClauseKind::Invariant,
+            ClauseKind::Rule,
+            ClauseKind::MustNot,
+            ClauseKind::Decreases,
+        ];
+        for kind in &kinds {
+            let z3 = clause_check_polarity(kind);
+            let cvc5_negates = cvc5_assert_negates_body(kind);
+            match z3 {
+                Some(ClauseCheckPolarity::ValidityNegateBody)
+                | Some(ClauseCheckPolarity::DecreasesNonNeg) => {
+                    assert!(
+                        cvc5_negates,
+                        "{kind:?}: Z3 validity/decreases expects CVC5 negate body"
+                    );
+                }
+                Some(ClauseCheckPolarity::SatisfiabilityAssertBody)
+                | Some(ClauseCheckPolarity::ValidityAssertBody) => {
+                    assert!(
+                        !cvc5_negates,
+                        "{kind:?}: Z3 assert-body expects CVC5 assert body"
+                    );
+                }
+                None => {}
+            }
+        }
+    }
 }

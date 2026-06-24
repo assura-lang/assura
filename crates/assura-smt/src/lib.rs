@@ -60,6 +60,7 @@ mod ir_lower;
 mod ir_parity;
 mod ir_templates;
 mod ir_type_ctx;
+mod prelude_policy;
 mod verify_context;
 
 /// Public entry point functions for SMT verification.
