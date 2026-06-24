@@ -370,42 +370,50 @@ impl Encoder {
 
     /// Encode a function/method call to Z3 (integer-encoding mode).
     ///
-    /// Dispatch order for non-ADT / non-string-theory special cases is documented
-    /// by [`crate::encode_call_policy::classify_encode_call`] (min/max → bool UF →
-    /// sequence/string builtins → abs → get/set/put → size UF → uninterpreted).
-    /// Guards use [`crate::encode_method_policy`]; term construction stays here.
+    /// 1. [`crate::encode_call_policy::classify_encode_call_preamble`] (ADT ctor /
+    ///    length fast paths before integer arg encoding).
+    /// 2. [`crate::encode_call_policy::classify_encode_call`] for the main builtin /
+    ///    UF order (min/max → bool UF → seq/string builtins → abs → get/set/put →
+    ///    size UF → uninterpreted). Term construction stays here.
     pub(crate) fn encode_call(&mut self, func_name: &str, args: &[SpExpr]) -> Z3Value {
-        if func_name.chars().next().is_some_and(|c| c.is_uppercase()) {
-            self.init_adt_infrastructure();
-            let arg_vals: Vec<ast::Int> = args
-                .iter()
-                .map(|a| self.encode_expr(a).as_int(&mut self.fresh_counter))
-                .collect();
-            if let Some(adt_name) = self.adt_for_constructor(func_name) {
-                return Z3Value::Int(self.adt_constructor(&adt_name, func_name, &arg_vals));
-            }
-        }
+        use crate::encode_call_policy::{
+            EncodeCallPreamble, classify_encode_call, classify_encode_call_preamble,
+        };
 
-        // Native string theory: length(str_val) uses Z3's str.len
-        if self.use_string_theory
-            && crate::encode_atom_policy::is_length_method_name(func_name)
-            && args.len() == 1
-        {
-            let arg_val = self.encode_expr(&args[0]);
-            if let Z3Value::Str(s) = &arg_val {
-                let len = s.length();
-                let zero = ast::Int::from_i64(0);
-                self.background_axioms.push(len.ge(&zero));
-                return Z3Value::Int(len);
+        let is_upper = func_name.chars().next().is_some_and(|c| c.is_uppercase());
+        match classify_encode_call_preamble(func_name, args.len(), is_upper) {
+            EncodeCallPreamble::PossibleAdtConstructor => {
+                self.init_adt_infrastructure();
+                let arg_vals: Vec<ast::Int> = args
+                    .iter()
+                    .map(|a| self.encode_expr(a).as_int(&mut self.fresh_counter))
+                    .collect();
+                if let Some(adt_name) = self.adt_for_constructor(func_name) {
+                    return Z3Value::Int(self.adt_constructor(&adt_name, func_name, &arg_vals));
+                }
+                // Not a registered ctor: fall through to normal integer-arg encode
+                // with the already-computed arg_vals (avoid double encode).
+                let call_kind = classify_encode_call(func_name, arg_vals.len());
+                return self.encode_call_with_arg_vals(func_name, args, &arg_vals, call_kind);
             }
-        }
-
-        // Canonical length for simple identifiers (#267).
-        if crate::encode_atom_policy::is_length_method_name(func_name)
-            && args.len() == 1
-            && let Expr::Ident(name) = &args[0].node
-        {
-            return Z3Value::Int(self.canonical_length(name));
+            EncodeCallPreamble::LengthMethodArity1 => {
+                // Native string theory: length(str_val) uses Z3's str.len
+                if self.use_string_theory {
+                    let arg_val = self.encode_expr(&args[0]);
+                    if let Z3Value::Str(s) = &arg_val {
+                        let len = s.length();
+                        let zero = ast::Int::from_i64(0);
+                        self.background_axioms.push(len.ge(&zero));
+                        return Z3Value::Int(len);
+                    }
+                }
+                // Canonical length for simple identifiers (#267).
+                if let Expr::Ident(name) = &args[0].node {
+                    return Z3Value::Int(self.canonical_length(name));
+                }
+                // Non-ident receiver: fall through to SizeFieldUf / normal path.
+            }
+            EncodeCallPreamble::None => {}
         }
 
         let arg_vals: Vec<ast::Int> = args
@@ -415,8 +423,19 @@ impl Encoder {
         // Single classify pass (parity with CVC5 / encode_call_policy order); term
         // bodies stay in each arm. Guards use `call_kind` instead of repeating
         // `is_*_builtin` + `debug_assert_encode_call_kind` pairs.
-        use crate::encode_call_policy::{EncodeCallKind, classify_encode_call};
         let call_kind = classify_encode_call(func_name, arg_vals.len());
+        self.encode_call_with_arg_vals(func_name, args, &arg_vals, call_kind)
+    }
+
+    /// Main `encode_call` body after integer arg encoding (shared with ADT miss fallthrough).
+    fn encode_call_with_arg_vals(
+        &mut self,
+        func_name: &str,
+        args: &[SpExpr],
+        arg_vals: &[ast::Int],
+        call_kind: crate::encode_call_policy::EncodeCallKind,
+    ) -> Z3Value {
+        use crate::encode_call_policy::EncodeCallKind;
 
         // min/max: encode with ite so Z3 proves bounds (not unconstrained UF).
         // e.g. ensures { min(a, b) <= a } verifies under any a, b.
