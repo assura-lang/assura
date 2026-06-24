@@ -154,7 +154,8 @@ pub(crate) fn extract_cvc5_counterexample_model<'a>(
         .filter(|(name, _)| crate::encode_atom_policy::is_counterexample_user_var(name))
         .map(|(name, term)| {
             let val = solver.get_value(term.clone());
-            (name.clone(), val.to_string())
+            let clean = crate::encode_atom_policy::counterexample_display_name(name).to_string();
+            (clean, val.to_string())
         })
         .collect();
     variables.sort_by(|(a, _), (b, _)| a.cmp(b));
