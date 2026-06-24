@@ -45,10 +45,7 @@ pub(crate) fn check_refinement_subtype_impl(
     results
         .into_iter()
         .next()
-        .unwrap_or(VerificationResult::Unknown {
-            clause_desc: "refinement_subtype".into(),
-            reason: "no result from solver".into(),
-        })
+        .unwrap_or_else(|| VerificationResult::no_solver_result("refinement_subtype"))
 }
 
 /// Check refinement subtyping with additional context assumptions.
@@ -91,10 +88,7 @@ pub(crate) fn check_refinement_subtype_with_context_impl(
     results
         .into_iter()
         .next()
-        .unwrap_or(VerificationResult::Unknown {
-            clause_desc: "refinement_subtype_with_context".into(),
-            reason: "no result from solver".into(),
-        })
+        .unwrap_or_else(|| VerificationResult::no_solver_result("refinement_subtype_with_context"))
 }
 
 // -----------------------------------------------------------------------
@@ -132,10 +126,7 @@ pub(crate) fn verify_buffer_bounds_impl(
     results
         .into_iter()
         .next()
-        .unwrap_or(VerificationResult::Unknown {
-            clause_desc: "buffer_bounds".into(),
-            reason: "no result from solver".into(),
-        })
+        .unwrap_or_else(|| VerificationResult::no_solver_result("buffer_bounds"))
 }
 
 /// Verify region containment via SMT.
@@ -198,10 +189,7 @@ pub(crate) fn verify_region_containment_impl(
     results
         .into_iter()
         .next()
-        .unwrap_or(VerificationResult::Unknown {
-            clause_desc: "region_containment".into(),
-            reason: "no result from solver".into(),
-        })
+        .unwrap_or_else(|| VerificationResult::no_solver_result("region_containment"))
 }
 
 // -----------------------------------------------------------------------
@@ -277,10 +265,7 @@ pub(crate) fn verify_taint_safety_impl(
     results
         .into_iter()
         .next()
-        .unwrap_or(VerificationResult::Unknown {
-            clause_desc: "taint_safety".into(),
-            reason: "no result from solver".into(),
-        })
+        .unwrap_or_else(|| VerificationResult::no_solver_result("taint_safety"))
 }
 
 // -----------------------------------------------------------------------
@@ -463,10 +448,7 @@ pub(crate) fn verify_with_measures_impl(
     results
         .into_iter()
         .next()
-        .unwrap_or(VerificationResult::Unknown {
-            clause_desc: "verify_with_measures".into(),
-            reason: "no result from solver".into(),
-        })
+        .unwrap_or_else(|| VerificationResult::no_solver_result("verify_with_measures"))
 }
 
 // -----------------------------------------------------------------------
@@ -518,8 +500,5 @@ pub(crate) fn verify_decrease_impl(
     results
         .into_iter()
         .next()
-        .unwrap_or(VerificationResult::Unknown {
-            clause_desc: "decrease_check".into(),
-            reason: "no result from solver".into(),
-        })
+        .unwrap_or_else(|| VerificationResult::no_solver_result("decrease_check"))
 }

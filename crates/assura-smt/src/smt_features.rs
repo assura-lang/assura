@@ -122,13 +122,12 @@ fn verify_feature_body(
     solver.assert(body_bool.not());
     let mut results = Vec::new();
     check_validity(&solver, desc, &mut results);
-    results
-        .into_iter()
-        .next()
-        .unwrap_or(VerificationResult::Unknown {
-            clause_desc: crate::verify_labels::feature_clause_desc(parent_name, feature_label),
-            reason: "no result from solver".into(),
-        })
+    results.into_iter().next().unwrap_or_else(|| {
+        VerificationResult::no_solver_result(crate::verify_labels::feature_clause_desc(
+            parent_name,
+            feature_label,
+        ))
+    })
 }
 
 // -----------------------------------------------------------------------

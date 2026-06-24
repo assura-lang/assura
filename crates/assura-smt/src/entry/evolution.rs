@@ -178,10 +178,7 @@ fn check_implication(
         results
             .into_iter()
             .next()
-            .unwrap_or(VerificationResult::Unknown {
-                clause_desc: desc.to_string(),
-                reason: "no result from solver".into(),
-            })
+            .unwrap_or_else(|| VerificationResult::no_solver_result(desc))
     }
     #[cfg(not(feature = "z3-verify"))]
     {
