@@ -68,6 +68,9 @@ pub enum VerificationResult {
 /// compiler limitation (CLI treats as warning / exit 0), not a solver failure.
 pub const KNOWN_SMT_LIMITATION_MARKER: &str = "not yet encoded in SMT";
 
+/// Reason string for the "solver returned zero results" fallback.
+pub const NO_SOLVER_RESULT_REASON: &str = "no result from solver";
+
 /// True when an `Unknown` reason is a known unimplemented encoding path.
 ///
 /// Use this in CLI, MCP, and tests instead of open-coding the substring so
@@ -94,6 +97,15 @@ impl VerificationResult {
         Self::Verified {
             clause_desc: clause_desc.into(),
             unsat_core: None,
+        }
+    }
+
+    /// Fallback when `check_validity` / `check_satisfiability` returns an empty
+    /// results vec (e.g. unconstrained clause with no assertions to check).
+    pub fn no_solver_result(clause_desc: impl Into<String>) -> Self {
+        Self::Unknown {
+            clause_desc: clause_desc.into(),
+            reason: NO_SOLVER_RESULT_REASON.into(),
         }
     }
 
