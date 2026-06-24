@@ -290,6 +290,24 @@ mod tests {
     }
 
     #[test]
+    fn size_field_call_kind_matches_field_value_kind() {
+        // Call-path SizeFieldUf and field-path SizeNonNeg share the same name tables.
+        use crate::encode_field_policy::{FieldValueKind, classify_field_value_kind};
+        for name in ["len", "length", "size", "capacity", "count"] {
+            assert_eq!(
+                classify_encode_call(name, 1),
+                EncodeCallKind::SizeFieldUf,
+                "{name}"
+            );
+            assert_eq!(
+                classify_field_value_kind(name),
+                FieldValueKind::SizeNonNeg,
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
     fn classify_order_min_max_before_uf() {
         assert_eq!(classify_encode_call("min", 2), EncodeCallKind::MinMax);
         assert_eq!(classify_encode_call("max", 2), EncodeCallKind::MinMax);
