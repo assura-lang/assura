@@ -9,9 +9,9 @@ pub(crate) use crate::encode_field_policy::{
 };
 
 #[cfg(feature = "cvc5-verify")]
-use assura_ast::{Expr, SpExpr};
-#[cfg(feature = "cvc5-verify")]
 use crate::encode_field_policy::field_uf_smtlib_name;
+#[cfg(feature = "cvc5-verify")]
+use assura_ast::{Expr, SpExpr};
 
 #[cfg(feature = "cvc5-verify")]
 fn get_or_create_int_cvc5<'a>(
