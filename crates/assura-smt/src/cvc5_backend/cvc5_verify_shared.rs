@@ -11,7 +11,6 @@ use crate::cvc5_common::{
     collect_unmodelable_reasons_cvc5, expr_has_unmodelable_features_cvc5, sanitize_smtlib_name,
 };
 use crate::cvc5_model::parse_smtlib_model;
-use crate::feature_max::derive_narrowings;
 
 /// Backend-neutral type/constant constraints for CVC5 solver preludes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,15 +159,10 @@ pub(crate) fn collect_lemma_defs_for_cvc5(
 }
 
 /// Prepared state shared by native and shell-out CVC5 contract verification.
-pub(crate) struct Cvc5ContractPrepared<'a> {
-    pub narrowings: Vec<(String, i64)>,
-    pub requires_exprs: Vec<&'a SpExpr>,
-    pub frame_checker: assura_types::FrameChecker,
-    pub verifiable: Vec<&'a Clause>,
-    pub requires_clauses: Vec<&'a Clause>,
-    pub ensures_clauses: Vec<&'a Clause>,
-    pub param_names: Vec<String>,
-}
+///
+/// Thin alias of [`crate::clause_policy::ContractClausePrep`] so CVC5 modules
+/// keep stable names while Z3 and CVC5 share one preparation brain.
+pub(crate) type Cvc5ContractPrepared<'a> = crate::clause_policy::ContractClausePrep<'a>;
 
 /// Collect feature-clause results and shared contract state for CVC5 backends.
 pub(crate) fn prepare_cvc5_contract_verification<'a>(
@@ -177,85 +171,7 @@ pub(crate) fn prepare_cvc5_contract_verification<'a>(
     params: &[assura_ast::Param],
     constants: &[(String, i64)],
 ) -> (Vec<VerificationResult>, Cvc5ContractPrepared<'a>) {
-    let mut results = Vec::new();
-    let (narrowings, requires_exprs, frame_checker) =
-        cvc5_contract_shared_setup(clauses, constants);
-
-    let verifiable: Vec<&Clause> = clauses
-        .iter()
-        .filter(|c| {
-            matches!(
-                c.kind,
-                ClauseKind::Ensures
-                    | ClauseKind::Invariant
-                    | ClauseKind::Rule
-                    | ClauseKind::MustNot
-                    | ClauseKind::Decreases
-            )
-        })
-        .collect();
-
-    for clause in clauses {
-        if let ClauseKind::Other(kind) = &clause.kind {
-            results.extend(crate::smt_features::verify_feature_clause(
-                kind,
-                contract_name,
-                &clause.body,
-                clauses,
-            ));
-        }
-    }
-
-    let requires_clauses: Vec<&Clause> = clauses
-        .iter()
-        .filter(|c| c.kind == ClauseKind::Requires)
-        .collect();
-    let ensures_clauses: Vec<&Clause> = clauses
-        .iter()
-        .filter(|c| c.kind == ClauseKind::Ensures)
-        .collect();
-    let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
-
-    (
-        results,
-        Cvc5ContractPrepared {
-            narrowings,
-            requires_exprs,
-            frame_checker,
-            verifiable,
-            requires_clauses,
-            ensures_clauses,
-            param_names,
-        },
-    )
-}
-
-/// Shared contract setup for native and shell-out CVC5 verify paths.
-pub(crate) fn cvc5_contract_shared_setup<'a>(
-    clauses: &'a [Clause],
-    constants: &[(String, i64)],
-) -> (
-    Vec<(String, i64)>,
-    Vec<&'a SpExpr>,
-    assura_types::FrameChecker,
-) {
-    let narrowings = derive_narrowings(constants);
-    let requires_exprs: Vec<&SpExpr> = clauses
-        .iter()
-        .filter(|c| c.kind == ClauseKind::Requires)
-        .map(|c| &c.body)
-        .collect();
-    let modifies_bodies: Vec<&SpExpr> = clauses
-        .iter()
-        .filter(|c| c.kind == ClauseKind::Modifies)
-        .map(|c| &c.body)
-        .collect();
-    let frame_checker = if modifies_bodies.is_empty() {
-        assura_types::FrameChecker::empty()
-    } else {
-        assura_types::FrameChecker::new(&modifies_bodies)
-    };
-    (narrowings, requires_exprs, frame_checker)
+    crate::clause_policy::prepare_contract_clauses(contract_name, clauses, params, constants)
 }
 
 pub(crate) fn cvc5_lookup_cached_clause(

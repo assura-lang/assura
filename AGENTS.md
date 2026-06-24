@@ -655,6 +655,7 @@ passes on the latest SHA (not only `test` / `clippy`).
 |-------|------|--------------------|
 | `ir_exec::apply_ir_body_constraints` | IR instruction walk, result load/construct hooks, IR post | Backend-only apply loops |
 | `havoc_assume::apply_havoc_assume_policy` | Order: collection nonneg → length identity → IR body | Divergent order between Z3/CVC5/SMT-LIB |
+| `clause_policy::prepare_contract_clauses` | Verifiable/requires/ensures partition, feature Other dispatch, frame checker, check polarity | Z3-only or CVC5-only clause filters |
 | `ir_lower::IrTermBuilder` | Term construction only (Z3 / CVC5 / SMT-LIB builders) | IR semantics |
 | Z3 / CVC5 / portfolio | `check-sat`, models, timeouts | Re-interpreting IR differently |
 | SMT-LIB / shell CVC5 | Transport when `cvc5-verify` off | Second IR/havoc policy |
@@ -667,6 +668,10 @@ passes on the latest SHA (not only `test` / `clippy`).
 2. New havoc+assume steps (structural axioms, clause-level length inference)
    go in `apply_havoc_assume_policy` + `HavocAssumeEffects`, not copy-pasted
    into three backends.
+2b. New verifiable clause kinds, frame rules, or check polarity go in
+   `clause_policy` (not only `z3_backend/verify.rs` or CVC5 prepare helpers).
+   Expression encode (Z3 `Encoder` vs CVC5 `encode_expr_*`) is **not** fully
+   unified yet; do not claim it is.
 3. Known unimplemented encodings use `VerificationResult::unknown_not_encoded`
    (includes `KNOWN_SMT_LIMITATION_MARKER`); CLI treats those as warnings.
 4. `VerifyOptions::enable_cache` defaults **off** (IR sidecar / encoder

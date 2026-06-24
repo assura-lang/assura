@@ -51,6 +51,7 @@ pub use result::{
 };
 
 /// Shared IR expression encoding helpers.
+mod clause_policy;
 mod ir_encode;
 mod ir_exec;
 mod ir_generate;

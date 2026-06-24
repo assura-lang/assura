@@ -49,13 +49,10 @@ pub(crate) fn append_cvc5_shellout_lemma_assumptions(
 }
 
 pub(crate) fn append_cvc5_shellout_clause_check(script: &mut String, kind: ClauseKind, smt: &str) {
-    match kind {
-        ClauseKind::Invariant | ClauseKind::MustNot => {
-            script.push_str(&format!("(assert {smt})\n"));
-        }
-        _ => {
-            script.push_str(&format!("(assert (not {smt}))\n"));
-        }
+    if crate::clause_policy::cvc5_assert_negates_body(&kind) {
+        script.push_str(&format!("(assert (not {smt}))\n"));
+    } else {
+        script.push_str(&format!("(assert {smt})\n"));
     }
 }
 

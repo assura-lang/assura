@@ -137,10 +137,13 @@ fn verify_contract_cvc5_native_incremental(
 
         assert_cvc5_axioms_since(&mut solver, &enc_state.axioms, havoc_axiom_end);
 
-        if clause.kind == ClauseKind::Ensures && prepared.frame_checker.has_modifies() {
-            let frame_vars = prepared
-                .frame_checker
-                .frame_axiom_vars_with_candidates(&clause.body, &prepared.param_names);
+        let frame_vars = crate::clause_policy::frame_axiom_vars_for_clause(
+            &prepared.frame_checker,
+            &clause.kind,
+            &clause.body,
+            &prepared.param_names,
+        );
+        if !frame_vars.is_empty() {
             assert_cvc5_frame_axioms(&tm, &mut solver, &var_map, &frame_vars);
         }
 
