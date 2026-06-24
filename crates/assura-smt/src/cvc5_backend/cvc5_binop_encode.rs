@@ -3,7 +3,8 @@
 //! SMT-LIB **policy** lives in [`crate::encode_binop_policy`]; this module re-exports
 //! it and keeps CVC5-native term construction.
 
-// Stable import paths for `cvc5_expr_smtlib` / callers.
+// Stable import paths for historical `cvc5_binop_encode::*` callers (shell may use policy directly).
+#[allow(unused_imports, reason = "re-export surface; cvc5_expr_smtlib prefers encode_binop_policy")]
 pub(crate) use crate::encode_binop_policy::{encode_ast_binop_smtlib, encode_ast_unary_smtlib};
 
 #[cfg(feature = "cvc5-verify")]
