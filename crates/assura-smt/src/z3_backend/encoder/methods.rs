@@ -1,7 +1,7 @@
 //! `encode_expr`, raw-token parsing, and binary operators.
 
 use crate::*;
-use assura_ast::{BinOp, Literal, SpExpr, Spanned, UnaryOp};
+use assura_ast::{BinOp, Literal, SpExpr, Spanned};
 use z3::ast;
 
 use super::BitvectorEncoder;
@@ -95,11 +95,13 @@ impl Encoder {
             // --- Binary operations ---
             Expr::BinOp { lhs, op, rhs } => self.encode_binop(lhs, op, rhs),
 
-            // --- Unary operations ---
+            // --- Unary operations (plan via encode_binop_policy; Z3 terms here) ---
             Expr::UnaryOp { op, expr: inner } => {
+                use crate::encode_binop_policy::{AstUnaryKind, classify_ast_unary};
+
                 let val = self.encode_expr(inner);
-                match op {
-                    UnaryOp::Neg => {
+                match classify_ast_unary(op) {
+                    AstUnaryKind::Neg => {
                         if Self::is_real(&val) {
                             let r = val.as_real(&mut self.fresh_counter);
                             Z3Value::Real(r.unary_minus())
@@ -108,7 +110,7 @@ impl Encoder {
                             Z3Value::Int(i.unary_minus())
                         }
                     }
-                    UnaryOp::Not => {
+                    AstUnaryKind::Not => {
                         let b = val.as_bool();
                         Z3Value::Bool(b.not())
                     }

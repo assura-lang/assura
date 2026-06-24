@@ -67,15 +67,19 @@ pub(crate) fn encode_ast_binop_cvc5<'a>(
 }
 
 /// Encode an AST unary operator as a native CVC5 term.
+///
+/// Arm order via [`crate::encode_binop_policy::classify_ast_unary`] (parity with Z3).
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn encode_ast_unary_cvc5<'a>(
     tm: &'a cvc5::TermManager,
     op: &UnaryOp,
     inner: cvc5::Term<'a>,
 ) -> cvc5::Term<'a> {
-    match op {
-        UnaryOp::Not => tm.mk_term(cvc5::Kind::Not, &[inner]),
-        UnaryOp::Neg => tm.mk_term(cvc5::Kind::Neg, &[inner]),
+    use crate::encode_binop_policy::{AstUnaryKind, classify_ast_unary};
+
+    match classify_ast_unary(op) {
+        AstUnaryKind::Not => tm.mk_term(cvc5::Kind::Not, &[inner]),
+        AstUnaryKind::Neg => tm.mk_term(cvc5::Kind::Neg, &[inner]),
     }
 }
 
