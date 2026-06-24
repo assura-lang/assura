@@ -221,6 +221,40 @@ pub fn describe_ir_expr(expr: &IrExprKind) -> String {
     format!("{expr:?}")
 }
 
+/// Backend effects for the shared havoc+assume **policy** (not IR instruction walk).
+///
+/// IR instruction semantics live in [`crate::ir_exec`]; this trait only sequences
+/// structural result axioms, clause-level length inference, and delegating to IR body apply.
+pub(crate) trait HavocAssumeEffects {
+    fn collection_result_nonneg(&mut self);
+    fn length_identity_le(&mut self, result_name: &str, input_name: &str);
+    fn apply_ir_body(
+        &mut self,
+        func: &IrFunction,
+        param_names: &[String],
+        enc_ctx: IrEncodeContext<'_>,
+    );
+}
+
+/// One compiler brain for havoc+assume **order and which axioms apply**.
+///
+/// Call from Z3 / CVC5-native / CVC5-SMT-LIB entry points; implement
+/// [`HavocAssumeEffects`] only for term/assert construction.
+pub(crate) fn apply_havoc_assume_policy(
+    input: &HavocAssumeInput<'_>,
+    effects: &mut impl HavocAssumeEffects,
+) {
+    if is_collection_return(input.return_ty) {
+        effects.collection_result_nonneg();
+    }
+    for (result, input_name) in infer_length_identity_links(input.requires, input.ensures) {
+        effects.length_identity_le(&result, &input_name);
+    }
+    if let Some(func) = input.ir {
+        effects.apply_ir_body(func, input.param_names, input.enc_ctx);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

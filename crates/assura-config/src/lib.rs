@@ -369,9 +369,14 @@ pub struct VerifyOptions {
     pub decrease_checks: bool,
     /// Prefer disk-backed verification caching when a source path is set
     /// (parallel path creates `VerificationCache` under the source parent dir).
-    /// When `false`, the parallel path still uses an in-process cache handle
-    /// (required by the parallel API) but does not treat it as a project cache
-    /// preference; tests should set this `false` via [`VerifyOptions::for_tests`].
+    ///
+    /// **Default is `false`**: cache keys are easy to get wrong relative to IR
+    /// sidecars and encoder changes; `assura check` should be trustworthy by
+    /// default. Enable explicitly for watch/incremental workflows or via
+    /// `assura.toml` / `CompilerConfig` when you accept the tradeoff.
+    /// When `false`, the parallel path still uses an ephemeral on-disk cache
+    /// dir under `.` only if parallel is on (API shape); prefer
+    /// [`VerifyOptions::for_tests`] which also sets `parallel: false`.
     pub enable_cache: bool,
 }
 
@@ -386,7 +391,7 @@ impl Default for VerifyOptions {
             // behave the same unless explicitly overridden.
             parallel: true,
             decrease_checks: true,
-            enable_cache: true,
+            enable_cache: false,
         }
     }
 }
@@ -678,7 +683,10 @@ output = "out/gen"
         assert!(!config.string_theory);
         assert!(config.parallel);
         assert!(config.decrease_checks);
-        assert!(config.enable_cache);
+        assert!(
+            !config.enable_cache,
+            "disk verify cache off by default (IR/encoder footgun)"
+        );
     }
 
     #[test]
