@@ -541,27 +541,27 @@ impl Encoder {
             }
             let inner_tokens = &tokens[start + 2..p];
             let end = p + 1;
-            // Parse inner expression, then rename all variables to __old
-            if inner_tokens.len() == 1 {
-                // old(x) -> x__old (source-name snapshot)
-                let old_name = crate::encode_atom_policy::old_snapshot_name(&inner_tokens[0]);
-                let v = self.get_or_create_int(&old_name);
-                return (Z3Value::Int(v), end);
+            // Pre-state shapes via encode_old_policy (parity with CVC5 raw SMT-LIB).
+            match crate::encode_old_policy::classify_raw_old_inner(inner_tokens) {
+                crate::encode_old_policy::RawOldPlan::Ident(name) => {
+                    let old_name = crate::encode_old_policy::raw_old_ident_snapshot_name(&name);
+                    let v = self.get_or_create_int(&old_name);
+                    return (Z3Value::Int(v), end);
+                }
+                crate::encode_old_policy::RawOldPlan::ShallowField { base, field } => {
+                    let old_name = crate::encode_old_policy::raw_old_ident_snapshot_name(&base);
+                    let old_var = self.get_or_create_int(&old_name);
+                    let func_name = crate::encode_field_policy::field_uf_smtlib_name(&field);
+                    let decl = self.make_func(&func_name, 1);
+                    let result = decl.apply(&[&old_var as &dyn z3::ast::Ast]);
+                    let val = result.as_int().unwrap_or_else(|| self.fresh_int());
+                    return (Z3Value::Int(val), end);
+                }
+                crate::encode_old_policy::RawOldPlan::Complex => {
+                    let (val, _) = self.parse_raw_expr(inner_tokens, 0);
+                    return (val, end);
+                }
             }
-            // old(x.field) -> encode field access on x__old
-            if inner_tokens.len() == 3 && inner_tokens[1] == "." {
-                let old_name = crate::encode_atom_policy::old_snapshot_name(&inner_tokens[0]);
-                let old_var = self.get_or_create_int(&old_name);
-                let field = &inner_tokens[2];
-                let func_name = crate::encode_atom_policy::field_uif_name(field);
-                let decl = self.make_func(&func_name, 1);
-                let result = decl.apply(&[&old_var as &dyn z3::ast::Ast]);
-                let val = result.as_int().unwrap_or_else(|| self.fresh_int());
-                return (Z3Value::Int(val), end);
-            }
-            // General old(expr): parse and use fresh variables
-            let (val, _) = self.parse_raw_expr(inner_tokens, 0);
-            return (val, end);
         }
 
         // --- `forall x in domain: body` in raw tokens ---

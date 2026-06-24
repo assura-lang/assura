@@ -23,7 +23,7 @@ pub(crate) use crate::encode_quantifier_policy::{
 };
 
 #[cfg(feature = "cvc5-verify")]
-use crate::cvc5_raw_ops::domain_as_range;
+use crate::encode_quantifier_policy::domain_as_range;
 
 #[cfg(feature = "cvc5-verify")]
 use assura_types::checkers::expr_references_var;

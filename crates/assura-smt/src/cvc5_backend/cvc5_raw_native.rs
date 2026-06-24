@@ -129,63 +129,70 @@ fn parse_raw_atom_cvc5<'a>(
         let end = p + 1;
         let inner_tokens = &tokens[start + 2..p];
 
-        if inner_tokens.len() == 1 {
-            let old_name = crate::encode_atom_policy::old_snapshot_name(&inner_tokens[0]);
-            let v = vars
-                .get(&old_name)
-                .cloned()
-                .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &old_name));
-            return Some((v, end));
-        }
-        if inner_tokens.len() == 3 && inner_tokens[1] == "." {
-            let old_name = crate::encode_atom_policy::old_snapshot_name(&inner_tokens[0]);
-            let old_var = vars
-                .get(&old_name)
-                .cloned()
-                .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &old_name));
-            let field = sanitize_smt_name(&inner_tokens[2]);
-            let func_name = crate::encode_atom_policy::field_uif_name(&field);
-            let fun_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-            let func = tm.mk_const(fun_sort, &func_name);
-            let result = tm.mk_term(cvc5::Kind::ApplyUf, &[func, old_var]);
-            return Some((result, end));
-        }
-
-        let mut old_vars = vars.clone();
-        for inner_tok in inner_tokens {
-            if inner_tok
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_alphabetic() || c == '_')
-                && !matches!(
-                    inner_tok.as_str(),
-                    "true"
-                        | "false"
-                        | "old"
-                        | "forall"
-                        | "exists"
-                        | "result"
-                        | "not"
-                        | "and"
-                        | "or"
-                        | "implies"
-                        | "mod"
-                        | "div"
-                        | "in"
-                )
-            {
-                let old_key = crate::encode_atom_policy::old_snapshot_name(inner_tok);
-                old_vars
-                    .entry(old_key.clone())
-                    .or_insert_with(|| tm.mk_const(tm.integer_sort(), &old_key));
+        // Pre-state shapes via encode_old_policy (parity with shell SMT-LIB / Z3 raw).
+        match crate::encode_old_policy::classify_raw_old_inner(inner_tokens) {
+            crate::encode_old_policy::RawOldPlan::Ident(name) => {
+                let old_name = crate::encode_old_policy::raw_old_ident_snapshot_name(&name);
+                let v = vars
+                    .get(&old_name)
+                    .cloned()
+                    .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &old_name));
+                return Some((v, end));
+            }
+            crate::encode_old_policy::RawOldPlan::ShallowField { base, field } => {
+                let old_name = crate::encode_old_policy::raw_old_ident_snapshot_name(&base);
+                let old_var = vars
+                    .get(&old_name)
+                    .cloned()
+                    .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &old_name));
+                let field = sanitize_smt_name(&field);
+                let func_name = crate::encode_atom_policy::field_uif_name(&field);
+                let fun_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
+                let func = tm.mk_const(fun_sort, &func_name);
+                let result = tm.mk_term(cvc5::Kind::ApplyUf, &[func, old_var]);
+                return Some((result, end));
+            }
+            crate::encode_old_policy::RawOldPlan::Complex => {
+                let mut old_vars = vars.clone();
+                for inner_tok in inner_tokens {
+                    if inner_tok
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_alphabetic() || c == '_')
+                        && !matches!(
+                            inner_tok.as_str(),
+                            "true"
+                                | "false"
+                                | "old"
+                                | "forall"
+                                | "exists"
+                                | "result"
+                                | "not"
+                                | "and"
+                                | "or"
+                                | "implies"
+                                | "mod"
+                                | "div"
+                                | "in"
+                        )
+                    {
+                        let old_key = crate::encode_atom_policy::old_snapshot_name(inner_tok);
+                        old_vars
+                            .entry(old_key.clone())
+                            .or_insert_with(|| tm.mk_const(tm.integer_sort(), &old_key));
+                    }
+                }
+                if let Some((val, _)) =
+                    parse_raw_expr_cvc5(tm, inner_tokens, 0, 0, &mut old_vars, state)
+                {
+                    return Some((val, end));
+                }
+                let fresh_name =
+                    crate::encode_atom_policy::old_fresh_temp_name(state.fresh_counter);
+                state.fresh_counter += 1;
+                return Some((tm.mk_const(tm.integer_sort(), &fresh_name), end));
             }
         }
-        if let Some((val, _)) = parse_raw_expr_cvc5(tm, inner_tokens, 0, 0, &mut old_vars, state) {
-            return Some((val, end));
-        }
-        let fresh_name = crate::encode_atom_policy::old_fresh_temp_name(state.fresh_counter);
-        state.fresh_counter += 1;
-        return Some((tm.mk_const(tm.integer_sort(), &fresh_name), end));
     }
 
     if let Some(slice) = parse_raw_quantifier_slice(tokens, start) {

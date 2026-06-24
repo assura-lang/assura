@@ -33,15 +33,7 @@ pub(crate) use crate::encode_atom_policy::{
     in_binop_smtlib, not_in_binop_smtlib, range_binop_smtlib,
 };
 
-// AST domain helper: encode_quantifier_policy (encode convergence step 3)
-#[cfg_attr(
-    not(any(test, feature = "cvc5-verify")),
-    allow(
-        unused_imports,
-        reason = "stable import path for quantifier/shell/native"
-    )
-)]
-pub(crate) use crate::encode_quantifier_policy::domain_as_range;
+// domain_as_range: import encode_quantifier_policy directly (not via this shim).
 
 // -------------------------------------------------------------------------
 // AST BinOp → CVC5 Kind (native only)
@@ -170,6 +162,7 @@ mod tests {
 
     #[test]
     fn domain_as_range_extracts_bounds() {
+        use crate::encode_quantifier_policy::domain_as_range;
         use assura_ast::{BinOp, Expr, Spanned};
         let lo = Spanned::no_span(Expr::Ident("a".into()));
         let hi = Spanned::no_span(Expr::Ident("b".into()));

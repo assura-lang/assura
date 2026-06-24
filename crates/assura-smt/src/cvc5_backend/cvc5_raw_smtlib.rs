@@ -97,14 +97,22 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
         let end = p + 1;
         let inner = &tokens[start + 2..p];
 
-        if inner.len() == 1 {
-            let old_name = crate::encode_atom_policy::old_snapshot_name(&inner[0]);
-            return Some((old_name, end));
+        match crate::encode_old_policy::classify_raw_old_inner(inner) {
+            crate::encode_old_policy::RawOldPlan::Ident(name) => {
+                let old_name = crate::encode_old_policy::raw_old_ident_snapshot_name(&name);
+                return Some((old_name, end));
+            }
+            crate::encode_old_policy::RawOldPlan::ShallowField { base, field } => {
+                let smt = crate::encode_old_policy::raw_old_shallow_field_smtlib(&base, &field);
+                return Some((smt, end));
+            }
+            crate::encode_old_policy::RawOldPlan::Complex => {
+                if let Some((val, _)) = parse_raw_expr_smtlib(inner, 0, 0) {
+                    return Some((val, end));
+                }
+                return Some(("__old_fresh".to_string(), end));
+            }
         }
-        if let Some((val, _)) = parse_raw_expr_smtlib(inner, 0, 0) {
-            return Some((val, end));
-        }
-        return Some(("__old_fresh".to_string(), end));
     }
 
     if let Some(slice) = parse_raw_quantifier_slice(tokens, start) {
