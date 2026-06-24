@@ -6,6 +6,9 @@ use crate::cvc5_encoder_state::{Cvc5EncoderState, field_len_fn_cvc5, intern_uf_c
 use crate::cvc5_native_binops::alloc_fresh_int_cvc5;
 use crate::encode_method_policy::{KnownBuiltin, classify_known_builtin, is_bool_returning_uf};
 
+// Call-order documentation: [`crate::encode_call_policy::classify_encode_call`]
+// mirrors Z3 `encode_call` priority before CVC5 term construction in this module.
+
 #[cfg(feature = "cvc5-verify")]
 fn fresh_int_cvc5<'a>(
     tm: &'a cvc5::TermManager,
