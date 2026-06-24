@@ -4,7 +4,11 @@ use assura_ast::{Expr, SpExpr};
 
 use crate::cvc5_common::canonical_length_smtlib_name;
 use crate::encode_atom_policy::sanitize_smt_name;
-use crate::encode_method_policy::known_builtin_to_smtlib;
+use crate::encode_call_policy::{
+    EncodeCallKind, classify_encode_call, debug_assert_encode_call_kind,
+    encode_call_kind_from_known_builtin,
+};
+use crate::encode_method_policy::{classify_known_builtin, known_builtin_to_smtlib};
 
 #[cfg(feature = "cvc5-verify")]
 use std::collections::HashMap;
@@ -32,8 +36,26 @@ where
     let arg_strs: Option<Vec<String>> = args.iter().map(encode).collect();
     let arg_strs = arg_strs?;
     if let Some(s) = known_builtin_to_smtlib(f.as_str(), &arg_strs) {
+        if let Some(kb) = classify_known_builtin(f.as_str(), arg_strs.len()) {
+            debug_assert_encode_call_kind(
+                f.as_str(),
+                arg_strs.len(),
+                encode_call_kind_from_known_builtin(kb),
+            );
+        }
         return Some(s);
     }
+    // Shell/UF fallthrough: align with Z3/CVC5 order table (size field or uninterpreted).
+    let kind = classify_encode_call(f.as_str(), arg_strs.len());
+    debug_assert!(
+        matches!(
+            kind,
+            EncodeCallKind::SizeFieldUf
+                | EncodeCallKind::UninterpretedUf
+                | EncodeCallKind::BoolReturningUf
+        ),
+        "encode_call_smtlib fallthrough unexpected kind {kind:?} for {f}"
+    );
     Some(format!("({f} {})", arg_strs.join(" ")))
 }
 
@@ -59,8 +81,25 @@ where
     let mut all_args = vec![r];
     all_args.extend(arg_strs);
     if let Some(s) = known_builtin_to_smtlib(method, &all_args) {
+        if let Some(kb) = classify_known_builtin(method, all_args.len()) {
+            debug_assert_encode_call_kind(
+                method,
+                all_args.len(),
+                encode_call_kind_from_known_builtin(kb),
+            );
+        }
         return Some(s);
     }
+    let kind = classify_encode_call(method, all_args.len());
+    debug_assert!(
+        matches!(
+            kind,
+            EncodeCallKind::SizeFieldUf
+                | EncodeCallKind::UninterpretedUf
+                | EncodeCallKind::BoolReturningUf
+        ),
+        "encode_method_call_smtlib fallthrough unexpected kind {kind:?} for {method}"
+    );
     if all_args.len() == 1 {
         Some(format!("({method} {})", all_args[0]))
     } else {

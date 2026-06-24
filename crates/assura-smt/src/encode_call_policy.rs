@@ -163,8 +163,7 @@ pub(crate) fn classify_encode_call(func_name: &str, arity: usize) -> EncodeCallK
 ///
 /// CVC5 `encode_known_builtin_cvc5` matches on `KnownBuiltin`; this keeps that
 /// path aligned with the Z3 `encode_call` order table without duplicating guards.
-/// Default (no `cvc5-verify`) builds only exercise this via unit tests.
-#[cfg_attr(not(any(test, feature = "cvc5-verify")), allow(dead_code))]
+/// Used by CVC5 known-builtin encode and shell `encode_call_smtlib` parity checks.
 #[inline]
 pub(crate) fn encode_call_kind_from_known_builtin(kind: KnownBuiltin) -> EncodeCallKind {
     match kind {
