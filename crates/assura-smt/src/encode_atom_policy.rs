@@ -83,9 +83,19 @@ pub(crate) fn apply_lemma_const_name(lemma_name: &str) -> String {
     format!("__apply_{lemma_name}")
 }
 
+/// Prefix for field accessor UIFs.
+pub(crate) const FIELD_UIF_PREFIX: &str = "__field_";
+
 /// Uninterpreted field/property accessor UIF name (`__field_{field}`).
 pub(crate) fn field_uif_name(field: &str) -> String {
-    format!("__field_{field}")
+    format!("{FIELD_UIF_PREFIX}{field}")
+}
+
+/// Strip the `__field_` prefix from an encoder variable name for user display.
+///
+/// Returns the bare field name if the prefix is present, otherwise the original name.
+pub(crate) fn strip_field_uif_prefix(name: &str) -> &str {
+    name.strip_prefix(FIELD_UIF_PREFIX).unwrap_or(name)
 }
 
 /// Length accessor UIF shared by `.len` / `.length` / string field access (`__field_len`).
@@ -458,7 +468,7 @@ pub(crate) const INTERNAL_ENCODER_PREFIXES: &[&str] = &[
     "__tuple_",
     "__list_",
     "__fresh_",
-    "__field_",
+    FIELD_UIF_PREFIX,
     "__index",
     "__len",
     "__arr_",
@@ -521,6 +531,9 @@ mod tests {
         assert_eq!(canonical_length_name("buf"), "__canonical_len_buf");
         assert_eq!(field_uif_name("len"), FIELD_LEN_UF_NAME);
         assert_eq!(field_uif_name("len"), "__field_len");
+        assert_eq!(strip_field_uif_prefix("__field_len"), "len");
+        assert_eq!(strip_field_uif_prefix("__field_is_empty"), "is_empty");
+        assert_eq!(strip_field_uif_prefix("payload_length"), "payload_length");
         assert!(is_length_uf_name(FIELD_LEN_UF_NAME));
         assert!(is_length_uf_name(LEN_UF_NAME));
         assert!(!is_length_uf_name("size"));
