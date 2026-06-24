@@ -91,13 +91,13 @@ pub fn length_object(expr: &SpExpr) -> Option<&str> {
             receiver,
             method,
             args,
-        } if (method == "length" || method == "len") && args.is_empty() => {
+        } if crate::encode_atom_policy::is_length_method_name(method) && args.is_empty() => {
             match &receiver.as_ref().node {
                 Expr::Ident(name) => Some(name.as_str()),
                 _ => None,
             }
         }
-        Expr::Field(obj, field) if field == "length" || field == "len" => {
+        Expr::Field(obj, field) if crate::encode_atom_policy::is_length_method_name(field) => {
             match &obj.as_ref().node {
                 Expr::Ident(name) => Some(name.as_str()),
                 _ => None,
