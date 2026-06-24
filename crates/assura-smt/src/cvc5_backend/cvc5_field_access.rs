@@ -3,9 +3,9 @@
 //! Planning/naming policy lives in [`crate::encode_field_policy`]; this module
 //! owns CVC5 term construction and keeps stable `cvc5_field_access::*` imports.
 
-// Re-export policy surface for existing CVC5 call sites (`cvc5_old_access`, etc.).
+// Shell SMT-LIB (`cvc5_expr_smtlib`) imports these; native uses them under cvc5-verify.
 pub(crate) use crate::encode_field_policy::{
-    FieldAccessPlan, old_flat_field_smtlib, plan_field_access, shallow_field_smtlib,
+    FieldAccessPlan, plan_field_access, shallow_field_smtlib,
 };
 
 #[cfg(feature = "cvc5-verify")]
