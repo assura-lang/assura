@@ -185,6 +185,41 @@ pub(crate) fn call_fresh_name(counter: impl std::fmt::Display) -> String {
     format!("__call_{counter}")
 }
 
+/// ADT discriminant/tag UIF (`__adt_tag_{adt}`).
+pub(crate) fn adt_tag_uf_name(adt_name: &str) -> String {
+    format!("__adt_tag_{adt_name}")
+}
+
+/// ADT constructor field accessor UIF (`__adt_{adt}_{accessor}`).
+pub(crate) fn adt_accessor_uf_name(adt_name: &str, accessor: &str) -> String {
+    format!("__adt_{adt_name}_{accessor}")
+}
+
+/// Fresh variable for ADT exhaustiveness axiom (`__adt_exh_{adt}`).
+pub(crate) fn adt_exhaust_var_name(adt_name: &str) -> String {
+    format!("__adt_exh_{adt_name}")
+}
+
+/// Fresh variable pair leg for ADT injectivity axiom (`__adt_inj_{adt}_{ctor}_a` / `_b`).
+pub(crate) fn adt_inject_var_name(adt_name: &str, ctor_name: &str, leg: char) -> String {
+    format!("__adt_inj_{adt_name}_{ctor_name}_{leg}")
+}
+
+/// IR field projection UIF (`__ir_field_{ty_suffix}_{index}`).
+pub(crate) fn ir_field_uf_name(ty_suffix: &str, index: usize) -> String {
+    format!("__ir_field_{ty_suffix}_{index}")
+}
+
+/// IR constructor UIF (`__ir_construct_{type_id}`).
+pub(crate) fn ir_construct_uf_name(type_id: &str) -> String {
+    format!("__ir_construct_{type_id}")
+}
+
+/// Bit-vector-as-real temporary (`__bv_as_real_{bits}`).
+pub(crate) fn bv_as_real_name(bits: impl std::fmt::Display) -> String {
+    format!("__bv_as_real_{bits}")
+}
+
 /// Tuple element accessor UIF (`__tuple_{arity}_{index}`).
 pub(crate) fn tuple_accessor_name(arity: usize, index: usize) -> String {
     format!("__tuple_{arity}_{index}")
@@ -346,6 +381,8 @@ pub(crate) fn is_internal_encoder_var(name: &str) -> bool {
         || name.starts_with("__call_")
         || name.starts_with("__old_fresh_")
         || name.starts_with("__typestate_")
+        || name.starts_with("__adt_")
+        || name.starts_with("__bv_as_real_")
 }
 
 #[cfg(test)]
@@ -386,6 +423,16 @@ mod tests {
         assert_eq!(arr_fresh_name(7), "__arr_7");
         assert_eq!(match_adt_fresh_name(2), "__match_adt_2");
         assert_eq!(call_fresh_name(9), "__call_9");
+        assert_eq!(adt_tag_uf_name("Opt"), "__adt_tag_Opt");
+        assert_eq!(adt_accessor_uf_name("Opt", "val"), "__adt_Opt_val");
+        assert_eq!(adt_exhaust_var_name("Opt"), "__adt_exh_Opt");
+        assert_eq!(
+            adt_inject_var_name("Opt", "Some", 'a'),
+            "__adt_inj_Opt_Some_a"
+        );
+        assert_eq!(ir_field_uf_name("pair", 0), "__ir_field_pair_0");
+        assert_eq!(ir_construct_uf_name("T1"), "__ir_construct_T1");
+        assert_eq!(bv_as_real_name(32), "__bv_as_real_32");
         assert_eq!(LIST_GET_UF_NAME, "__list_get");
         assert_eq!(CONTAINS_UF_NAME, "__contains");
         assert_eq!(CONCAT_UF_NAME, "__concat");
@@ -401,6 +448,8 @@ mod tests {
         assert!(is_internal_encoder_var("__call_1"));
         assert!(is_internal_encoder_var("__old_fresh_4"));
         assert!(is_internal_encoder_var("__typestate_conn"));
+        assert!(is_internal_encoder_var("__adt_tag_Opt"));
+        assert!(is_internal_encoder_var("__bv_as_real_8"));
         assert!(!is_internal_encoder_var("payload_length"));
     }
 

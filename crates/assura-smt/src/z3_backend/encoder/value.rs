@@ -93,9 +93,9 @@ impl Z3Value {
             }
             // Str: coerce via length
             Z3Value::Str(s) => ast::Real::from_int(&s.length()),
-            Z3Value::Bv(b) => {
-                ast::Real::from_int(&ast::Int::new_const(format!("__bv_as_real_{b}")))
-            }
+            Z3Value::Bv(b) => ast::Real::from_int(&ast::Int::new_const(
+                crate::encode_atom_policy::bv_as_real_name(b).as_str(),
+            )),
         }
     }
 }

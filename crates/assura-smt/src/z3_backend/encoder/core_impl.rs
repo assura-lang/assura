@@ -1220,19 +1220,21 @@ impl Encoder {
         };
 
         // Register uninterpreted functions for the tag and accessors
-        let tag_fn_name = format!("__adt_tag_{adt_name}");
+        let tag_fn_name = crate::encode_atom_policy::adt_tag_uf_name(adt_name);
         self.make_func(&tag_fn_name, 1);
 
         for ctor in &adt_def.constructors {
             for accessor in &ctor.accessors {
-                let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
+                let acc_fn_name =
+                    crate::encode_atom_policy::adt_accessor_uf_name(adt_name, accessor);
                 self.make_func(&acc_fn_name, 1);
             }
         }
 
         // Generate exhaustiveness axiom:
         //   forall x: tag(x) == 0 || tag(x) == 1 || ... || tag(x) == n
-        let x = ast::Int::new_const(format!("__adt_exh_{adt_name}"));
+        let x =
+            ast::Int::new_const(crate::encode_atom_policy::adt_exhaust_var_name(adt_name).as_str());
         let tag_fn = self.make_func(&tag_fn_name, 1);
         let tag_x = tag_fn
             .apply(&[&x as &dyn z3::ast::Ast])
@@ -1267,8 +1269,14 @@ impl Encoder {
         for ctor in &adt_def.constructors {
             if ctor.accessors.is_empty() {
                 // Nullary constructor: any two values with this tag are equal
-                let a = ast::Int::new_const(format!("__adt_inj_{adt_name}_{}_a", ctor.name));
-                let b = ast::Int::new_const(format!("__adt_inj_{adt_name}_{}_b", ctor.name));
+                let a = ast::Int::new_const(
+                    crate::encode_atom_policy::adt_inject_var_name(adt_name, &ctor.name, 'a')
+                        .as_str(),
+                );
+                let b = ast::Int::new_const(
+                    crate::encode_atom_policy::adt_inject_var_name(adt_name, &ctor.name, 'b')
+                        .as_str(),
+                );
 
                 let tag_a = tag_fn
                     .apply(&[&a as &dyn z3::ast::Ast])
@@ -1289,8 +1297,14 @@ impl Encoder {
                 self.background_axioms.push(axiom);
             } else {
                 // Constructor with fields: matching all accessors implies equality
-                let a = ast::Int::new_const(format!("__adt_inj_{adt_name}_{}_a", ctor.name));
-                let b = ast::Int::new_const(format!("__adt_inj_{adt_name}_{}_b", ctor.name));
+                let a = ast::Int::new_const(
+                    crate::encode_atom_policy::adt_inject_var_name(adt_name, &ctor.name, 'a')
+                        .as_str(),
+                );
+                let b = ast::Int::new_const(
+                    crate::encode_atom_policy::adt_inject_var_name(adt_name, &ctor.name, 'b')
+                        .as_str(),
+                );
 
                 let tag_a = tag_fn
                     .apply(&[&a as &dyn z3::ast::Ast])
@@ -1304,7 +1318,8 @@ impl Encoder {
 
                 let mut conjuncts = vec![tag_a.eq(&tag_val), tag_b.eq(&tag_val)];
                 for accessor in &ctor.accessors {
-                    let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
+                    let acc_fn_name =
+                        crate::encode_atom_policy::adt_accessor_uf_name(adt_name, accessor);
                     let acc_fn = self.make_func(&acc_fn_name, 1);
                     let acc_a = acc_fn
                         .apply(&[&a as &dyn z3::ast::Ast])
@@ -1354,7 +1369,7 @@ impl Encoder {
         let val = self.fresh_int();
 
         // Set tag
-        let tag_fn_name = format!("__adt_tag_{adt_name}");
+        let tag_fn_name = crate::encode_atom_policy::adt_tag_uf_name(adt_name);
         let tag_fn = self.make_func(&tag_fn_name, 1);
         let tag_applied = tag_fn
             .apply(&[&val as &dyn z3::ast::Ast])
@@ -1366,7 +1381,8 @@ impl Encoder {
         // Bind accessor values
         for (i, accessor) in accessors.iter().enumerate() {
             if let Some(arg) = args.get(i) {
-                let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
+                let acc_fn_name =
+                    crate::encode_atom_policy::adt_accessor_uf_name(adt_name, accessor);
                 let acc_fn = self.make_func(&acc_fn_name, 1);
                 let acc_applied = acc_fn
                     .apply(&[&val as &dyn z3::ast::Ast])
@@ -1394,7 +1410,7 @@ impl Encoder {
             .and_then(|d| d.constructors.iter().find(|c| c.name == ctor_name))
             .map_or(0, |c| c.tag);
 
-        let tag_fn_name = format!("__adt_tag_{adt_name}");
+        let tag_fn_name = crate::encode_atom_policy::adt_tag_uf_name(adt_name);
         let tag_fn = self.make_func(&tag_fn_name, 1);
         let tag_val = tag_fn
             .apply(&[value as &dyn z3::ast::Ast])
@@ -1412,7 +1428,7 @@ impl Encoder {
         accessor: &str,
         value: &ast::Int,
     ) -> ast::Int {
-        let acc_fn_name = format!("__adt_{adt_name}_{accessor}");
+        let acc_fn_name = crate::encode_atom_policy::adt_accessor_uf_name(adt_name, accessor);
         let acc_fn = self.make_func(&acc_fn_name, 1);
         acc_fn
             .apply(&[value as &dyn z3::ast::Ast])

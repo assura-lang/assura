@@ -159,7 +159,10 @@ impl IrTermBuilder for Z3IrBuilder<'_, '_> {
             .get(&slot)
             .map(|t| t.replace('<', "_").replace('>', ""))
             .unwrap_or_else(|| "val".into());
-        self.unary_uf(&format!("__ir_field_{ty_suffix}_{index}"), base)
+        self.unary_uf(
+            &crate::encode_atom_policy::ir_field_uf_name(&ty_suffix, index),
+            base,
+        )
     }
 
     fn encode_construct(
@@ -191,7 +194,10 @@ impl IrTermBuilder for Z3IrBuilder<'_, '_> {
             .iter()
             .map(|(_, s)| self.load_slot(slots, *s))
             .collect();
-        self.nary_uf(&format!("__ir_construct_{type_id}"), &arg_ints)
+        self.nary_uf(
+            &crate::encode_atom_policy::ir_construct_uf_name(type_id),
+            &arg_ints,
+        )
     }
 
     fn push_ir_post(&mut self, pred: &IrPred, slots: &HashMap<usize, Self::Term>) {
