@@ -71,11 +71,17 @@ pub(crate) fn fresh_temp_name(counter: impl std::fmt::Display) -> String {
 }
 
 /// Fresh list object constant (`__list_{n}`).
+///
+/// Referenced from CVC5 list encode (`cvc5-verify` only in default builds).
+#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
 pub(crate) fn list_fresh_name(counter: impl std::fmt::Display) -> String {
     format!("__list_{counter}")
 }
 
 /// Fresh tuple object constant (`__tuple_{n}`).
+///
+/// Referenced from CVC5 tuple encode (`cvc5-verify` only in default builds).
+#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
 pub(crate) fn tuple_fresh_name(counter: impl std::fmt::Display) -> String {
     format!("__tuple_{counter}")
 }
@@ -86,6 +92,9 @@ pub(crate) fn tuple_accessor_name(arity: usize, index: usize) -> String {
 }
 
 /// List element accessor UIF name (`__list_get`).
+///
+/// Referenced from CVC5 list encode (`cvc5-verify` only in default builds).
+#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
 pub(crate) const LIST_GET_UF_NAME: &str = "__list_get";
 
 /// Integer literal as SMT-LIB2 text (negatives use `(- n)`).
