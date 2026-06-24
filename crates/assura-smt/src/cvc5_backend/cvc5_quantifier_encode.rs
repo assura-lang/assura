@@ -6,6 +6,9 @@
 #[cfg(feature = "cvc5-verify")]
 use assura_ast::{Expr, SpExpr};
 
+#[cfg(feature = "cvc5-verify")]
+use crate::cvc5_common::sanitize_smtlib_name;
+
 // Re-exports: encode_quantifier_policy (encode convergence step 3)
 // Callers import via `cvc5_quantifier_encode`; default builds only hit re-exports from shell paths.
 #[cfg_attr(
