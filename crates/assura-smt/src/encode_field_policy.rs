@@ -90,6 +90,14 @@ pub(crate) fn old_flat_field_smtlib(flat_name: &str) -> String {
     old_snapshot_name(flat_name)
 }
 
+/// Extract the leaf field name from a flattened chain (e.g. `"self__head"` -> `"head"`).
+///
+/// Used to classify the [`FieldValueKind`] for `OldAccessPlan::FlatField` and
+/// `FieldAccessPlan::Flatten` when the flat name is all we have.
+pub(crate) fn flat_leaf_field(flat_name: &str) -> &str {
+    flat_name.rsplit("__").next().unwrap_or(flat_name)
+}
+
 /// Shallow / flattened field **sort + axiom** class (solver-neutral).
 ///
 /// Used after [`plan_field_access`] resolves flatten vs shallow so Z3
@@ -203,6 +211,27 @@ mod tests {
         assert_eq!(
             classify_field_value_kind("capacity"),
             FieldValueKind::SizeNonNeg
+        );
+    }
+
+    #[test]
+    fn flat_leaf_field_extracts_last_segment() {
+        assert_eq!(flat_leaf_field("self__head"), "head");
+        assert_eq!(flat_leaf_field("self__data__len"), "len");
+        assert_eq!(flat_leaf_field("x"), "x");
+        assert_eq!(flat_leaf_field("a__is_empty"), "is_empty");
+        // Classify the leaf for FieldValueKind parity with live field encode.
+        assert_eq!(
+            classify_field_value_kind(flat_leaf_field("self__len")),
+            FieldValueKind::SizeNonNeg
+        );
+        assert_eq!(
+            classify_field_value_kind(flat_leaf_field("obj__is_empty")),
+            FieldValueKind::Bool
+        );
+        assert_eq!(
+            classify_field_value_kind(flat_leaf_field("state__head")),
+            FieldValueKind::Int
         );
     }
 }

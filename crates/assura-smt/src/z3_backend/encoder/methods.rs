@@ -127,9 +127,26 @@ impl Encoder {
                     Z3Value::Int(v)
                 }
                 crate::encode_old_policy::OldAccessPlan::FlatField(flat) => {
+                    use crate::encode_field_policy::{
+                        FieldValueKind, classify_field_value_kind, flat_leaf_field,
+                    };
                     let old_name = crate::encode_atom_policy::old_snapshot_name(&flat);
-                    let v = self.get_or_create_int(&old_name);
-                    Z3Value::Int(v)
+                    match classify_field_value_kind(flat_leaf_field(&flat)) {
+                        FieldValueKind::Bool => {
+                            let v = ast::Bool::new_const(old_name.as_str());
+                            Z3Value::Bool(v)
+                        }
+                        FieldValueKind::SizeNonNeg => {
+                            let v = self.get_or_create_int(&old_name);
+                            let zero = ast::Int::from_i64(0);
+                            self.background_axioms.push(v.ge(&zero));
+                            Z3Value::Int(v)
+                        }
+                        FieldValueKind::Int => {
+                            let v = self.get_or_create_int(&old_name);
+                            Z3Value::Int(v)
+                        }
+                    }
                 }
                 crate::encode_old_policy::OldAccessPlan::ShallowField { obj, field } => {
                     // Pre-state shallow field via same FieldValueKind as live encode_field_access.
