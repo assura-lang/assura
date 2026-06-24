@@ -42,9 +42,9 @@ pub fn is_collection_ir_type(ty: &str) -> bool {
         || ty.starts_with("Set<")
 }
 
-/// `call length` / `call len` with one receiver argument.
+/// `call length` / `call len` (and other length method aliases) with one receiver argument.
 pub fn is_length_ir_call(func: &str, arity: usize) -> bool {
-    arity == 1 && matches!(func, "length" | "len")
+    arity == 1 && crate::encode_atom_policy::is_length_method_name(func)
 }
 
 /// Build a map of block id -> instruction body from all `fn #N` entries in a module.
