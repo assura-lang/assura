@@ -223,6 +223,15 @@ fn parse_raw_atom_cvc5<'a>(
         return Some((tm.mk_integer(n), start + 1));
     }
 
+    // Float literal: "3.14" → rational (numer/denom) on Real sort.
+    // Parity with Z3 parse_raw_atom which uses float_to_rational_parts.
+    if tok.contains('.') && tok.parse::<f64>().is_ok() {
+        let (numer, denom) = crate::encode_atom_policy::float_to_rational_parts(tok);
+        let n = tm.mk_integer(numer);
+        let d = tm.mk_integer(denom);
+        return Some((tm.mk_term(cvc5::Kind::IntsDivision, &[n, d]), start + 1));
+    }
+
     if is_raw_spec_skip_keyword(tok) {
         return parse_raw_atom_cvc5(tm, tokens, start + 1, vars, state);
     }
