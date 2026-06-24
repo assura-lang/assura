@@ -1,35 +1,14 @@
 //! Shared Let and Block encoding for CVC5 shell-out and native backends.
+//!
+//! SMT-LIB **policy** lives in [`crate::encode_let_policy`]; this module re-exports
+//! it and keeps CVC5-native term encode (var map + last-expr block).
 
 use assura_ast::SpExpr;
 
 use crate::encode_atom_policy::sanitize_smt_name;
 
-/// Encode `let name = value in body` as SMT-LIB2 `(let ((v val)) body)`.
-pub(crate) fn encode_let_smtlib<F>(
-    name: &str,
-    value: &SpExpr,
-    body: &SpExpr,
-    mut encode: F,
-) -> Option<String>
-where
-    F: FnMut(&SpExpr) -> Option<String>,
-{
-    let v = sanitize_smt_name(name);
-    let val = encode(value)?;
-    let b = encode(body)?;
-    Some(format!("(let (({v} {val})) {b})"))
-}
-
-/// Encode a block as its last expression (SMT-LIB has no block form).
-pub(crate) fn encode_block_smtlib<F>(body: &[SpExpr], mut encode: F) -> Option<String>
-where
-    F: FnMut(&SpExpr) -> Option<String>,
-{
-    if body.is_empty() {
-        return Some("true".to_string());
-    }
-    encode(body.last()?)
-}
+// Stable import paths for `cvc5_expr_smtlib` / callers.
+pub(crate) use crate::encode_let_policy::{encode_block_smtlib, encode_let_smtlib};
 
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn encode_let_cvc5<'a, F>(
@@ -70,14 +49,17 @@ where
         &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
     ) -> Option<cvc5::Term<'a>>,
 {
-    if body.is_empty() {
-        return Some(tm.mk_boolean(true));
+    use crate::encode_let_policy::{BlockReducePlan, classify_block};
+    match classify_block(body) {
+        BlockReducePlan::Empty => Some(tm.mk_boolean(true)),
+        BlockReducePlan::LastExpr => {
+            let mut result = None;
+            for e in body {
+                result = encode(e, vars, state);
+            }
+            result
+        }
     }
-    let mut result = None;
-    for e in body {
-        result = encode(e, vars, state);
-    }
-    result
 }
 
 #[cfg(test)]
