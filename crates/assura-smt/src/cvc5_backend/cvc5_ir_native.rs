@@ -416,7 +416,7 @@ pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
         slots.insert(slot, v);
     }
 
-    let result_key = sanitize_smtlib_name("result");
+    let result_key = crate::encode_atom_policy::RESULT_VAR_NAME.to_string();
     let result = vars
         .entry(result_key.clone())
         .or_insert_with(|| tm.mk_const(tm.integer_sort(), &result_key))
