@@ -133,10 +133,7 @@ pub(crate) fn is_trim_builtin(op: &str, arity: usize) -> bool {
 
 /// Whether `op` is clone/to_string/to_owned/as_str at arity 1.
 pub(crate) fn is_clone_builtin(op: &str, arity: usize) -> bool {
-    matches!(
-        classify_known_builtin(op, arity),
-        Some(KnownBuiltin::Clone)
-    )
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Clone))
 }
 
 /// Whether `op` is reverse at arity 1.
@@ -149,10 +146,7 @@ pub(crate) fn is_reverse_builtin(op: &str, arity: usize) -> bool {
 
 /// Whether `op` is clear at arity 1.
 pub(crate) fn is_clear_builtin(op: &str, arity: usize) -> bool {
-    matches!(
-        classify_known_builtin(op, arity),
-        Some(KnownBuiltin::Clear)
-    )
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Clear))
 }
 
 /// Whether `op` is push/push_back/push_front at arity 2.
@@ -183,10 +177,7 @@ pub(crate) fn is_remove_builtin(op: &str, arity: usize) -> bool {
 
 /// Whether `op` is slice at arity 3.
 pub(crate) fn is_slice_builtin(op: &str, arity: usize) -> bool {
-    matches!(
-        classify_known_builtin(op, arity),
-        Some(KnownBuiltin::Slice)
-    )
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::Slice))
 }
 
 /// Whether `op` is take at arity 2.
@@ -206,10 +197,7 @@ pub(crate) fn is_tail_builtin(op: &str, arity: usize) -> bool {
 
 /// Whether `op` is first/last/head/front/back at arity 1.
 pub(crate) fn is_first_builtin(op: &str, arity: usize) -> bool {
-    matches!(
-        classify_known_builtin(op, arity),
-        Some(KnownBuiltin::First)
-    )
+    matches!(classify_known_builtin(op, arity), Some(KnownBuiltin::First))
 }
 
 /// Case-fold methods not in [`KnownBuiltin`] but with Z3 length axioms (trim-like).
