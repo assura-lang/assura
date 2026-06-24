@@ -115,20 +115,25 @@ impl Encoder {
                 }
             }
 
-            // --- old(expr): encode inner with __old suffix ---
-            Expr::Old(inner) => match &inner.as_ref().node {
-                // old(x) -> x__old (source-name snapshot; Z3 keeps `result` as `result`)
-                Expr::Ident(name) => {
-                    let old_name = crate::encode_atom_policy::old_snapshot_name(name);
+            // --- old(expr): pre-state snapshot (plan via encode_old_policy; Z3 terms here) ---
+            // Z3 uses old_snapshot_name for idents (source `result` stays `result__old`, not
+            // `__result__old`; CVC5 uses old_ident_name via encode_old_smtlib/cvc5).
+            Expr::Old(inner) => match crate::encode_old_policy::plan_old_access(inner.as_ref()) {
+                crate::encode_old_policy::OldAccessPlan::Ident(name) => {
+                    let old_name = crate::encode_atom_policy::old_snapshot_name(&name);
                     let v = self.get_or_create_int(&old_name);
                     Z3Value::Int(v)
                 }
-                // old(obj.field) -> encode obj as old, then access field
-                Expr::Field(obj, field) => {
-                    let old_obj = self.encode_expr(&Spanned::no_span(Expr::Old(obj.clone())));
+                crate::encode_old_policy::OldAccessPlan::FlatField(flat) => {
+                    let old_name = crate::encode_atom_policy::old_snapshot_name(&flat);
+                    let v = self.get_or_create_int(&old_name);
+                    Z3Value::Int(v)
+                }
+                crate::encode_old_policy::OldAccessPlan::ShallowField { obj, field } => {
+                    let old_obj = self.encode_expr(&Spanned::no_span(Expr::Old(obj)));
                     let old_obj_int = old_obj.as_int(&mut self.fresh_counter);
-                    let func_name = crate::encode_atom_policy::field_uif_name(field);
-                    if crate::encode_method_policy::is_bool_field_name(field) {
+                    let func_name = crate::encode_field_policy::field_uf_smtlib_name(&field);
+                    if crate::encode_method_policy::is_bool_field_name(&field) {
                         let bool_sort = z3::Sort::bool();
                         let int_sort = z3::Sort::int();
                         let decl = z3::FuncDecl::new(func_name.as_str(), &[&int_sort], &bool_sort);
@@ -140,18 +145,14 @@ impl Encoder {
                         Z3Value::Int(result.as_int().unwrap_or_else(|| self.fresh_int()))
                     }
                 }
-                // old(obj.method(args)) -> encode obj as old, then call
-                Expr::MethodCall {
-                    receiver, method, ..
-                } => {
-                    let old_recv = self.encode_expr(&Spanned::no_span(Expr::Old(receiver.clone())));
+                crate::encode_old_policy::OldAccessPlan::MethodCall { receiver, method } => {
+                    let old_recv = self.encode_expr(&Spanned::no_span(Expr::Old(receiver)));
                     let old_int = old_recv.as_int(&mut self.fresh_counter);
-                    let decl = self.make_func(method, 1);
+                    let decl = self.make_func(&method, 1);
                     let result = decl.apply(&[&old_int as &dyn z3::ast::Ast]);
                     Z3Value::Int(result.as_int().unwrap_or_else(|| self.fresh_int()))
                 }
-                // Fallback: encode the inner expression directly
-                _ => self.encode_expr(inner),
+                crate::encode_old_policy::OldAccessPlan::Other => self.encode_expr(inner),
             },
 
             // --- Forall quantifier ---

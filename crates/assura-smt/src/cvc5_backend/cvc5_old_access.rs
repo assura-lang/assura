@@ -1,47 +1,14 @@
-//! Shared old() encoding for CVC5 shell-out and native backends.
+//! CVC5 `old(expr)` encoding (shell SMT-LIB2 + native terms).
+//!
+//! Pre-state planning lives in [`crate::encode_old_policy`]; this module owns
+//! CVC5/shell term construction and keeps stable `cvc5_old_access::*` imports.
 
 use assura_ast::{Expr, SpExpr, Spanned};
 
-use crate::cvc5_field_access::{
-    FieldAccessPlan, old_flat_field_smtlib, plan_field_access, shallow_field_smtlib,
-};
 use crate::encode_atom_policy::old_ident_name;
-
-/// How `old(inner)` should be encoded.
-#[derive(Debug, Clone)]
-pub(crate) enum OldAccessPlan {
-    Ident(String),
-    FlatField(String),
-    ShallowField {
-        obj: Box<SpExpr>,
-        field: String,
-    },
-    MethodCall {
-        receiver: Box<SpExpr>,
-        method: String,
-    },
-    Other,
-}
-
-pub(crate) fn plan_old_access(inner: &SpExpr) -> OldAccessPlan {
-    match &inner.node {
-        Expr::Ident(name) => OldAccessPlan::Ident(name.clone()),
-        Expr::Field(obj, field) => match plan_field_access(obj, field) {
-            FieldAccessPlan::Flatten(flat) => OldAccessPlan::FlatField(flat),
-            FieldAccessPlan::ShallowUf { field: f } => OldAccessPlan::ShallowField {
-                obj: obj.clone(),
-                field: f,
-            },
-        },
-        Expr::MethodCall {
-            receiver, method, ..
-        } => OldAccessPlan::MethodCall {
-            receiver: receiver.clone(),
-            method: method.clone(),
-        },
-        _ => OldAccessPlan::Other,
-    }
-}
+use crate::encode_field_policy::{old_flat_field_smtlib, shallow_field_smtlib};
+// Re-export policy surface for tests / any CVC5-local callers.
+pub(crate) use crate::encode_old_policy::{OldAccessPlan, old_method_call_smtlib, plan_old_access};
 
 /// Encode `old(inner)` as SMT-LIB2 via recursive `encode` callback.
 pub(crate) fn encode_old_smtlib<F>(inner: &SpExpr, mut encode: F) -> Option<String>
@@ -59,7 +26,7 @@ where
         OldAccessPlan::MethodCall { receiver, method } => {
             let old_expr = Spanned::no_span(Expr::Old(receiver));
             let old_recv = encode(&old_expr)?;
-            Some(format!("({method} {old_recv})"))
+            Some(old_method_call_smtlib(&method, &old_recv))
         }
         OldAccessPlan::Other => encode(inner),
     }
@@ -117,18 +84,5 @@ where
             Some(tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, old_recv]))
         }
         OldAccessPlan::Other => encode(inner, vars, state),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn old_ident_plan() {
-        assert!(matches!(
-            plan_old_access(&Spanned::no_span(Expr::Ident("x".into()))),
-            OldAccessPlan::Ident(name) if name == "x"
-        ));
     }
 }

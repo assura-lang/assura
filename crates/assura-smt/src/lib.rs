@@ -60,11 +60,13 @@ mod clause_policy;
 //   encode_method_policy     — KnownBuiltin tables, `is_*_builtin`, SMT-LIB method text
 //   encode_call_policy       — `EncodeCallKind` order (`classify_encode_call` / asserts)
 //   encode_field_policy      — field access plan (flatten vs shallow UF) + SMT-LIB shapes
+//   encode_old_policy        — `old(e)` pre-state access plan (ident/field/method)
 // Not full `Expr`→solver-term unify: Z3 `Encoder` and CVC5 term builders stay separate.
 mod encode_atom_policy;
 mod encode_call_policy;
 mod encode_field_policy;
 mod encode_method_policy;
+mod encode_old_policy;
 mod encode_quantifier_policy;
 mod encode_raw_ops_policy;
 mod ir_encode;
