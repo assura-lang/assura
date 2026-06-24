@@ -65,6 +65,7 @@ mod lemma_inject_policy;
 mod portfolio_policy;
 mod prelude_policy;
 mod solver_outcome_policy;
+mod trigger_seed_policy;
 mod unmodelable;
 mod verify_context;
 mod verify_labels;

@@ -663,6 +663,7 @@ passes on the latest SHA (not only `test` / `clippy`).
 | `solver_outcome_policy` | SAT/UNSAT/timeout/unknown → `VerificationResult` (validity vs sat) | Divergent invariant UNSAT vs ensures UNSAT handling |
 | `portfolio_policy` | Multi-solver result merge priority (Z3/CVC5 portfolio) | Divergent Verified/CE/Unknown/Timeout selection |
 | `lemma_inject_policy` | `apply` ref collection + which lemma ensures to assert | Divergent lemma sets between Z3/CVC5 injection loops |
+| `trigger_seed_policy` | Call/MethodCall walk seeding `TriggerManager` for e-matching | Divergent/incomplete Z3 vs CVC5 trigger registration |
 | `ir_lower::IrTermBuilder` | Term construction only (Z3 / CVC5 / SMT-LIB builders) | IR semantics |
 | Z3 / CVC5 / portfolio | `check-sat`, models, timeouts | Re-interpreting IR differently |
 | SMT-LIB / shell CVC5 | Transport when `cvc5-verify` off | Second IR/havoc policy |
@@ -697,6 +698,9 @@ passes on the latest SHA (not only `test` / `clippy`).
    `portfolio_policy`; entry only runs solvers and threads.
 2i. Lemma `apply` ref walks and which ensures bodies to inject go in
    `lemma_inject_policy`; backends only encode/assert those bodies.
+2j. `TriggerManager` seeding from clause/expr trees (Call/MethodCall names)
+   goes in `trigger_seed_policy`; pattern validation and term encode stay
+   backend-local.
 3. Known unimplemented encodings use `VerificationResult::unknown_not_encoded`
    (includes `KNOWN_SMT_LIMITATION_MARKER`); CLI treats those as warnings.
 4. `VerifyOptions::enable_cache` defaults **off** (IR sidecar / encoder

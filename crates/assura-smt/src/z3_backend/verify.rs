@@ -144,7 +144,10 @@ fn verify_clauses_with_types(
 
     // Register known function names for trigger inference
     for other_clause in clauses {
-        collect_function_names_for_triggers(&other_clause.body, &mut base_encoder.trigger_manager);
+        crate::trigger_seed_policy::register_trigger_functions_from_expr(
+            &other_clause.body,
+            &mut base_encoder.trigger_manager,
+        );
     }
 
     let havoc_input = crate::havoc_assume::HavocAssumeInput {
@@ -270,12 +273,10 @@ fn verify_clauses_with_types(
                 .vars
                 .insert(name.clone(), super::encoder::Z3Value::Int(concrete));
         }
-        for other_clause in clauses {
-            collect_function_names_for_triggers(
-                &other_clause.body,
-                &mut clause_encoder.trigger_manager,
-            );
-        }
+        crate::trigger_seed_policy::seed_trigger_manager_from_clauses(
+            clauses,
+            &mut clause_encoder.trigger_manager,
+        );
 
         // T045 / Tier A3: frame axioms from shared clause_policy (ensures + modifies).
         for var_name in crate::clause_policy::frame_axiom_vars_for_clause(
@@ -685,62 +686,10 @@ pub(crate) fn verify_impl_with_timeout(
     results
 }
 
-/// Collect function names from an expression tree and register them
-/// with the trigger manager for quantifier e-matching.
-fn collect_function_names_for_triggers(expr: &SpExpr, tm: &mut crate::advanced::TriggerManager) {
-    match &expr.node {
-        Expr::Call { func, args } => {
-            if let Expr::Ident(name) = &func.as_ref().node {
-                tm.register_function(name.clone());
-            }
-            for a in args {
-                collect_function_names_for_triggers(a, tm);
-            }
-        }
-        Expr::MethodCall {
-            receiver,
-            method,
-            args,
-        } => {
-            tm.register_function(method.clone());
-            collect_function_names_for_triggers(receiver, tm);
-            for a in args {
-                collect_function_names_for_triggers(a, tm);
-            }
-        }
-        Expr::BinOp { lhs, rhs, .. } => {
-            collect_function_names_for_triggers(lhs, tm);
-            collect_function_names_for_triggers(rhs, tm);
-        }
-        Expr::UnaryOp { expr: e, .. } | Expr::Old(e) | Expr::Ghost(e) => {
-            collect_function_names_for_triggers(e, tm);
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            collect_function_names_for_triggers(cond, tm);
-            collect_function_names_for_triggers(then_branch, tm);
-            if let Some(eb) = else_branch {
-                collect_function_names_for_triggers(eb, tm);
-            }
-        }
-        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
-            collect_function_names_for_triggers(domain, tm);
-            collect_function_names_for_triggers(body, tm);
-        }
-        Expr::Index { expr: e, index } => {
-            collect_function_names_for_triggers(e, tm);
-            collect_function_names_for_triggers(index, tm);
-        }
-        _ => {}
-    }
-}
-
 // Helper functions (extract_numeric_arg, resolve_prophecy_vars,
 // constrain_prophecy_vars, collect_prophecy_refs) moved to entry.rs
 // as shared solver-agnostic code used by both Z3 and CVC5 paths.
+// Trigger function registration: `crate::trigger_seed_policy`.
 
 #[cfg(test)]
 mod tests {
