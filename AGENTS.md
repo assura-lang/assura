@@ -666,6 +666,7 @@ passes on the latest SHA (not only `test` / `clippy`).
 | `trigger_seed_policy` | Call/MethodCall walk seeding `TriggerManager` for e-matching | Divergent/incomplete Z3 vs CVC5 trigger registration |
 | `encode_atom_policy` | Atom/naming + SMT-LIB binop/literal shapes (`result`, `__apply_`, `__field_`, `__fresh_`/`__list_`/`__tuple_`, floats, internal-var filter) | Divergent encoder constants / SMT-LIB atom text |
 | `encode_raw_ops_policy` | Raw Pratt ops, quantifier/range-guard SMT-LIB, token slice helpers | Divergent shell vs native raw operator/quantifier text |
+| `encode_quantifier_policy` | AST quantifier domain/guard orchestration (`domain_as_range`, SMT-LIB forall/exists) | Divergent Z3 vs CVC5 quantifier encode paths |
 | `ir_lower::IrTermBuilder` | Term construction only (Z3 / CVC5 / SMT-LIB builders) | IR semantics |
 | Z3 `Encoder` / CVC5 `encode_expr_cvc5` | Solver **terms** from `Expr` (still separate) | Claiming full expr-encode is unified |
 | Z3 / CVC5 / portfolio | `check-sat`, models, timeouts | Re-interpreting IR differently |
@@ -713,8 +714,14 @@ passes on the latest SHA (not only `test` / `clippy`).
    incrementally, do not claim one `encode_expr` yet.
 2l. Raw-token Pratt operators, quantifier/range/domain-guard **SMT-LIB
    shapes**, and token-slice helpers go in `encode_raw_ops_policy`. CVC5
-   keeps `domain_as_range` (`SpExpr`) and `apply_raw_op_cvc5` / Kind maps
-   in `cvc5_raw_ops` (term construction only).
+   keeps `apply_raw_op_cvc5` / Kind maps in `cvc5_raw_ops` (term
+   construction only); `domain_as_range` lives in `encode_quantifier_policy`.
+2m. AST quantifier domain/guard **orchestration** (range vs collection
+   domain, SMT-LIB `forall`/`exists` with guard, `__domain_contains` /
+   `__domain_unknown` names) goes in `encode_quantifier_policy`. CVC5
+   keeps `guard_quantifier_body_cvc5` / `encode_ast_quantifier_cvc5`
+   (term construction only). Z3 AST quantifiers may adopt these helpers
+   incrementally without claiming one `encode_expr`.
 3. Known unimplemented encodings use `VerificationResult::unknown_not_encoded`
    (includes `KNOWN_SMT_LIMITATION_MARKER`); CLI treats those as warnings.
 4. `VerifyOptions::enable_cache` defaults **off** (IR sidecar / encoder

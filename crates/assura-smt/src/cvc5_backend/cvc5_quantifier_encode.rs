@@ -1,52 +1,29 @@
 //! Shared quantifier encoding for CVC5 shell-out and native backends.
-
-use assura_ast::SpExpr;
+//!
+//! SMT-LIB orchestration lives in [`crate::encode_quantifier_policy`]; this
+//! module re-exports stable names and keeps CVC5-native term construction.
 
 #[cfg(feature = "cvc5-verify")]
-use assura_ast::Expr;
+use assura_ast::{Expr, SpExpr};
 
-use crate::cvc5_common::sanitize_smtlib_name;
-use crate::cvc5_raw_ops::{
-    domain_as_range, domain_contains_guard_smtlib, range_guard_smtlib, wrap_ast_quantifier_smtlib,
+// Re-exports: encode_quantifier_policy (encode convergence step 3)
+// Callers import via `cvc5_quantifier_encode`; default builds only hit re-exports from shell paths.
+#[cfg_attr(
+    not(any(test, feature = "cvc5-verify")),
+    allow(
+        unused_imports,
+        reason = "stable import path for shell/native call sites"
+    )
+)]
+pub(crate) use crate::encode_quantifier_policy::{
+    encode_ast_quantifier_smtlib, encode_quantifier_domain_guard_smtlib,
 };
 
 #[cfg(feature = "cvc5-verify")]
+use crate::cvc5_raw_ops::domain_as_range;
+
+#[cfg(feature = "cvc5-verify")]
 use assura_types::checkers::expr_references_var;
-
-/// Build the domain guard for an AST quantifier in SMT-LIB2.
-pub(crate) fn encode_quantifier_domain_guard_smtlib<F>(
-    domain: &SpExpr,
-    var: &str,
-    mut encode: F,
-) -> Option<String>
-where
-    F: FnMut(&SpExpr) -> Option<String>,
-{
-    if let Some((lo, hi)) = domain_as_range(domain) {
-        let lo_s = encode(lo)?;
-        let hi_s = encode(hi)?;
-        Some(range_guard_smtlib(var, &lo_s, &hi_s))
-    } else {
-        let d = encode(domain).unwrap_or_else(|| var.to_string());
-        Some(domain_contains_guard_smtlib(&d, var))
-    }
-}
-
-/// Encode `forall`/`exists` with domain guard in SMT-LIB2.
-pub(crate) fn encode_ast_quantifier_smtlib<F>(
-    is_forall: bool,
-    var: &str,
-    domain: &SpExpr,
-    body_smt: &str,
-    encode_domain: F,
-) -> Option<String>
-where
-    F: FnMut(&SpExpr) -> Option<String>,
-{
-    let v = sanitize_smtlib_name(var);
-    let guard = encode_quantifier_domain_guard_smtlib(domain, &v, encode_domain)?;
-    Some(wrap_ast_quantifier_smtlib(is_forall, &v, &guard, body_smt))
-}
 
 /// Combine a domain guard with a quantifier body (native API).
 #[cfg(feature = "cvc5-verify")]
@@ -73,13 +50,20 @@ where
         let lt_hi = ctx.tm.mk_term(cvc5::Kind::Lt, &[bound_var.clone(), hi_val]);
         ctx.tm.mk_term(cvc5::Kind::And, &[ge_lo, lt_hi])
     } else {
-        let domain_val = encode(domain, ctx)
-            .unwrap_or_else(|| ctx.tm.mk_const(ctx.tm.integer_sort(), "__domain_unknown"));
+        let domain_val = encode(domain, ctx).unwrap_or_else(|| {
+            ctx.tm.mk_const(
+                ctx.tm.integer_sort(),
+                crate::encode_quantifier_policy::DOMAIN_UNKNOWN_NAME,
+            )
+        });
         let contains_sort = ctx.tm.mk_fun_sort(
             &[ctx.tm.integer_sort(), ctx.tm.integer_sort()],
             ctx.tm.boolean_sort(),
         );
-        let contains_fn = ctx.tm.mk_const(contains_sort, "__domain_contains");
+        let contains_fn = ctx.tm.mk_const(
+            contains_sort,
+            crate::encode_quantifier_policy::DOMAIN_CONTAINS_UF_NAME,
+        );
         ctx.tm.mk_term(
             cvc5::Kind::ApplyUf,
             &[contains_fn, domain_val, bound_var.clone()],
