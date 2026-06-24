@@ -6,7 +6,6 @@
 //! Complements [`crate::encode_atom_policy`] (identifier/UF **names**) and
 //! [`crate::encode_raw_ops_policy`] (raw operators).
 //!
-//! Prefer importing this module directly (not via `cvc5_builtins` re-exports).
 //! Still **not** full `Expr` → solver term encode: Z3 `Encoder` and CVC5 term
 //! builders remain backend-local; only dispatch tables and SMT-LIB method text
 //! live here.
@@ -382,15 +381,65 @@ mod tests {
     }
 
     #[test]
+    fn classify_substr_alias() {
+        assert_eq!(
+            classify_known_builtin("substr", 3),
+            Some(KnownBuiltin::Substring)
+        );
+        assert_eq!(
+            classify_known_builtin("substring", 3),
+            Some(KnownBuiltin::Substring)
+        );
+    }
+
+    #[test]
     fn classify_collection_methods_parity() {
         assert_eq!(classify_known_builtin("push", 2), Some(KnownBuiltin::Push));
         assert_eq!(
             classify_known_builtin("push_back", 2),
             Some(KnownBuiltin::Push)
         );
+        assert_eq!(classify_known_builtin("pop", 1), Some(KnownBuiltin::Pop));
+        assert_eq!(
+            classify_known_builtin("reverse", 1),
+            Some(KnownBuiltin::Reverse)
+        );
+        assert_eq!(
+            classify_known_builtin("clear", 1),
+            Some(KnownBuiltin::Clear)
+        );
+        assert_eq!(classify_known_builtin("take", 2), Some(KnownBuiltin::Take));
+        assert_eq!(classify_known_builtin("drop", 2), Some(KnownBuiltin::Drop));
+        assert_eq!(
+            classify_known_builtin("slice", 3),
+            Some(KnownBuiltin::Slice)
+        );
+        assert_eq!(
+            classify_known_builtin("insert", 3),
+            Some(KnownBuiltin::Insert)
+        );
+        assert_eq!(
+            classify_known_builtin("remove", 2),
+            Some(KnownBuiltin::Remove)
+        );
+        assert_eq!(
+            classify_known_builtin("append", 2),
+            Some(KnownBuiltin::Append)
+        );
+        assert_eq!(
+            classify_known_builtin("clone", 1),
+            Some(KnownBuiltin::Clone)
+        );
+        assert_eq!(classify_known_builtin("tail", 1), Some(KnownBuiltin::Tail));
+        assert_eq!(
+            classify_known_builtin("first", 1),
+            Some(KnownBuiltin::First)
+        );
         assert_eq!(classify_known_builtin("get", 2), Some(KnownBuiltin::Get));
         assert_eq!(classify_known_builtin("abs", 2), None);
         assert_eq!(classify_known_builtin("unknown", 1), None);
+        assert_eq!(classify_known_builtin("push", 1), None);
+        assert_eq!(classify_known_builtin("get", 1), None);
         assert!(is_known_builtin("push", 2));
         assert!(is_min_max_builtin("min", 2));
         assert!(is_min_max_builtin("max", 2));

@@ -10,7 +10,7 @@
 pub(crate) mod cvc5_adt;
 pub(crate) mod cvc5_atom_encode;
 pub(crate) mod cvc5_binop_encode;
-pub(crate) mod cvc5_builtins;
+// cvc5_builtins removed: policy lives in encode_method_policy / encode_atom_policy.
 pub(crate) mod cvc5_call_encode;
 pub(crate) mod cvc5_collect;
 pub(crate) mod cvc5_common;
