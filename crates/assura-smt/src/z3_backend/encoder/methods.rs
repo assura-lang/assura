@@ -54,7 +54,7 @@ impl Encoder {
                     // Integer encoding (default): named integer constant.
                     // Two identical string literals produce the same constant,
                     // so equality works. Different strings get different constants.
-                    let const_name = format!("__str_{s}");
+                    let const_name = crate::encode_atom_policy::string_literal_const_name(s);
                     let str_val = ast::Int::new_const(const_name.clone());
 
                     // Track this string constant for pairwise distinctness axioms.
@@ -243,7 +243,9 @@ impl Encoder {
                 // Use a named bool so the solver can constrain it via
                 // lemma injection. If the lemma is missing, this stays
                 // unconstrained (not trivially true).
-                Z3Value::Bool(ast::Bool::new_const(format!("__apply_{lemma_name}")))
+                Z3Value::Bool(ast::Bool::new_const(
+                    crate::encode_atom_policy::apply_lemma_const_name(lemma_name),
+                ))
             }
 
             // --- Match: encode as ITE chain over arm bodies ---
@@ -524,7 +526,7 @@ impl Encoder {
 
         // --- `result` keyword ---
         if tok == "result" {
-            let v = self.get_or_create_int("__result");
+            let v = self.get_or_create_int(crate::encode_atom_policy::RESULT_VAR_NAME);
             return (Z3Value::Int(v), start + 1);
         }
 

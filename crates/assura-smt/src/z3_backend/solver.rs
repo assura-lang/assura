@@ -36,8 +36,8 @@ pub(super) fn extract_counter_model(model: &Model) -> CounterexampleModel {
             continue;
         }
         let name = decl.name();
-        // Skip internal/fresh/coercion variables, but keep __result
-        if name.starts_with("__") && name != "__result" {
+        // Skip internal/fresh/coercion variables, but keep contract `result` binding.
+        if name.starts_with("__") && name != crate::encode_atom_policy::RESULT_VAR_NAME {
             continue;
         }
         // Try to get the interpretation as a string
