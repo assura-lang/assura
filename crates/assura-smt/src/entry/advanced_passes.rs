@@ -552,48 +552,21 @@ pub(crate) fn verify_portfolio_parallel(
     })
 }
 
-/// Merge Z3 and CVC5 results per-clause.
-///
-/// For each position, prefer the definitive result (Verified or Counterexample,
-/// favoring Z3 for richer counter-models). Fall back to the less-bad
-/// inconclusive result.
+/// Merge Z3 and CVC5 results per-clause (delegates to [`crate::portfolio_policy`]).
 #[cfg(feature = "z3-verify")]
 pub(crate) fn merge_portfolio_results(
     z3: Vec<VerificationResult>,
     cvc5: Vec<VerificationResult>,
 ) -> Vec<VerificationResult> {
-    let mut merged = Vec::with_capacity(z3.len().max(cvc5.len()));
-    let mut cvc5_iter = cvc5.into_iter();
-    for z3r in z3 {
-        if let Some(cvc5r) = cvc5_iter.next() {
-            merged.push(pick_better_result(z3r, cvc5r));
-        } else {
-            merged.push(z3r);
-        }
-    }
-    // Any extra CVC5 results (CVC5 found more clauses)
-    merged.extend(cvc5_iter);
-    merged
+    crate::portfolio_policy::merge_portfolio_results(z3, cvc5)
 }
 
-/// Pick the better of two results for the same clause.
-///
-/// Priority: Verified > Counterexample > Unknown > Timeout.
-/// Between equal priorities, prefer Z3 (richer counter-models).
+/// Pick the better of two results for the same clause (delegates to [`crate::portfolio_policy`]).
 #[cfg(feature = "z3-verify")]
+#[allow(dead_code)] // re-export for tests / call sites that still use this name
 pub(crate) fn pick_better_result(
     z3r: VerificationResult,
     cvc5r: VerificationResult,
 ) -> VerificationResult {
-    fn priority(r: &VerificationResult) -> u8 {
-        match r {
-            VerificationResult::Verified { .. } => 3,
-            VerificationResult::Counterexample { .. } => 2,
-            VerificationResult::Unknown { .. } => 1,
-            VerificationResult::Timeout { .. } => 0,
-        }
-    }
-    let z3_pri = priority(&z3r);
-    let cvc5_pri = priority(&cvc5r);
-    if z3_pri >= cvc5_pri { z3r } else { cvc5r }
+    crate::portfolio_policy::pick_better_portfolio_result(z3r, cvc5r)
 }

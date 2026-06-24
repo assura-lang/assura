@@ -6,9 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 use assura_ast::{ClauseKind, SpExpr};
 
-use crate::cvc5_common::{
-    collect_apply_refs_from_expr, is_internal_cvc5_var, sanitize_smtlib_name,
-};
+use crate::cvc5_common::{is_internal_cvc5_var, sanitize_smtlib_name};
 use crate::cvc5_native_encoder::{Cvc5EncoderState, encode_expr_cvc5};
 use crate::cvc5_verify_shared::{
     Cvc5ClauseSatOutcome, Cvc5TypeConstraint, collect_cvc5_type_constraints,
@@ -219,16 +217,10 @@ pub(crate) fn inject_cvc5_lemma_assumptions_for_bodies<'a, I>(
 ) where
     I: IntoIterator<Item = &'a SpExpr>,
 {
-    for body in bodies {
-        let apply_refs = collect_apply_refs_from_expr(body);
-        for lemma_name in &apply_refs {
-            if let Some(ensures_bodies) = defs.get(lemma_name) {
-                for ens_body in ensures_bodies {
-                    if let Some(term) = encode_expr_cvc5(tm, ens_body, var_map, enc_state) {
-                        solver.assert_formula(term);
-                    }
-                }
-            }
+    let bodies_vec: Vec<&SpExpr> = bodies.into_iter().collect();
+    for ens_body in crate::lemma_inject_policy::lemma_ensures_bodies_for_exprs(bodies_vec, defs) {
+        if let Some(term) = encode_expr_cvc5(tm, ens_body, var_map, enc_state) {
+            solver.assert_formula(term);
         }
     }
 }

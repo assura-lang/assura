@@ -8,7 +8,7 @@
 //! [`crate::havoc_assume`] (havoc+assume order). Does **not** unify expression
 //! encoding (`Encoder` vs `encode_expr_cvc5`).
 
-use assura_ast::{Clause, Param};
+use assura_ast::Param;
 
 /// Solver-neutral prelude constraint (Nat bounds, named constants, feature_max caps).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,22 +198,6 @@ pub(crate) fn track_requires_unsat_cores(requires_count: usize) -> bool {
 #[inline]
 pub(crate) fn use_incremental_clause_push_pop(verifiable_count: usize) -> bool {
     verifiable_count > 1
-}
-
-/// Lemma names referenced via `apply` in any contract clause (for lemma ensures injection).
-///
-/// Thin wrapper so Z3/CVC5 share one collection entry; implementation delegates to
-/// `cvc5_common` which is available without `z3-verify`.
-pub(crate) fn collect_apply_refs_from_clauses(clauses: &[Clause]) -> Vec<String> {
-    let mut refs = Vec::new();
-    for clause in clauses {
-        refs.extend(crate::cvc5_common::collect_apply_refs_from_expr(
-            &clause.body,
-        ));
-    }
-    refs.sort();
-    refs.dedup();
-    refs
 }
 
 #[cfg(test)]

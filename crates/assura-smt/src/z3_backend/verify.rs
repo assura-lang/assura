@@ -208,16 +208,13 @@ fn verify_clauses_with_types(
         }
     }
 
-    // T044: Inject lemma ensures as assumptions for any `apply` refs
-    let apply_refs = crate::prelude_policy::collect_apply_refs_from_clauses(clauses);
-    for lemma_name in &apply_refs {
-        if let Some(ensures_bodies) = lemma_defs.get(lemma_name) {
-            for ensures_body in ensures_bodies {
-                let ens_val = base_encoder.encode_expr(ensures_body);
-                let ens_bool = ens_val.as_bool();
-                solver.assert(&ens_bool);
-            }
-        }
+    // T044: Inject lemma ensures as assumptions for any `apply` refs (shared selection policy).
+    for ensures_body in
+        crate::lemma_inject_policy::lemma_ensures_bodies_for_clauses(clauses, lemma_defs)
+    {
+        let ens_val = base_encoder.encode_expr(ensures_body);
+        let ens_bool = ens_val.as_bool();
+        solver.assert(&ens_bool);
     }
 
     // Assert any background axioms from lemma encoding
