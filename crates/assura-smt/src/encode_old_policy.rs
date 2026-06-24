@@ -13,9 +13,13 @@
 //! (`result` → `__result`), so snapshots use [`old_ident_name`]. Z3 may keep
 //! source `result` as `result`, so snapshots use [`old_snapshot_name`]. Planning
 //! returns the source ident; backends pick the snapshot function.
+//!
+//! **Raw tokens:** [`classify_raw_old_inner`] handles `old(x)` / `old(x.f)` in
+//! Z3/CVC5 Pratt/raw parsers (inner tokens only, without the `old` keyword).
 
 use assura_ast::{Expr, SpExpr};
 
+use crate::encode_atom_policy::{field_uif_name, old_snapshot_name};
 use crate::encode_field_policy::{FieldAccessPlan, plan_field_access};
 
 /// How `old(inner)` should be encoded (pre-state snapshot strategy).
@@ -64,6 +68,45 @@ pub(crate) fn old_method_call_smtlib(method: &str, old_recv_smt: &str) -> String
     format!("({method} {old_recv_smt})")
 }
 
+/// How `old(...)` looks when only **inner** raw tokens are known (no full AST).
+///
+/// Used by Z3 `parse_raw_expr` / CVC5 `cvc5_raw_smtlib` before falling back to
+/// recursive parse or `__old_fresh_*`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RawOldPlan {
+    /// Single token: `old(x)` → snapshot name via [`old_snapshot_name`] (source-style).
+    Ident(String),
+    /// Three tokens `x . f`: shallow field UF on `old(x)` (raw parsers rarely flatten).
+    ShallowField { base: String, field: String },
+    /// Any other token sequence: backend parses inner or allocates a fresh old temp.
+    Complex,
+}
+
+/// Classify the token slice inside `old( ... )` (excludes the `old` keyword and parens).
+pub(crate) fn classify_raw_old_inner(inner: &[String]) -> RawOldPlan {
+    match inner {
+        [name] => RawOldPlan::Ident(name.clone()),
+        [base, dot, field] if dot == "." => RawOldPlan::ShallowField {
+            base: base.clone(),
+            field: field.clone(),
+        },
+        _ => RawOldPlan::Complex,
+    }
+}
+
+/// Source-style snapshot name for a raw ident (`x` → `x__old`, `result` → `result__old`).
+///
+/// Matches Z3/CVC5 raw-token paths that do not rewrite live `result` to `__result`.
+pub(crate) fn raw_old_ident_snapshot_name(name: &str) -> String {
+    old_snapshot_name(name)
+}
+
+/// SMT-LIB2 for raw `old(base.field)` as `(__field_f base__old)`.
+pub(crate) fn raw_old_shallow_field_smtlib(base: &str, field: &str) -> String {
+    let old_base = old_snapshot_name(base);
+    format!("({} {old_base})", field_uif_name(field))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,6 +145,30 @@ mod tests {
         assert_eq!(
             old_method_call_smtlib("length", "buf__old"),
             "(length buf__old)"
+        );
+    }
+
+    #[test]
+    fn classify_raw_old_inner_shapes() {
+        assert_eq!(
+            classify_raw_old_inner(&[String::from("x")]),
+            RawOldPlan::Ident("x".into())
+        );
+        assert_eq!(
+            classify_raw_old_inner(&["buf".into(), ".".into(), "len".into()]),
+            RawOldPlan::ShallowField {
+                base: "buf".into(),
+                field: "len".into(),
+            }
+        );
+        assert_eq!(
+            classify_raw_old_inner(&["a".into(), "+".into(), "b".into()]),
+            RawOldPlan::Complex
+        );
+        assert_eq!(raw_old_ident_snapshot_name("result"), "result__old");
+        assert_eq!(
+            raw_old_shallow_field_smtlib("buf", "len"),
+            "(__field_len buf__old)"
         );
     }
 }
