@@ -121,7 +121,7 @@ fn encode_is_empty_cvc5<'a>(
     state: &mut Cvc5EncoderState<'a>,
 ) -> cvc5::Term<'a> {
     let b = apply_int_uf_cvc5(tm, state, "is_empty", std::slice::from_ref(coll), true);
-    let len_val = collection_len_of_cvc5(tm, state, coll, "len");
+    let len_val = collection_len_of_cvc5(tm, state, coll, crate::encode_atom_policy::LEN_UF_NAME);
     let zero = tm.mk_integer(0);
     let len_is_zero = tm.mk_term(cvc5::Kind::Equal, &[len_val, zero]);
     // Both directions: empty iff length zero.
@@ -142,8 +142,10 @@ fn encode_contains_cvc5<'a>(
     state: &mut Cvc5EncoderState<'a>,
 ) -> cvc5::Term<'a> {
     let b = apply_int_uf_cvc5(tm, state, "contains", args, true);
-    let hay_len = collection_len_of_cvc5(tm, state, &args[0], "len");
-    let needle_len = collection_len_of_cvc5(tm, state, &args[1], "len");
+    let hay_len =
+        collection_len_of_cvc5(tm, state, &args[0], crate::encode_atom_policy::LEN_UF_NAME);
+    let needle_len =
+        collection_len_of_cvc5(tm, state, &args[1], crate::encode_atom_policy::LEN_UF_NAME);
     let zero = tm.mk_integer(0);
     state
         .axioms
@@ -167,8 +169,9 @@ fn encode_affix_pred_cvc5<'a>(
     state: &mut Cvc5EncoderState<'a>,
 ) -> cvc5::Term<'a> {
     let b = apply_int_uf_cvc5(tm, state, name, args, true);
-    let s_len = collection_len_of_cvc5(tm, state, &args[0], "len");
-    let aff_len = collection_len_of_cvc5(tm, state, &args[1], "len");
+    let s_len = collection_len_of_cvc5(tm, state, &args[0], crate::encode_atom_policy::LEN_UF_NAME);
+    let aff_len =
+        collection_len_of_cvc5(tm, state, &args[1], crate::encode_atom_policy::LEN_UF_NAME);
     let zero = tm.mk_integer(0);
     state
         .axioms
@@ -195,8 +198,10 @@ fn encode_contains_key_cvc5<'a>(
     state: &mut Cvc5EncoderState<'a>,
 ) -> cvc5::Term<'a> {
     let b = apply_int_uf_cvc5(tm, state, "contains_key", args, true);
-    let map_size = collection_len_of_cvc5(tm, state, &args[0], "size");
-    let map_len = collection_len_of_cvc5(tm, state, &args[0], "len");
+    let map_size =
+        collection_len_of_cvc5(tm, state, &args[0], crate::encode_atom_policy::SIZE_UF_NAME);
+    let map_len =
+        collection_len_of_cvc5(tm, state, &args[0], crate::encode_atom_policy::LEN_UF_NAME);
     state
         .axioms
         .push(tm.mk_term(cvc5::Kind::Equal, &[map_size.clone(), map_len]));
@@ -220,8 +225,14 @@ fn encode_len_preserving_cvc5<'a>(
     state: &mut Cvc5EncoderState<'a>,
 ) -> cvc5::Term<'a> {
     let result = fresh_int_cvc5(tm, state);
-    let old_len = collection_len_of_cvc5(tm, state, src, "len");
-    assert_collection_len_eq_cvc5(tm, state, &result, &old_len, "len");
+    let old_len = collection_len_of_cvc5(tm, state, src, crate::encode_atom_policy::LEN_UF_NAME);
+    assert_collection_len_eq_cvc5(
+        tm,
+        state,
+        &result,
+        &old_len,
+        crate::encode_atom_policy::LEN_UF_NAME,
+    );
     result
 }
 
@@ -235,11 +246,17 @@ fn encode_len_dec_cvc5<'a>(
     let result = fresh_int_cvc5(tm, state);
     let zero = tm.mk_integer(0);
     let one = tm.mk_integer(1);
-    let old_len = collection_len_of_cvc5(tm, state, src, "len");
+    let old_len = collection_len_of_cvc5(tm, state, src, crate::encode_atom_policy::LEN_UF_NAME);
     let dec = tm.mk_term(cvc5::Kind::Sub, &[old_len.clone(), one.clone()]);
     let cond = tm.mk_term(cvc5::Kind::Geq, &[old_len, one]);
     let new_len = tm.mk_term(cvc5::Kind::Ite, &[cond, dec, zero]);
-    assert_collection_len_eq_cvc5(tm, state, &result, &new_len, "len");
+    assert_collection_len_eq_cvc5(
+        tm,
+        state,
+        &result,
+        &new_len,
+        crate::encode_atom_policy::LEN_UF_NAME,
+    );
     result
 }
 
@@ -387,7 +404,8 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
         }
         KnownBuiltin::Split => {
             let result = fresh_int_cvc5(tm, state);
-            let res_len = collection_len_of_cvc5(tm, state, &result, "len");
+            let res_len =
+                collection_len_of_cvc5(tm, state, &result, crate::encode_atom_policy::LEN_UF_NAME);
             let one = tm.mk_integer(1);
             state
                 .axioms
@@ -424,16 +442,29 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
         KnownBuiltin::Clear => {
             let result = fresh_int_cvc5(tm, state);
             let zero = tm.mk_integer(0);
-            assert_collection_len_eq_cvc5(tm, state, &result, &zero, "len");
+            assert_collection_len_eq_cvc5(
+                tm,
+                state,
+                &result,
+                &zero,
+                crate::encode_atom_policy::LEN_UF_NAME,
+            );
             Some(result)
         }
         KnownBuiltin::Push => {
             let src = &args[0];
             let result = fresh_int_cvc5(tm, state);
             let one = tm.mk_integer(1);
-            let old_len = collection_len_of_cvc5(tm, state, src, "len");
+            let old_len =
+                collection_len_of_cvc5(tm, state, src, crate::encode_atom_policy::LEN_UF_NAME);
             let new_len = tm.mk_term(cvc5::Kind::Add, &[old_len, one]);
-            assert_collection_len_eq_cvc5(tm, state, &result, &new_len, "len");
+            assert_collection_len_eq_cvc5(
+                tm,
+                state,
+                &result,
+                &new_len,
+                crate::encode_atom_policy::LEN_UF_NAME,
+            );
             Some(result)
         }
         KnownBuiltin::Pop | KnownBuiltin::Tail => Some(encode_len_dec_cvc5(tm, &args[0], state)),
@@ -444,9 +475,16 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             let result = fresh_int_cvc5(tm, state);
             let one = tm.mk_integer(1);
             let zero = tm.mk_integer(0);
-            let old_len = collection_len_of_cvc5(tm, state, src, "len");
+            let old_len =
+                collection_len_of_cvc5(tm, state, src, crate::encode_atom_policy::LEN_UF_NAME);
             let new_len = tm.mk_term(cvc5::Kind::Add, &[old_len.clone(), one]);
-            assert_collection_len_eq_cvc5(tm, state, &result, &new_len, "len");
+            assert_collection_len_eq_cvc5(
+                tm,
+                state,
+                &result,
+                &new_len,
+                crate::encode_atom_policy::LEN_UF_NAME,
+            );
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Geq, &[idx.clone(), zero]));
@@ -476,7 +514,8 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             let end = &args[2];
             let result = fresh_int_cvc5(tm, state);
             let zero = tm.mk_integer(0);
-            let old_len = collection_len_of_cvc5(tm, state, src, "len");
+            let old_len =
+                collection_len_of_cvc5(tm, state, src, crate::encode_atom_policy::LEN_UF_NAME);
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Geq, &[start.clone(), zero]));
@@ -487,7 +526,13 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Leq, &[end.clone(), old_len]));
             let diff = tm.mk_term(cvc5::Kind::Sub, &[end.clone(), start.clone()]);
-            assert_collection_len_eq_cvc5(tm, state, &result, &diff, "len");
+            assert_collection_len_eq_cvc5(
+                tm,
+                state,
+                &result,
+                &diff,
+                crate::encode_atom_policy::LEN_UF_NAME,
+            );
             Some(result)
         }
         KnownBuiltin::Take => {
@@ -495,13 +540,20 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             let n = &args[1];
             let result = fresh_int_cvc5(tm, state);
             let zero = tm.mk_integer(0);
-            let old_len = collection_len_of_cvc5(tm, state, src, "len");
+            let old_len =
+                collection_len_of_cvc5(tm, state, src, crate::encode_atom_policy::LEN_UF_NAME);
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Geq, &[n.clone(), zero]));
             let cond = tm.mk_term(cvc5::Kind::Leq, &[n.clone(), old_len.clone()]);
             let taken = tm.mk_term(cvc5::Kind::Ite, &[cond, n.clone(), old_len]);
-            assert_collection_len_eq_cvc5(tm, state, &result, &taken, "len");
+            assert_collection_len_eq_cvc5(
+                tm,
+                state,
+                &result,
+                &taken,
+                crate::encode_atom_policy::LEN_UF_NAME,
+            );
             Some(result)
         }
         KnownBuiltin::Drop => {
@@ -509,21 +561,29 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             let n = &args[1];
             let result = fresh_int_cvc5(tm, state);
             let zero = tm.mk_integer(0);
-            let old_len = collection_len_of_cvc5(tm, state, src, "len");
+            let old_len =
+                collection_len_of_cvc5(tm, state, src, crate::encode_atom_policy::LEN_UF_NAME);
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Geq, &[n.clone(), zero.clone()]));
             let rem = tm.mk_term(cvc5::Kind::Sub, &[old_len.clone(), n.clone()]);
             let cond = tm.mk_term(cvc5::Kind::Leq, &[n.clone(), old_len]);
             let dropped = tm.mk_term(cvc5::Kind::Ite, &[cond, rem, zero]);
-            assert_collection_len_eq_cvc5(tm, state, &result, &dropped, "len");
+            assert_collection_len_eq_cvc5(
+                tm,
+                state,
+                &result,
+                &dropped,
+                crate::encode_atom_policy::LEN_UF_NAME,
+            );
             Some(result)
         }
         KnownBuiltin::First => Some(fresh_int_cvc5(tm, state)),
         KnownBuiltin::Get => {
             let coll = &args[0];
             let key = &args[1];
-            let get_func = intern_uf_cvc5(tm, state, "get", 2, false);
+            let get_func =
+                intern_uf_cvc5(tm, state, crate::encode_atom_policy::GET_UF_NAME, 2, false);
             let via_get = tm.mk_term(cvc5::Kind::ApplyUf, &[get_func, coll.clone(), key.clone()]);
             let idx_func = intern_uf_cvc5(
                 tm,
@@ -547,7 +607,8 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Geq, &[i.clone(), zero]));
-            let get_func = intern_uf_cvc5(tm, state, "get", 2, false);
+            let get_func =
+                intern_uf_cvc5(tm, state, crate::encode_atom_policy::GET_UF_NAME, 2, false);
             let get_result_i =
                 tm.mk_term(cvc5::Kind::ApplyUf, &[get_func, result.clone(), i.clone()]);
             state
@@ -565,8 +626,15 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Equal, &[via_idx, v.clone()]));
             // Preserve length (link via both len and __field_len).
-            let old_len = collection_len_of_cvc5(tm, state, arr, "len");
-            assert_collection_len_eq_cvc5(tm, state, &result, &old_len, "len");
+            let old_len =
+                collection_len_of_cvc5(tm, state, arr, crate::encode_atom_policy::LEN_UF_NAME);
+            assert_collection_len_eq_cvc5(
+                tm,
+                state,
+                &result,
+                &old_len,
+                crate::encode_atom_policy::LEN_UF_NAME,
+            );
             Some(result)
         }
         KnownBuiltin::Put => {
@@ -574,7 +642,8 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             let k = &args[1];
             let v = &args[2];
             let result = fresh_int_cvc5(tm, state);
-            let get_func = intern_uf_cvc5(tm, state, "get", 2, false);
+            let get_func =
+                intern_uf_cvc5(tm, state, crate::encode_atom_policy::GET_UF_NAME, 2, false);
             let get_result_k =
                 tm.mk_term(cvc5::Kind::ApplyUf, &[get_func, result.clone(), k.clone()]);
             state
@@ -589,10 +658,12 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
                 true,
             );
             state.axioms.push(ck);
-            let size_func = intern_uf_cvc5(tm, state, "size", 1, false);
+            let size_func =
+                intern_uf_cvc5(tm, state, crate::encode_atom_policy::SIZE_UF_NAME, 1, false);
             let size_result = tm.mk_term(cvc5::Kind::ApplyUf, &[size_func.clone(), result.clone()]);
             let size_map = tm.mk_term(cvc5::Kind::ApplyUf, &[size_func, map.clone()]);
-            let old_len = collection_len_of_cvc5(tm, state, map, "len");
+            let old_len =
+                collection_len_of_cvc5(tm, state, map, crate::encode_atom_policy::LEN_UF_NAME);
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Equal, &[size_map.clone(), old_len]));
@@ -607,7 +678,8 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Geq, &[size_result.clone(), one]));
-            let new_len = collection_len_of_cvc5(tm, state, &result, "len");
+            let new_len =
+                collection_len_of_cvc5(tm, state, &result, crate::encode_atom_policy::LEN_UF_NAME);
             state
                 .axioms
                 .push(tm.mk_term(cvc5::Kind::Equal, &[new_len, size_result]));
@@ -640,7 +712,7 @@ pub(crate) fn encode_uf_call_cvc5<'a>(
         return Some(apply_int_uf_cvc5(tm, state, f_name, encoded_args, true));
     }
     if state.use_string_theory
-        && matches!(f_name, "len" | "length")
+        && crate::encode_atom_policy::is_length_method_name(f_name)
         && encoded_args.len() == 1
         && encoded_args[0].sort().is_string()
     {
@@ -652,15 +724,15 @@ pub(crate) fn encode_uf_call_cvc5<'a>(
         return Some(len);
     }
     // Size-like methods: non-negativity + unify len/length/size/__field_len (Z3 parity).
-    if matches!(f_name, "len" | "length" | "size" | "count" | "capacity") && encoded_args.len() == 1
-    {
+    if crate::encode_atom_policy::is_size_field_name(f_name) && encoded_args.len() == 1 {
         let coll = &encoded_args[0];
-        let len_val = collection_len_of_cvc5(tm, state, coll, "len");
+        let len_val =
+            collection_len_of_cvc5(tm, state, coll, crate::encode_atom_policy::LEN_UF_NAME);
         let zero = tm.mk_integer(0);
         state
             .axioms
             .push(tm.mk_term(cvc5::Kind::Geq, &[len_val.clone(), zero]));
-        if f_name != "len" {
+        if f_name != crate::encode_atom_policy::LEN_UF_NAME {
             let via_method = apply_unary_int_uf_cvc5(tm, state, f_name, coll);
             state
                 .axioms
@@ -672,7 +744,7 @@ pub(crate) fn encode_uf_call_cvc5<'a>(
             .push(tm.mk_term(cvc5::Kind::Equal, &[via_fl, len_val.clone()]));
         return Some(len_val);
     }
-    if matches!(f_name, "len" | "length" | "size" | "count" | "capacity") {
+    if crate::encode_atom_policy::is_size_field_name(f_name) {
         let result = apply_int_uf_cvc5(tm, state, f_name, encoded_args, false);
         let zero = tm.mk_integer(0);
         state
@@ -691,7 +763,7 @@ pub(crate) fn field_len_of_receiver_cvc5<'a>(
 ) -> cvc5::Term<'a> {
     // Use unified length (links len + __field_len) so temporaries from push/concat agree
     // with method-form `.length()` access.
-    let len = collection_len_of_cvc5(tm, state, recv_val, "len");
+    let len = collection_len_of_cvc5(tm, state, recv_val, crate::encode_atom_policy::LEN_UF_NAME);
     let zero = tm.mk_integer(0);
     state
         .axioms

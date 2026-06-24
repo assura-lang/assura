@@ -650,7 +650,7 @@ impl Encoder {
         //   __typestate_<name> == hash(state_name)
         if next + 1 < tokens.len() && tokens[next] == "@" {
             let state_name = &tokens[next + 1];
-            let ts_var_name = format!("__typestate_{name}");
+            let ts_var_name = crate::encode_atom_policy::typestate_var_name(&name);
             let ts_var = self.get_or_create_int(&ts_var_name);
             let state_val = ast::Int::from_i64(self.pattern_hash(state_name));
             return (Z3Value::Bool(ts_var.eq(&state_val)), next + 2);
@@ -759,7 +759,7 @@ impl Encoder {
             }
 
             // Size-like functions get non-negativity axiom
-            if matches!(func_name, "len" | "length" | "size" | "count" | "capacity") {
+            if crate::encode_atom_policy::is_size_field_name(func_name) {
                 let decl = self.make_func(func_name, arg_vals.len().max(1));
                 let arg_refs: Vec<&dyn z3::ast::Ast> =
                     arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();

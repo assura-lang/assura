@@ -96,6 +96,15 @@ pub(crate) const FIELD_LEN_UF_NAME: &str = "__field_len";
 /// Alternate length UIF spelling used in some collection axioms (`len` without `__field_`).
 pub(crate) const LEN_UF_NAME: &str = "len";
 
+/// Collection/map element accessor UIF (`get(coll, key)`), distinct from [`LIST_GET_UF_NAME`].
+pub(crate) const GET_UF_NAME: &str = "get";
+
+/// Collection/map size UIF (`size(coll)`), often linked to [`LEN_UF_NAME`] via axioms.
+pub(crate) const SIZE_UF_NAME: &str = "size";
+
+/// Source method name `length` (aliases to [`LEN_UF_NAME`] / [`FIELD_LEN_UF_NAME`] at encode time).
+pub(crate) const LENGTH_METHOD_NAME: &str = "length";
+
 /// Whether `uf` is either [`LEN_UF_NAME`] or [`FIELD_LEN_UF_NAME`].
 pub(crate) fn is_length_uf_name(uf: &str) -> bool {
     uf == LEN_UF_NAME || uf == FIELD_LEN_UF_NAME
@@ -105,6 +114,37 @@ pub(crate) fn is_length_uf_name(uf: &str) -> bool {
 pub(crate) fn length_uf_names() -> [&'static str; 2] {
     [LEN_UF_NAME, FIELD_LEN_UF_NAME]
 }
+
+/// Source field/method names that encode as a non-negative size/length value.
+pub(crate) const SIZE_FIELD_NAMES: &[&str] = &[
+    LEN_UF_NAME,
+    LENGTH_METHOD_NAME,
+    SIZE_UF_NAME,
+    "capacity",
+    "count",
+];
+
+/// Whether `name` is a size-like field/method (`len` / `length` / `size` / `count` / `capacity`).
+pub(crate) fn is_size_field_name(name: &str) -> bool {
+    SIZE_FIELD_NAMES.contains(&name)
+}
+
+/// Whether `name` is specifically `len` or `length` (canonical length method/field).
+pub(crate) fn is_length_method_name(name: &str) -> bool {
+    name == LEN_UF_NAME || name == LENGTH_METHOD_NAME
+}
+
+/// Typestate snapshot variable (`__typestate_{name}`).
+pub(crate) fn typestate_var_name(name: &str) -> String {
+    format!("__typestate_{}", sanitize_smt_name(name))
+}
+
+/// Raw-token length UIF used in CVC5 dotted `.length` encode (`__length`).
+///
+/// Distinct from method name [`LENGTH_METHOD_NAME`] and field UIF [`FIELD_LEN_UF_NAME`].
+/// Referenced from CVC5 raw-native (`cvc5-verify` only in default builds).
+#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
+pub(crate) const RAW_LENGTH_UF_NAME: &str = "__length";
 
 /// Fresh temporary constant (`__fresh_{n}`).
 pub(crate) fn fresh_temp_name(counter: impl std::fmt::Display) -> String {
@@ -305,6 +345,7 @@ pub(crate) fn is_internal_encoder_var(name: &str) -> bool {
         || name.starts_with("__match_adt_")
         || name.starts_with("__call_")
         || name.starts_with("__old_fresh_")
+        || name.starts_with("__typestate_")
 }
 
 #[cfg(test)]
@@ -328,6 +369,15 @@ mod tests {
         assert!(is_length_uf_name(LEN_UF_NAME));
         assert!(!is_length_uf_name("size"));
         assert_eq!(length_uf_names(), [LEN_UF_NAME, FIELD_LEN_UF_NAME]);
+        assert_eq!(GET_UF_NAME, "get");
+        assert_eq!(SIZE_UF_NAME, "size");
+        assert_eq!(LENGTH_METHOD_NAME, "length");
+        assert_eq!(RAW_LENGTH_UF_NAME, "__length");
+        assert!(is_size_field_name("len"));
+        assert!(is_size_field_name("capacity"));
+        assert!(!is_size_field_name("push"));
+        assert_eq!(typestate_var_name("conn"), "__typestate_conn");
+        assert_eq!(typestate_var_name("a.b"), "__typestate_a_b");
         assert_eq!(fresh_temp_name(3), "__fresh_3");
         assert_eq!(list_fresh_name(1), "__list_1");
         assert_eq!(LIST_FRESH_PLACEHOLDER, "__list_fresh");
@@ -350,6 +400,7 @@ mod tests {
         assert!(is_internal_encoder_var("__match_adt_0"));
         assert!(is_internal_encoder_var("__call_1"));
         assert!(is_internal_encoder_var("__old_fresh_4"));
+        assert!(is_internal_encoder_var("__typestate_conn"));
         assert!(!is_internal_encoder_var("payload_length"));
     }
 
