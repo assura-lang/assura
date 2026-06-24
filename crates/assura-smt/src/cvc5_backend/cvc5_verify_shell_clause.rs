@@ -8,7 +8,8 @@ use crate::cvc5_collect::collect_vars;
 use crate::cvc5_expr_smtlib::expr_to_smtlib;
 use crate::cvc5_havoc_assume_smtlib::append_havoc_assume_smtlib;
 use crate::cvc5_verify_shared::{
-    cvc5_lookup_cached_clause, cvc5_unmodelable_precheck, store_cvc5_clause_cache,
+    cvc5_clause_cache_key, cvc5_lookup_cached_clause, cvc5_unmodelable_precheck,
+    store_cvc5_clause_cache,
 };
 use crate::cvc5_verify_shell_runner::{cvc5_shell_query_to_verification_result, run_cvc5_binary};
 use crate::cvc5_verify_shell_script::{
@@ -29,7 +30,7 @@ pub(crate) fn check_clause_cvc5_shellout(
     let prepared = &session.prepared;
     let contract = session.contract;
 
-    let cache_key = format!("{desc}::{kind:?}:{ensures_body:?}");
+    let cache_key = cvc5_clause_cache_key(desc, &kind, ensures_body);
     if let Some(result) = cvc5_lookup_cached_clause(session.cache, &cache_key, desc) {
         return result;
     }

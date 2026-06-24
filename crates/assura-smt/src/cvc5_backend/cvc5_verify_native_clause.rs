@@ -17,8 +17,8 @@ use crate::cvc5_verify_native_solver::{
     inject_cvc5_lemma_assumptions, new_cvc5_solver,
 };
 use crate::cvc5_verify_shared::{
-    cvc5_encode_failure, cvc5_lookup_cached_clause, cvc5_unmodelable_precheck,
-    store_cvc5_clause_cache,
+    cvc5_clause_cache_key, cvc5_encode_failure, cvc5_lookup_cached_clause,
+    cvc5_unmodelable_precheck, store_cvc5_clause_cache,
 };
 use crate::verify_context::{Cvc5ClauseVerifyInput, Cvc5ContractVerifySession};
 
@@ -32,7 +32,7 @@ pub(crate) fn check_clause_cvc5_native(
     let prepared = &session.prepared;
     let contract = session.contract;
 
-    let cache_key = format!("{desc}::{kind:?}:{ensures_body:?}");
+    let cache_key = cvc5_clause_cache_key(desc, &kind, ensures_body);
     if let Some(result) = cvc5_lookup_cached_clause(session.cache, &cache_key, desc) {
         return result;
     }

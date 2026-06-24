@@ -657,6 +657,7 @@ passes on the latest SHA (not only `test` / `clippy`).
 | `havoc_assume::apply_havoc_assume_policy` | Order: collection nonneg → length identity → IR body | Divergent order between Z3/CVC5/SMT-LIB |
 | `clause_policy::prepare_contract_clauses` | Verifiable/requires/ensures partition, feature Other dispatch, frame checker, check polarity | Z3-only or CVC5-only clause filters |
 | `prelude_policy::collect_prelude_constraints` | Nat/constant/narrowing prelude + verify step order + apply-ref collection | Divergent type prelude or step order between Z3/CVC5 |
+| `clause_gate_policy` | Per-clause unmodelable result, session cache key/tags, encode-failure shape | Divergent cache keys or limitation reason strings |
 | `ir_lower::IrTermBuilder` | Term construction only (Z3 / CVC5 / SMT-LIB builders) | IR semantics |
 | Z3 / CVC5 / portfolio | `check-sat`, models, timeouts | Re-interpreting IR differently |
 | SMT-LIB / shell CVC5 | Transport when `cvc5-verify` off | Second IR/havoc policy |
@@ -674,8 +675,11 @@ passes on the latest SHA (not only `test` / `clippy`).
 2c. New Nat/constant/narrowing prelude rules, or changes to verify step order
    (havoc before requires before type prelude before lemmas), go in
    `prelude_policy`. CVC5 filters by declared vars; Z3 asserts all names
-   (constants are encoder-bound, not re-asserted). Expression encode is
-   **not** fully unified yet; do not claim it is.
+   (constants are encoder-bound, not re-asserted).
+2d. Per-clause unmodelable/cache/encode-failure outcomes go in
+   `clause_gate_policy` (key includes `kind`; unmodelable uses
+   `unknown_not_encoded`). Unmodelable *walks* may still differ by backend
+   until expr-encode unifies. Expression encode is **not** fully unified yet.
 3. Known unimplemented encodings use `VerificationResult::unknown_not_encoded`
    (includes `KNOWN_SMT_LIMITATION_MARKER`); CLI treats those as warnings.
 4. `VerifyOptions::enable_cache` defaults **off** (IR sidecar / encoder

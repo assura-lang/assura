@@ -226,34 +226,30 @@ fn verify_clauses_with_types(
     }
     base_encoder.background_axioms.clear();
 
-    // For each verifiable clause: push, encode, check, pop
+    // For each verifiable clause: unmodelable → cache → solver → store (clause_gate_policy order)
+    let _gate_order = crate::clause_gate_policy::clause_gate_order();
     for clause in verifiable {
         let desc = clause_desc(parent_name, &clause.kind);
 
-        // Skip clauses with unmodelable features
-        if expr_has_unmodelable_features(&clause.body) {
-            let reasons = collect_unmodelable_reasons(&clause.body);
-            results.push(VerificationResult::Unknown {
-                clause_desc: desc,
-                reason: format!(
-                    "clause uses features not yet encoded in SMT ({})",
-                    reasons.join(", ")
-                ),
-            });
+        let has_unmodelable = expr_has_unmodelable_features(&clause.body);
+        let reasons = if has_unmodelable {
+            collect_unmodelable_reasons(&clause.body)
+        } else {
+            Vec::new()
+        };
+        if let Some(skip) =
+            crate::clause_gate_policy::unmodelable_precheck_if(&desc, has_unmodelable, &reasons)
+        {
+            results.push(skip);
             continue;
         }
 
-        // T113: Check verification cache before invoking Z3
-        let clause_hash = format!("{desc}:{:?}", clause.body);
-        if let Some(cached) = cache.lookup(&clause_hash) {
-            match cached.result.as_str() {
-                "verified" => results.push(VerificationResult::verified(desc)),
-                "timeout" => results.push(VerificationResult::Timeout { clause_desc: desc }),
-                other => results.push(VerificationResult::Unknown {
-                    clause_desc: desc,
-                    reason: other.to_string(),
-                }),
-            }
+        let clause_hash =
+            crate::clause_gate_policy::clause_session_cache_key(&desc, &clause.kind, &clause.body);
+        if let Some(cached) =
+            crate::clause_gate_policy::lookup_clause_session_cache(cache, &clause_hash, &desc)
+        {
+            results.push(cached);
             continue;
         }
 
@@ -334,15 +330,9 @@ fn verify_clauses_with_types(
             None => {}
         }
 
-        // T113: Cache the verification result
+        // T113: Cache the verification result (coarse tag via clause_gate_policy)
         if let Some(result) = results.get(result_before) {
-            let result_str = match result {
-                VerificationResult::Verified { .. } => "verified",
-                VerificationResult::Timeout { .. } => "timeout",
-                VerificationResult::Unknown { reason, .. } => reason.as_str(),
-                VerificationResult::Counterexample { .. } => "counterexample",
-            };
-            cache.insert(clause_hash, result_str.to_string(), 0);
+            crate::clause_gate_policy::store_clause_session_cache(cache, clause_hash, result);
         }
 
         if use_push_pop {
