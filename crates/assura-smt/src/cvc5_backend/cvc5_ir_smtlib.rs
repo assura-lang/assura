@@ -273,7 +273,7 @@ fn encode_ir_pred_arg_smtlib(
         IrPredArg::SlotResult => slots
             .get(&RESULT_SLOT)
             .cloned()
-            .unwrap_or_else(|| sanitize_smtlib_name("result")),
+            .unwrap_or_else(|| crate::encode_atom_policy::RESULT_VAR_NAME.to_string()),
         IrPredArg::Lit(IrLiteral::Int(n)) => n.to_string(),
         IrPredArg::Lit(IrLiteral::Float(f)) => format!("{}", *f as i64),
         IrPredArg::Lit(IrLiteral::Bool(b)) => {
@@ -341,7 +341,10 @@ pub(crate) fn append_ir_body_constraints_smtlib(
     }
 
     declare_int_var(script, vars, "result");
-    slots.insert(RESULT_SLOT, sanitize_smtlib_name("result"));
+    slots.insert(
+        RESULT_SLOT,
+        crate::encode_atom_policy::RESULT_VAR_NAME.to_string(),
+    );
 
     let slot_to_name: HashMap<usize, String> = ir_param_names(func, contract_param_names)
         .into_iter()

@@ -95,7 +95,9 @@ pub(crate) fn collect_prelude_constraints(
     if is_nat_type_tokens(return_ty) {
         // Z3 always asserts both; CVC5 filters if the var was not collected in the script/map.
         out.push(PreludeConstraint::NatNonNegative("result".into()));
-        out.push(PreludeConstraint::NatNonNegative("__result".into()));
+        out.push(PreludeConstraint::NatNonNegative(
+            crate::encode_atom_policy::RESULT_VAR_NAME.into(),
+        ));
     }
 
     for (name, value) in constants {
@@ -122,7 +124,8 @@ pub(crate) fn filter_prelude_constraints_by_vars(
         .iter()
         .filter_map(|c| match c {
             PreludeConstraint::NatNonNegative(name) => {
-                let key = if name == "result" || name == "__result" {
+                let key = if name == "result" || name == crate::encode_atom_policy::RESULT_VAR_NAME
+                {
                     name.clone()
                 } else {
                     sanitize(name)
@@ -250,7 +253,9 @@ mod tests {
         let cs = collect_prelude_constraints(&params, &["Nat".into()], &constants, &narrowings);
         assert!(cs.contains(&PreludeConstraint::NatNonNegative("n".into())));
         assert!(cs.contains(&PreludeConstraint::NatNonNegative("result".into())));
-        assert!(cs.contains(&PreludeConstraint::NatNonNegative("__result".into())));
+        assert!(cs.contains(&PreludeConstraint::NatNonNegative(
+            crate::encode_atom_policy::RESULT_VAR_NAME.into()
+        )));
         assert!(cs.contains(&PreludeConstraint::ConstantEq("MAX".into(), 10)));
         assert!(cs.contains(&PreludeConstraint::NarrowingLe("x".into(), 5)));
     }

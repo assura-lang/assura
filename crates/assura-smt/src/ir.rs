@@ -990,7 +990,7 @@ pub fn ir_to_rust(module: &IrModule) -> String {
         // Body instructions
         for instr in &func.body {
             let target = if instr.target == usize::MAX {
-                "__result".to_string()
+                crate::encode_atom_policy::RESULT_VAR_NAME.to_string()
             } else {
                 format!("slot_{}", instr.target)
             };
@@ -1058,7 +1058,7 @@ fn ir_expr_to_rust(expr: &IrExprKind) -> String {
         },
         IrExprKind::Load(s) => {
             if *s == usize::MAX {
-                "__result".to_string()
+                crate::encode_atom_policy::RESULT_VAR_NAME.to_string()
             } else {
                 format!("slot_{s}")
             }
@@ -1068,7 +1068,7 @@ fn ir_expr_to_rust(expr: &IrExprKind) -> String {
                 .iter()
                 .map(|a| {
                     if *a == usize::MAX {
-                        "__result".to_string()
+                        crate::encode_atom_policy::RESULT_VAR_NAME.to_string()
                     } else {
                         format!("slot_{a}")
                     }
@@ -1149,7 +1149,7 @@ fn pred_to_rust(pred: &IrPred) -> String {
 fn pred_arg_to_rust(arg: &IrPredArg) -> String {
     match arg {
         IrPredArg::Slot(n) => format!("slot_{n}"),
-        IrPredArg::SlotResult => "__result".to_string(),
+        IrPredArg::SlotResult => crate::encode_atom_policy::RESULT_VAR_NAME.to_string(),
         IrPredArg::Lit(lit) => match lit {
             IrLiteral::Int(n) => format!("{n}_i64"),
             IrLiteral::Float(f) => format!("{f}_f64"),
