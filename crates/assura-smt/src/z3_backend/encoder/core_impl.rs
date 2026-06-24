@@ -368,6 +368,12 @@ impl Encoder {
         })
     }
 
+    /// Encode a function/method call to Z3 (integer-encoding mode).
+    ///
+    /// Dispatch order for non-ADT / non-string-theory special cases is documented
+    /// by [`crate::encode_call_policy::classify_encode_call`] (min/max → bool UF →
+    /// sequence/string builtins → abs → get/set/put → size UF → uninterpreted).
+    /// Guards use [`crate::encode_method_policy`]; term construction stays here.
     pub(crate) fn encode_call(&mut self, func_name: &str, args: &[SpExpr]) -> Z3Value {
         if func_name.chars().next().is_some_and(|c| c.is_uppercase()) {
             self.init_adt_infrastructure();
@@ -406,6 +412,12 @@ impl Encoder {
             .iter()
             .map(|a| self.encode_expr(a).as_int(&mut self.fresh_counter))
             .collect();
+        // Shared order table (encode_call_policy); guards below still use method policy.
+        debug_assert_eq!(
+            crate::encode_call_policy::classify_encode_call(func_name, arg_vals.len())
+                == crate::encode_call_policy::EncodeCallKind::MinMax,
+            crate::encode_method_policy::is_min_max_builtin(func_name, arg_vals.len())
+        );
         // min/max: encode with ite so Z3 proves bounds (not unconstrained UF).
         // e.g. ensures { min(a, b) <= a } verifies under any a, b.
         // Dispatch arity/name via encode_method_policy (parity with CVC5 classify).
