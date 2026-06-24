@@ -14,7 +14,7 @@
 //! Complements [`crate::encode_method_policy`] (builtin tables / `is_*_builtin`)
 //! and [`crate::encode_atom_policy`] (UF/name atoms).
 
-use crate::encode_atom_policy::is_size_field_name;
+use crate::encode_atom_policy::{is_length_method_name, is_size_field_name};
 use crate::encode_method_policy::{
     KnownBuiltin, is_abs_builtin, is_bool_returning_uf, is_case_fold_method, is_char_at_builtin,
     is_clear_builtin, is_clone_builtin, is_concat_append_builtin, is_drop_builtin,
@@ -23,6 +23,43 @@ use crate::encode_method_policy::{
     is_reverse_builtin, is_set_builtin, is_slice_builtin, is_split_builtin, is_substring_builtin,
     is_tail_builtin, is_take_builtin, is_trim_builtin,
 };
+
+/// Fast paths handled **before** integer-arg encoding / [`classify_encode_call`].
+///
+/// Z3 `encode_call` and CVC5 call/method entry points share these categories;
+/// term construction (ADT ctor, `str.len`, canonical length var) stays backend-local.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EncodeCallPreamble {
+    /// Uppercase-leading name may be an ADT constructor (`Some`, `Ok`, …).
+    PossibleAdtConstructor,
+    /// `length` / `len` / … at arity 1 (string theory or canonical-ident fast path).
+    LengthMethodArity1,
+    /// No preamble fast path; continue with normal encode/classify.
+    None,
+}
+
+/// Classify pre-`arg_vals` / pre-`encode_known_builtin` fast paths.
+///
+/// `is_uppercase_ident` is true when the first character of the call target is
+/// uppercase (Z3/CVC5 constructor heuristic).
+pub(crate) fn classify_encode_call_preamble(
+    func_name: &str,
+    arity: usize,
+    is_uppercase_ident: bool,
+) -> EncodeCallPreamble {
+    if is_uppercase_ident {
+        return EncodeCallPreamble::PossibleAdtConstructor;
+    }
+    if is_length_method_name(func_name) && arity == 1 {
+        return EncodeCallPreamble::LengthMethodArity1;
+    }
+    EncodeCallPreamble::None
+}
+
+/// Method-call length fast path (`receiver.length()` / `.len()` with no extra args).
+pub(crate) fn is_receiver_length_method(method: &str, extra_arg_count: usize) -> bool {
+    is_length_method_name(method) && extra_arg_count == 0
+}
 
 /// Which encode-call / method path should apply for `func_name` at `arity`.
 ///
@@ -227,6 +264,30 @@ pub(crate) fn debug_assert_known_builtin_encode_kind(op: &str, arity: usize, kin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn classify_encode_call_preamble_arms() {
+        assert_eq!(
+            classify_encode_call_preamble("Some", 1, true),
+            EncodeCallPreamble::PossibleAdtConstructor
+        );
+        assert_eq!(
+            classify_encode_call_preamble("length", 1, false),
+            EncodeCallPreamble::LengthMethodArity1
+        );
+        assert_eq!(
+            classify_encode_call_preamble("len", 1, false),
+            EncodeCallPreamble::LengthMethodArity1
+        );
+        assert_eq!(
+            classify_encode_call_preamble("min", 2, false),
+            EncodeCallPreamble::None
+        );
+        assert!(is_receiver_length_method("length", 0));
+        assert!(is_receiver_length_method("len", 0));
+        assert!(!is_receiver_length_method("length", 1));
+        assert!(!is_receiver_length_method("push", 0));
+    }
 
     #[test]
     fn classify_order_min_max_before_uf() {

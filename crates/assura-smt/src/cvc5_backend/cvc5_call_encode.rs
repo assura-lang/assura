@@ -5,6 +5,7 @@ use assura_ast::{Expr, SpExpr};
 use crate::encode_atom_policy::{canonical_length_name, sanitize_smt_name};
 use crate::encode_call_policy::{
     EncodeCallKind, classify_encode_call, debug_assert_known_builtin_encode_kind,
+    is_receiver_length_method,
 };
 use crate::encode_method_policy::{classify_known_builtin, known_builtin_to_smtlib};
 
@@ -63,8 +64,7 @@ pub(crate) fn encode_method_call_smtlib<F>(
 where
     F: FnMut(&SpExpr) -> Option<String>,
 {
-    if matches!(method, "length" | "len")
-        && args.is_empty()
+    if is_receiver_length_method(method, args.len())
         && let Expr::Ident(name) = &receiver.node
     {
         return Some(canonical_length_name(name));
@@ -193,7 +193,7 @@ where
         &mut Cvc5EncoderState<'a>,
     ) -> Option<cvc5::Term<'a>>,
 {
-    if matches!(method, "length" | "len") && args.is_empty() {
+    if is_receiver_length_method(method, args.len()) {
         return encode_length_receiver_cvc5(tm, receiver, vars, state, encode);
     }
 
