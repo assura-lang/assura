@@ -14,7 +14,7 @@ assura-diagnostics = { path = "../assura-diagnostics" }
 assura-pipeline = { path = "../assura-pipeline" }
 assura-smt = { path = "../assura-smt" }
 assura-rust-analyzer = { path = "../assura-rust-analyzer" }
-rmcp = { version = "1.7", features = ["server", "transport-io"] }
+rmcp = { version = "1.8", features = ["server", "transport-io"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 schemars = "1"
