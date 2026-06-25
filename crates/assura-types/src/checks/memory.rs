@@ -22,28 +22,28 @@ pub(crate) fn run_memory_checks(source: &assura_parser::ast::SourceFile) -> Vec<
     // Per-function analysis: for each function with buffer-typed params,
     // check that its requires clauses include bounds checks.
     for decl in &source.decls {
-        let (params, clauses) = match &decl.node {
-            Decl::FnDef(f) => {
-                // Skip axioms, lemmas, and ghost functions: they are
-                // mathematical definitions without runtime semantics
-                // and should not require bounds-checking annotations.
-                if f.is_ghost || f.is_lemma {
-                    continue;
-                }
-                // Axioms are parsed as FnDef with is_lemma=false but
-                // use define/property clauses instead of requires/ensures.
-                // Skip any function that has no requires AND no ensures.
-                let has_runtime_contract = f
-                    .clauses
-                    .iter()
-                    .any(|c| c.kind == ClauseKind::Requires || c.kind == ClauseKind::Ensures);
-                if !has_runtime_contract {
-                    continue;
-                }
-                (f.params.as_slice(), f.clauses.as_slice())
+        let (params, clauses) = if let Decl::FnDef(f) = &decl.node {
+            // Skip axioms, lemmas, and ghost functions: they are
+            // mathematical definitions without runtime semantics
+            // and should not require bounds-checking annotations.
+            if f.is_ghost || f.is_lemma {
+                continue;
             }
-            Decl::Extern(e) => (e.params.as_slice(), e.clauses.as_slice()),
-            _ => continue,
+            // Axioms are parsed as FnDef with is_lemma=false but
+            // use define/property clauses instead of requires/ensures.
+            // Skip any function that has no requires AND no ensures.
+            let has_runtime_contract = f
+                .clauses
+                .iter()
+                .any(|c| c.kind == ClauseKind::Requires || c.kind == ClauseKind::Ensures);
+            if !has_runtime_contract {
+                continue;
+            }
+            (f.params.as_slice(), f.clauses.as_slice())
+        } else if let Decl::Extern(e) = &decl.node {
+            (e.params.as_slice(), e.clauses.as_slice())
+        } else {
+            continue;
         };
 
         let mut checker = MemoryChecker::new();

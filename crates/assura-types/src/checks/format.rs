@@ -525,31 +525,27 @@ pub(crate) fn run_opaque_function_checks(
     let mut checker = OpaqueFunctionChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        match &decl.node {
-            Decl::FnDef(f) => {
-                for clause in &f.clauses {
-                    if let ClauseKind::Other(ref k) = clause.kind
-                        && k == "opaque"
-                    {
-                        found = true;
-                        let has_contract = f
-                            .clauses
-                            .iter()
-                            .any(|c| matches!(c.kind, ClauseKind::Requires | ClauseKind::Ensures));
-                        checker.declare_opaque(f.name.clone(), has_contract, decl.span.clone());
-                    }
+        if let Decl::FnDef(f) = &decl.node {
+            for clause in &f.clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && k == "opaque"
+                {
+                    found = true;
+                    let has_contract = f
+                        .clauses
+                        .iter()
+                        .any(|c| matches!(c.kind, ClauseKind::Requires | ClauseKind::Ensures));
+                    checker.declare_opaque(f.name.clone(), has_contract, decl.span.clone());
                 }
             }
-            Decl::Contract(c) => {
-                for clause in &c.clauses {
-                    if let ClauseKind::Other(ref k) = clause.kind
-                        && k == "opaque"
-                    {
-                        found = true;
-                    }
+        } else if let Decl::Contract(c) = &decl.node {
+            for clause in &c.clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && k == "opaque"
+                {
+                    found = true;
                 }
             }
-            _ => {}
         }
     }
     if !found {
@@ -611,9 +607,8 @@ pub(crate) fn run_codec_registry_checks(source: &assura_parser::ast::SourceFile)
     let mut errors = Vec::new();
 
     for decl in &source.decls {
-        let cr = match &decl.node {
-            Decl::CodecRegistry(cr) => cr,
-            _ => continue,
+        let Decl::CodecRegistry(cr) = &decl.node else {
+            continue;
         };
 
         // A52001: Check for overlapping magic byte prefixes

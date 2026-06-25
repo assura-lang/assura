@@ -398,96 +398,85 @@ pub(crate) fn run_structural_invariant_checks(
     let mut errors = Vec::new();
 
     for decl in &source.decls {
-        match &decl.node {
-            Decl::TypeDef(td) => {
-                // Detect recursive types by checking if any field references
-                // the type name itself.
-                if let assura_parser::ast::TypeBody::Struct(fields) = &td.body {
-                    let recursive_fields: Vec<String> = fields
-                        .iter()
-                        .filter(|f| {
-                            let tokens = f.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
-                            tokens.iter().any(|t| t == &td.name)
-                        })
-                        .map(|f| f.name.clone())
-                        .collect();
+        if let Decl::TypeDef(td) = &decl.node {
+            // Detect recursive types by checking if any field references
+            // the type name itself.
+            if let assura_parser::ast::TypeBody::Struct(fields) = &td.body {
+                let recursive_fields: Vec<String> = fields
+                    .iter()
+                    .filter(|f| {
+                        let tokens = f.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+                        tokens.iter().any(|t| t == &td.name)
+                    })
+                    .map(|f| f.name.clone())
+                    .collect();
 
-                    if !recursive_fields.is_empty() {
-                        checker.register_recursive_type(td.name.clone(), recursive_fields);
-                    }
+                if !recursive_fields.is_empty() {
+                    checker.register_recursive_type(td.name.clone(), recursive_fields);
                 }
             }
-            Decl::Contract(c) => {
-                // Look for structural_invariant clauses
-                for clause in &c.clauses {
-                    if let ClauseKind::Other(k) = &clause.kind
-                        && k == "structural_invariant"
-                    {
-                        let kind = match &clause.body.node {
-                            Expr::Ident(name) => match name.as_str() {
-                                "sorted" => InvariantKind::Sorted { descending: false },
-                                "acyclic" => InvariantKind::Acyclic,
-                                "bst_ordering" => InvariantKind::BstOrdering,
-                                other => InvariantKind::Custom(other.to_string()),
-                            },
-                            Expr::Call { func, .. } => {
-                                if let Expr::Ident(name) = &func.as_ref().node {
-                                    match name.as_str() {
-                                        "tree_balance" => {
-                                            InvariantKind::TreeBalance { max_diff: 1 }
-                                        }
-                                        "min_heap" => {
-                                            InvariantKind::HeapProperty { min_heap: true }
-                                        }
-                                        "max_heap" => {
-                                            InvariantKind::HeapProperty { min_heap: false }
-                                        }
-                                        other => InvariantKind::Custom(other.to_string()),
-                                    }
-                                } else {
-                                    InvariantKind::Custom(format!("{:?}", clause.body))
+        } else if let Decl::Contract(c) = &decl.node {
+            // Look for structural_invariant clauses
+            for clause in &c.clauses {
+                if let ClauseKind::Other(k) = &clause.kind
+                    && k == "structural_invariant"
+                {
+                    let kind = match &clause.body.node {
+                        Expr::Ident(name) => match name.as_str() {
+                            "sorted" => InvariantKind::Sorted { descending: false },
+                            "acyclic" => InvariantKind::Acyclic,
+                            "bst_ordering" => InvariantKind::BstOrdering,
+                            other => InvariantKind::Custom(other.to_string()),
+                        },
+                        Expr::Call { func, .. } => {
+                            if let Expr::Ident(name) = &func.as_ref().node {
+                                match name.as_str() {
+                                    "tree_balance" => InvariantKind::TreeBalance { max_diff: 1 },
+                                    "min_heap" => InvariantKind::HeapProperty { min_heap: true },
+                                    "max_heap" => InvariantKind::HeapProperty { min_heap: false },
+                                    other => InvariantKind::Custom(other.to_string()),
                                 }
+                            } else {
+                                InvariantKind::Custom(format!("{:?}", clause.body))
                             }
-                            _ => InvariantKind::Custom(format!("{:?}", clause.body)),
-                        };
-
-                        // Register the invariant for operation-preservation checking
-                        checker.register_invariant(StructuralInvariant {
-                            name: format!("{}_{}", c.name, kind),
-                            type_name: c.name.clone(),
-                            kind: kind.clone(),
-                        });
-
-                        for err in checker.check_invariant_applicability(&c.name, &kind, &decl.span)
-                        {
-                            errors.push(err.into());
                         }
+                        _ => InvariantKind::Custom(format!("{:?}", clause.body)),
+                    };
+
+                    // Register the invariant for operation-preservation checking
+                    checker.register_invariant(StructuralInvariant {
+                        name: format!("{}_{}", c.name, kind),
+                        type_name: c.name.clone(),
+                        kind: kind.clone(),
+                    });
+
+                    for err in checker.check_invariant_applicability(&c.name, &kind, &decl.span) {
+                        errors.push(err.into());
                     }
+                }
 
-                    // Check that operations preserve registered invariants
-                    if let ClauseKind::Other(k) = &clause.kind
-                        && k == "modifies_structure"
-                    {
-                        let op_name = match &clause.body.node {
-                            Expr::Ident(name) => name.as_str(),
-                            _ => "unknown",
-                        };
-                        let has_preservation = c.clauses.iter().any(|cl| {
-                            matches!(&cl.kind, ClauseKind::Other(k2) if k2 == "preserves_invariant")
-                        });
-                        for err in checker.check_operation_preserves(
-                            &c.name,
-                            op_name,
-                            true,
-                            has_preservation,
-                            &decl.span,
-                        ) {
-                            errors.push(err.into());
-                        }
+                // Check that operations preserve registered invariants
+                if let ClauseKind::Other(k) = &clause.kind
+                    && k == "modifies_structure"
+                {
+                    let op_name = match &clause.body.node {
+                        Expr::Ident(name) => name.as_str(),
+                        _ => "unknown",
+                    };
+                    let has_preservation = c.clauses.iter().any(|cl| {
+                        matches!(&cl.kind, ClauseKind::Other(k2) if k2 == "preserves_invariant")
+                    });
+                    for err in checker.check_operation_preserves(
+                        &c.name,
+                        op_name,
+                        true,
+                        has_preservation,
+                        &decl.span,
+                    ) {
+                        errors.push(err.into());
                     }
                 }
             }
-            _ => {}
         }
     }
 
@@ -921,34 +910,33 @@ pub(crate) fn run_contract_library_checks(
     let mut checker = ContractLibraryChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        match &decl.node {
-            Decl::Block {
-                kind, name, body, ..
-            } if *kind == BlockKind::Library => {
-                found = true;
-                checker.declare_library(name.clone(), "0.1.0".into());
-                for clause in body {
-                    if let ClauseKind::Other(ref k) = clause.kind {
-                        if (k == "export" || k == "exports")
-                            && let Expr::Ident(contract_name) = &clause.body.node
-                        {
-                            checker.add_export(name, contract_name.clone());
-                        }
-                        if (k == "depends" || k == "dependency")
-                            && let Expr::Ident(dep_name) = &clause.body.node
-                        {
-                            checker.add_dependency(
-                                name,
-                                LibraryDep {
-                                    name: dep_name.clone(),
-                                    version_req: "*".into(),
-                                },
-                            );
-                        }
+        if let Decl::Block {
+            kind, name, body, ..
+        } = &decl.node
+            && *kind == BlockKind::Library
+        {
+            found = true;
+            checker.declare_library(name.clone(), "0.1.0".into());
+            for clause in body {
+                if let ClauseKind::Other(ref k) = clause.kind {
+                    if (k == "export" || k == "exports")
+                        && let Expr::Ident(contract_name) = &clause.body.node
+                    {
+                        checker.add_export(name, contract_name.clone());
+                    }
+                    if (k == "depends" || k == "dependency")
+                        && let Expr::Ident(dep_name) = &clause.body.node
+                    {
+                        checker.add_dependency(
+                            name,
+                            LibraryDep {
+                                name: dep_name.clone(),
+                                version_req: "*".into(),
+                            },
+                        );
                     }
                 }
             }
-            _ => {}
         }
     }
     if !found {

@@ -225,11 +225,10 @@ pub(crate) fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile)
     let mut has_sensitive = false;
 
     for decl in &source.decls {
-        let params = match &decl.node {
-            Decl::FnDef(f) => f.params.as_slice(),
-            Decl::Extern(e) => e.params.as_slice(),
-            _ => continue,
-        };
+        let params = decl.node.params();
+        if params.is_empty() {
+            continue;
+        }
 
         for param in params {
             // Only `sensitive`/`#[sensitive]` triggers secure erasure.
@@ -256,11 +255,10 @@ pub(crate) fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile)
     let mut sensitive_decl_span: std::collections::HashMap<String, Span> =
         std::collections::HashMap::new();
     for decl in &source.decls {
-        let params = match &decl.node {
-            Decl::FnDef(f) => f.params.as_slice(),
-            Decl::Extern(e) => e.params.as_slice(),
-            _ => continue,
-        };
+        let params = decl.node.params();
+        if params.is_empty() {
+            continue;
+        }
         for param in params {
             let p_tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
             if p_tokens
@@ -275,23 +273,15 @@ pub(crate) fn run_secure_erasure_checks(source: &assura_parser::ast::SourceFile)
     }
     for name in &sensitive_names {
         for decl in &source.decls {
-            let (clauses, return_ty_tokens) = match &decl.node {
-                Decl::FnDef(f) => (
-                    f.clauses.as_slice(),
-                    f.return_ty
-                        .as_ref()
-                        .map(|t| t.to_tokens())
-                        .unwrap_or_default(),
-                ),
-                Decl::Extern(e) => (
-                    e.clauses.as_slice(),
-                    e.return_ty
-                        .as_ref()
-                        .map(|t| t.to_tokens())
-                        .unwrap_or_default(),
-                ),
-                _ => continue,
-            };
+            let clauses = decl.node.clauses();
+            if clauses.is_empty() {
+                continue;
+            }
+            let return_ty_tokens = decl
+                .node
+                .return_ty()
+                .map(|t| t.to_tokens())
+                .unwrap_or_default();
 
             // Look for zeroize/erase patterns in ensures clauses
             let has_erasure = clauses
