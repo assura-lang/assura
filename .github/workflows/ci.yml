@@ -19,15 +19,20 @@ concurrency:
 # A daily schedule trigger ensures the full test matrix (incl. SMT/Z3/CVC5
 # native jobs) runs regularly even without pushes/PRs.
 #
-# Architecture: 3 self-hosted macOS ARM64 runners (assura-mac-1/2/3).
-# The 3 heavy Rust jobs (clippy, test, codegen-validation) run in parallel,
-# one per runner, for maximum throughput. fmt is folded into clippy (same
-# runner, <1s overhead) to eliminate the serial ubuntu-latest gate that
-# added ~15s of VM provisioning before any compilation could start.
+# Architecture: 3 self-hosted macOS ARM64 runners (assura-mac-1/2/3) on
+# the same physical Mac. The 3 heavy Rust jobs (clippy, test,
+# codegen-validation) run in parallel, one per runner, for maximum
+# throughput. fmt is folded into clippy (same runner, <1s overhead) to
+# eliminate the serial ubuntu-latest gate that added ~15s of VM
+# provisioning before any compilation could start.
 #
 # sccache caches compiler outputs across runs on the persistent local disk.
 # Per-job CARGO_TARGET_DIR prevents cache thrashing between clippy/test/codegen.
 # CARGO_INCREMENTAL=0 ensures all compilation goes through sccache.
+# CARGO_BUILD_JOBS=3 limits parallel rustc processes per job so 3
+# concurrent jobs (one per runner) stay within RAM. Without this, cargo
+# defaults to num_cpus (8-12 on Apple Silicon) x 3 runners = 24-36
+# processes, which OOM-kills compilations.
 #
 # Filter groups:
 #   rust           - any Rust crate or workspace file changed
@@ -104,6 +109,10 @@ jobs:
       CARGO_TARGET_DIR: target/ci-clippy
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
+      # All 3 self-hosted runners share the same physical Mac.
+      # Limit parallel rustc processes per job so 3 concurrent jobs
+      # stay within RAM (3 runners x 3 jobs = 9 processes max).
+      CARGO_BUILD_JOBS: '3'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -164,6 +173,7 @@ jobs:
       CARGO_TARGET_DIR: target/ci-test
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '3'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -220,6 +230,7 @@ jobs:
       CARGO_TARGET_DIR: target/ci-bench
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '3'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -279,6 +290,7 @@ jobs:
       CARGO_TARGET_DIR: target/ci-codegen
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '3'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -370,6 +382,7 @@ jobs:
       CARGO_TARGET_DIR: target/ci-cvc5
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '3'
     steps:
       - uses: actions/checkout@v7
         with:
