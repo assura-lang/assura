@@ -151,6 +151,18 @@ jobs:
           echo "CPATH=/usr/include" >> "$GITHUB_ENV"
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
 
+      - name: Check disk space
+        run: |
+          avail=$(df -k / | awk 'NR==2{print $4}')
+          echo "Available disk: $(df -h / | awk 'NR==2{print $4}')"
+          if [ "$avail" -lt 20971520 ]; then
+            echo "::warning::Less than 20GB free disk space. Compilation may fail with SIGKILL."
+          fi
+          if [ "$avail" -lt 5242880 ]; then
+            echo "::error::Less than 5GB free disk space. Aborting to prevent SIGKILL during compilation."
+            exit 1
+          fi
+
       - name: Format check
         run: cargo fmt --check --all
 
@@ -210,6 +222,18 @@ jobs:
           echo "CPATH=/usr/include" >> "$GITHUB_ENV"
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
 
+      - name: Check disk space
+        run: |
+          avail=$(df -k / | awk 'NR==2{print $4}')
+          echo "Available disk: $(df -h / | awk 'NR==2{print $4}')"
+          if [ "$avail" -lt 20971520 ]; then
+            echo "::warning::Less than 20GB free disk space. Compilation may fail with SIGKILL."
+          fi
+          if [ "$avail" -lt 5242880 ]; then
+            echo "::error::Less than 5GB free disk space. Aborting to prevent SIGKILL during compilation."
+            exit 1
+          fi
+
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
         env:
@@ -266,6 +290,18 @@ jobs:
           echo "Z3_SYS_Z3_HEADER=/usr/include/z3.h" >> "$GITHUB_ENV"
           echo "CPATH=/usr/include" >> "$GITHUB_ENV"
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+
+      - name: Check disk space
+        run: |
+          avail=$(df -k / | awk 'NR==2{print $4}')
+          echo "Available disk: $(df -h / | awk 'NR==2{print $4}')"
+          if [ "$avail" -lt 20971520 ]; then
+            echo "::warning::Less than 20GB free disk space. Compilation may fail with SIGKILL."
+          fi
+          if [ "$avail" -lt 5242880 ]; then
+            echo "::error::Less than 5GB free disk space. Aborting to prevent SIGKILL during compilation."
+            exit 1
+          fi
 
       - name: Run pipeline benchmarks (smoke + compile check only)
         # Run only full_pipeline bench in CI (smoke to ensure it compiles/runs).
@@ -326,6 +362,18 @@ jobs:
           echo "Z3_SYS_Z3_HEADER=/usr/include/z3.h" >> "$GITHUB_ENV"
           echo "CPATH=/usr/include" >> "$GITHUB_ENV"
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+
+      - name: Check disk space
+        run: |
+          avail=$(df -k / | awk 'NR==2{print $4}')
+          echo "Available disk: $(df -h / | awk 'NR==2{print $4}')"
+          if [ "$avail" -lt 20971520 ]; then
+            echo "::warning::Less than 20GB free disk space. Compilation may fail with SIGKILL."
+          fi
+          if [ "$avail" -lt 5242880 ]; then
+            echo "::error::Less than 5GB free disk space. Aborting to prevent SIGKILL during compilation."
+            exit 1
+          fi
 
       - name: Build compiler
         run: cargo build --bin assura
@@ -432,6 +480,18 @@ jobs:
             unzip -o /tmp/cvc5.zip -d /tmp/cvc5-install
             echo "CVC5_LIB_DIR=/tmp/cvc5-install/cvc5-Linux-x86_64-static/lib" >> "$GITHUB_ENV"
             echo "CVC5_INCLUDE_DIR=/tmp/cvc5-install/cvc5-Linux-x86_64-static/include" >> "$GITHUB_ENV"
+          fi
+
+      - name: Check disk space
+        run: |
+          avail=$(df -k / | awk 'NR==2{print $4}')
+          echo "Available disk: $(df -h / | awk 'NR==2{print $4}')"
+          if [ "$avail" -lt 20971520 ]; then
+            echo "::warning::Less than 20GB free disk space. Compilation may fail with SIGKILL."
+          fi
+          if [ "$avail" -lt 5242880 ]; then
+            echo "::error::Less than 5GB free disk space. Aborting to prevent SIGKILL during compilation."
+            exit 1
           fi
 
       - name: Clippy with CVC5 native

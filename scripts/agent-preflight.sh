@@ -12,7 +12,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-crates=("${@:-assura-types assura-pipeline assura-config assura-ast assura-test-support}")
+if [[ $# -gt 0 ]]; then
+  crates=("$@")
+else
+  crates=(assura-types assura-pipeline assura-config assura-ast assura-test-support)
+fi
 
 echo "== agent-preflight: fmt check =="
 cargo fmt --all -- --check
