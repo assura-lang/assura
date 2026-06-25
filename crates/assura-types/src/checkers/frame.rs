@@ -134,4 +134,71 @@ pub(crate) fn collect_ident_references(expr: &SpExpr) -> Vec<String> {
     c.0
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assura_parser::ast::Spanned;
+
+    fn ident(s: &str) -> SpExpr {
+        Spanned::no_span(Expr::Ident(s.to_string()))
+    }
+
+    #[test]
+    fn extract_modifies_single_ident() {
+        let expr = ident("x");
+        let targets = extract_modifies_targets(&expr);
+        assert_eq!(targets, vec!["x"]);
+    }
+
+    #[test]
+    fn extract_modifies_block_of_idents() {
+        let expr = Spanned::no_span(Expr::Block(vec![
+            ident("a"),
+            ident("b"),
+            ident("c"),
+        ]));
+        let targets = extract_modifies_targets(&expr);
+        assert_eq!(targets, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn extract_modifies_field_path() {
+        let expr = Spanned::no_span(Expr::Field(Box::new(ident("obj")), "field".into()));
+        let targets = extract_modifies_targets(&expr);
+        assert_eq!(targets, vec!["obj.field"]);
+    }
+
+    #[test]
+    fn collect_old_references_ident() {
+        let expr = Spanned::no_span(Expr::Old(Box::new(ident("x"))));
+        let refs = collect_old_references(&expr);
+        assert!(refs.contains(&"x".to_string()));
+    }
+
+    #[test]
+    fn collect_old_references_field() {
+        let inner = Spanned::no_span(Expr::Field(Box::new(ident("obj")), "val".into()));
+        let expr = Spanned::no_span(Expr::Old(Box::new(inner)));
+        let refs = collect_old_references(&expr);
+        assert!(refs.contains(&"obj.val".to_string()));
+    }
+
+    #[test]
+    fn collect_ident_references_skips_builtins() {
+        let expr = Spanned::no_span(Expr::Block(vec![
+            ident("x"),
+            ident("result"),
+            ident("true"),
+            ident("self"),
+            ident("y"),
+        ]));
+        let refs = collect_ident_references(&expr);
+        assert!(refs.contains(&"x".to_string()));
+        assert!(refs.contains(&"y".to_string()));
+        assert!(!refs.contains(&"result".to_string()));
+        assert!(!refs.contains(&"true".to_string()));
+        assert!(!refs.contains(&"self".to_string()));
+    }
+}
+
 // ---------------------------------------------------------------------------

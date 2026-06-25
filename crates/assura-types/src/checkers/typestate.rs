@@ -245,4 +245,115 @@ pub(crate) fn expr_usages(expr: &SpExpr, tracker: &mut UsageTracker) {
     v.visit_expr(expr);
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn span() -> Range<usize> {
+        0..10
+    }
+
+    fn sample_checker() -> TypestateChecker {
+        TypestateChecker::new(
+            vec!["Open".into(), "Closed".into(), "Reading".into()],
+            vec![
+                ("open".into(), "Closed".into(), "Open".into()),
+                ("read".into(), "Open".into(), "Reading".into()),
+                ("close".into(), "Open".into(), "Closed".into()),
+                ("close".into(), "Reading".into(), "Closed".into()),
+            ],
+            "Closed".into(),
+            span(),
+        )
+    }
+
+    #[test]
+    fn valid_transition_sequence() {
+        let mut tc = sample_checker();
+        assert_eq!(tc.current_state(), "Closed");
+        assert!(tc.transition("open", span()).is_ok());
+        assert_eq!(tc.current_state(), "Open");
+        assert!(tc.transition("read", span()).is_ok());
+        assert_eq!(tc.current_state(), "Reading");
+        assert!(tc.transition("close", span()).is_ok());
+        assert_eq!(tc.current_state(), "Closed");
+    }
+
+    #[test]
+    fn invalid_transition_a06001() {
+        let mut tc = sample_checker();
+        // Try to read while Closed (requires Open)
+        let err = tc.transition("read", span());
+        assert!(err.is_err());
+        let e = err.unwrap_err();
+        assert_eq!(e.code.as_ref(), "A06001");
+        assert!(e.message.contains("Open"));
+    }
+
+    #[test]
+    fn undefined_operation_a06001() {
+        let mut tc = sample_checker();
+        let err = tc.transition("delete", span());
+        assert!(err.is_err());
+        let e = err.unwrap_err();
+        assert_eq!(e.code.as_ref(), "A06001");
+        assert!(e.message.contains("not defined"));
+    }
+
+    #[test]
+    fn validate_linear_false_a06002() {
+        let tc = sample_checker();
+        let err = tc.validate_linear(false);
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code.as_ref(), "A06002");
+    }
+
+    #[test]
+    fn validate_linear_true_ok() {
+        let tc = sample_checker();
+        assert!(tc.validate_linear(true).is_none());
+    }
+
+    #[test]
+    fn validate_transitions_undeclared_state_a06003() {
+        let tc = TypestateChecker::new(
+            vec!["Open".into(), "Closed".into()],
+            vec![("go".into(), "Open".into(), "Flying".into())], // Flying not declared
+            "Open".into(),
+            span(),
+        );
+        let errs = tc.validate_transitions();
+        assert!(!errs.is_empty());
+        assert!(errs.iter().all(|e| e.code.as_ref() == "A06003"));
+        assert!(errs.iter().any(|e| e.message.contains("Flying")));
+    }
+
+    #[test]
+    fn validate_transitions_all_declared_ok() {
+        let tc = sample_checker();
+        let errs = tc.validate_transitions();
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn branch_consistency_same_state_ok() {
+        let mut a = sample_checker();
+        let mut b = sample_checker();
+        a.transition("open", span()).unwrap();
+        b.transition("open", span()).unwrap();
+        let err = TypestateChecker::check_branch_consistency(&a, &b, span());
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn branch_consistency_different_state_a06004() {
+        let mut a = sample_checker();
+        let b = sample_checker(); // stays Closed
+        a.transition("open", span()).unwrap(); // moves to Open
+        let err = TypestateChecker::check_branch_consistency(&a, &b, span());
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code.as_ref(), "A06004");
+    }
+}
+
 // ---------------------------------------------------------------------------

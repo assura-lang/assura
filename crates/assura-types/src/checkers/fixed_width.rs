@@ -340,3 +340,159 @@ impl Default for FixedWidthChecker {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assura_parser::ast::Spanned;
+    use crate::Type;
+
+    fn span() -> Range<usize> {
+        0..10
+    }
+
+    fn int_lit(n: i64) -> SpExpr {
+        Spanned::no_span(Expr::Literal(Literal::Int(n.to_string())))
+    }
+
+    #[test]
+    fn range_for_u8() {
+        let r = FixedWidthChecker::range_for_type(&Type::U8);
+        assert_eq!(r, Some((0, 255)));
+    }
+
+    #[test]
+    fn range_for_i16() {
+        let r = FixedWidthChecker::range_for_type(&Type::I16);
+        assert_eq!(r, Some((-32768, 32767)));
+    }
+
+    #[test]
+    fn range_for_non_fixed_width_is_none() {
+        assert!(FixedWidthChecker::range_for_type(&Type::Int).is_none());
+        assert!(FixedWidthChecker::range_for_type(&Type::Bool).is_none());
+    }
+
+    #[test]
+    fn is_fixed_width_true_for_u32() {
+        assert!(FixedWidthChecker::is_fixed_width(&Type::U32));
+    }
+
+    #[test]
+    fn is_unsigned_and_signed() {
+        assert!(FixedWidthChecker::is_unsigned(&Type::U64));
+        assert!(!FixedWidthChecker::is_unsigned(&Type::I32));
+        assert!(FixedWidthChecker::is_signed(&Type::I8));
+        assert!(!FixedWidthChecker::is_signed(&Type::U16));
+    }
+
+    #[test]
+    fn safe_cast_widening() {
+        // U8 -> U32 is safe (widening)
+        assert!(FixedWidthChecker::is_safe_cast(&Type::U8, &Type::U32));
+    }
+
+    #[test]
+    fn unsafe_cast_narrowing() {
+        // U32 -> U8 is unsafe (narrowing)
+        assert!(!FixedWidthChecker::is_safe_cast(&Type::U32, &Type::U8));
+    }
+
+    #[test]
+    fn cast_safety_narrowing_a10102() {
+        let err = FixedWidthChecker::check_cast_safety(&Type::U32, &Type::U8, &span());
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code.as_ref(), "A10102");
+    }
+
+    #[test]
+    fn cast_safety_widening_ok() {
+        let err = FixedWidthChecker::check_cast_safety(&Type::U8, &Type::U32, &span());
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn add_u8_can_overflow() {
+        let overflows = FixedWidthChecker::can_overflow(
+            &BinOp::Add,
+            (0, 255),
+            (0, 255),
+            (0, 255),
+        );
+        assert!(overflows); // 255 + 255 = 510 > 255
+    }
+
+    #[test]
+    fn add_u8_to_u32_no_overflow() {
+        // Adding two U8 values, result stored in U32
+        let overflows = FixedWidthChecker::can_overflow(
+            &BinOp::Add,
+            (0, 255),
+            (0, 255),
+            (0, u32::MAX as i128),
+        );
+        assert!(!overflows);
+    }
+
+    #[test]
+    fn signedness_mismatch_a10103() {
+        let err = FixedWidthChecker::check_signedness_mismatch(
+            &BinOp::Lt,
+            &Type::I32,
+            &Type::U32,
+            &span(),
+        );
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code.as_ref(), "A10103");
+    }
+
+    #[test]
+    fn signedness_same_ok() {
+        let err = FixedWidthChecker::check_signedness_mismatch(
+            &BinOp::Eq,
+            &Type::U32,
+            &Type::U16,
+            &span(),
+        );
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn division_by_literal_zero_a10104() {
+        let rhs = int_lit(0);
+        let err = FixedWidthChecker::check_division_by_zero(
+            &BinOp::Div,
+            &rhs,
+            &Type::I32,
+            &span(),
+        );
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code.as_ref(), "A10104");
+    }
+
+    #[test]
+    fn division_by_nonzero_ok() {
+        let rhs = int_lit(5);
+        let err = FixedWidthChecker::check_division_by_zero(
+            &BinOp::Div,
+            &rhs,
+            &Type::I32,
+            &span(),
+        );
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn check_binop_overflow_a10101() {
+        let checker = FixedWidthChecker::new();
+        let rhs = int_lit(1);
+        let errs = checker.check_binop(
+            &BinOp::Add,
+            &Type::U8,
+            &Type::U8,
+            &rhs,
+            &span(),
+        );
+        assert!(errs.iter().any(|e| e.code.as_ref() == "A10101"));
+    }
+}

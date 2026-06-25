@@ -237,4 +237,150 @@ impl Default for InterfaceChecker {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Type;
+
+    fn span() -> Range<usize> {
+        0..10
+    }
+
+    fn sample_interface() -> InterfaceContract {
+        InterfaceContract {
+            name: "Serializable".into(),
+            methods: vec![
+                InterfaceMethod {
+                    name: "serialize".into(),
+                    param_types: vec![Type::Int],
+                    return_type: Type::String,
+                    has_requires: false,
+                    has_ensures: false,
+                    no_reentrancy: false,
+                },
+                InterfaceMethod {
+                    name: "deserialize".into(),
+                    param_types: vec![Type::String],
+                    return_type: Type::Int,
+                    has_requires: false,
+                    has_ensures: false,
+                    no_reentrancy: false,
+                },
+            ],
+            extends: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn impl_with_all_methods_ok() {
+        let mut checker = InterfaceChecker::new();
+        checker.register_interface(sample_interface());
+        let methods = vec!["serialize".into(), "deserialize".into()];
+        let errs = checker.check_impl("MyType", "Serializable", &methods, &span());
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn impl_missing_method_a13001() {
+        let mut checker = InterfaceChecker::new();
+        checker.register_interface(sample_interface());
+        let methods = vec!["serialize".into()]; // missing deserialize
+        let errs = checker.check_impl("MyType", "Serializable", &methods, &span());
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A13001");
+        assert!(errs[0].message.contains("deserialize"));
+    }
+
+    #[test]
+    fn impl_unknown_interface_a13001() {
+        let checker = InterfaceChecker::new();
+        let errs = checker.check_impl("MyType", "Unknown", &[], &span());
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A13001");
+    }
+
+    #[test]
+    fn method_signature_param_count_mismatch_a13002() {
+        let mut checker = InterfaceChecker::new();
+        checker.register_interface(sample_interface());
+        // serialize expects 1 param (Int), provide 2
+        let errs = checker.check_method_signature(
+            "Serializable",
+            "serialize",
+            &[Type::Int, Type::Bool],
+            &Type::String,
+            &span(),
+        );
+        assert!(errs.iter().any(|e| e.code.as_ref() == "A13002"));
+    }
+
+    #[test]
+    fn method_signature_return_type_mismatch_a13002() {
+        let mut checker = InterfaceChecker::new();
+        checker.register_interface(sample_interface());
+        // serialize returns String, provide Bool
+        let errs = checker.check_method_signature(
+            "Serializable",
+            "serialize",
+            &[Type::Int],
+            &Type::Bool,
+            &span(),
+        );
+        assert!(errs.iter().any(|e| e.code.as_ref() == "A13002"));
+    }
+
+    #[test]
+    fn method_signature_matches_ok() {
+        let mut checker = InterfaceChecker::new();
+        checker.register_interface(sample_interface());
+        let errs = checker.check_method_signature(
+            "Serializable",
+            "serialize",
+            &[Type::Int],
+            &Type::String,
+            &span(),
+        );
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn reentrancy_violation_a13003() {
+        let mut checker = InterfaceChecker::new();
+        checker.register_interface(InterfaceContract {
+            name: "Lock".into(),
+            methods: vec![InterfaceMethod {
+                name: "acquire".into(),
+                param_types: vec![],
+                return_type: Type::Unit,
+                has_requires: false,
+                has_ensures: false,
+                no_reentrancy: true,
+            }],
+            extends: Vec::new(),
+        });
+        let errs = checker.check_reentrancy("Lock", "acquire", true, &span());
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A13003");
+    }
+
+    #[test]
+    fn reentrancy_ok_when_not_reentrant() {
+        let mut checker = InterfaceChecker::new();
+        checker.register_interface(InterfaceContract {
+            name: "Lock".into(),
+            methods: vec![InterfaceMethod {
+                name: "acquire".into(),
+                param_types: vec![],
+                return_type: Type::Unit,
+                has_requires: false,
+                has_ensures: false,
+                no_reentrancy: true,
+            }],
+            extends: Vec::new(),
+        });
+        let errs = checker.check_reentrancy("Lock", "acquire", false, &span());
+        assert!(errs.is_empty());
+    }
+}
+
 // ---------------------------------------------------------------------------

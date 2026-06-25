@@ -160,4 +160,84 @@ impl Default for FfiBoundaryChecker {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn span() -> Range<usize> {
+        0..10
+    }
+
+    #[test]
+    fn extern_with_boundary_and_contract_ok() {
+        let mut checker = FfiBoundaryChecker::new();
+        checker.register_extern("libc_read".into(), TrustBoundary::Untrusted);
+        checker.mark_contracted("libc_read".into());
+        let errs = checker.check_extern_decl("libc_read", true, true, &span());
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn extern_missing_boundary_a11001() {
+        let checker = FfiBoundaryChecker::new();
+        let errs = checker.check_extern_decl("ext_fn", false, true, &span());
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A11001");
+    }
+
+    #[test]
+    fn untrusted_extern_without_contract_a11002() {
+        let mut checker = FfiBoundaryChecker::new();
+        checker.register_extern("unsafe_fn".into(), TrustBoundary::Untrusted);
+        let errs = checker.check_extern_decl("unsafe_fn", true, false, &span());
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A11002");
+    }
+
+    #[test]
+    fn ffi_call_unvalidated_result_a11003() {
+        let mut checker = FfiBoundaryChecker::new();
+        checker.register_extern("ext_read".into(), TrustBoundary::Untrusted);
+        let errs = checker.check_ffi_call("ext_read", false, &span());
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A11003");
+    }
+
+    #[test]
+    fn ffi_call_contracted_skips_validation() {
+        let mut checker = FfiBoundaryChecker::new();
+        checker.register_extern("ext_read".into(), TrustBoundary::Untrusted);
+        checker.mark_contracted("ext_read".into());
+        let errs = checker.check_ffi_call("ext_read", false, &span());
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn unsafe_outside_ffi_wrapper_a11004() {
+        let checker = FfiBoundaryChecker::new();
+        let errs = checker.check_unsafe_confinement("my_fn", false, true, &span());
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A11004");
+    }
+
+    #[test]
+    fn unsafe_inside_ffi_wrapper_ok() {
+        let checker = FfiBoundaryChecker::new();
+        let errs = checker.check_unsafe_confinement("wrapper", true, true, &span());
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn check_file_aggregates_errors() {
+        let mut checker = FfiBoundaryChecker::new();
+        checker.register_extern("fn_a".into(), TrustBoundary::Untrusted);
+        let externs = vec![
+            ("fn_a".to_string(), true, false, span()),  // A11002
+            ("fn_b".to_string(), false, true, span()),   // A11001
+        ];
+        let errs = checker.check_file(&externs);
+        assert_eq!(errs.len(), 2);
+    }
+}
+
 // ---------------------------------------------------------------------------

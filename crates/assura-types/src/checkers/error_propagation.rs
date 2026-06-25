@@ -382,4 +382,133 @@ pub(crate) enum ErrorAction {
     Handle,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn span() -> Range<usize> {
+        0..10
+    }
+
+    // -- ErrorPropagationChecker --
+
+    #[test]
+    fn swallow_must_propagate_a12001() {
+        let mut checker = ErrorPropagationChecker::new();
+        checker.register_policy(
+            "io_policy".into(),
+            ErrorPolicy {
+                must_propagate: vec!["E_IO".into()],
+                ..Default::default()
+            },
+        );
+        let err = checker.validate_catch("E_IO", ErrorAction::Swallow, span());
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code.as_ref(), "A12001");
+    }
+
+    #[test]
+    fn propagate_must_propagate_ok() {
+        let mut checker = ErrorPropagationChecker::new();
+        checker.register_policy(
+            "io_policy".into(),
+            ErrorPolicy {
+                must_propagate: vec!["E_IO".into()],
+                ..Default::default()
+            },
+        );
+        let err = checker.validate_catch("E_IO", ErrorAction::Propagate, span());
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn masked_translation_a12002() {
+        let mut checker = ErrorPropagationChecker::new();
+        checker.register_policy(
+            "sec_policy".into(),
+            ErrorPolicy {
+                must_not_mask: vec![("E_AUTH".into(), "E_GENERIC".into())],
+                ..Default::default()
+            },
+        );
+        let err = checker.validate_catch(
+            "E_AUTH",
+            ErrorAction::TranslateTo("E_GENERIC".into()),
+            span(),
+        );
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code.as_ref(), "A12002");
+    }
+
+    #[test]
+    fn allowed_translation_ok() {
+        let mut checker = ErrorPropagationChecker::new();
+        checker.register_policy(
+            "sec_policy".into(),
+            ErrorPolicy {
+                must_not_mask: vec![("E_AUTH".into(), "E_GENERIC".into())],
+                ..Default::default()
+            },
+        );
+        // Translating to something other than E_GENERIC is fine
+        let err = checker.validate_catch(
+            "E_AUTH",
+            ErrorAction::TranslateTo("E_DETAILED".into()),
+            span(),
+        );
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn unchecked_call_a12003() {
+        let mut checker = ErrorPropagationChecker::new();
+        checker.register_policy(
+            "policy".into(),
+            ErrorPolicy {
+                must_check: vec!["dangerous_fn".into()],
+                ..Default::default()
+            },
+        );
+        let err = checker.validate_unchecked_call("dangerous_fn", span());
+        assert!(err.is_some());
+        assert_eq!(err.unwrap().code.as_ref(), "A12003");
+    }
+
+    #[test]
+    fn unchecked_call_no_policy_ok() {
+        let checker = ErrorPropagationChecker::new();
+        let err = checker.validate_unchecked_call("safe_fn", span());
+        assert!(err.is_none());
+    }
+
+    // -- FrameChecker --
+
+    #[test]
+    fn frame_checker_empty_has_no_modifies() {
+        let fc = FrameChecker::empty();
+        assert!(!fc.has_modifies());
+    }
+
+    #[test]
+    fn frame_checker_with_modifies() {
+        use assura_parser::ast::Spanned;
+        let body = Spanned::no_span(Expr::Ident("x".into()));
+        let fc = FrameChecker::new(&[&body]);
+        assert!(fc.has_modifies());
+        assert!(fc.is_modified("x"));
+        assert!(!fc.is_modified("y"));
+    }
+
+    #[test]
+    fn frame_checker_is_modified_or_under() {
+        use assura_parser::ast::Spanned;
+        let body = Spanned::no_span(Expr::Ident("node".into()));
+        let fc = FrameChecker::new(&[&body]);
+        // "node" is modified, so "node.keys" is under it
+        assert!(fc.is_modified_or_under_modified("node"));
+        assert!(fc.is_modified_or_under_modified("node.keys"));
+        assert!(!fc.is_modified_or_under_modified("other"));
+    }
+}
+
 // ---------------------------------------------------------------------------

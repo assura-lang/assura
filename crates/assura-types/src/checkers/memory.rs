@@ -331,4 +331,126 @@ pub fn expr_references_var(expr: &SpExpr, var_name: &str) -> bool {
     c.found
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assura_parser::ast::Spanned;
+
+    fn span() -> Range<usize> {
+        0..10
+    }
+
+    fn ident(s: &str) -> SpExpr {
+        Spanned::no_span(Expr::Ident(s.to_string()))
+    }
+
+    #[test]
+    fn register_buffer_and_query() {
+        let mut mc = MemoryChecker::new();
+        mc.register_buffer("buf".into(), "buf.len".into());
+        assert!(mc.is_buffer("buf"));
+        assert!(!mc.is_buffer("other"));
+        assert_eq!(mc.buffer_capacity("buf"), Some("buf.len"));
+        assert_eq!(mc.buffer_names().len(), 1);
+    }
+
+    #[test]
+    fn bounds_check_present_no_error() {
+        let mut mc = MemoryChecker::new();
+        mc.register_buffer("buf".into(), "buf.len".into());
+        // Build `offset <= buf.len`
+        let requires_expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(ident("offset")),
+            op: BinOp::Lte,
+            rhs: Box::new(Spanned::no_span(Expr::Field(
+                Box::new(ident("buf")),
+                "len".into(),
+            ))),
+        });
+        let result = mc.check_bounds_in_requires("buf", &[&requires_expr], &span());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn bounds_check_missing_a08101() {
+        let mut mc = MemoryChecker::new();
+        mc.register_buffer("buf".into(), "buf.len".into());
+        // requires clause with no bounds check
+        let requires_expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(ident("x")),
+            op: BinOp::Gt,
+            rhs: Box::new(ident("y")),
+        });
+        let result = mc.check_bounds_in_requires("buf", &[&requires_expr], &span());
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().code.as_ref(), "A08101");
+    }
+
+    #[test]
+    fn region_references_nonexistent_buffer_a08103() {
+        let mut mc = MemoryChecker::new();
+        mc.register_region(MemoryRegion {
+            name: "r1".into(),
+            lower: "0".into(),
+            upper: "10".into(),
+            buffer: "nonexistent".into(),
+        });
+        let errs = mc.check_region_buffers(&span());
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A08103");
+    }
+
+    #[test]
+    fn region_containment_same_buffer_ok() {
+        let mut mc = MemoryChecker::new();
+        mc.register_buffer("buf".into(), "buf.len".into());
+        mc.register_region(MemoryRegion {
+            name: "sub".into(),
+            lower: "0".into(),
+            upper: "5".into(),
+            buffer: "buf".into(),
+        });
+        mc.register_region(MemoryRegion {
+            name: "parent".into(),
+            lower: "0".into(),
+            upper: "10".into(),
+            buffer: "buf".into(),
+        });
+        let result = mc.check_region_containment("sub", "parent", &span());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn region_containment_different_buffers_a08102() {
+        let mut mc = MemoryChecker::new();
+        mc.register_buffer("a".into(), "a.len".into());
+        mc.register_buffer("b".into(), "b.len".into());
+        mc.register_region(MemoryRegion {
+            name: "sub".into(),
+            lower: "0".into(),
+            upper: "5".into(),
+            buffer: "a".into(),
+        });
+        mc.register_region(MemoryRegion {
+            name: "parent".into(),
+            lower: "0".into(),
+            upper: "10".into(),
+            buffer: "b".into(),
+        });
+        let result = mc.check_region_containment("sub", "parent", &span());
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().code.as_ref(), "A08102");
+    }
+
+    #[test]
+    fn expr_references_var_found() {
+        assert!(expr_references_var(&ident("target"), "target"));
+    }
+
+    #[test]
+    fn expr_references_var_not_found() {
+        assert!(!expr_references_var(&ident("other"), "target"));
+    }
+}
+
 // ---------------------------------------------------------------------------

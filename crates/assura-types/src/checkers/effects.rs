@@ -352,4 +352,126 @@ impl Default for EffectChecker {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn span() -> Range<usize> {
+        0..10
+    }
+
+    // -- EffectSet --
+
+    #[test]
+    fn pure_effect_set_is_empty() {
+        let es = EffectSet::pure();
+        assert!(es.is_pure());
+        assert!(es.is_empty());
+        assert_eq!(es.len(), 0);
+        assert_eq!(es.to_string(), "pure");
+    }
+
+    #[test]
+    fn from_effect_names_filters_pure() {
+        let es = EffectSet::from_effect_names(vec!["io", "pure", "database"]);
+        assert_eq!(es.len(), 2);
+        assert!(es.contains("io"));
+        assert!(es.contains("database"));
+        assert!(!es.contains("pure"));
+    }
+
+    #[test]
+    fn insert_and_contains() {
+        let mut es = EffectSet::pure();
+        es.insert("io".into());
+        assert!(es.contains("io"));
+        assert!(!es.is_pure());
+    }
+
+    // -- EffectChecker --
+
+    #[test]
+    fn expand_io_includes_sub_effects() {
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_effect_names(vec!["io"]);
+        let expanded = checker.expand(&declared);
+        assert!(expanded.contains("console.read"));
+        assert!(expanded.contains("network.send"));
+        assert!(expanded.contains("filesystem.write"));
+    }
+
+    #[test]
+    fn containment_declared_io_allows_console_read() {
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_effect_names(vec!["io"]);
+        let actual = EffectSet::from_effect_names(vec!["console.read"]);
+        let errs = checker.check_containment(&declared, &actual, &span());
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn containment_undeclared_effect_a07001() {
+        let checker = EffectChecker::new();
+        let declared = EffectSet::from_effect_names(vec!["database"]);
+        let actual = EffectSet::from_effect_names(vec!["io"]);
+        let errs = checker.check_containment(&declared, &actual, &span());
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A07001");
+    }
+
+    #[test]
+    fn containment_pure_with_effects_a07002() {
+        let checker = EffectChecker::new();
+        let declared = EffectSet::pure();
+        let actual = EffectSet::from_effect_names(vec!["io"]);
+        let errs = checker.check_containment(&declared, &actual, &span());
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A07002");
+    }
+
+    #[test]
+    fn containment_pure_with_pure_ok() {
+        let checker = EffectChecker::new();
+        let declared = EffectSet::pure();
+        let actual = EffectSet::pure();
+        let errs = checker.check_containment(&declared, &actual, &span());
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn check_known_accepts_builtin() {
+        let checker = EffectChecker::new();
+        let es = EffectSet::from_effect_names(vec!["io", "database", "mem"]);
+        let errs = checker.check_known(&es, &span());
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn check_known_rejects_unknown_a07003() {
+        let checker = EffectChecker::new();
+        let es = EffectSet::from_effect_names(vec!["teleport"]);
+        let errs = checker.check_known(&es, &span());
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code.as_ref(), "A07003");
+    }
+
+    #[test]
+    fn check_known_accepts_dotted_sub_effect() {
+        let checker = EffectChecker::new();
+        // "io.custom" should be accepted because "io" is a known group
+        let es = EffectSet::from_effect_names(vec!["io.custom"]);
+        let errs = checker.check_known(&es, &span());
+        assert!(errs.is_empty());
+    }
+
+    #[test]
+    fn is_block_kind_keyword_filtered() {
+        let checker = EffectChecker::new();
+        let es = EffectSet::from_effect_names(vec!["feature", "axiom"]);
+        let errs = checker.check_known(&es, &span());
+        // block-kind keywords should be silently skipped, not flagged
+        assert!(errs.is_empty());
+    }
+}
+
 // ---------------------------------------------------------------------------
