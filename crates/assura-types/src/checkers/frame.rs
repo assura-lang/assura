@@ -152,11 +152,7 @@ mod tests {
 
     #[test]
     fn extract_modifies_block_of_idents() {
-        let expr = Spanned::no_span(Expr::Block(vec![
-            ident("a"),
-            ident("b"),
-            ident("c"),
-        ]));
+        let expr = Spanned::no_span(Expr::Block(vec![ident("a"), ident("b"), ident("c")]));
         let targets = extract_modifies_targets(&expr);
         assert_eq!(targets, vec!["a", "b", "c"]);
     }

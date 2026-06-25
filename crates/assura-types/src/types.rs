@@ -407,10 +407,7 @@ mod tests {
             },
         ];
         for ty in &concrete {
-            assert!(
-                !ty.is_indeterminate(),
-                "{ty} should not be indeterminate"
-            );
+            assert!(!ty.is_indeterminate(), "{ty} should not be indeterminate");
         }
     }
 
@@ -438,18 +435,12 @@ mod tests {
 
     #[test]
     fn display_generic_containers() {
-        assert_eq!(
-            Type::List(Box::new(Type::Int)).to_string(),
-            "List<Int>"
-        );
+        assert_eq!(Type::List(Box::new(Type::Int)).to_string(), "List<Int>");
         assert_eq!(
             Type::Map(Box::new(Type::String), Box::new(Type::Nat)).to_string(),
             "Map<String, Nat>"
         );
-        assert_eq!(
-            Type::Set(Box::new(Type::Bool)).to_string(),
-            "Set<Bool>"
-        );
+        assert_eq!(Type::Set(Box::new(Type::Bool)).to_string(), "Set<Bool>");
         assert_eq!(
             Type::Option(Box::new(Type::Float)).to_string(),
             "Option<Float>"
@@ -612,10 +603,7 @@ mod tests {
         let mut env = TypeEnv::new();
         env.struct_fields.insert(
             "Point".into(),
-            vec![
-                ("x".into(), Type::Float),
-                ("y".into(), Type::Float),
-            ],
+            vec![("x".into(), Type::Float), ("y".into(), Type::Float)],
         );
         assert_eq!(env.lookup_field("Point", "x"), Some(&Type::Float));
         assert_eq!(env.lookup_field("Point", "z"), None);

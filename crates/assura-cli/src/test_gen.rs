@@ -158,6 +158,9 @@ mod tests {
 
         let tests = tg.generate_all();
         let has_name = tests.iter().any(|t| t.name.contains("BoundsCheck"));
-        assert!(has_name, "at least one test name should reference the contract name");
+        assert!(
+            has_name,
+            "at least one test name should reference the contract name"
+        );
     }
 }

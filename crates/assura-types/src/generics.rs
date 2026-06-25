@@ -298,10 +298,7 @@ mod tests {
             Box::new(Type::TypeParam("B".into())),
         );
         let result = substitute(&ty, &bindings);
-        assert_eq!(
-            result,
-            Type::Map(Box::new(Type::Int), Box::new(Type::Bool))
-        );
+        assert_eq!(result, Type::Map(Box::new(Type::Int), Box::new(Type::Bool)));
     }
 
     #[test]
@@ -333,10 +330,7 @@ mod tests {
 
     #[test]
     fn instantiate_result_with_concrete_types() {
-        let result = instantiate_builtin_generic(
-            "Result",
-            vec![Type::Nat, Type::String],
-        );
+        let result = instantiate_builtin_generic("Result", vec![Type::Nat, Type::String]);
         assert_eq!(
             result,
             Some(Type::Result(Box::new(Type::Nat), Box::new(Type::String)))
@@ -366,7 +360,9 @@ mod tests {
     fn check_generic_correct_arity_ok() {
         let src = empty_source();
         assert!(check_generic_instantiation("List", &[Type::Int], &(0..1), &src).is_ok());
-        assert!(check_generic_instantiation("Map", &[Type::String, Type::Int], &(0..1), &src).is_ok());
+        assert!(
+            check_generic_instantiation("Map", &[Type::String, Type::Int], &(0..1), &src).is_ok()
+        );
     }
 
     #[test]
@@ -383,7 +379,8 @@ mod tests {
     fn check_generic_unknown_type_lenient() {
         let src = empty_source();
         // Unknown type names pass through (name resolution handles them)
-        let result = check_generic_instantiation("UnknownType", &[Type::Int, Type::Bool], &(0..1), &src);
+        let result =
+            check_generic_instantiation("UnknownType", &[Type::Int, Type::Bool], &(0..1), &src);
         assert!(result.is_ok());
     }
 }

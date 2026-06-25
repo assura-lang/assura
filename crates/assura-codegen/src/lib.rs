@@ -281,33 +281,29 @@ impl DeclVisitor for TypeTokenCollectVisitor<'_> {
         self.token_lists
             .push(type_expr_to_token_vec(f.return_ty.as_ref()));
         for p in &f.params {
-            self.token_lists
-                .push(type_expr_to_token_vec(p.ty.as_ref()));
+            self.token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
         }
     }
     fn visit_extern(&mut self, ex: &ExternDecl) {
         self.token_lists
             .push(type_expr_to_token_vec(ex.return_ty.as_ref()));
         for p in &ex.params {
-            self.token_lists
-                .push(type_expr_to_token_vec(p.ty.as_ref()));
+            self.token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
         }
     }
     fn visit_bind(&mut self, b: &BindDecl) {
         self.token_lists
             .push(type_expr_to_token_vec(b.return_ty.as_ref()));
         for p in &b.params {
-            self.token_lists
-                .push(type_expr_to_token_vec(p.ty.as_ref()));
+            self.token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
         }
     }
     fn visit_type_def(&mut self, t: &TypeDef) {
-        if self.include_typedef_fields {
-            if let TypeBody::Struct(fields) = &t.body {
-                for f in fields {
-                    self.token_lists
-                        .push(type_expr_to_token_vec(f.ty.as_ref()));
-                }
+        if self.include_typedef_fields
+            && let TypeBody::Struct(fields) = &t.body
+        {
+            for f in fields {
+                self.token_lists.push(type_expr_to_token_vec(f.ty.as_ref()));
             }
         }
     }

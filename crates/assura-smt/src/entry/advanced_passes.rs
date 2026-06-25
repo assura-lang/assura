@@ -1,6 +1,6 @@
 //! Advanced SMT passes: prophecy, weak memory, liveness, layer2, codec, portfolio helpers.
 
-use assura_ast::{expr_to_string, BinOp, BlockKind, ClauseKind, Decl, Expr, SpExpr};
+use assura_ast::{BinOp, BlockKind, ClauseKind, Decl, Expr, SpExpr, expr_to_string};
 use assura_types::TypedFile;
 use assura_types::checkers::expr_references_var;
 
@@ -51,10 +51,7 @@ fn resolve_prophecy_vars(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManager)
                 && let Some(first) = args.first()
                 && let Expr::Ident(var_name) = &first.node
             {
-                let value = args
-                    .get(1)
-                    .map(expr_to_string)
-                    .unwrap_or_default();
+                let value = args.get(1).map(expr_to_string).unwrap_or_default();
                 if let Err(e) = pm.resolve(&format!("{fn_name}:{var_name}"), value) {
                     eprintln!("warning: prophecy resolution failed: {e}");
                 }
@@ -88,10 +85,7 @@ fn constrain_prophecy_vars(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManage
                 && let Some(first) = args.first()
                 && let Expr::Ident(var_name) = &first.node
             {
-                let constraint = args
-                    .get(1)
-                    .map(expr_to_string)
-                    .unwrap_or_default();
+                let constraint = args.get(1).map(expr_to_string).unwrap_or_default();
                 pm.add_constraint(&format!("{fn_name}:{var_name}"), constraint);
             }
             for arg in args {

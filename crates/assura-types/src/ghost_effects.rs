@@ -150,9 +150,7 @@ mod tests {
     fn effects_clause_raw(tokens: &[&str]) -> Clause {
         Clause {
             kind: ClauseKind::Effects,
-            body: Spanned::no_span(Expr::Raw(
-                tokens.iter().map(|t| (*t).into()).collect(),
-            )),
+            body: Spanned::no_span(Expr::Raw(tokens.iter().map(|t| (*t).into()).collect())),
             effect_variables: vec![],
         }
     }
@@ -164,14 +162,20 @@ mod tests {
         let f = make_fn("my_ghost", true, false, vec![]);
         let mut errors = Vec::new();
         check_ghost_fn_effects(&f, &(0..10), &mut errors);
-        assert!(errors.is_empty(), "ghost fn with no effects clause should be OK");
+        assert!(
+            errors.is_empty(),
+            "ghost fn with no effects clause should be OK"
+        );
     }
 
     #[test]
     fn ghost_fn_pure_effects_ok() {
-        let f = make_fn("my_ghost", true, false, vec![
-            effects_clause_idents(&["pure"]),
-        ]);
+        let f = make_fn(
+            "my_ghost",
+            true,
+            false,
+            vec![effects_clause_idents(&["pure"])],
+        );
         let mut errors = Vec::new();
         check_ghost_fn_effects(&f, &(0..10), &mut errors);
         assert!(errors.is_empty(), "ghost fn with pure effects should be OK");
@@ -179,9 +183,12 @@ mod tests {
 
     #[test]
     fn ghost_fn_io_effects_a54001() {
-        let f = make_fn("my_ghost", true, false, vec![
-            effects_clause_idents(&["io"]),
-        ]);
+        let f = make_fn(
+            "my_ghost",
+            true,
+            false,
+            vec![effects_clause_idents(&["io"])],
+        );
         let mut errors = Vec::new();
         check_ghost_fn_effects(&f, &(0..10), &mut errors);
         assert_eq!(errors.len(), 1);
@@ -192,9 +199,12 @@ mod tests {
 
     #[test]
     fn ghost_fn_multiple_non_pure_effects() {
-        let f = make_fn("spec_fn", true, false, vec![
-            effects_clause_idents(&["io", "database"]),
-        ]);
+        let f = make_fn(
+            "spec_fn",
+            true,
+            false,
+            vec![effects_clause_idents(&["io", "database"])],
+        );
         let mut errors = Vec::new();
         check_ghost_fn_effects(&f, &(0..10), &mut errors);
         assert_eq!(errors.len(), 1);
@@ -204,25 +214,38 @@ mod tests {
 
     #[test]
     fn ghost_fn_mixed_pure_and_non_pure() {
-        let f = make_fn("spec_fn", true, false, vec![
-            effects_clause_idents(&["pure", "net"]),
-        ]);
+        let f = make_fn(
+            "spec_fn",
+            true,
+            false,
+            vec![effects_clause_idents(&["pure", "net"])],
+        );
         let mut errors = Vec::new();
         check_ghost_fn_effects(&f, &(0..10), &mut errors);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("net"));
         // The effect list portion should not include "pure" as a listed effect;
         // the message template says "must be pure" but the effect_list only has "net"
-        let effect_part = errors[0].message.split("non-pure effects: ").nth(1).unwrap();
+        let effect_part = errors[0]
+            .message
+            .split("non-pure effects: ")
+            .nth(1)
+            .unwrap();
         let effect_list = effect_part.split(';').next().unwrap();
-        assert!(!effect_list.contains("pure"), "effect list should not include 'pure': {effect_list}");
+        assert!(
+            !effect_list.contains("pure"),
+            "effect list should not include 'pure': {effect_list}"
+        );
     }
 
     #[test]
     fn ghost_fn_raw_token_effects() {
-        let f = make_fn("ghost_raw", true, false, vec![
-            effects_clause_raw(&["fs", ",", "logging"]),
-        ]);
+        let f = make_fn(
+            "ghost_raw",
+            true,
+            false,
+            vec![effects_clause_raw(&["fs", ",", "logging"])],
+        );
         let mut errors = Vec::new();
         check_ghost_fn_effects(&f, &(0..10), &mut errors);
         assert_eq!(errors.len(), 1);
@@ -237,14 +260,20 @@ mod tests {
         let f = make_fn("my_lemma", false, true, vec![]);
         let mut errors = Vec::new();
         check_lemma_fn_effects(&f, &(0..10), &mut errors);
-        assert!(errors.is_empty(), "lemma fn with no effects clause should be OK");
+        assert!(
+            errors.is_empty(),
+            "lemma fn with no effects clause should be OK"
+        );
     }
 
     #[test]
     fn lemma_fn_pure_effects_ok() {
-        let f = make_fn("my_lemma", false, true, vec![
-            effects_clause_idents(&["pure"]),
-        ]);
+        let f = make_fn(
+            "my_lemma",
+            false,
+            true,
+            vec![effects_clause_idents(&["pure"])],
+        );
         let mut errors = Vec::new();
         check_lemma_fn_effects(&f, &(0..10), &mut errors);
         assert!(errors.is_empty(), "lemma fn with pure effects should be OK");
@@ -252,9 +281,12 @@ mod tests {
 
     #[test]
     fn lemma_fn_database_effect_a55001() {
-        let f = make_fn("my_lemma", false, true, vec![
-            effects_clause_idents(&["database"]),
-        ]);
+        let f = make_fn(
+            "my_lemma",
+            false,
+            true,
+            vec![effects_clause_idents(&["database"])],
+        );
         let mut errors = Vec::new();
         check_lemma_fn_effects(&f, &(0..10), &mut errors);
         assert_eq!(errors.len(), 1);
@@ -265,9 +297,12 @@ mod tests {
 
     #[test]
     fn lemma_fn_span_propagated() {
-        let f = make_fn("my_lemma", false, true, vec![
-            effects_clause_idents(&["io"]),
-        ]);
+        let f = make_fn(
+            "my_lemma",
+            false,
+            true,
+            vec![effects_clause_idents(&["io"])],
+        );
         let mut errors = Vec::new();
         check_lemma_fn_effects(&f, &(42..99), &mut errors);
         assert_eq!(errors.len(), 1);
@@ -279,9 +314,12 @@ mod tests {
     #[test]
     fn raw_tokens_whitespace_and_commas_filtered() {
         // Commas and empty/whitespace-only tokens should be filtered out
-        let f = make_fn("g", true, false, vec![
-            effects_clause_raw(&["  ", ",", "io", " ", ",", ""]),
-        ]);
+        let f = make_fn(
+            "g",
+            true,
+            false,
+            vec![effects_clause_raw(&["  ", ",", "io", " ", ",", ""])],
+        );
         let mut errors = Vec::new();
         check_ghost_fn_effects(&f, &(0..1), &mut errors);
         assert_eq!(errors.len(), 1);

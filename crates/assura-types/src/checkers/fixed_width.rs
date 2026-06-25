@@ -344,8 +344,8 @@ impl Default for FixedWidthChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_parser::ast::Spanned;
     use crate::Type;
+    use assura_parser::ast::Spanned;
 
     fn span() -> Range<usize> {
         0..10
@@ -413,24 +413,15 @@ mod tests {
 
     #[test]
     fn add_u8_can_overflow() {
-        let overflows = FixedWidthChecker::can_overflow(
-            &BinOp::Add,
-            (0, 255),
-            (0, 255),
-            (0, 255),
-        );
+        let overflows = FixedWidthChecker::can_overflow(&BinOp::Add, (0, 255), (0, 255), (0, 255));
         assert!(overflows); // 255 + 255 = 510 > 255
     }
 
     #[test]
     fn add_u8_to_u32_no_overflow() {
         // Adding two U8 values, result stored in U32
-        let overflows = FixedWidthChecker::can_overflow(
-            &BinOp::Add,
-            (0, 255),
-            (0, 255),
-            (0, u32::MAX as i128),
-        );
+        let overflows =
+            FixedWidthChecker::can_overflow(&BinOp::Add, (0, 255), (0, 255), (0, u32::MAX as i128));
         assert!(!overflows);
     }
 
@@ -460,12 +451,7 @@ mod tests {
     #[test]
     fn division_by_literal_zero_a10104() {
         let rhs = int_lit(0);
-        let err = FixedWidthChecker::check_division_by_zero(
-            &BinOp::Div,
-            &rhs,
-            &Type::I32,
-            &span(),
-        );
+        let err = FixedWidthChecker::check_division_by_zero(&BinOp::Div, &rhs, &Type::I32, &span());
         assert!(err.is_some());
         assert_eq!(err.unwrap().code.as_ref(), "A10104");
     }
@@ -473,12 +459,7 @@ mod tests {
     #[test]
     fn division_by_nonzero_ok() {
         let rhs = int_lit(5);
-        let err = FixedWidthChecker::check_division_by_zero(
-            &BinOp::Div,
-            &rhs,
-            &Type::I32,
-            &span(),
-        );
+        let err = FixedWidthChecker::check_division_by_zero(&BinOp::Div, &rhs, &Type::I32, &span());
         assert!(err.is_none());
     }
 
@@ -486,13 +467,7 @@ mod tests {
     fn check_binop_overflow_a10101() {
         let checker = FixedWidthChecker::new();
         let rhs = int_lit(1);
-        let errs = checker.check_binop(
-            &BinOp::Add,
-            &Type::U8,
-            &Type::U8,
-            &rhs,
-            &span(),
-        );
+        let errs = checker.check_binop(&BinOp::Add, &Type::U8, &Type::U8, &rhs, &span());
         assert!(errs.iter().any(|e| e.code.as_ref() == "A10101"));
     }
 }

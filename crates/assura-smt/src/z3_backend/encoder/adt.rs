@@ -2,8 +2,8 @@
 
 use z3::ast;
 
-use super::{AdtConstructor, AdtDef, Encoder};
 use super::value::Z3Value;
+use super::{AdtConstructor, AdtDef, Encoder};
 
 impl Encoder {
     /// Register baseline ADT infrastructure used by match-pattern encoding.

@@ -232,8 +232,8 @@ mod tests {
         let mut checker = FfiBoundaryChecker::new();
         checker.register_extern("fn_a".into(), TrustBoundary::Untrusted);
         let externs = vec![
-            ("fn_a".to_string(), true, false, span()),  // A11002
-            ("fn_b".to_string(), false, true, span()),   // A11001
+            ("fn_a".to_string(), true, false, span()), // A11002
+            ("fn_b".to_string(), false, true, span()), // A11001
         ];
         let errs = checker.check_file(&externs);
         assert_eq!(errs.len(), 2);

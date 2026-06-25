@@ -174,8 +174,7 @@ fn offset_to_line(source: &str, offset: usize) -> usize {
 
 /// Parse a Rust source string and extract all annotated items.
 pub fn parse_rust_source(source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyzerError> {
-    let file =
-        syn::parse_file(source).map_err(|e| RustAnalyzerError::Parse(format!("{e}")))?;
+    let file = syn::parse_file(source).map_err(|e| RustAnalyzerError::Parse(format!("{e}")))?;
 
     let mut items = Vec::new();
 
@@ -315,7 +314,9 @@ pub fn parse_rust_file(path: &Path) -> Result<Vec<AnnotatedItem>, RustAnalyzerEr
 }
 
 /// Scan a directory recursively for `.rs` files and extract all annotated items.
-pub fn scan_directory(dir: &Path) -> Result<Vec<(std::path::PathBuf, Vec<AnnotatedItem>)>, RustAnalyzerError> {
+pub fn scan_directory(
+    dir: &Path,
+) -> Result<Vec<(std::path::PathBuf, Vec<AnnotatedItem>)>, RustAnalyzerError> {
     let mut results = Vec::new();
     scan_dir_recursive(dir, &mut results)?;
     Ok(results)
