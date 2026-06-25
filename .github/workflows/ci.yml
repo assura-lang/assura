@@ -29,10 +29,11 @@ concurrency:
 # sccache caches compiler outputs across runs on the persistent local disk.
 # Per-job CARGO_TARGET_DIR prevents cache thrashing between clippy/test/codegen.
 # CARGO_INCREMENTAL=0 ensures all compilation goes through sccache.
-# CARGO_BUILD_JOBS=3 limits parallel rustc processes per job so 3
-# concurrent jobs (one per runner) stay within RAM. Without this, cargo
-# defaults to num_cpus (8-12 on Apple Silicon) x 3 runners = 24-36
-# processes, which OOM-kills compilations.
+# CARGO_BUILD_JOBS=6 limits parallel rustc processes per job so 3
+# concurrent jobs (one per runner) stay within RAM (48 GB total).
+# 3 runners x 6 jobs = 18 processes, ~18 GB peak, well within budget.
+# Without this limit, cargo defaults to num_cpus (8-12 on Apple
+# Silicon) x 3 runners = 24-36 processes.
 #
 # Filter groups:
 #   rust           - any Rust crate or workspace file changed
@@ -112,7 +113,7 @@ jobs:
       # All 3 self-hosted runners share the same physical Mac.
       # Limit parallel rustc processes per job so 3 concurrent jobs
       # stay within RAM (3 runners x 3 jobs = 9 processes max).
-      CARGO_BUILD_JOBS: '3'
+      CARGO_BUILD_JOBS: '6'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -173,7 +174,7 @@ jobs:
       CARGO_TARGET_DIR: target/ci-test
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
-      CARGO_BUILD_JOBS: '3'
+      CARGO_BUILD_JOBS: '6'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -230,7 +231,7 @@ jobs:
       CARGO_TARGET_DIR: target/ci-bench
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
-      CARGO_BUILD_JOBS: '3'
+      CARGO_BUILD_JOBS: '6'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -290,7 +291,7 @@ jobs:
       CARGO_TARGET_DIR: target/ci-codegen
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
-      CARGO_BUILD_JOBS: '3'
+      CARGO_BUILD_JOBS: '6'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -382,7 +383,7 @@ jobs:
       CARGO_TARGET_DIR: target/ci-cvc5
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
-      CARGO_BUILD_JOBS: '3'
+      CARGO_BUILD_JOBS: '6'
     steps:
       - uses: actions/checkout@v7
         with:
