@@ -4,7 +4,10 @@ pub(crate) use crate::cvc5_verify_native_checks::{check_satisfiability_cvc5, che
 pub(crate) use crate::cvc5_verify_native_contract::verify_contract_cvc5_native;
 pub(crate) use crate::cvc5_verify_native_features::{
     check_refinement_subtype_cvc5, check_refinement_subtype_with_context_cvc5,
-    verify_buffer_bounds_cvc5, verify_decrease_cvc5, verify_feature_body_cvc5,
-    verify_region_containment_cvc5, verify_structural_invariant_inductive_cvc5,
-    verify_taint_safety_cvc5, verify_with_measures_cvc5,
+    verify_buffer_bounds_cvc5, verify_constant_time_cvc5, verify_crash_recovery_cvc5,
+    verify_crypto_conformance_cvc5, verify_decrease_cvc5, verify_feature_body_cvc5,
+    verify_lock_ordering_cvc5, verify_monotonic_state_cvc5, verify_mvcc_isolation_cvc5,
+    verify_region_containment_cvc5, verify_secure_erasure_cvc5,
+    verify_structural_invariant_inductive_cvc5, verify_taint_safety_cvc5,
+    verify_with_measures_cvc5,
 };

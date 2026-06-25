@@ -93,9 +93,11 @@ pub(crate) use crate::feature_max::{collect_feature_max_constants, derive_narrow
 pub(crate) use self::cvc5_verify_native::{
     check_refinement_subtype_cvc5, check_refinement_subtype_with_context_cvc5,
     check_satisfiability_cvc5, check_validity_cvc5, verify_buffer_bounds_cvc5,
-    verify_decrease_cvc5, verify_feature_body_cvc5, verify_region_containment_cvc5,
-    verify_structural_invariant_inductive_cvc5, verify_taint_safety_cvc5,
-    verify_with_measures_cvc5,
+    verify_constant_time_cvc5, verify_crash_recovery_cvc5, verify_crypto_conformance_cvc5,
+    verify_decrease_cvc5, verify_feature_body_cvc5, verify_lock_ordering_cvc5,
+    verify_monotonic_state_cvc5, verify_mvcc_isolation_cvc5, verify_region_containment_cvc5,
+    verify_secure_erasure_cvc5, verify_structural_invariant_inductive_cvc5,
+    verify_taint_safety_cvc5, verify_with_measures_cvc5,
 };
 
 #[cfg(all(test, feature = "cvc5-verify"))]
