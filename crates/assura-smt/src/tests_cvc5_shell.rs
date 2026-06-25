@@ -390,3 +390,190 @@ fn shell_multiple_tuples_get_unique_names() {
     let (a, b) = results;
     assert_ne!(a, b, "two tuples should get different fresh names");
 }
+
+// ---------------------------------------------------------------------------
+// Shell encoding parity tests (#468)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn shell_literal_int_encoding() {
+    let expr = Spanned::no_span(Expr::Literal(Literal::Int("42".into())));
+    assert_eq!(expr_to_smtlib(&expr), Some("42".into()));
+
+    // Negative literal encoded via int SMT-LIB
+    let neg = Spanned::no_span(Expr::Literal(Literal::Int("-7".into())));
+    let smt = expr_to_smtlib(&neg).unwrap();
+    assert!(smt.contains("7"), "negative int should encode, got: {smt}");
+}
+
+#[test]
+fn shell_literal_bool_encoding() {
+    let t = Spanned::no_span(Expr::Literal(Literal::Bool(true)));
+    assert_eq!(expr_to_smtlib(&t), Some("true".into()));
+    let f = Spanned::no_span(Expr::Literal(Literal::Bool(false)));
+    assert_eq!(expr_to_smtlib(&f), Some("false".into()));
+}
+
+#[test]
+fn shell_ident_result_renamed() {
+    // `result` -> `__result` in SMT-LIB
+    let expr = Spanned::no_span(Expr::Ident("result".into()));
+    assert_eq!(expr_to_smtlib(&expr), Some("__result".into()));
+}
+
+#[test]
+fn shell_ident_regular_unchanged() {
+    let expr = Spanned::no_span(Expr::Ident("x".into()));
+    assert_eq!(expr_to_smtlib(&expr), Some("x".into()));
+}
+
+#[test]
+fn shell_binop_arithmetic() {
+    let add = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+        op: BinOp::Add,
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+    });
+    assert_eq!(expr_to_smtlib(&add), Some("(+ x 1)".into()));
+}
+
+#[test]
+fn shell_binop_comparison() {
+    let lt = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        op: BinOp::Lt,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
+    assert_eq!(expr_to_smtlib(&lt), Some("(< a b)".into()));
+}
+
+#[test]
+fn shell_binop_chained_comparison() {
+    // a < b < c  =>  (and (< a b) (< b c))
+    let inner = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        op: BinOp::Lt,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
+    let chained = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(inner),
+        op: BinOp::Lt,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("c".into()))),
+    });
+    let smt = expr_to_smtlib(&chained).unwrap();
+    assert!(
+        smt.contains("and") && smt.contains("(< a b)") && smt.contains("(< b c)"),
+        "chained comparison should produce (and (< a b) (< b c)), got: {smt}"
+    );
+}
+
+#[test]
+fn shell_if_then_else_encoding() {
+    let ite = Spanned::no_span(Expr::If {
+        cond: Box::new(Spanned::no_span(Expr::Ident("p".into()))),
+        then_branch: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+        else_branch: Some(Box::new(Spanned::no_span(Expr::Literal(Literal::Int(
+            "0".into(),
+        ))))),
+    });
+    let smt = expr_to_smtlib(&ite).unwrap();
+    assert!(
+        smt.contains("ite") && smt.contains("p") && smt.contains("1") && smt.contains("0"),
+        "if/then/else should produce (ite p 1 0), got: {smt}"
+    );
+}
+
+#[test]
+fn shell_old_ident_encoding() {
+    use crate::cvc5_backend::cvc5_old_access::encode_old_smtlib;
+    let inner = Spanned::no_span(Expr::Ident("x".into()));
+    let result = encode_old_smtlib(&inner, expr_to_smtlib);
+    // old(x) for an ident should produce the old snapshot name
+    assert!(result.is_some(), "old(x) should encode");
+    let smt = result.unwrap();
+    assert!(
+        smt.contains("old"),
+        "old(x) should contain 'old' in the name, got: {smt}"
+    );
+}
+
+#[test]
+fn shell_unary_not_encoding() {
+    let not_expr = Spanned::no_span(Expr::UnaryOp {
+        op: assura_ast::UnaryOp::Not,
+        expr: Box::new(Spanned::no_span(Expr::Ident("flag".into()))),
+    });
+    assert_eq!(expr_to_smtlib(&not_expr), Some("(not flag)".into()));
+}
+
+#[test]
+fn shell_unary_neg_encoding() {
+    let neg = Spanned::no_span(Expr::UnaryOp {
+        op: assura_ast::UnaryOp::Neg,
+        expr: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
+    });
+    assert_eq!(expr_to_smtlib(&neg), Some("(- n)".into()));
+}
+
+#[test]
+fn shell_block_empty_is_true() {
+    let block = Spanned::no_span(Expr::Block(vec![]));
+    assert_eq!(expr_to_smtlib(&block), Some("true".into()));
+}
+
+#[test]
+fn shell_block_single_unwraps() {
+    let block = Spanned::no_span(Expr::Block(vec![Spanned::no_span(Expr::Ident("x".into()))]));
+    assert_eq!(expr_to_smtlib(&block), Some("x".into()));
+}
+
+#[test]
+fn shell_index_access_encoding() {
+    let idx = Spanned::no_span(Expr::Index {
+        expr: Box::new(Spanned::no_span(Expr::Ident("buf".into()))),
+        index: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("3".into())))),
+    });
+    let smt = expr_to_smtlib(&idx).unwrap();
+    assert!(
+        smt.contains("__index") && smt.contains("buf") && smt.contains("3"),
+        "index should produce (__index buf 3), got: {smt}"
+    );
+}
+
+#[test]
+fn shell_field_access_shallow_uf() {
+    // Non-length field access: obj.status => (__field_status obj)
+    let field = Spanned::no_span(Expr::Field(
+        Box::new(Spanned::no_span(Expr::Ident("obj".into()))),
+        "status".into(),
+    ));
+    let smt = expr_to_smtlib(&field).unwrap();
+    assert!(
+        smt.contains("__field_status") && smt.contains("obj"),
+        "field access should use UF, got: {smt}"
+    );
+}
+
+#[test]
+fn shell_logical_and_or_implies() {
+    let and_expr = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        op: BinOp::And,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
+    assert_eq!(expr_to_smtlib(&and_expr), Some("(and a b)".into()));
+
+    let or_expr = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        op: BinOp::Or,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
+    assert_eq!(expr_to_smtlib(&or_expr), Some("(or a b)".into()));
+
+    let implies = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        op: BinOp::Implies,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
+    assert_eq!(expr_to_smtlib(&implies), Some("(=> a b)".into()));
+}
