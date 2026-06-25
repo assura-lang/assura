@@ -334,3 +334,378 @@ pub(crate) fn parse_type_tokens(tokens: &[String]) -> Type {
     }
     Type::Named(head.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assura_parser::ast::TypeExpr;
+
+    /// Helper: build a `Vec<String>` from a slice of `&str`.
+    fn tokens(s: &[&str]) -> Vec<String> {
+        s.iter().map(|t| t.to_string()).collect()
+    }
+
+    // -----------------------------------------------------------------------
+    // type_from_expr
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn type_from_expr_unit() {
+        assert_eq!(type_from_expr(&TypeExpr::Unit), Type::Unit);
+    }
+
+    #[test]
+    fn type_from_expr_named_int() {
+        assert_eq!(type_from_expr(&TypeExpr::Named("Int".into())), Type::Int,);
+    }
+
+    #[test]
+    fn type_from_expr_named_bool() {
+        assert_eq!(type_from_expr(&TypeExpr::Named("Bool".into())), Type::Bool,);
+    }
+
+    #[test]
+    fn type_from_expr_named_custom() {
+        assert_eq!(
+            type_from_expr(&TypeExpr::Named("CustomType".into())),
+            Type::Named("CustomType".into()),
+        );
+    }
+
+    #[test]
+    fn type_from_expr_generic_list() {
+        let expr = TypeExpr::Generic("List".into(), vec![TypeExpr::Named("Int".into())]);
+        assert_eq!(type_from_expr(&expr), Type::List(Box::new(Type::Int)),);
+    }
+
+    #[test]
+    fn type_from_expr_generic_map() {
+        let expr = TypeExpr::Generic(
+            "Map".into(),
+            vec![
+                TypeExpr::Named("String".into()),
+                TypeExpr::Named("Int".into()),
+            ],
+        );
+        assert_eq!(
+            type_from_expr(&expr),
+            Type::Map(Box::new(Type::String), Box::new(Type::Int)),
+        );
+    }
+
+    #[test]
+    fn type_from_expr_generic_result() {
+        let expr = TypeExpr::Generic(
+            "Result".into(),
+            vec![
+                TypeExpr::Named("Int".into()),
+                TypeExpr::Named("String".into()),
+            ],
+        );
+        assert_eq!(
+            type_from_expr(&expr),
+            Type::Result(Box::new(Type::Int), Box::new(Type::String)),
+        );
+    }
+
+    #[test]
+    fn type_from_expr_generic_option() {
+        let expr = TypeExpr::Generic("Option".into(), vec![TypeExpr::Named("Bool".into())]);
+        assert_eq!(type_from_expr(&expr), Type::Option(Box::new(Type::Bool)),);
+    }
+
+    #[test]
+    fn type_from_expr_generic_vec_maps_to_list() {
+        let expr = TypeExpr::Generic("Vec".into(), vec![TypeExpr::Named("Float".into())]);
+        assert_eq!(type_from_expr(&expr), Type::List(Box::new(Type::Float)),);
+    }
+
+    #[test]
+    fn type_from_expr_tuple() {
+        let expr = TypeExpr::Tuple(vec![
+            TypeExpr::Named("Int".into()),
+            TypeExpr::Named("Bool".into()),
+        ]);
+        assert_eq!(
+            type_from_expr(&expr),
+            Type::Tuple(vec![Type::Int, Type::Bool]),
+        );
+    }
+
+    #[test]
+    fn type_from_expr_fn_type() {
+        let expr = TypeExpr::Fn {
+            params: vec![TypeExpr::Named("Int".into())],
+            ret: Box::new(TypeExpr::Named("Bool".into())),
+        };
+        assert_eq!(
+            type_from_expr(&expr),
+            Type::Fn {
+                params: vec![Type::Int],
+                ret: Box::new(Type::Bool),
+            },
+        );
+    }
+
+    #[test]
+    fn type_from_expr_refined() {
+        let expr = TypeExpr::Refined {
+            base: Box::new(TypeExpr::Named("Int".into())),
+            predicate: "x > 0".into(),
+        };
+        assert_eq!(
+            type_from_expr(&expr),
+            Type::Refined {
+                base: Box::new(Type::Int),
+                predicate: "x > 0".into(),
+            },
+        );
+    }
+
+    #[test]
+    fn type_from_expr_generic_sequence() {
+        let expr = TypeExpr::Generic("Sequence".into(), vec![TypeExpr::Named("Int".into())]);
+        assert_eq!(type_from_expr(&expr), Type::Sequence(Box::new(Type::Int)),);
+    }
+
+    #[test]
+    fn type_from_expr_generic_set() {
+        let expr = TypeExpr::Generic("Set".into(), vec![TypeExpr::Named("Int".into())]);
+        assert_eq!(type_from_expr(&expr), Type::Set(Box::new(Type::Int)),);
+    }
+
+    #[test]
+    fn type_from_expr_generic_unknown_name() {
+        let expr = TypeExpr::Generic("Stream".into(), vec![TypeExpr::Named("Int".into())]);
+        assert_eq!(type_from_expr(&expr), Type::Named("Stream".into()),);
+    }
+
+    // -----------------------------------------------------------------------
+    // resolve_type_opt
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn resolve_type_opt_none_returns_unit() {
+        assert_eq!(resolve_type_opt(None), Type::Unit);
+    }
+
+    #[test]
+    fn resolve_type_opt_some_returns_converted() {
+        let expr = TypeExpr::Named("Int".into());
+        assert_eq!(resolve_type_opt(Some(&expr)), Type::Int);
+    }
+
+    // -----------------------------------------------------------------------
+    // parse_type_tokens
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_empty_tokens_returns_unit() {
+        assert_eq!(parse_type_tokens(&[]), Type::Unit);
+    }
+
+    #[test]
+    fn parse_int() {
+        assert_eq!(parse_type_tokens(&tokens(&["Int"])), Type::Int);
+    }
+
+    #[test]
+    fn parse_bool() {
+        assert_eq!(parse_type_tokens(&tokens(&["Bool"])), Type::Bool);
+    }
+
+    #[test]
+    fn parse_string() {
+        assert_eq!(parse_type_tokens(&tokens(&["String"])), Type::String);
+    }
+
+    #[test]
+    fn parse_float() {
+        assert_eq!(parse_type_tokens(&tokens(&["Float"])), Type::Float);
+    }
+
+    #[test]
+    fn parse_nat() {
+        assert_eq!(parse_type_tokens(&tokens(&["Nat"])), Type::Nat);
+    }
+
+    #[test]
+    fn parse_bytes() {
+        assert_eq!(parse_type_tokens(&tokens(&["Bytes"])), Type::Bytes);
+    }
+
+    #[test]
+    fn parse_custom_named() {
+        assert_eq!(
+            parse_type_tokens(&tokens(&["CustomName"])),
+            Type::Named("CustomName".into()),
+        );
+    }
+
+    #[test]
+    fn parse_generic_list() {
+        assert_eq!(
+            parse_type_tokens(&tokens(&["List", "<", "Int", ">"])),
+            Type::List(Box::new(Type::Int)),
+        );
+    }
+
+    #[test]
+    fn parse_generic_map() {
+        assert_eq!(
+            parse_type_tokens(&tokens(&["Map", "<", "String", ",", "Int", ">"])),
+            Type::Map(Box::new(Type::String), Box::new(Type::Int)),
+        );
+    }
+
+    #[test]
+    fn parse_generic_option() {
+        assert_eq!(
+            parse_type_tokens(&tokens(&["Option", "<", "Bool", ">"])),
+            Type::Option(Box::new(Type::Bool)),
+        );
+    }
+
+    #[test]
+    fn parse_generic_result() {
+        assert_eq!(
+            parse_type_tokens(&tokens(&["Result", "<", "Int", ",", "String", ">"])),
+            Type::Result(Box::new(Type::Int), Box::new(Type::String)),
+        );
+    }
+
+    #[test]
+    fn parse_generic_set() {
+        assert_eq!(
+            parse_type_tokens(&tokens(&["Set", "<", "Int", ">"])),
+            Type::Set(Box::new(Type::Int)),
+        );
+    }
+
+    #[test]
+    fn parse_generic_sequence() {
+        assert_eq!(
+            parse_type_tokens(&tokens(&["Sequence", "<", "Int", ">"])),
+            Type::Sequence(Box::new(Type::Int)),
+        );
+    }
+
+    #[test]
+    fn parse_generic_vec_maps_to_list() {
+        assert_eq!(
+            parse_type_tokens(&tokens(&["Vec", "<", "Float", ">"])),
+            Type::List(Box::new(Type::Float)),
+        );
+    }
+
+    #[test]
+    fn parse_tuple() {
+        assert_eq!(
+            parse_type_tokens(&tokens(&["(", "Int", ",", "Bool", ")"])),
+            Type::Tuple(vec![Type::Int, Type::Bool]),
+        );
+    }
+
+    #[test]
+    fn parse_empty_tuple_is_unit() {
+        assert_eq!(parse_type_tokens(&tokens(&["(", ")"])), Type::Unit,);
+    }
+
+    #[test]
+    fn parse_fn_type() {
+        assert_eq!(
+            parse_type_tokens(&tokens(&["fn", "(", "Int", ")", "->", "Bool"])),
+            Type::Fn {
+                params: vec![Type::Int],
+                ret: Box::new(Type::Bool),
+            },
+        );
+    }
+
+    #[test]
+    fn parse_fn_no_return_type() {
+        assert_eq!(
+            parse_type_tokens(&tokens(&["fn", "(", "Int", ")"])),
+            Type::Fn {
+                params: vec![Type::Int],
+                ret: Box::new(Type::Unit),
+            },
+        );
+    }
+
+    #[test]
+    fn parse_fn_multiple_params() {
+        assert_eq!(
+            parse_type_tokens(&tokens(&[
+                "fn", "(", "Int", ",", "Bool", ")", "->", "String"
+            ])),
+            Type::Fn {
+                params: vec![Type::Int, Type::Bool],
+                ret: Box::new(Type::String),
+            },
+        );
+    }
+
+    #[test]
+    fn parse_refinement_type() {
+        assert_eq!(
+            parse_type_tokens(&tokens(&["{", "x", ":", "Int", "|", "x > 0", "}"])),
+            Type::Refined {
+                base: Box::new(Type::Int),
+                predicate: "x > 0".into(),
+            },
+        );
+    }
+
+    #[test]
+    fn parse_reference_stripped() {
+        assert_eq!(parse_type_tokens(&tokens(&["&", "Int"])), Type::Int,);
+    }
+
+    #[test]
+    fn parse_mut_reference_stripped() {
+        assert_eq!(parse_type_tokens(&tokens(&["&", "mut", "Int"])), Type::Int,);
+    }
+
+    #[test]
+    fn parse_taint_annotation_stripped() {
+        assert_eq!(
+            parse_type_tokens(&tokens(&["Int", "@", "tainted"])),
+            Type::Int,
+        );
+    }
+
+    #[test]
+    fn parse_union_error_type() {
+        assert_eq!(
+            parse_type_tokens(&tokens(&["Int", "|", "String"])),
+            Type::Result(Box::new(Type::Int), Box::new(Type::String)),
+        );
+    }
+
+    #[test]
+    fn parse_nested_generic() {
+        assert_eq!(
+            parse_type_tokens(&tokens(&["List", "<", "List", "<", "Int", ">", ">"])),
+            Type::List(Box::new(Type::List(Box::new(Type::Int)))),
+        );
+    }
+
+    #[test]
+    fn parse_bare_ref_returns_unknown() {
+        // "&" alone with no type after stripping
+        assert_eq!(parse_type_tokens(&tokens(&["&"])), Type::Unknown,);
+    }
+
+    #[test]
+    fn parse_only_taint_returns_unit() {
+        // All tokens stripped by taint annotation
+        assert_eq!(parse_type_tokens(&tokens(&["@", "tainted"])), Type::Unit,);
+    }
+
+    #[test]
+    fn parse_brace_without_colon_returns_unknown() {
+        // Malformed refinement: no colon
+        assert_eq!(parse_type_tokens(&tokens(&["{", "x", "}"])), Type::Unknown,);
+    }
+}
