@@ -7,8 +7,9 @@ use std::collections::HashMap;
 use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, SpExpr, Spanned};
 
 use crate::VerificationResult;
-use crate::cvc5_verify_native_checks::check_validity_cvc5;
+use crate::cvc5_verify_native_checks::{check_validity_cvc5, cvc5_clause_sat_outcome};
 use crate::cvc5_verify_native_solver::{Cvc5SolverOpts, new_cvc5_solver};
+use crate::measures::{MeasureAxiomTag, MeasureDefinition};
 
 /// CVC5 implementation of refinement subtype check.
 ///
@@ -69,13 +70,173 @@ pub(crate) fn verify_region_containment_cvc5(
 }
 
 /// CVC5 implementation of measure-aware verification.
+///
+/// Mirrors Z3's `verify_with_measures_impl`:
+/// 1. Creates uninterpreted functions for each measure.
+/// 2. Asserts all measure axioms (NonNegative, EmptyIsZero, AppendIncrement,
+///    EquivalentTo, EmptyMapEmptySet).
+/// 3. Asserts all requires as assumptions.
+/// 4. Checks validity of ensures (negate + check-sat).
 pub(crate) fn verify_with_measures_cvc5(
     requires: &[SpExpr],
     ensures: &SpExpr,
-    _measures: &[crate::measures::MeasureDefinition],
+    measures: &[MeasureDefinition],
 ) -> VerificationResult {
+    use crate::cvc5_collect::collect_cvc5_var_names_from_assumptions;
+    use crate::cvc5_native_encoder::{default_cvc5_encoder_state, encode_expr_cvc5};
+    use crate::cvc5_verify_native_solver::{assert_cvc5_axioms, build_cvc5_var_map};
+    use crate::cvc5_verify_shared::cvc5_encode_failure;
+
+    let tm = cvc5::TermManager::new();
+    // Measures add quantified axioms; give the solver more time (match Z3's 5000ms).
+    // Enable unsat cores so cvc5_clause_sat_outcome can call get_unsat_assumptions().
+    let mut solver = new_cvc5_solver(
+        &tm,
+        Cvc5SolverOpts {
+            unsat_core: true,
+            ..Default::default()
+        },
+    );
+    solver.set_option("tlimit", "5000");
+
     let assumptions: Vec<&SpExpr> = requires.iter().collect();
-    check_validity_cvc5("verify_with_measures", &assumptions, ensures)
+    let var_names = collect_cvc5_var_names_from_assumptions(&assumptions, ensures);
+    let mut var_map = build_cvc5_var_map(&tm, &var_names, &[]);
+    let mut enc_state = default_cvc5_encoder_state();
+
+    // Step 1: Encode all measures as uninterpreted functions
+    let int_sort = tm.integer_sort();
+    let mut func_decls: HashMap<String, cvc5::Term> = HashMap::new();
+    for measure in measures {
+        let param_sorts: Vec<cvc5::Sort> = measure
+            .param_sorts
+            .iter()
+            .map(|_| int_sort.clone())
+            .collect();
+        let fun_sort = tm.mk_fun_sort(&param_sorts, int_sort.clone());
+        let fun = tm.mk_const(fun_sort, &measure.name);
+        func_decls.insert(measure.name.clone(), fun);
+    }
+
+    // Step 2: Assert all measure axioms
+    for measure in measures {
+        if let Some(func) = func_decls.get(&measure.name) {
+            assert_measure_axioms_cvc5(&tm, &mut solver, measure, func, &func_decls);
+        }
+    }
+
+    // Step 3: Assert all requires as assumptions
+    for req in &assumptions {
+        if let Some(term) = encode_expr_cvc5(&tm, req, &mut var_map, &mut enc_state) {
+            solver.assert_formula(term);
+        }
+    }
+
+    assert_cvc5_axioms(&mut solver, &enc_state.axioms);
+
+    // Step 4: Negate ensures and check validity
+    let body_term = match encode_expr_cvc5(&tm, ensures, &mut var_map, &mut enc_state) {
+        Some(t) => t,
+        None => return cvc5_encode_failure("verify_with_measures"),
+    };
+    let negated = tm.mk_term(cvc5::Kind::Not, &[body_term]);
+    solver.assert_formula(negated);
+
+    let sat_result = solver.check_sat();
+    let outcome = cvc5_clause_sat_outcome(&sat_result, &solver, &var_map, &[]);
+    crate::solver_outcome_policy::interpret_clause_check_result(
+        "verify_with_measures",
+        &assura_ast::ClauseKind::Ensures,
+        outcome,
+    )
+}
+
+/// Assert the standard axioms for a measure on the CVC5 solver.
+///
+/// Mirrors Z3's `assert_measure_axioms` using CVC5 quantifier API.
+fn assert_measure_axioms_cvc5<'a>(
+    tm: &'a cvc5::TermManager,
+    solver: &mut cvc5::Solver<'a>,
+    measure: &MeasureDefinition,
+    func: &cvc5::Term<'a>,
+    all_func_decls: &HashMap<String, cvc5::Term<'a>>,
+) {
+    let int_sort = tm.integer_sort();
+    let zero = tm.mk_integer(0);
+    let one = tm.mk_integer(1);
+
+    for axiom in &measure.axioms {
+        match &axiom.tag {
+            MeasureAxiomTag::NonNegative => {
+                // forall xs: measure(xs) >= 0
+                let xs_name = crate::encode_atom_policy::measure_ax_xs_name(&measure.name);
+                let xs = tm.mk_var(int_sort.clone(), &xs_name);
+                let app = tm.mk_term(cvc5::Kind::ApplyUf, &[func.clone(), xs.clone()]);
+                let ge_zero = tm.mk_term(cvc5::Kind::Geq, &[app, zero.clone()]);
+                let bound = tm.mk_term(cvc5::Kind::VariableList, &[xs]);
+                let forall = tm.mk_term(cvc5::Kind::Forall, &[bound, ge_zero]);
+                solver.assert_formula(forall);
+            }
+            MeasureAxiomTag::EmptyIsZero => {
+                // measure(empty) == 0
+                let empty = tm.mk_const(
+                    int_sort.clone(),
+                    crate::encode_method_policy::MEASURE_EMPTY_CONST_NAME,
+                );
+                let app = tm.mk_term(cvc5::Kind::ApplyUf, &[func.clone(), empty]);
+                let eq_zero = tm.mk_term(cvc5::Kind::Equal, &[app, zero.clone()]);
+                solver.assert_formula(eq_zero);
+            }
+            MeasureAxiomTag::AppendIncrement => {
+                // forall xs, x: measure(append(xs, x)) == measure(xs) + 1
+                let append_name = crate::encode_atom_policy::measure_append_uf_name(&measure.name);
+                let append_sort =
+                    tm.mk_fun_sort(&[int_sort.clone(), int_sort.clone()], int_sort.clone());
+                let append_fn = tm.mk_const(append_sort, &append_name);
+
+                let xs_name = crate::encode_atom_policy::measure_ax_xs2_name(&measure.name);
+                let x_name = crate::encode_atom_policy::measure_ax_x_name(&measure.name);
+                let xs = tm.mk_var(int_sort.clone(), &xs_name);
+                let x = tm.mk_var(int_sort.clone(), &x_name);
+
+                let appended = tm.mk_term(cvc5::Kind::ApplyUf, &[append_fn, xs.clone(), x.clone()]);
+                let measure_appended = tm.mk_term(cvc5::Kind::ApplyUf, &[func.clone(), appended]);
+                let measure_xs = tm.mk_term(cvc5::Kind::ApplyUf, &[func.clone(), xs.clone()]);
+                let expected = tm.mk_term(cvc5::Kind::Add, &[measure_xs, one.clone()]);
+                let eq = tm.mk_term(cvc5::Kind::Equal, &[measure_appended, expected]);
+                let bound = tm.mk_term(cvc5::Kind::VariableList, &[xs, x]);
+                let forall = tm.mk_term(cvc5::Kind::Forall, &[bound, eq]);
+                solver.assert_formula(forall);
+            }
+            MeasureAxiomTag::EquivalentTo(other_name) => {
+                // forall xs: measure(xs) == other_measure(xs)
+                if let Some(other_func) = all_func_decls.get(other_name) {
+                    let xs_name = crate::encode_atom_policy::measure_ax_eq_xs_name(&measure.name);
+                    let xs = tm.mk_var(int_sort.clone(), &xs_name);
+                    let this_app = tm.mk_term(cvc5::Kind::ApplyUf, &[func.clone(), xs.clone()]);
+                    let other_app =
+                        tm.mk_term(cvc5::Kind::ApplyUf, &[other_func.clone(), xs.clone()]);
+                    let eq = tm.mk_term(cvc5::Kind::Equal, &[this_app, other_app]);
+                    let bound = tm.mk_term(cvc5::Kind::VariableList, &[xs]);
+                    let forall = tm.mk_term(cvc5::Kind::Forall, &[bound, eq]);
+                    solver.assert_formula(forall);
+                }
+            }
+            MeasureAxiomTag::EmptyMapEmptySet => {
+                // measure(empty_map) == 0
+                let empty_map = tm.mk_const(
+                    int_sort.clone(),
+                    crate::encode_atom_policy::EMPTY_MAP_CONST_NAME,
+                );
+                let app = tm.mk_term(cvc5::Kind::ApplyUf, &[func.clone(), empty_map]);
+                let eq_zero = tm.mk_term(cvc5::Kind::Equal, &[app, zero.clone()]);
+                solver.assert_formula(eq_zero);
+            }
+            MeasureAxiomTag::Custom(_) => {
+                // Custom axioms are documentation-only; not encoded automatically.
+            }
+        }
+    }
 }
 
 /// CVC5 implementation of decrease verification.
