@@ -9,10 +9,10 @@ mod parse;
 mod python;
 mod types;
 
-pub use merge::*;
-pub use parse::*;
+pub use merge::{merge_contracts, ClauseSource, MergedContract, SourcedClause};
+pub use parse::{parse_doc_clauses, parse_rust_file, parse_rust_source, scan_directory};
 pub use python::PythonAdapter;
-pub use types::*;
+pub use types::{AnnotatedItem, AnnotatedItemKind, ContractClause, InlineClauseKind, InlineContract};
 
 // ---------------------------------------------------------------------------
 // Multi-language annotation framework

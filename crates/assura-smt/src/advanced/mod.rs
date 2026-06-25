@@ -7,8 +7,8 @@ mod prophecy;
 mod trigger;
 mod weak_memory;
 
-pub use codec::*;
-pub use liveness::*;
-pub use prophecy::*;
-pub use trigger::*;
-pub use weak_memory::*;
+pub use codec::{CodecDispatcher, CodecEntry, DispatchResult};
+pub use liveness::{LivenessChecker, LivenessKind, LivenessObligation};
+pub use prophecy::{ProphecyError, ProphecyManager, ProphecyVariable};
+pub use trigger::{TriggerManager, TriggerPattern};
+pub use weak_memory::{MemoryAccess, MemoryOrdering, WeakMemoryChecker};
