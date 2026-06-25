@@ -91,9 +91,20 @@ pub(crate) fn check_clause_cvc5_shellout(
         append_cvc5_shellout_frame_axioms(&mut script, &vars, &frame_vars);
     }
 
-    let Some(smt) = expr_to_smtlib(ensures_body) else {
+    let (encoded, effects) =
+        crate::cvc5_expr_smtlib::with_smtlib_side_effects(|| expr_to_smtlib(ensures_body));
+    let Some(smt) = encoded else {
         return crate::clause_gate_policy::clause_encode_failure(desc, "SMT-LIB2");
     };
+    // Inject tuple/list declarations and axioms before the clause check.
+    for decl in &effects.declarations {
+        script.push_str(decl);
+        script.push('\n');
+    }
+    for axiom in &effects.assertions {
+        script.push_str(axiom);
+        script.push('\n');
+    }
     append_cvc5_shellout_clause_check(&mut script, kind.clone(), &smt);
 
     script.push_str("(check-sat)\n");

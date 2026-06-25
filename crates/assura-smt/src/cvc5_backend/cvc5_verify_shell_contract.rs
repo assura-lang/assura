@@ -84,7 +84,10 @@ fn verify_contract_cvc5_shellout_incremental(
             resolved.push((index, precheck));
             continue;
         }
-        if expr_to_smtlib(&clause.body).is_none() {
+        if crate::cvc5_expr_smtlib::with_smtlib_side_effects(|| expr_to_smtlib(&clause.body))
+            .0
+            .is_none()
+        {
             resolved.push((
                 index,
                 crate::clause_gate_policy::clause_encode_failure(&desc, "SMT-LIB2"),
@@ -222,7 +225,17 @@ fn build_incremental_shell_script(
             append_cvc5_shellout_frame_axioms(&mut script, &vars, &frame_vars);
         }
 
-        if let Some(smt) = expr_to_smtlib(&clause.body) {
+        let (encoded, effects) =
+            crate::cvc5_expr_smtlib::with_smtlib_side_effects(|| expr_to_smtlib(&clause.body));
+        if let Some(smt) = encoded {
+            for decl in &effects.declarations {
+                script.push_str(decl);
+                script.push('\n');
+            }
+            for axiom in &effects.assertions {
+                script.push_str(axiom);
+                script.push('\n');
+            }
             append_cvc5_shellout_clause_check(&mut script, clause.kind.clone(), &smt);
             script.push_str("(check-sat)\n");
             script.push_str("(get-model)\n");

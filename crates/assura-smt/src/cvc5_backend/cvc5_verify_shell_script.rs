@@ -11,9 +11,24 @@ use crate::lemma_inject_policy::collect_apply_refs_from_expr;
 
 pub(crate) fn append_cvc5_shellout_requires(script: &mut String, requires: &[&SpExpr]) {
     for req in requires {
-        if let Some(smt) = expr_to_smtlib(req) {
+        let (result, effects) =
+            crate::cvc5_expr_smtlib::with_smtlib_side_effects(|| expr_to_smtlib(req));
+        inject_side_effects(script, &effects);
+        if let Some(smt) = result {
             script.push_str(&format!("(assert {smt})\n"));
         }
+    }
+}
+
+/// Inject accumulated declarations and axioms from tuple/list encoding.
+fn inject_side_effects(script: &mut String, effects: &crate::cvc5_expr_smtlib::SmtlibSideEffects) {
+    for decl in &effects.declarations {
+        script.push_str(decl);
+        script.push('\n');
+    }
+    for axiom in &effects.assertions {
+        script.push_str(axiom);
+        script.push('\n');
     }
 }
 
@@ -41,7 +56,10 @@ pub(crate) fn append_cvc5_shellout_lemma_assumptions(
     for lemma_name in &apply_refs {
         if let Some(ensures_bodies) = defs.get(lemma_name) {
             for ens_body in ensures_bodies {
-                if let Some(smt) = expr_to_smtlib(ens_body) {
+                let (result, effects) =
+                    crate::cvc5_expr_smtlib::with_smtlib_side_effects(|| expr_to_smtlib(ens_body));
+                inject_side_effects(script, &effects);
+                if let Some(smt) = result {
                     script.push_str(&format!("(assert {smt})\n"));
                 }
             }

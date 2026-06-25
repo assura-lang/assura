@@ -4,6 +4,7 @@
 //! modules remain for term/orchestration that is CVC5-specific.
 
 use assura_ast::{Expr, SpExpr};
+use std::cell::RefCell;
 use std::sync::OnceLock;
 
 use crate::cvc5_adt::{Cvc5AdtDef, adt_is_constructor_smt, define_adt_cvc5};
@@ -30,6 +31,77 @@ fn shell_match_adt_def() -> &'static Cvc5AdtDef {
         let (def, _) = define_adt_cvc5("Option", &[("Some", &["value"]), ("None", &[])]);
         assert_eq!(def.name, "Option");
         def
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Thread-local side-effect context for expr_to_smtlib (#462).
+//
+// Tuple and list encoding need to emit declarations and axioms as side effects
+// (fresh constants, accessor UF declarations, element equality assertions).
+// expr_to_smtlib is passed as a function pointer (fn(&SpExpr) -> Option<String>)
+// in many call sites, so its signature cannot change. We use a thread-local to
+// accumulate these side effects.
+// ---------------------------------------------------------------------------
+
+/// Side-effect context accumulated during `expr_to_smtlib` calls.
+#[derive(Default)]
+pub struct SmtlibSideEffects {
+    /// SMT-LIB declarations to prepend (declare-const, declare-fun).
+    pub declarations: Vec<String>,
+    /// SMT-LIB assertions to inject (element axioms, length axioms).
+    pub assertions: Vec<String>,
+    /// Fresh name counter for unique tuple/list constants.
+    pub fresh_counter: usize,
+}
+
+thread_local! {
+    static SMTLIB_CTX: RefCell<Option<SmtlibSideEffects>> = const { RefCell::new(None) };
+}
+
+/// Install a fresh side-effect context, run `f`, then return the context.
+///
+/// Callers should inject `ctx.declarations` and `ctx.assertions` into the
+/// SMT-LIB script after the variable declarations section.
+pub fn with_smtlib_side_effects<R>(f: impl FnOnce() -> R) -> (R, SmtlibSideEffects) {
+    SMTLIB_CTX.with(|cell| {
+        let prev = cell.borrow_mut().replace(SmtlibSideEffects::default());
+        let result = f();
+        let ctx = cell.borrow_mut().take().unwrap_or_default();
+        // Restore previous context (supports nesting, though unlikely).
+        *cell.borrow_mut() = prev;
+        (result, ctx)
+    })
+}
+
+/// Push a declaration into the active side-effect context (no-op if none).
+fn push_decl(decl: String) {
+    SMTLIB_CTX.with(|cell| {
+        if let Some(ctx) = cell.borrow_mut().as_mut() {
+            ctx.declarations.push(decl);
+        }
+    });
+}
+
+/// Push an assertion into the active side-effect context (no-op if none).
+fn push_axiom(assertion: String) {
+    SMTLIB_CTX.with(|cell| {
+        if let Some(ctx) = cell.borrow_mut().as_mut() {
+            ctx.assertions.push(assertion);
+        }
+    });
+}
+
+/// Allocate a fresh counter value from the active context (returns 0 if none).
+fn alloc_fresh() -> usize {
+    SMTLIB_CTX.with(|cell| {
+        if let Some(ctx) = cell.borrow_mut().as_mut() {
+            let n = ctx.fresh_counter;
+            ctx.fresh_counter += 1;
+            n
+        } else {
+            0
+        }
     })
 }
 
@@ -111,13 +183,86 @@ pub fn expr_to_smtlib(expr: &SpExpr) -> Option<String> {
         }
         Expr::Block(body) => encode_block_smtlib(body, expr_to_smtlib),
         Expr::Raw(tokens) => encode_raw_expr_smtlib(tokens),
-        Expr::Tuple(_) => Some(encode_tuple_smtlib()),
+        Expr::Tuple(elems) => Some(encode_tuple_smtlib_with_ctx(elems)),
         Expr::MethodCall {
             receiver,
             method,
             args,
         } => encode_method_call_smtlib(receiver, method, args, expr_to_smtlib),
-        Expr::List(_) => Some(encode_list_smtlib()),
+        Expr::List(elems) => Some(encode_list_smtlib_with_ctx(elems)),
         Expr::Apply { lemma_name, .. } => Some(encode_apply_smtlib(lemma_name)),
     }
+}
+
+/// Encode a tuple literal with proper element accessor axioms via side-effect context.
+///
+/// When a `SmtlibSideEffects` context is active (via `with_smtlib_side_effects`),
+/// emits `declare-const`, `declare-fun`, and element equality axioms matching
+/// the Z3 and CVC5 native tuple encoding. Without a context, falls back to
+/// the static placeholder.
+fn encode_tuple_smtlib_with_ctx(elems: &[SpExpr]) -> String {
+    use crate::encode_tuple_policy::{tuple_accessor_uf_name, tuple_value_fresh_name};
+
+    // Check if we have an active side-effect context.
+    let has_ctx = SMTLIB_CTX.with(|cell| cell.borrow().is_some());
+    if !has_ctx || elems.is_empty() {
+        return encode_tuple_smtlib();
+    }
+
+    let arity = elems.len();
+    let counter = alloc_fresh();
+    let tuple_name = tuple_value_fresh_name(counter);
+
+    // Declare the fresh tuple constant.
+    push_decl(format!("(declare-const {tuple_name} Int)"));
+
+    // Declare accessor UFs and assert element equalities.
+    for (i, elem) in elems.iter().enumerate() {
+        let accessor_name = tuple_accessor_uf_name(arity, i);
+        push_decl(format!("(declare-fun {accessor_name} (Int) Int)"));
+        if let Some(elem_smt) = expr_to_smtlib(elem) {
+            push_axiom(format!(
+                "(assert (= ({accessor_name} {tuple_name}) {elem_smt}))"
+            ));
+        }
+    }
+
+    tuple_name
+}
+
+/// Encode a list literal with proper element accessor and length axioms via side-effect context.
+fn encode_list_smtlib_with_ctx(elems: &[SpExpr]) -> String {
+    use crate::encode_atom_policy::FIELD_LEN_UF_NAME;
+    use crate::encode_list_policy::{list_get_uf_name, list_value_fresh_name};
+
+    let has_ctx = SMTLIB_CTX.with(|cell| cell.borrow().is_some());
+    if !has_ctx || elems.is_empty() {
+        return encode_list_smtlib();
+    }
+
+    let counter = alloc_fresh();
+    let list_name = list_value_fresh_name(counter);
+    let get_name = list_get_uf_name();
+
+    // Declare the fresh list constant and the get UF.
+    push_decl(format!("(declare-const {list_name} Int)"));
+    push_decl(format!("(declare-fun {get_name} (Int Int) Int)"));
+
+    // Assert element equalities.
+    for (i, elem) in elems.iter().enumerate() {
+        if let Some(elem_smt) = expr_to_smtlib(elem) {
+            push_axiom(format!(
+                "(assert (= ({get_name} {list_name} {i}) {elem_smt}))"
+            ));
+        }
+    }
+
+    // Assert length.
+    push_decl(format!("(declare-fun {FIELD_LEN_UF_NAME} (Int) Int)"));
+    push_axiom(format!(
+        "(assert (= ({FIELD_LEN_UF_NAME} {list_name}) {}))",
+        elems.len()
+    ));
+
+    list_name
 }
