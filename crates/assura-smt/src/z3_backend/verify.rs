@@ -118,7 +118,10 @@ fn verify_clauses_with_types(
 
     let solver = Solver::new();
     let mut solver_params = z3::Params::new();
-    solver_params.set_u32("timeout", 10000);
+    solver_params.set_u32(
+        "timeout",
+        crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_MS,
+    );
     solver.set_params(&solver_params);
     if crate::prelude_policy::track_requires_unsat_cores(requires.len()) {
         enable_unsat_cores(&solver);
@@ -365,9 +368,11 @@ pub(crate) fn verify_quantified_impl(
     quantified_body: &SpExpr,
 ) -> VerificationResult {
     let solver = Solver::new();
-    // Layer 2 timeout: 10 seconds
     let mut params = z3::Params::new();
-    params.set_u32("timeout", 10000);
+    params.set_u32(
+        "timeout",
+        crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_MS,
+    );
     solver.set_params(&params);
 
     let mut encoder = Encoder::new();

@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, SpExpr, Spanned};
 
 use crate::VerificationResult;
-use crate::cvc5_verify_native_checks::{check_validity_cvc5, cvc5_clause_sat_outcome};
-use crate::cvc5_verify_native_solver::{Cvc5SolverOpts, new_cvc5_solver};
+use crate::cvc5_verify_native_checks::check_validity_cvc5;
+use crate::cvc5_verify_native_solver::{Cvc5SolverOpts, cvc5_clause_sat_outcome, new_cvc5_solver};
 use crate::measures::{MeasureAxiomTag, MeasureDefinition};
 
 /// CVC5 implementation of refinement subtype check.
@@ -320,7 +320,7 @@ pub(crate) fn verify_taint_safety_cvc5(
     solver.assert_formula(negated);
 
     let sat_result = solver.check_sat();
-    let outcome = crate::cvc5_verify_native_checks::cvc5_clause_sat_outcome(
+    let outcome = crate::cvc5_verify_native_solver::cvc5_clause_sat_outcome(
         &sat_result,
         &solver,
         &var_map,
