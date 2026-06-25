@@ -255,3 +255,135 @@ pub(crate) fn run_generic_instantiation_checks(
 
     errors
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- builtin_generic_arity (private helper) ----
+
+    #[test]
+    fn builtin_generic_arity_single_param_types() {
+        assert_eq!(builtin_generic_arity("List"), Some(1));
+        assert_eq!(builtin_generic_arity("Set"), Some(1));
+        assert_eq!(builtin_generic_arity("Option"), Some(1));
+        assert_eq!(builtin_generic_arity("Sequence"), Some(1));
+    }
+
+    #[test]
+    fn builtin_generic_arity_two_param_types() {
+        assert_eq!(builtin_generic_arity("Map"), Some(2));
+        assert_eq!(builtin_generic_arity("Result"), Some(2));
+    }
+
+    #[test]
+    fn builtin_generic_arity_non_generic_returns_none() {
+        assert_eq!(builtin_generic_arity("Int"), None);
+        assert_eq!(builtin_generic_arity("Bool"), None);
+        assert_eq!(builtin_generic_arity("String"), None);
+        assert_eq!(builtin_generic_arity("FooBar"), None);
+        assert_eq!(builtin_generic_arity(""), None);
+    }
+
+    // ---- substitute ----
+
+    #[test]
+    fn substitute_multiple_params() {
+        let mut bindings = HashMap::new();
+        bindings.insert("A".into(), Type::Int);
+        bindings.insert("B".into(), Type::Bool);
+        // Map<A, B> -> Map<Int, Bool>
+        let ty = Type::Map(
+            Box::new(Type::TypeParam("A".into())),
+            Box::new(Type::TypeParam("B".into())),
+        );
+        let result = substitute(&ty, &bindings);
+        assert_eq!(
+            result,
+            Type::Map(Box::new(Type::Int), Box::new(Type::Bool))
+        );
+    }
+
+    #[test]
+    fn substitute_empty_bindings_identity() {
+        let bindings = HashMap::new();
+        let ty = Type::List(Box::new(Type::TypeParam("T".into())));
+        let result = substitute(&ty, &bindings);
+        // No bindings: TypeParam stays as-is
+        assert_eq!(result, Type::List(Box::new(Type::TypeParam("T".into()))));
+    }
+
+    #[test]
+    fn substitute_tuple_type() {
+        let mut bindings = HashMap::new();
+        bindings.insert("T".into(), Type::Nat);
+        // Tuple is a leaf in substitute, so TypeParams inside remain
+        let ty = Type::Tuple(vec![Type::Int, Type::Bool]);
+        let result = substitute(&ty, &bindings);
+        // Tuple is handled by the `_ => ty.clone()` arm
+        assert_eq!(result, Type::Tuple(vec![Type::Int, Type::Bool]));
+    }
+
+    // ---- instantiate_builtin_generic ----
+
+    #[test]
+    fn instantiate_returns_none_for_non_builtin() {
+        assert_eq!(instantiate_builtin_generic("MyType", vec![Type::Int]), None);
+    }
+
+    #[test]
+    fn instantiate_result_with_concrete_types() {
+        let result = instantiate_builtin_generic(
+            "Result",
+            vec![Type::Nat, Type::String],
+        );
+        assert_eq!(
+            result,
+            Some(Type::Result(Box::new(Type::Nat), Box::new(Type::String)))
+        );
+    }
+
+    #[test]
+    fn instantiate_list_with_nested_generic() {
+        // List<Option<Int>>
+        let inner = Type::Option(Box::new(Type::Int));
+        let result = instantiate_builtin_generic("List", vec![inner.clone()]);
+        assert_eq!(result, Some(Type::List(Box::new(inner))));
+    }
+
+    // ---- check_generic_instantiation ----
+
+    fn empty_source() -> assura_parser::ast::SourceFile {
+        assura_parser::ast::SourceFile {
+            project: None,
+            module: None,
+            imports: vec![],
+            decls: vec![],
+        }
+    }
+
+    #[test]
+    fn check_generic_correct_arity_ok() {
+        let src = empty_source();
+        assert!(check_generic_instantiation("List", &[Type::Int], &(0..1), &src).is_ok());
+        assert!(check_generic_instantiation("Map", &[Type::String, Type::Int], &(0..1), &src).is_ok());
+    }
+
+    #[test]
+    fn check_generic_wrong_arity_a03002() {
+        let src = empty_source();
+        let err = check_generic_instantiation("List", &[], &(0..5), &src).unwrap_err();
+        assert_eq!(err.code, "A03002");
+        assert!(err.message.contains("expected 1"));
+        assert!(err.message.contains("found 0"));
+        assert_eq!(err.span, 0..5);
+    }
+
+    #[test]
+    fn check_generic_unknown_type_lenient() {
+        let src = empty_source();
+        // Unknown type names pass through (name resolution handles them)
+        let result = check_generic_instantiation("UnknownType", &[Type::Int, Type::Bool], &(0..1), &src);
+        assert!(result.is_ok());
+    }
+}
