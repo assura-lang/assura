@@ -11,7 +11,8 @@ pub(crate) fn encode_raw_expr_smtlib(tokens: &[String]) -> Option<String> {
     if tokens.len() == 1 {
         return encode_raw_single_token_smtlib(&tokens[0]);
     }
-    encode_raw_tokens_smtlib(tokens)
+    let mut fresh = 0usize;
+    encode_raw_tokens_smtlib(tokens, &mut fresh)
 }
 
 #[cfg(feature = "cvc5-verify")]

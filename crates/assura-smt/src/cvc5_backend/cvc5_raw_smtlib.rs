@@ -8,16 +8,24 @@ use crate::encode_atom_policy::{append_raw_dotted_segment, sanitize_smt_name, ty
 use crate::encode_method_policy::pattern_hash_name;
 
 /// Encode multi-token raw expressions as SMT-LIB2.
-pub(crate) fn encode_raw_tokens_smtlib(tokens: &[String]) -> Option<String> {
-    let (val, _pos) = parse_raw_expr_smtlib(tokens, 0, 0)?;
+///
+/// `fresh` is incremented for each complex `old()` fallback temp allocated,
+/// matching the CVC5 native path's `state.fresh_counter` semantics.
+pub(crate) fn encode_raw_tokens_smtlib(tokens: &[String], fresh: &mut usize) -> Option<String> {
+    let (val, _pos) = parse_raw_expr_smtlib(tokens, 0, 0, fresh)?;
     Some(val)
 }
 
 /// Precedence-climbing expression parser for raw tokens producing SMT-LIB2 text.
 ///
 /// Returns `(smtlib_string, next_position)`.
-fn parse_raw_expr_smtlib(tokens: &[String], pos: usize, min_prec: u8) -> Option<(String, usize)> {
-    let (mut lhs, mut pos) = parse_raw_atom_smtlib(tokens, pos)?;
+fn parse_raw_expr_smtlib(
+    tokens: &[String],
+    pos: usize,
+    min_prec: u8,
+    fresh: &mut usize,
+) -> Option<(String, usize)> {
+    let (mut lhs, mut pos) = parse_raw_atom_smtlib(tokens, pos, fresh)?;
 
     while pos < tokens.len() {
         let Some((op_prec, op_kind)) = raw_op_info(tokens[pos].as_str()) else {
@@ -29,7 +37,7 @@ fn parse_raw_expr_smtlib(tokens: &[String], pos: usize, min_prec: u8) -> Option<
 
         pos += 1;
 
-        let (rhs, next_pos) = parse_raw_expr_smtlib(tokens, pos, op_prec + 1)?;
+        let (rhs, next_pos) = parse_raw_expr_smtlib(tokens, pos, op_prec + 1, fresh)?;
         pos = next_pos;
 
         if raw_op_is_comparison(op_kind)
@@ -40,7 +48,7 @@ fn parse_raw_expr_smtlib(tokens: &[String], pos: usize, min_prec: u8) -> Option<
         {
             let left_cmp = format_raw_binop_smtlib(op_kind, &lhs, &rhs);
             pos += 1;
-            let (rhs2, next_pos2) = parse_raw_expr_smtlib(tokens, pos, next_prec + 1)?;
+            let (rhs2, next_pos2) = parse_raw_expr_smtlib(tokens, pos, next_prec + 1, fresh)?;
             pos = next_pos2;
             let right_cmp = format_raw_binop_smtlib(next_op, &rhs, &rhs2);
             lhs = format!("(and {left_cmp} {right_cmp})");
@@ -54,7 +62,11 @@ fn parse_raw_expr_smtlib(tokens: &[String], pos: usize, min_prec: u8) -> Option<
 }
 
 /// Parse a single atom from raw tokens into SMT-LIB2 text.
-fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usize)> {
+fn parse_raw_atom_smtlib(
+    tokens: &[String],
+    start: usize,
+    fresh: &mut usize,
+) -> Option<(String, usize)> {
     if start >= tokens.len() {
         return Some(("true".to_string(), start));
     }
@@ -62,17 +74,17 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
     let tok = &tokens[start];
 
     if tok == "not" || tok == "!" {
-        let (val, next) = parse_raw_atom_smtlib(tokens, start + 1)?;
+        let (val, next) = parse_raw_atom_smtlib(tokens, start + 1, fresh)?;
         return Some((format!("(not {val})"), next));
     }
 
     if tok == "-" {
-        let (val, next) = parse_raw_atom_smtlib(tokens, start + 1)?;
+        let (val, next) = parse_raw_atom_smtlib(tokens, start + 1, fresh)?;
         return Some((format!("(- {val})"), next));
     }
 
     if tok == "(" {
-        let (val, end) = parse_raw_expr_smtlib(tokens, start + 1, 0)?;
+        let (val, end) = parse_raw_expr_smtlib(tokens, start + 1, 0, fresh)?;
         let next = if end < tokens.len() && tokens[end] == ")" {
             end + 1
         } else {
@@ -107,10 +119,11 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
                 return Some((smt, end));
             }
             crate::encode_old_policy::RawOldPlan::Complex => {
-                if let Some((val, _)) = parse_raw_expr_smtlib(inner, 0, 0) {
+                if let Some((val, _)) = parse_raw_expr_smtlib(inner, 0, 0, fresh) {
                     return Some((val, end));
                 }
-                return Some(("__old_fresh".to_string(), end));
+                let fresh_name = crate::encode_old_policy::allocate_old_complex_fresh(fresh);
+                return Some((fresh_name, end));
             }
         }
     }
@@ -118,7 +131,7 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
     if let Some(slice) = parse_raw_quantifier_slice(tokens, start) {
         let var_name = sanitize_smt_name(&tokens[slice.var_token_idx]);
         let body_tokens = &tokens[slice.body_start..slice.body_end];
-        if let Some((body_val, _)) = parse_raw_expr_smtlib(body_tokens, 0, 0) {
+        if let Some((body_val, _)) = parse_raw_expr_smtlib(body_tokens, 0, 0, fresh) {
             return Some((
                 format_raw_quantifier_smtlib(slice.is_forall, &var_name, &body_val),
                 slice.final_pos,
@@ -144,7 +157,7 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
     }
 
     if is_raw_spec_skip_keyword(tok) {
-        return parse_raw_atom_smtlib(tokens, start + 1);
+        return parse_raw_atom_smtlib(tokens, start + 1, fresh);
     }
 
     let mut name = sanitize_smt_name(tok);
@@ -170,7 +183,7 @@ fn parse_raw_atom_smtlib(tokens: &[String], start: usize) -> Option<(String, usi
         for (lo, hi) in comma_chunk_ranges(arg_tokens) {
             let chunk = &arg_tokens[lo..hi];
             if !chunk.is_empty()
-                && let Some((v, _)) = parse_raw_expr_smtlib(chunk, 0, 0)
+                && let Some((v, _)) = parse_raw_expr_smtlib(chunk, 0, 0, fresh)
             {
                 arg_strs.push(v);
             }
@@ -209,7 +222,7 @@ mod tests {
     fn precedence_climbing_mul_over_add() {
         let tokens = vec!["a".into(), "+".into(), "b".into(), "*".into(), "c".into()];
         assert_eq!(
-            encode_raw_tokens_smtlib(&tokens),
+            encode_raw_tokens_smtlib(&tokens, &mut 0),
             Some("(+ a (* b c))".into())
         );
     }
@@ -218,7 +231,7 @@ mod tests {
     fn comparison_chain_desugars_to_and() {
         let tokens = vec!["a".into(), "<".into(), "b".into(), "<".into(), "c".into()];
         assert_eq!(
-            encode_raw_tokens_smtlib(&tokens),
+            encode_raw_tokens_smtlib(&tokens, &mut 0),
             Some("(and (< a b) (< b c))".into())
         );
     }
@@ -227,7 +240,7 @@ mod tests {
     fn dotted_raw_token_chain_uses_single_underscore() {
         let tokens = vec!["state".into(), ".".into(), "field".into()];
         assert_eq!(
-            encode_raw_tokens_smtlib(&tokens),
+            encode_raw_tokens_smtlib(&tokens, &mut 0),
             Some("state_field".into())
         );
     }
@@ -243,7 +256,7 @@ mod tests {
             "1".into(),
         ];
         assert_eq!(
-            encode_raw_tokens_smtlib(&tokens),
+            encode_raw_tokens_smtlib(&tokens, &mut 0),
             Some("(+ x__old 1)".into())
         );
     }
@@ -252,7 +265,7 @@ mod tests {
     fn float_literal_encodes_as_rational() {
         let tokens = vec!["3.14".into()];
         assert_eq!(
-            encode_raw_tokens_smtlib(&tokens),
+            encode_raw_tokens_smtlib(&tokens, &mut 0),
             Some("(/ 3140000 1000000)".into())
         );
     }
@@ -261,7 +274,7 @@ mod tests {
     fn float_in_arithmetic_expr() {
         let tokens = vec!["x".into(), "+".into(), "1.5".into()];
         assert_eq!(
-            encode_raw_tokens_smtlib(&tokens),
+            encode_raw_tokens_smtlib(&tokens, &mut 0),
             Some("(+ x (/ 1500000 1000000))".into())
         );
     }
@@ -269,7 +282,7 @@ mod tests {
     #[test]
     fn typestate_annotation_encodes_as_equality() {
         let tokens = vec!["conn".into(), "@".into(), "Open".into()];
-        let result = encode_raw_tokens_smtlib(&tokens).unwrap();
+        let result = encode_raw_tokens_smtlib(&tokens, &mut 0).unwrap();
         assert!(result.starts_with("(= __typestate_conn "));
     }
 
@@ -284,7 +297,7 @@ mod tests {
             ">".into(),
             "0".into(),
         ];
-        let result = encode_raw_tokens_smtlib(&tokens).unwrap();
+        let result = encode_raw_tokens_smtlib(&tokens, &mut 0).unwrap();
         assert!(result.starts_with("(and (= __typestate_conn "));
     }
 
@@ -292,7 +305,7 @@ mod tests {
     fn abs_call_encodes_as_ite() {
         let tokens = vec!["abs".into(), "(".into(), "x".into(), ")".into()];
         assert_eq!(
-            encode_raw_tokens_smtlib(&tokens),
+            encode_raw_tokens_smtlib(&tokens, &mut 0),
             Some("(ite (>= x 0) x (- x))".into())
         );
     }
@@ -308,7 +321,7 @@ mod tests {
             ")".into(),
         ];
         assert_eq!(
-            encode_raw_tokens_smtlib(&tokens),
+            encode_raw_tokens_smtlib(&tokens, &mut 0),
             Some("(ite (<= a b) a b)".into())
         );
     }
@@ -324,8 +337,30 @@ mod tests {
             ")".into(),
         ];
         assert_eq!(
-            encode_raw_tokens_smtlib(&tokens),
+            encode_raw_tokens_smtlib(&tokens, &mut 0),
             Some("(ite (>= a b) a b)".into())
         );
+    }
+
+    #[test]
+    fn old_complex_expr_parses_with_fresh_counter() {
+        // Complex inner expressions (more than 1 or 3 tokens) go through
+        // RawOldPlan::Complex which passes the fresh counter to the inner
+        // parse. The counter is used for fallback naming via
+        // allocate_old_complex_fresh (tested directly in encode_old_policy).
+        // Here we verify the parse path works correctly with the counter.
+        let mut fresh = 0usize;
+        let tokens = vec![
+            "old".into(),
+            "(".into(),
+            "a".into(),
+            "+".into(),
+            "b".into(),
+            ")".into(),
+            "+".into(),
+            "1".into(),
+        ];
+        let result = encode_raw_tokens_smtlib(&tokens, &mut fresh);
+        assert_eq!(result, Some("(+ (+ a b) 1)".into()));
     }
 }

@@ -106,6 +106,18 @@ pub(crate) fn raw_old_ident_snapshot_name(name: &str) -> String {
     old_snapshot_name(name)
 }
 
+/// Allocate a fresh temporary for complex `old()` inner expressions that
+/// the raw token parser could not resolve.
+///
+/// Wraps [`old_fresh_temp_name`](crate::encode_atom_policy::old_fresh_temp_name)
+/// with counter increment so both CVC5 shell and native raw parsers use the
+/// same `__old_fresh_N` naming and avoid collisions.
+pub(crate) fn allocate_old_complex_fresh(counter: &mut usize) -> String {
+    let name = crate::encode_atom_policy::old_fresh_temp_name(*counter);
+    *counter += 1;
+    name
+}
+
 /// SMT-LIB2 for raw `old(base.field)` as `(__field_f base__old)`.
 pub(crate) fn raw_old_shallow_field_smtlib(base: &str, field: &str) -> String {
     let old_base = old_snapshot_name(base);
@@ -186,5 +198,14 @@ mod tests {
             raw_old_shallow_field_smtlib("buf", "len"),
             "(__field_len buf__old)"
         );
+    }
+
+    #[test]
+    fn allocate_old_complex_fresh_increments() {
+        let mut counter = 0;
+        assert_eq!(allocate_old_complex_fresh(&mut counter), "__old_fresh_0");
+        assert_eq!(counter, 1);
+        assert_eq!(allocate_old_complex_fresh(&mut counter), "__old_fresh_1");
+        assert_eq!(counter, 2);
     }
 }

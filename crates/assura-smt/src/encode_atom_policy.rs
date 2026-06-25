@@ -62,8 +62,8 @@ pub(crate) fn old_snapshot_name(name: &str) -> String {
 
 /// Fresh temporary for complex `old(expr)` that cannot rename in place.
 ///
-/// Referenced from CVC5 raw-native (`cvc5-verify` only in default builds).
-#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
+/// Used by both CVC5 raw-native and raw-shell paths via
+/// [`allocate_old_complex_fresh`](crate::encode_old_policy::allocate_old_complex_fresh).
 pub(crate) fn old_fresh_temp_name(counter: impl std::fmt::Display) -> String {
     format!("__old_fresh_{counter}")
 }
