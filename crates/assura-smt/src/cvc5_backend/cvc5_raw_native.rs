@@ -188,8 +188,7 @@ fn parse_raw_atom_cvc5<'a>(
                     return Some((val, end));
                 }
                 let fresh_name =
-                    crate::encode_atom_policy::old_fresh_temp_name(state.fresh_counter);
-                state.fresh_counter += 1;
+                    crate::encode_old_policy::allocate_old_complex_fresh(&mut state.fresh_counter);
                 return Some((tm.mk_const(tm.integer_sort(), &fresh_name), end));
             }
         }
