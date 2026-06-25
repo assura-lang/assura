@@ -4543,6 +4543,14 @@ mod cvc5_parity_468 {
     // #509: Counterexample value verification (CVC5)
     // -------------------------------------------------------------------
 
+    fn make_clause(kind: ClauseKind, body: Expr) -> Clause {
+        Clause {
+            kind,
+            body: Spanned::no_span(body),
+            effect_variables: vec![],
+        }
+    }
+
     #[test]
     fn cvc5_counterexample_value_correct() {
         // requires: x > 0, ensures: x > 100
