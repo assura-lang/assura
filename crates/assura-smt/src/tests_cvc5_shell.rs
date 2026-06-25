@@ -4,6 +4,7 @@ use crate::VerificationResult;
 use crate::cache::SessionCache;
 use crate::cvc5_backend::expr_to_smtlib;
 use crate::cvc5_backend::verify_contract_cvc5_with_lemmas;
+use crate::cvc5_expr_smtlib::with_smtlib_side_effects;
 use crate::cvc5_havoc_assume_smtlib::append_havoc_assume_smtlib;
 use crate::cvc5_verify_shared::{Cvc5TypeConstraint, collect_cvc5_type_constraints};
 use crate::encode_atom_policy::canonical_length_name;
@@ -208,4 +209,184 @@ module copy {
         "IR load should make result.length <= raw.length() verifiable, got: {:?}",
         results[0]
     );
+}
+
+// ---------------------------------------------------------------------------
+// Tuple / List element axiom tests (#462)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn shell_tuple_encoding_emits_element_axioms() {
+    let tuple_expr = Spanned::no_span(Expr::Tuple(vec![
+        Spanned::no_span(Expr::Literal(Literal::Int("10".into()))),
+        Spanned::no_span(Expr::Literal(Literal::Int("20".into()))),
+        Spanned::no_span(Expr::Literal(Literal::Int("30".into()))),
+    ]));
+
+    let (result, effects) = with_smtlib_side_effects(|| expr_to_smtlib(&tuple_expr));
+
+    // Result should be a fresh name, not the static placeholder.
+    let smt = result.expect("tuple should encode");
+    assert!(
+        smt.starts_with("__tuple_"),
+        "expected fresh tuple name, got: {smt}"
+    );
+    assert_ne!(smt, "__tuple_fresh", "should not be the static placeholder");
+
+    // Declarations: 1 fresh constant + 3 accessor UFs.
+    assert!(
+        effects.declarations.len() >= 4,
+        "expected >= 4 declarations (1 const + 3 UFs), got {}: {:?}",
+        effects.declarations.len(),
+        effects.declarations
+    );
+    assert!(
+        effects
+            .declarations
+            .iter()
+            .any(|d| d.contains("declare-const") && d.contains(&smt))
+    );
+    assert!(
+        effects
+            .declarations
+            .iter()
+            .any(|d| d.contains("__tuple_3_0"))
+    );
+    assert!(
+        effects
+            .declarations
+            .iter()
+            .any(|d| d.contains("__tuple_3_1"))
+    );
+    assert!(
+        effects
+            .declarations
+            .iter()
+            .any(|d| d.contains("__tuple_3_2"))
+    );
+
+    // Axioms: 3 element equalities.
+    assert_eq!(
+        effects.assertions.len(),
+        3,
+        "expected 3 element axioms, got: {:?}",
+        effects.assertions
+    );
+    assert!(effects.assertions[0].contains("__tuple_3_0"));
+    assert!(effects.assertions[0].contains("10"));
+    assert!(effects.assertions[1].contains("__tuple_3_1"));
+    assert!(effects.assertions[1].contains("20"));
+    assert!(effects.assertions[2].contains("__tuple_3_2"));
+    assert!(effects.assertions[2].contains("30"));
+}
+
+#[test]
+fn shell_list_encoding_emits_element_and_length_axioms() {
+    let list_expr = Spanned::no_span(Expr::List(vec![
+        Spanned::no_span(Expr::Literal(Literal::Int("1".into()))),
+        Spanned::no_span(Expr::Literal(Literal::Int("2".into()))),
+    ]));
+
+    let (result, effects) = with_smtlib_side_effects(|| expr_to_smtlib(&list_expr));
+
+    let smt = result.expect("list should encode");
+    assert!(
+        smt.starts_with("__list_"),
+        "expected fresh list name, got: {smt}"
+    );
+    assert_ne!(smt, "__list_fresh", "should not be the static placeholder");
+
+    // Declarations: 1 fresh constant + __list_get UF + __field_len UF.
+    assert!(
+        effects.declarations.len() >= 3,
+        "expected >= 3 declarations, got {}: {:?}",
+        effects.declarations.len(),
+        effects.declarations
+    );
+    assert!(
+        effects
+            .declarations
+            .iter()
+            .any(|d| d.contains("declare-const") && d.contains(&smt))
+    );
+    assert!(
+        effects
+            .declarations
+            .iter()
+            .any(|d| d.contains("__list_get"))
+    );
+    assert!(
+        effects
+            .declarations
+            .iter()
+            .any(|d| d.contains("__field_len"))
+    );
+
+    // Axioms: 2 element equalities + 1 length axiom = 3.
+    assert_eq!(
+        effects.assertions.len(),
+        3,
+        "expected 3 axioms (2 elements + 1 length), got: {:?}",
+        effects.assertions
+    );
+    assert!(effects.assertions[0].contains("__list_get"));
+    assert!(effects.assertions[0].contains("1")); // elem value
+    assert!(effects.assertions[1].contains("__list_get"));
+    assert!(effects.assertions[1].contains("2")); // elem value
+    assert!(effects.assertions[2].contains("__field_len"));
+    assert!(effects.assertions[2].contains("2")); // length
+}
+
+#[test]
+fn shell_empty_tuple_falls_back_to_placeholder() {
+    let tuple_expr = Spanned::no_span(Expr::Tuple(vec![]));
+    let (result, effects) = with_smtlib_side_effects(|| expr_to_smtlib(&tuple_expr));
+    assert_eq!(result, Some("__tuple_fresh".into()));
+    assert!(effects.declarations.is_empty());
+    assert!(effects.assertions.is_empty());
+}
+
+#[test]
+fn shell_empty_list_falls_back_to_placeholder() {
+    let list_expr = Spanned::no_span(Expr::List(vec![]));
+    let (result, effects) = with_smtlib_side_effects(|| expr_to_smtlib(&list_expr));
+    assert_eq!(result, Some("__list_fresh".into()));
+    assert!(effects.declarations.is_empty());
+    assert!(effects.assertions.is_empty());
+}
+
+#[test]
+fn shell_tuple_without_context_returns_placeholder() {
+    // Without with_smtlib_side_effects, tuple falls back to placeholder.
+    let tuple_expr = Spanned::no_span(Expr::Tuple(vec![Spanned::no_span(Expr::Literal(
+        Literal::Int("1".into()),
+    ))]));
+    let result = expr_to_smtlib(&tuple_expr);
+    assert_eq!(result, Some("__tuple_fresh".into()));
+}
+
+#[test]
+fn shell_list_without_context_returns_placeholder() {
+    let list_expr = Spanned::no_span(Expr::List(vec![Spanned::no_span(Expr::Literal(
+        Literal::Int("1".into()),
+    ))]));
+    let result = expr_to_smtlib(&list_expr);
+    assert_eq!(result, Some("__list_fresh".into()));
+}
+
+#[test]
+fn shell_multiple_tuples_get_unique_names() {
+    let t1 = Spanned::no_span(Expr::Tuple(vec![Spanned::no_span(Expr::Literal(
+        Literal::Int("1".into()),
+    ))]));
+    let t2 = Spanned::no_span(Expr::Tuple(vec![Spanned::no_span(Expr::Literal(
+        Literal::Int("2".into()),
+    ))]));
+    let (results, _effects) = with_smtlib_side_effects(|| {
+        let a = expr_to_smtlib(&t1);
+        let b = expr_to_smtlib(&t2);
+        (a, b)
+    });
+    let (a, b) = results;
+    assert_ne!(a, b, "two tuples should get different fresh names");
 }
