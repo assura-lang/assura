@@ -1,0 +1,8 @@
+// MUST REJECT A05001
+// Adversarial: ghost variable used multiple times in clause body.
+// Tries to disguise double use through separate clauses referencing
+// the same linear variable.
+fn ghost_leak(token: linear Int) -> Int
+    requires { token > 0 }
+    requires { token < 100 }
+    ensures { result > 0 }

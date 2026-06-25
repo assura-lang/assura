@@ -416,8 +416,8 @@ mod native_tests {
         assert!(!results.is_empty());
         for r in &results {
             assert!(
-                !matches!(r, VerificationResult::Counterexample { .. }),
-                "Got unexpected counterexample: {:?}",
+                matches!(r, VerificationResult::Verified { .. }),
+                "substring axiom: expected Verified, got: {:?}",
                 r
             );
         }
@@ -448,8 +448,8 @@ mod native_tests {
         assert!(!results.is_empty());
         for r in &results {
             assert!(
-                !matches!(r, VerificationResult::Counterexample { .. }),
-                "concat axiom failed: {:?}",
+                matches!(r, VerificationResult::Verified { .. }),
+                "concat axiom: expected Verified, got: {:?}",
                 r
             );
         }
@@ -491,8 +491,8 @@ mod native_tests {
         assert!(!results.is_empty());
         for r in &results {
             assert!(
-                !matches!(r, VerificationResult::Counterexample { .. }),
-                "indexOf axiom failed: {:?}",
+                matches!(r, VerificationResult::Verified { .. }),
+                "indexOf axiom: expected Verified, got: {:?}",
                 r
             );
         }
@@ -536,8 +536,8 @@ mod native_tests {
         assert!(!results.is_empty());
         for r in &results {
             assert!(
-                !matches!(r, VerificationResult::Counterexample { .. }),
-                "charAt axiom failed: {:?}",
+                matches!(r, VerificationResult::Verified { .. }),
+                "charAt axiom: expected Verified, got: {:?}",
                 r
             );
         }
@@ -569,8 +569,8 @@ mod native_tests {
         assert!(!results.is_empty());
         for r in &results {
             assert!(
-                !matches!(r, VerificationResult::Counterexample { .. }),
-                "replace axiom failed: {:?}",
+                matches!(r, VerificationResult::Verified { .. }),
+                "replace axiom: expected Verified, got: {:?}",
                 r
             );
         }
@@ -601,8 +601,8 @@ mod native_tests {
         assert!(!results.is_empty());
         for r in &results {
             assert!(
-                !matches!(r, VerificationResult::Counterexample { .. }),
-                "split axiom failed: {:?}",
+                matches!(r, VerificationResult::Verified { .. }),
+                "split axiom: expected Verified, got: {:?}",
                 r
             );
         }
@@ -630,8 +630,8 @@ mod native_tests {
         assert!(!results.is_empty());
         for r in &results {
             assert!(
-                !matches!(r, VerificationResult::Counterexample { .. }),
-                "trim axiom failed: {:?}",
+                matches!(r, VerificationResult::Verified { .. }),
+                "trim axiom: expected Verified, got: {:?}",
                 r
             );
         }
@@ -663,8 +663,8 @@ mod native_tests {
         assert!(!results.is_empty());
         for r in &results {
             assert!(
-                !matches!(r, VerificationResult::Counterexample { .. }),
-                "array set axiom failed: {:?}",
+                matches!(r, VerificationResult::Verified { .. }),
+                "array set axiom: expected Verified, got: {:?}",
                 r
             );
         }
@@ -696,8 +696,8 @@ mod native_tests {
         assert!(!results.is_empty());
         for r in &results {
             assert!(
-                !matches!(r, VerificationResult::Counterexample { .. }),
-                "map put axiom failed: {:?}",
+                matches!(r, VerificationResult::Verified { .. }),
+                "map put axiom: expected Verified, got: {:?}",
                 r
             );
         }
@@ -747,8 +747,8 @@ mod native_tests {
         assert!(!results.is_empty());
         for r in &results {
             assert!(
-                !matches!(r, VerificationResult::Counterexample { .. }),
-                "method call substring axiom failed: {:?}",
+                matches!(r, VerificationResult::Verified { .. }),
+                "method call substring axiom: expected Verified, got: {:?}",
                 r
             );
         }
@@ -780,8 +780,8 @@ mod native_tests {
         assert!(!results.is_empty());
         for r in &results {
             assert!(
-                !matches!(r, VerificationResult::Counterexample { .. }),
-                "method call set axiom failed: {:?}",
+                matches!(r, VerificationResult::Verified { .. }),
+                "method call set axiom: expected Verified, got: {:?}",
                 r
             );
         }
@@ -813,8 +813,8 @@ mod native_tests {
         assert!(!results.is_empty());
         for r in &results {
             assert!(
-                !matches!(r, VerificationResult::Counterexample { .. }),
-                "method call put axiom failed: {:?}",
+                matches!(r, VerificationResult::Verified { .. }),
+                "method call put axiom: expected Verified, got: {:?}",
                 r
             );
         }
@@ -855,12 +855,12 @@ mod native_tests {
         }
     }
 
-    fn assert_no_cex(label: &str, results: &[VerificationResult]) {
+    fn assert_all_verified(label: &str, results: &[VerificationResult]) {
         assert!(!results.is_empty(), "{label}: expected results");
         for r in results {
             assert!(
-                !matches!(r, VerificationResult::Counterexample { .. }),
-                "{label}: unexpected counterexample: {r:?}"
+                matches!(r, VerificationResult::Verified { .. }),
+                "{label}: expected Verified, got: {r:?}"
             );
         }
     }
@@ -1143,7 +1143,7 @@ mod native_tests {
                 "min/max ite encoding should verify bounds, got: {r:?}"
             );
         }
-        assert_no_cex("min_max_bounds", &results);
+        assert_all_verified("min_max_bounds", &results);
     }
 
     // -----------------------------------------------------------------------
@@ -1617,8 +1617,8 @@ mod frame_tests {
         assert!(!results.is_empty());
         for r in &results {
             assert!(
-                !matches!(r, VerificationResult::Counterexample { .. }),
-                "Frame axiom should prevent counterexample: {:?}",
+                matches!(r, VerificationResult::Verified { .. }),
+                "Frame axiom: expected Verified, got: {:?}",
                 r
             );
         }
@@ -4537,6 +4537,60 @@ mod cvc5_parity_468 {
             results.is_empty(),
             "requires-only contract should have no verifiable clauses"
         );
+    }
+
+    // -------------------------------------------------------------------
+    // #509: Counterexample value verification (CVC5)
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn cvc5_counterexample_value_correct() {
+        // requires: x > 0, ensures: x > 100
+        // CE must have x in (0, 100] to satisfy requires but violate ensures.
+        let clauses = vec![
+            make_clause(
+                ClauseKind::Requires,
+                Expr::BinOp {
+                    op: BinOp::Gt,
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                },
+            ),
+            make_clause(
+                ClauseKind::Ensures,
+                Expr::BinOp {
+                    op: BinOp::Gt,
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("100".into())))),
+                },
+            ),
+        ];
+        let results = crate::cvc5_backend::verify_contract_cvc5("CvcCEValue", &clauses);
+        if results.is_empty() {
+            return; // cvc5 not installed
+        }
+        match &results[0] {
+            VerificationResult::Counterexample {
+                counter_model: Some(cm),
+                ..
+            } => {
+                let x: Option<i64> = cm
+                    .variables
+                    .iter()
+                    .find(|(n, _)| n == "x")
+                    .and_then(|(_, v)| v.parse().ok());
+                if let Some(x) = x {
+                    assert!(x > 0, "CE x={x} should satisfy requires (x > 0)");
+                    assert!(x <= 100, "CE x={x} should violate ensures (x > 100)");
+                }
+                // If parsing fails, the model format is different but that is OK;
+                // the test still proves a CE was produced with a model.
+            }
+            VerificationResult::Unknown { .. } => {
+                // cvc5 not installed or solver inconclusive; skip
+            }
+            other => panic!("expected Counterexample or Unknown, got: {other:?}"),
+        }
     }
 
     #[test]

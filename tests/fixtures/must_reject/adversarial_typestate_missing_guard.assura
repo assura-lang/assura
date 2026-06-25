@@ -1,0 +1,8 @@
+// MUST REJECT A03006
+// Adversarial: clause body is not a boolean expression.
+// Tries to use an integer expression where a boolean is expected.
+contract ClauseTypeCheat {
+    input(x: Int)
+    requires { x + 1 }
+    ensures { x > 0 }
+}

@@ -13,6 +13,19 @@ use crate::unmodelable::{
 use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, Pattern, Spanned, UnaryOp};
 use std::collections::HashSet;
 
+/// Check whether the `cvc5` binary is available on $PATH.
+/// Shell-mode tests produce `Unknown` when the binary is missing;
+/// this helper lets tests require `Verified` only when CVC5 is installed.
+fn cvc5_shell_available() -> bool {
+    std::process::Command::new("cvc5")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 // -------------------------------------------------------------------
 // derive_narrowings tests (#257)
 // -------------------------------------------------------------------
@@ -975,14 +988,22 @@ fn test_cvc5_must_not_impossible() {
     };
     let results = verify_contract_cvc5("TestMustNotFalse", &[clause]);
     assert_eq!(results.len(), 1);
-    assert!(
-        matches!(
-            &results[0],
-            VerificationResult::Verified { .. } | VerificationResult::Unknown { .. }
-        ),
-        "must_not(false) should be Verified or Unknown (if cvc5 not installed), got: {:?}",
-        results[0]
-    );
+    if cvc5_shell_available() {
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "must_not(false): CVC5 installed but did not verify, got: {:?}",
+            results[0]
+        );
+    } else {
+        assert!(
+            matches!(
+                &results[0],
+                VerificationResult::Verified { .. } | VerificationResult::Unknown { .. }
+            ),
+            "must_not(false): expected Verified or Unknown (cvc5 not installed), got: {:?}",
+            results[0]
+        );
+    }
 }
 
 // -------------------------------------------------------------------
@@ -1133,14 +1154,22 @@ fn test_cvc5_typestate_same_state_verifies() {
         !results.is_empty(),
         "should have results for typestate identity"
     );
-    assert!(
-        matches!(
-            &results[0],
-            VerificationResult::Verified { .. } | VerificationResult::Unknown { .. }
-        ),
-        "same typestate pre/post should verify or Unknown (if cvc5 not installed), got: {:?}",
-        results[0]
-    );
+    if cvc5_shell_available() {
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "typestate identity: CVC5 installed but did not verify, got: {:?}",
+            results[0]
+        );
+    } else {
+        assert!(
+            matches!(
+                &results[0],
+                VerificationResult::Verified { .. } | VerificationResult::Unknown { .. }
+            ),
+            "typestate identity: expected Verified or Unknown (cvc5 not installed), got: {:?}",
+            results[0]
+        );
+    }
 }
 
 #[test]
@@ -1535,14 +1564,22 @@ fn test_cvc5_deep_field_chain_contract_verifies() {
     ];
     let results = verify_contract_cvc5("DeepFieldChain", &clauses);
     assert_eq!(results.len(), 1);
-    assert!(
-        matches!(
-            &results[0],
-            VerificationResult::Verified { .. } | VerificationResult::Unknown { .. }
-        ),
-        "deep field chain contract should verify (or Unknown if cvc5 not installed), got: {:?}",
-        results[0]
-    );
+    if cvc5_shell_available() {
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "deep field chain: CVC5 installed but did not verify, got: {:?}",
+            results[0]
+        );
+    } else {
+        assert!(
+            matches!(
+                &results[0],
+                VerificationResult::Verified { .. } | VerificationResult::Unknown { .. }
+            ),
+            "deep field chain: expected Verified or Unknown (cvc5 not installed), got: {:?}",
+            results[0]
+        );
+    }
 }
 
 #[test]
@@ -1576,14 +1613,22 @@ fn test_cvc5_self_rooted_field_contract_verifies() {
     ];
     let results = verify_contract_cvc5("SelfRootedField", &clauses);
     assert_eq!(results.len(), 1);
-    assert!(
-        matches!(
-            &results[0],
-            VerificationResult::Verified { .. } | VerificationResult::Unknown { .. }
-        ),
-        "self-rooted field contract should verify (or Unknown if cvc5 not installed), got: {:?}",
-        results[0]
-    );
+    if cvc5_shell_available() {
+        assert!(
+            matches!(&results[0], VerificationResult::Verified { .. }),
+            "self-rooted field: CVC5 installed but did not verify, got: {:?}",
+            results[0]
+        );
+    } else {
+        assert!(
+            matches!(
+                &results[0],
+                VerificationResult::Verified { .. } | VerificationResult::Unknown { .. }
+            ),
+            "self-rooted field: expected Verified or Unknown (cvc5 not installed), got: {:?}",
+            results[0]
+        );
+    }
 }
 
 #[test]

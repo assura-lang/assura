@@ -321,8 +321,8 @@ fn test_must_reject_fixtures() {
         blocked_paths.len()
     );
     assert!(
-        tested >= 86,
-        "expected at least 86 MUST REJECT fixtures, found {tested}"
+        tested >= 92,
+        "expected at least 92 MUST REJECT fixtures, found {tested}"
     );
 }
 
@@ -1028,7 +1028,7 @@ fn run_e2e_pipeline(source: &str, source_path: &std::path::Path) -> (bool, bool)
     let has_counterexample = results
         .iter()
         .any(|r| matches!(r, assura_smt::VerificationResult::Counterexample { .. }));
-    (has_counterexample, has_counterexample)
+    (false, has_counterexample)
 }
 
 #[test]

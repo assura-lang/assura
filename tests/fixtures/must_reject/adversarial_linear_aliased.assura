@@ -1,0 +1,6 @@
+// MUST REJECT A05001
+// Adversarial: linear variable aliased through an intermediate expression.
+// Tries to disguise double use via separate clause references.
+fn aliased(buf: linear Bytes) -> Int
+    requires { buf.length() > 0 }
+    ensures { result == buf.length() + buf.length() }

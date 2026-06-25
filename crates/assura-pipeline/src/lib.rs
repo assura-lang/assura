@@ -483,4 +483,39 @@ mod tests {
         assert!(output.timing.parse_ms >= 0.0);
         assert!(output.timing.token_count > 0);
     }
+
+    // -------------------------------------------------------------------
+    // #510: Timeout/Unknown soundness guards
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn timeout_not_treated_as_verified() {
+        let timeout = assura_smt::VerificationResult::Timeout {
+            clause_desc: "test".into(),
+        };
+        let results = vec![timeout];
+        assert!(!verification_succeeded(&results));
+        assert!(!verification_strict_succeeded(&results));
+    }
+
+    #[test]
+    fn unknown_non_limitation_not_strict_succeeded() {
+        let unknown = assura_smt::VerificationResult::Unknown {
+            clause_desc: "test".into(),
+            reason: "solver returned inconclusive".into(),
+        };
+        let results = vec![unknown];
+        // Lenient: passes (design decision: Unknown is non-fatal)
+        assert!(verification_succeeded(&results));
+        // Strict: fails (non-limitation Unknown is a real issue)
+        assert!(!verification_strict_succeeded(&results));
+    }
+
+    #[test]
+    fn known_limitation_passes_both() {
+        let limitation = assura_smt::VerificationResult::unknown_not_encoded("test", "feature X");
+        let results = vec![limitation];
+        assert!(verification_succeeded(&results));
+        assert!(verification_strict_succeeded(&results));
+    }
 }

@@ -1,0 +1,5 @@
+// MUST REJECT A08001
+// Adversarial: secret leaks to public through arithmetic channel.
+// The information flow checker must track taint through expressions.
+fn indirect_leak(key: secret Int, mask: Int) -> Int
+    ensures { result == key + mask - mask }

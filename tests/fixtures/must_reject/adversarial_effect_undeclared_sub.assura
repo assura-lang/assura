@@ -1,0 +1,9 @@
+// MUST REJECT A07003
+// Adversarial: declares a plausible but invalid effect name.
+// The effect checker must reject effect names not in the known set.
+contract SneakyEffect {
+    input(x: Int)
+    effects: quantum_compute
+    requires { x > 0 }
+    ensures { x >= 1 }
+}

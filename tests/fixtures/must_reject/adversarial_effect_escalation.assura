@@ -1,0 +1,11 @@
+// MUST REJECT A07002
+// Adversarial: pure contract body invokes an effectful sub-expression.
+// Tries to sneak io through a requires clause in a pure function.
+fn do_io(x: Int) -> Int
+    effects { io }
+    ensures { result > 0 }
+
+fn sneaky_pure(x: Int) -> Int
+    effects { pure }
+    requires { do_io(x) > 0 }
+    ensures { result > 0 }

@@ -3337,3 +3337,128 @@ fn test_extract_raw_base_name_policy() {
     assert_eq!(extract_raw_base_name("a_b_c"), "c");
     assert_eq!(extract_raw_base_name("simple"), "simple");
 }
+
+// -----------------------------------------------------------------------
+// #509: Counterexample value verification
+// -----------------------------------------------------------------------
+
+/// Parse an integer value from a CounterexampleModel variable.
+fn get_ce_var_value(cm: &super::CounterexampleModel, name: &str) -> Option<i64> {
+    cm.variables
+        .iter()
+        .find(|(n, _)| n == name)
+        .and_then(|(_, v)| v.parse().ok())
+}
+
+#[test]
+fn test_counterexample_value_satisfies_requires() {
+    // requires: x > 0, ensures: x > 100
+    // CE must have x in (0, 100] to satisfy requires but violate ensures.
+    let ante = binop(ident("x"), BinOp::Gt, int_lit(0));
+    let cons = binop(ident("x"), BinOp::Gt, int_lit(100));
+
+    let result = super::check_refinement_subtype(&ante, &cons);
+    match &result {
+        VerificationResult::Counterexample {
+            counter_model: Some(cm),
+            ..
+        } => {
+            let x = get_ce_var_value(cm, "x").expect("counterexample should contain variable 'x'");
+            assert!(x > 0, "CE x={x} should satisfy requires (x > 0)");
+            assert!(x <= 100, "CE x={x} should violate ensures (x > 100)");
+        }
+        other => panic!("expected counterexample with model, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_counterexample_value_violates_ensures() {
+    // true implies x > 10 is false -> CE has x <= 10
+    let ante = Spanned::no_span(Expr::Literal(Literal::Bool(true)));
+    let cons = binop(ident("x"), BinOp::Gt, int_lit(10));
+
+    let result = super::check_refinement_subtype(&ante, &cons);
+    match &result {
+        VerificationResult::Counterexample {
+            counter_model: Some(cm),
+            ..
+        } => {
+            let x = get_ce_var_value(cm, "x").expect("counterexample should contain variable 'x'");
+            assert!(x <= 10, "CE x={x} should violate ensures (x > 10)");
+        }
+        other => panic!("expected counterexample with model, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_counterexample_multi_variable_values() {
+    // requires: x > 0 AND y > 0, ensures: x + y > 100
+    // CE must have x > 0, y > 0, and x + y <= 100.
+    let ctx = vec![
+        binop(ident("x"), BinOp::Gt, int_lit(0)),
+        binop(ident("y"), BinOp::Gt, int_lit(0)),
+    ];
+    let ante = binop(ident("x"), BinOp::Gt, int_lit(0)); // trivially true given ctx
+    let cons = binop(
+        binop(ident("x"), BinOp::Add, ident("y")),
+        BinOp::Gt,
+        int_lit(100),
+    );
+
+    let result = super::check_refinement_subtype_with_context(&ctx, &ante, &cons);
+    match &result {
+        VerificationResult::Counterexample {
+            counter_model: Some(cm),
+            ..
+        } => {
+            let x = get_ce_var_value(cm, "x").expect("counterexample should contain variable 'x'");
+            let y = get_ce_var_value(cm, "y").expect("counterexample should contain variable 'y'");
+            assert!(x > 0, "CE x={x} should satisfy requires (x > 0)");
+            assert!(y > 0, "CE y={y} should satisfy requires (y > 0)");
+            assert!(
+                x + y <= 100,
+                "CE x={x}, y={y} (sum={}) should violate ensures (x + y > 100)",
+                x + y
+            );
+        }
+        other => panic!("expected counterexample with model, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_counterexample_boolean_value() {
+    // true implies flag == true is false -> CE has flag != true
+    let ante = Spanned::no_span(Expr::Literal(Literal::Bool(true)));
+    let cons = binop(
+        ident("flag"),
+        BinOp::Eq,
+        Spanned::no_span(Expr::Literal(Literal::Bool(true))),
+    );
+
+    let result = super::check_refinement_subtype(&ante, &cons);
+    match &result {
+        VerificationResult::Counterexample {
+            counter_model: Some(cm),
+            ..
+        } => {
+            let flag_val = cm
+                .variables
+                .iter()
+                .find(|(n, _)| n == "flag")
+                .map(|(_, v)| v.as_str())
+                .expect("counterexample should contain variable 'flag'");
+            // Z3 may encode booleans as integers; the value should NOT be "true" / "1"
+            assert!(
+                flag_val != "true" && flag_val != "1",
+                "CE flag={flag_val} should not be true to violate ensures (flag == true)"
+            );
+        }
+        other => panic!("expected counterexample with model, got: {other:?}"),
+    }
+}
+
+// -----------------------------------------------------------------------
+// #510: Timeout/Unknown soundness guards
+// (These tests live in assura-pipeline to avoid type identity issues
+// when assura-smt tests reference assura_pipeline functions.)
+// -----------------------------------------------------------------------
