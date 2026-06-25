@@ -23,14 +23,10 @@ pub(crate) fn run_info_flow_checks(source: &assura_parser::ast::SourceFile) -> V
     let mut errors = Vec::new();
 
     for decl in &source.decls {
-        match &decl.node {
-            Decl::Contract(c) => {
-                errors.extend(check_contract_info_flow(c, &decl.span));
-            }
-            Decl::FnDef(f) => {
-                errors.extend(check_fn_info_flow(f, &decl.span));
-            }
-            _ => {}
+        if let Decl::Contract(c) = &decl.node {
+            errors.extend(check_contract_info_flow(c, &decl.span));
+        } else if let Decl::FnDef(f) = &decl.node {
+            errors.extend(check_fn_info_flow(f, &decl.span));
         }
     }
 

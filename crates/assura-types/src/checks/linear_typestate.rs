@@ -8,72 +8,52 @@ use crate::checkers::*;
 pub(crate) fn run_linearity_checks(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
     let mut errors = Vec::new();
     for decl in &source.decls {
-        match &decl.node {
-            Decl::Contract(c) => {
-                let mut tracker = UsageTracker::new();
-                // Declare inputs as linear if they have linear annotation
-                for clause in &c.clauses {
-                    if clause.kind == ClauseKind::Input {
-                        declare_linear_params_from_expr(&clause.body, &mut tracker, &decl.span);
-                    }
+        if let Decl::Contract(c) = &decl.node {
+            let mut tracker = UsageTracker::new();
+            // Declare inputs as linear if they have linear annotation
+            for clause in &c.clauses {
+                if clause.kind == ClauseKind::Input {
+                    declare_linear_params_from_expr(&clause.body, &mut tracker, &decl.span);
                 }
-                // Walk ensures/requires/invariant bodies
-                let mut ctx = LinearContext::new(tracker);
-                for clause in &c.clauses {
-                    if matches!(
-                        clause.kind,
-                        ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Invariant
-                    ) {
+            }
+            // Walk ensures/requires/invariant bodies
+            let mut ctx = LinearContext::new(tracker);
+            for clause in &c.clauses {
+                if matches!(
+                    clause.kind,
+                    ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Invariant
+                ) {
+                    errors.extend(check_expr_linearity(&clause.body, &mut ctx));
+                }
+            }
+            errors.extend(ctx.check());
+        } else if matches!(&decl.node, Decl::FnDef(_) | Decl::Extern(_)) {
+            let tracker = UsageTracker::new();
+            let mut ctx = LinearContext::new(tracker);
+            for param in decl.node.params() {
+                let p_tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+                let grade = infer_usage_grade(&p_tokens);
+                if grade != UsageGrade::Unlimited {
+                    ctx.declare(param.name.clone(), grade, decl.span.clone());
+                }
+            }
+            for clause in decl.node.clauses() {
+                errors.extend(check_expr_linearity(&clause.body, &mut ctx));
+            }
+            errors.extend(ctx.check());
+        } else if let Decl::Service(s) = &decl.node {
+            for item in &s.items {
+                if let ServiceItem::Operation { clauses, .. } | ServiceItem::Query { clauses, .. } =
+                    item
+                {
+                    let tracker = UsageTracker::new();
+                    let mut ctx = LinearContext::new(tracker);
+                    for clause in clauses {
                         errors.extend(check_expr_linearity(&clause.body, &mut ctx));
                     }
-                }
-                errors.extend(ctx.check());
-            }
-            Decl::FnDef(f) => {
-                let tracker = UsageTracker::new();
-                let mut ctx = LinearContext::new(tracker);
-                for param in &f.params {
-                    let p_tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
-                    let grade = infer_usage_grade(&p_tokens);
-                    if grade != UsageGrade::Unlimited {
-                        ctx.declare(param.name.clone(), grade, decl.span.clone());
-                    }
-                }
-                for clause in &f.clauses {
-                    errors.extend(check_expr_linearity(&clause.body, &mut ctx));
-                }
-                errors.extend(ctx.check());
-            }
-            Decl::Extern(e) => {
-                let tracker = UsageTracker::new();
-                let mut ctx = LinearContext::new(tracker);
-                for param in &e.params {
-                    let p_tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
-                    let grade = infer_usage_grade(&p_tokens);
-                    if grade != UsageGrade::Unlimited {
-                        ctx.declare(param.name.clone(), grade, decl.span.clone());
-                    }
-                }
-                for clause in &e.clauses {
-                    errors.extend(check_expr_linearity(&clause.body, &mut ctx));
-                }
-                errors.extend(ctx.check());
-            }
-            Decl::Service(s) => {
-                for item in &s.items {
-                    if let ServiceItem::Operation { clauses, .. }
-                    | ServiceItem::Query { clauses, .. } = item
-                    {
-                        let tracker = UsageTracker::new();
-                        let mut ctx = LinearContext::new(tracker);
-                        for clause in clauses {
-                            errors.extend(check_expr_linearity(&clause.body, &mut ctx));
-                        }
-                        errors.extend(ctx.check());
-                    }
+                    errors.extend(ctx.check());
                 }
             }
-            _ => {}
         }
     }
     errors
