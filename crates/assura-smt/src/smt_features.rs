@@ -317,6 +317,230 @@ pub fn verify_structural_invariant_inductive(
 }
 
 // -----------------------------------------------------------------------
+// #519 STOR.5: Monotonic state lattice verification
+// -----------------------------------------------------------------------
+
+#[cfg(not(feature = "z3-verify"))]
+fn verify_monotonic_state(
+    parent_name: &str,
+    _body: &SpExpr,
+    _sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    #[cfg(feature = "cvc5-verify")]
+    {
+        crate::cvc5_backend::verify_monotonic_state_cvc5(parent_name, _body, _sibling_clauses)
+    }
+    #[cfg(not(feature = "cvc5-verify"))]
+    {
+        vec![VerificationResult::unknown_not_encoded(
+            crate::verify_labels::feature_clause_desc(parent_name, "monotonic"),
+            "monotonic_state",
+        )]
+    }
+}
+
+#[cfg(feature = "z3-verify")]
+fn verify_monotonic_state(
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    crate::z3_backend::verify_monotonic_state_impl(parent_name, body, sibling_clauses)
+}
+
+// -----------------------------------------------------------------------
+// #517 CONC.4: Lock ordering verification
+// -----------------------------------------------------------------------
+
+#[cfg(not(feature = "z3-verify"))]
+fn verify_lock_ordering(
+    parent_name: &str,
+    _body: &SpExpr,
+    _sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    #[cfg(feature = "cvc5-verify")]
+    {
+        crate::cvc5_backend::verify_lock_ordering_cvc5(parent_name, _body, _sibling_clauses)
+    }
+    #[cfg(not(feature = "cvc5-verify"))]
+    {
+        vec![VerificationResult::unknown_not_encoded(
+            crate::verify_labels::feature_clause_desc(parent_name, "lock_order"),
+            "lock_order",
+        )]
+    }
+}
+
+#[cfg(feature = "z3-verify")]
+fn verify_lock_ordering(
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    crate::z3_backend::verify_lock_ordering_impl(parent_name, body, sibling_clauses)
+}
+
+// -----------------------------------------------------------------------
+// #518 SEC.2: Constant-time verification
+// -----------------------------------------------------------------------
+
+#[cfg(not(feature = "z3-verify"))]
+fn verify_constant_time(
+    parent_name: &str,
+    _body: &SpExpr,
+    _sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    #[cfg(feature = "cvc5-verify")]
+    {
+        crate::cvc5_backend::verify_constant_time_cvc5(parent_name, _body, _sibling_clauses)
+    }
+    #[cfg(not(feature = "cvc5-verify"))]
+    {
+        vec![VerificationResult::unknown_not_encoded(
+            crate::verify_labels::feature_clause_desc(parent_name, "constant_time"),
+            "constant_time",
+        )]
+    }
+}
+
+#[cfg(feature = "z3-verify")]
+fn verify_constant_time(
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    crate::z3_backend::verify_constant_time_impl(parent_name, body, sibling_clauses)
+}
+
+// -----------------------------------------------------------------------
+// #520 SEC.3: Secure erasure verification
+// -----------------------------------------------------------------------
+
+#[cfg(not(feature = "z3-verify"))]
+fn verify_secure_erasure(
+    parent_name: &str,
+    _body: &SpExpr,
+    _sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    #[cfg(feature = "cvc5-verify")]
+    {
+        crate::cvc5_backend::verify_secure_erasure_cvc5(parent_name, _body, _sibling_clauses)
+    }
+    #[cfg(not(feature = "cvc5-verify"))]
+    {
+        vec![VerificationResult::unknown_not_encoded(
+            crate::verify_labels::feature_clause_desc(parent_name, "secure_erase"),
+            "secure_erase",
+        )]
+    }
+}
+
+#[cfg(feature = "z3-verify")]
+fn verify_secure_erasure(
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    crate::z3_backend::verify_secure_erasure_impl(parent_name, body, sibling_clauses)
+}
+
+// -----------------------------------------------------------------------
+// #516 STOR.1: Crash recovery verification
+// -----------------------------------------------------------------------
+
+#[cfg(not(feature = "z3-verify"))]
+fn verify_crash_recovery(
+    parent_name: &str,
+    _body: &SpExpr,
+    _sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    #[cfg(feature = "cvc5-verify")]
+    {
+        crate::cvc5_backend::verify_crash_recovery_cvc5(parent_name, _body, _sibling_clauses)
+    }
+    #[cfg(not(feature = "cvc5-verify"))]
+    {
+        vec![VerificationResult::unknown_not_encoded(
+            crate::verify_labels::feature_clause_desc(parent_name, "crash_recovery"),
+            "crash_recovery",
+        )]
+    }
+}
+
+#[cfg(feature = "z3-verify")]
+fn verify_crash_recovery(
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    crate::z3_backend::verify_crash_recovery_impl(parent_name, body, sibling_clauses)
+}
+
+// -----------------------------------------------------------------------
+// #521 STOR.3: MVCC isolation verification
+// -----------------------------------------------------------------------
+
+#[cfg(not(feature = "z3-verify"))]
+fn verify_mvcc_isolation(
+    parent_name: &str,
+    _body: &SpExpr,
+    _sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    #[cfg(feature = "cvc5-verify")]
+    {
+        crate::cvc5_backend::verify_mvcc_isolation_cvc5(parent_name, _body, _sibling_clauses)
+    }
+    #[cfg(not(feature = "cvc5-verify"))]
+    {
+        vec![VerificationResult::unknown_not_encoded(
+            crate::verify_labels::feature_clause_desc(parent_name, "mvcc_isolation"),
+            "mvcc_isolation",
+        )]
+    }
+}
+
+#[cfg(feature = "z3-verify")]
+fn verify_mvcc_isolation(
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    crate::z3_backend::verify_mvcc_isolation_impl(parent_name, body, sibling_clauses)
+}
+
+// -----------------------------------------------------------------------
+// #522 SEC.4: Crypto conformance verification
+// -----------------------------------------------------------------------
+
+#[cfg(not(feature = "z3-verify"))]
+fn verify_crypto_conformance(
+    parent_name: &str,
+    _body: &SpExpr,
+    _sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    #[cfg(feature = "cvc5-verify")]
+    {
+        crate::cvc5_backend::verify_crypto_conformance_cvc5(parent_name, _body, _sibling_clauses)
+    }
+    #[cfg(not(feature = "cvc5-verify"))]
+    {
+        vec![VerificationResult::unknown_not_encoded(
+            crate::verify_labels::feature_clause_desc(parent_name, "crypto_conformance"),
+            "crypto_conformance",
+        )]
+    }
+}
+
+#[cfg(feature = "z3-verify")]
+fn verify_crypto_conformance(
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    crate::z3_backend::verify_crypto_conformance_impl(parent_name, body, sibling_clauses)
+}
+
+// -----------------------------------------------------------------------
 // Dispatch: route feature-specific clauses to their SMT verifier
 // -----------------------------------------------------------------------
 
@@ -383,24 +607,9 @@ pub fn verify_feature_clause(
         // #189: SEC.3 and SEC.4 now use Z3 body verification instead of
         // stubs. The clause body (if present) is checked as a boolean
         // predicate under sibling requires assumptions, same as ensures.
-        Feature::ConstantTime => vec![verify_feature_body(
-            parent_name,
-            "constant_time",
-            body,
-            sibling_clauses,
-        )],
-        Feature::SecureErasure => vec![verify_feature_body(
-            parent_name,
-            "secure_erase",
-            body,
-            sibling_clauses,
-        )],
-        Feature::CryptoConformance => vec![verify_feature_body(
-            parent_name,
-            "crypto_conformance",
-            body,
-            sibling_clauses,
-        )],
+        Feature::ConstantTime => verify_constant_time(parent_name, body, sibling_clauses),
+        Feature::SecureErasure => verify_secure_erasure(parent_name, body, sibling_clauses),
+        Feature::CryptoConformance => verify_crypto_conformance(parent_name, body, sibling_clauses),
         // CONC
         Feature::SharedMemory => vec![verify_feature_body(
             parent_name,
@@ -414,43 +623,23 @@ pub fn verify_feature_clause(
             body,
             sibling_clauses,
         )],
-        Feature::LockOrdering => vec![verify_feature_body(
-            parent_name,
-            "lock_order",
-            body,
-            sibling_clauses,
-        )],
+        Feature::LockOrdering => verify_lock_ordering(parent_name, body, sibling_clauses),
         // STOR
-        Feature::CrashRecovery => vec![verify_feature_body(
-            parent_name,
-            "crash_recovery",
-            body,
-            sibling_clauses,
-        )],
+        Feature::CrashRecovery => verify_crash_recovery(parent_name, body, sibling_clauses),
         Feature::PageCache => vec![verify_feature_body(
             parent_name,
             "page_cache",
             body,
             sibling_clauses,
         )],
-        Feature::MvccIsolation => vec![verify_feature_body(
-            parent_name,
-            "mvcc_isolation",
-            body,
-            sibling_clauses,
-        )],
+        Feature::MvccIsolation => verify_mvcc_isolation(parent_name, body, sibling_clauses),
         Feature::RollbackSavepoint => vec![verify_feature_body(
             parent_name,
             "rollback_savepoint",
             body,
             sibling_clauses,
         )],
-        Feature::MonotonicState => vec![verify_feature_body(
-            parent_name,
-            "monotonic_state",
-            body,
-            sibling_clauses,
-        )],
+        Feature::MonotonicState => verify_monotonic_state(parent_name, body, sibling_clauses),
         Feature::StorageFailure => vec![verify_feature_body(
             parent_name,
             "storage_failure",

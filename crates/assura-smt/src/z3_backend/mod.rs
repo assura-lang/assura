@@ -13,8 +13,10 @@ pub(crate) mod verify;
 
 pub(crate) use features::{
     check_refinement_subtype_impl, check_refinement_subtype_with_context_impl,
-    verify_buffer_bounds_impl, verify_decrease_impl, verify_region_containment_impl,
-    verify_taint_safety_impl, verify_with_measures_impl,
+    verify_buffer_bounds_impl, verify_constant_time_impl, verify_crash_recovery_impl,
+    verify_crypto_conformance_impl, verify_decrease_impl, verify_lock_ordering_impl,
+    verify_monotonic_state_impl, verify_mvcc_isolation_impl, verify_region_containment_impl,
+    verify_secure_erasure_impl, verify_taint_safety_impl, verify_with_measures_impl,
 };
 #[cfg(test)]
 pub(crate) use havoc_assume::apply_havoc_assume_z3;

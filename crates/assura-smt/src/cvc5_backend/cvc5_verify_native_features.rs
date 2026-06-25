@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, SpExpr, Spanned};
 
 use crate::VerificationResult;
-use crate::cvc5_verify_native_checks::check_validity_cvc5;
+use crate::cvc5_verify_native_checks::{check_satisfiability_cvc5, check_validity_cvc5};
 use crate::cvc5_verify_native_solver::{Cvc5SolverOpts, cvc5_clause_sat_outcome, new_cvc5_solver};
 use crate::measures::{MeasureAxiomTag, MeasureDefinition};
 
@@ -403,6 +403,318 @@ pub(crate) fn verify_structural_invariant_inductive_cvc5(
         "structural_invariant (preservation)",
     );
     results.push(check_validity_cvc5(&desc2, &assumptions, body));
+
+    results
+}
+
+// -----------------------------------------------------------------------
+// #519 STOR.5: Monotonic state (CVC5 parity)
+// -----------------------------------------------------------------------
+
+/// CVC5 implementation of monotonic state lattice verification.
+pub(crate) fn verify_monotonic_state_cvc5(
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    let mut results = Vec::new();
+
+    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
+    {
+        results.push(VerificationResult::unknown_not_encoded(
+            crate::verify_labels::feature_clause_desc(parent_name, "monotonic"),
+            "monotonic_state",
+        ));
+        return results;
+    }
+
+    // Step 1: No-decrease check (requires + ensures => body)
+    let mut all_assumptions: Vec<&SpExpr> = sibling_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires || c.kind == ClauseKind::Ensures)
+        .map(|c| &c.body)
+        .collect();
+    let desc1 = crate::verify_labels::feature_clause_desc(parent_name, "monotonic (no-decrease)");
+    results.push(check_validity_cvc5(&desc1, &all_assumptions, body));
+
+    // Step 2: Body validity under requires only
+    let requires: Vec<&SpExpr> = sibling_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires)
+        .map(|c| &c.body)
+        .collect();
+    let desc2 = crate::verify_labels::feature_clause_desc(parent_name, "monotonic (body)");
+    results.push(check_validity_cvc5(&desc2, &requires, body));
+
+    results
+}
+
+// -----------------------------------------------------------------------
+// #517 CONC.4: Lock ordering (CVC5 parity)
+// -----------------------------------------------------------------------
+
+/// CVC5 implementation of lock ordering acyclicity verification.
+pub(crate) fn verify_lock_ordering_cvc5(
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    let mut results = Vec::new();
+
+    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
+    {
+        results.push(VerificationResult::unknown_not_encoded(
+            crate::verify_labels::feature_clause_desc(parent_name, "lock_order (acyclicity)"),
+            "lock_ordering",
+        ));
+        return results;
+    }
+
+    // Acyclicity: check that all ordering constraints + body are satisfiable.
+    // SAT = consistent (no cycle), UNSAT = cycle (potential deadlock).
+    let assumptions: Vec<&SpExpr> = sibling_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires)
+        .map(|c| &c.body)
+        .collect();
+
+    let desc_acyclic =
+        crate::verify_labels::feature_clause_desc(parent_name, "lock_order (acyclicity)");
+
+    // Use SAT check: assert all requires + body, check if satisfiable.
+    // SAT = ordering is consistent (Verified), UNSAT = cycle (Counterexample).
+    results.push(check_satisfiability_cvc5(&desc_acyclic, &assumptions, body));
+
+    // Body validity under requires
+    let requires: Vec<&SpExpr> = sibling_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires)
+        .map(|c| &c.body)
+        .collect();
+    let desc_body = crate::verify_labels::feature_clause_desc(parent_name, "lock_order (body)");
+    results.push(check_validity_cvc5(&desc_body, &requires, body));
+
+    results
+}
+
+// -----------------------------------------------------------------------
+// #518 SEC.2: Constant-time (CVC5 parity)
+// -----------------------------------------------------------------------
+
+/// CVC5 implementation of constant-time verification.
+pub(crate) fn verify_constant_time_cvc5(
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    let mut results = Vec::new();
+
+    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
+    {
+        results.push(VerificationResult::unknown_not_encoded(
+            crate::verify_labels::feature_clause_desc(
+                parent_name,
+                "constant_time (secret-independence)",
+            ),
+            "constant_time",
+        ));
+        return results;
+    }
+
+    let requires: Vec<&SpExpr> = sibling_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires)
+        .map(|c| &c.body)
+        .collect();
+
+    let desc1 = crate::verify_labels::feature_clause_desc(
+        parent_name,
+        "constant_time (secret-independence)",
+    );
+    results.push(check_validity_cvc5(&desc1, &requires, body));
+
+    // Step 2: Body validity under requires + ensures.
+    let all_assumptions: Vec<&SpExpr> = sibling_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires || c.kind == ClauseKind::Ensures)
+        .map(|c| &c.body)
+        .collect();
+    let desc2 = crate::verify_labels::feature_clause_desc(parent_name, "constant_time (body)");
+    results.push(check_validity_cvc5(&desc2, &all_assumptions, body));
+
+    results
+}
+
+// -----------------------------------------------------------------------
+// #520 SEC.3: Secure erasure (CVC5 parity)
+// -----------------------------------------------------------------------
+
+/// CVC5 implementation of secure erasure verification.
+pub(crate) fn verify_secure_erasure_cvc5(
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    let mut results = Vec::new();
+
+    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
+    {
+        results.push(VerificationResult::unknown_not_encoded(
+            crate::verify_labels::feature_clause_desc(parent_name, "secure_erase (coverage)"),
+            "secure_erasure",
+        ));
+        return results;
+    }
+
+    // Step 1: Erasure coverage (requires + ensures => body)
+    let all_assumptions: Vec<&SpExpr> = sibling_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires || c.kind == ClauseKind::Ensures)
+        .map(|c| &c.body)
+        .collect();
+    let desc1 = crate::verify_labels::feature_clause_desc(parent_name, "secure_erase (coverage)");
+    results.push(check_validity_cvc5(&desc1, &all_assumptions, body));
+
+    // Step 2: Body validity under requires
+    let requires: Vec<&SpExpr> = sibling_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires)
+        .map(|c| &c.body)
+        .collect();
+    let desc2 = crate::verify_labels::feature_clause_desc(parent_name, "secure_erase (body)");
+    results.push(check_validity_cvc5(&desc2, &requires, body));
+
+    results
+}
+
+// -----------------------------------------------------------------------
+// #516 STOR.1: Crash recovery (CVC5 parity)
+// -----------------------------------------------------------------------
+
+/// CVC5 implementation of crash recovery verification.
+pub(crate) fn verify_crash_recovery_cvc5(
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    let mut results = Vec::new();
+
+    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
+    {
+        results.push(VerificationResult::unknown_not_encoded(
+            crate::verify_labels::feature_clause_desc(parent_name, "crash_recovery"),
+            "crash_recovery",
+        ));
+        return results;
+    }
+
+    // Step 1: Establishment (requires => recovery invariant)
+    let requires: Vec<&SpExpr> = sibling_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires)
+        .map(|c| &c.body)
+        .collect();
+    let desc1 =
+        crate::verify_labels::feature_clause_desc(parent_name, "crash_recovery (establishment)");
+    results.push(check_validity_cvc5(&desc1, &requires, body));
+
+    // Step 2: Preservation (requires + ensures => recovery invariant)
+    let mut all_assumptions: Vec<&SpExpr> = requires;
+    let ensures: Vec<&SpExpr> = sibling_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Ensures)
+        .map(|c| &c.body)
+        .collect();
+    all_assumptions.extend(ensures);
+    let desc2 =
+        crate::verify_labels::feature_clause_desc(parent_name, "crash_recovery (post-recovery)");
+    results.push(check_validity_cvc5(&desc2, &all_assumptions, body));
+
+    results
+}
+
+// -----------------------------------------------------------------------
+// #521 STOR.3: MVCC isolation (CVC5 parity)
+// -----------------------------------------------------------------------
+
+/// CVC5 implementation of MVCC isolation verification.
+pub(crate) fn verify_mvcc_isolation_cvc5(
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    let mut results = Vec::new();
+
+    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
+    {
+        results.push(VerificationResult::unknown_not_encoded(
+            crate::verify_labels::feature_clause_desc(parent_name, "mvcc_isolation"),
+            "mvcc_isolation",
+        ));
+        return results;
+    }
+
+    // Step 1: Snapshot isolation (requires => body)
+    let requires: Vec<&SpExpr> = sibling_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires)
+        .map(|c| &c.body)
+        .collect();
+    let desc1 = crate::verify_labels::feature_clause_desc(parent_name, "mvcc_isolation (snapshot)");
+    results.push(check_validity_cvc5(&desc1, &requires, body));
+
+    // Step 2: Write-conflict detection (requires + ensures => body)
+    let all_assumptions: Vec<&SpExpr> = sibling_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires || c.kind == ClauseKind::Ensures)
+        .map(|c| &c.body)
+        .collect();
+    let desc2 =
+        crate::verify_labels::feature_clause_desc(parent_name, "mvcc_isolation (write-conflict)");
+    results.push(check_validity_cvc5(&desc2, &all_assumptions, body));
+
+    results
+}
+
+// -----------------------------------------------------------------------
+// #522 SEC.4: Crypto conformance (CVC5 parity)
+// -----------------------------------------------------------------------
+
+/// CVC5 implementation of crypto conformance verification.
+pub(crate) fn verify_crypto_conformance_cvc5(
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    let mut results = Vec::new();
+
+    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
+    {
+        results.push(VerificationResult::unknown_not_encoded(
+            crate::verify_labels::feature_clause_desc(parent_name, "crypto_conformance"),
+            "crypto_conformance",
+        ));
+        return results;
+    }
+
+    // Step 1: Parameter constraints (requires => body)
+    let requires: Vec<&SpExpr> = sibling_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires)
+        .map(|c| &c.body)
+        .collect();
+    let desc1 =
+        crate::verify_labels::feature_clause_desc(parent_name, "crypto_conformance (parameters)");
+    results.push(check_validity_cvc5(&desc1, &requires, body));
+
+    // Step 2: Body with ensures context
+    let all_assumptions: Vec<&SpExpr> = sibling_clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Requires || c.kind == ClauseKind::Ensures)
+        .map(|c| &c.body)
+        .collect();
+    let desc2 = crate::verify_labels::feature_clause_desc(parent_name, "crypto_conformance (body)");
+    results.push(check_validity_cvc5(&desc2, &all_assumptions, body));
 
     results
 }
