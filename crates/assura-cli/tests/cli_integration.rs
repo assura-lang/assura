@@ -1835,3 +1835,185 @@ contract StubContract {
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+// =======================================================================
+// Build command: additional edge-case tests
+// =======================================================================
+
+#[test]
+fn build_no_check_shows_check_skipped() {
+    let tmp = unique_temp("assura_build_nocheck");
+    let _ = std::fs::remove_dir_all(&tmp);
+    let out = Command::new(assura_bin())
+        .args([
+            "build",
+            "demos/libwebp-huffman.assura",
+            "--output",
+            tmp.to_str().unwrap(),
+            "--no-check",
+        ])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura build --no-check");
+    assert!(
+        out.status.success(),
+        "build --no-check should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("check skipped"),
+        "should mention 'check skipped' in stdout: {stdout}"
+    );
+    // Files should still be generated
+    assert!(
+        tmp.join("Cargo.toml").exists(),
+        "Cargo.toml should still be generated with --no-check"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn build_with_type_errors_fails() {
+    let tmp = unique_temp("assura_build_type_err");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("bad.assura");
+    // requires clause body is a String, not Bool => type error
+    std::fs::write(
+        &src,
+        r#"
+contract Bad {
+  input(x: Int)
+  output(result: Int)
+  requires { "not a bool" }
+  ensures { result >= 0 }
+}
+"#,
+    )
+    .unwrap();
+
+    let out_dir = tmp.join("out");
+    let out = Command::new(assura_bin())
+        .args([
+            "build",
+            src.to_str().unwrap(),
+            "--output",
+            out_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run assura build with type errors");
+    assert!(
+        !out.status.success(),
+        "build should fail on type-error source"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("error") || stderr.contains("Error"),
+        "stderr should mention error: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn build_generates_debug_assert_for_requires() {
+    let tmp = unique_temp("assura_build_debug_assert");
+    let _ = std::fs::remove_dir_all(&tmp);
+    let out = Command::new(assura_bin())
+        .args([
+            "build",
+            "demos/libwebp-huffman.assura",
+            "--output",
+            tmp.to_str().unwrap(),
+            "--no-check",
+        ])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura build");
+    assert!(
+        out.status.success(),
+        "build should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // The generated lib.rs should contain debug_assert! from requires clauses
+    let lib_path = tmp.join("src/lib.rs");
+    assert!(lib_path.exists(), "src/lib.rs should exist");
+    let lib_content = std::fs::read_to_string(&lib_path).unwrap();
+    assert!(
+        lib_content.contains("debug_assert!"),
+        "generated Rust should contain debug_assert! from requires clauses"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn build_solver_flag_z3_accepted() {
+    let tmp = unique_temp("assura_build_solver_z3");
+    let _ = std::fs::remove_dir_all(&tmp);
+    let out = Command::new(assura_bin())
+        .args([
+            "build",
+            "demos/libwebp-huffman.assura",
+            "--output",
+            tmp.to_str().unwrap(),
+            "--solver",
+            "z3",
+            "--no-check",
+        ])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura build --solver z3");
+    assert!(
+        out.status.success(),
+        "build --solver z3 should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        tmp.join("Cargo.toml").exists(),
+        "Cargo.toml should exist after build with --solver z3"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn build_multiple_demos_succeed() {
+    // Verify that several demo files all build successfully.
+    let demos = [
+        "demos/zlib-inflate.assura",
+        "demos/taint-tracking.assura",
+        "demos/heartbleed.assura",
+    ];
+    for demo in &demos {
+        let tmp = unique_temp(&format!(
+            "assura_build_multi_{}",
+            demo.replace(['/', '.'], "_")
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let out = Command::new(assura_bin())
+            .args([
+                "build",
+                demo,
+                "--output",
+                tmp.to_str().unwrap(),
+                "--no-check",
+            ])
+            .current_dir(workspace_root())
+            .output()
+            .unwrap_or_else(|e| panic!("failed to run assura build {demo}: {e}"));
+        assert!(
+            out.status.success(),
+            "build {demo} should succeed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            tmp.join("Cargo.toml").exists(),
+            "Cargo.toml should exist for {demo}"
+        );
+        assert!(
+            tmp.join("src/lib.rs").exists(),
+            "src/lib.rs should exist for {demo}"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+}

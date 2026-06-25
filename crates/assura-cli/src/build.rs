@@ -20,25 +20,19 @@ pub(crate) fn run_build(
         .unwrap_or_else(|| "generated".to_string());
 
     // Output directory: CLI flag (non-default) > config file > default "generated"
-    let out_dir_str = if cli_output != "generated" {
-        cli_output
-    } else {
-        config_output.as_str()
-    };
+    let out_dir_str = resolve_output_dir(cli_output, config_output.as_str());
 
     // Solver choice: CLI flag > config file > default (Z3)
-    let build_solver = cli_solver
-        .or_else(|| project.as_ref().map(|(c, _)| c.verify.smt_solver))
-        .unwrap_or(assura_smt::SolverChoice::Z3);
+    let build_solver = resolve_solver(
+        cli_solver,
+        project.as_ref().map(|(c, _)| c.verify.smt_solver),
+    );
 
     // Target: CLI flag > config file > default (native)
-    let compile_target = cli_target
-        .or_else(|| {
-            project
-                .as_ref()
-                .and_then(|(c, _)| assura_codegen::CompileTarget::from_str_loose(&c.build.target))
-        })
-        .unwrap_or(assura_codegen::CompileTarget::Native);
+    let compile_target = resolve_target(
+        cli_target,
+        project.as_ref().map(|(c, _)| c.build.target.as_str()),
+    );
 
     // Build unified compiler config
     let compiler_config = if let Some((ref proj, _)) = project {
@@ -400,6 +394,46 @@ pub(crate) fn find_wasm_artifact(dir: &Path) -> Option<std::path::PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
+// Config resolution helpers (CLI flag > config file > default)
+// ---------------------------------------------------------------------------
+
+/// Resolve the output directory.
+///
+/// Priority: CLI flag (when it differs from the `"generated"` default) >
+/// config file value > `"generated"`.
+pub(crate) fn resolve_output_dir<'a>(cli_output: &'a str, config_output: &'a str) -> &'a str {
+    if cli_output != "generated" {
+        cli_output
+    } else {
+        config_output
+    }
+}
+
+/// Resolve the SMT solver.
+///
+/// Priority: CLI flag > config file > Z3 (default).
+pub(crate) fn resolve_solver(
+    cli_solver: Option<assura_smt::SolverChoice>,
+    config_solver: Option<assura_smt::SolverChoice>,
+) -> assura_smt::SolverChoice {
+    cli_solver
+        .or(config_solver)
+        .unwrap_or(assura_smt::SolverChoice::Z3)
+}
+
+/// Resolve the compile target.
+///
+/// Priority: CLI flag > config file (parsed via `from_str_loose`) > Native (default).
+pub(crate) fn resolve_target(
+    cli_target: Option<assura_codegen::CompileTarget>,
+    config_target: Option<&str>,
+) -> assura_codegen::CompileTarget {
+    cli_target
+        .or_else(|| config_target.and_then(assura_codegen::CompileTarget::from_str_loose))
+        .unwrap_or(assura_codegen::CompileTarget::Native)
+}
+
+// ---------------------------------------------------------------------------
 // Project-mode build: resolve, type-check, and codegen all .assura files
 // ---------------------------------------------------------------------------
 
@@ -525,3 +559,165 @@ pub(crate) fn run_build_project(
 }
 
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---------------------------------------------------------------
+    // find_wasm_artifact
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn build_find_wasm_artifact_returns_none_for_nonexistent_dir() {
+        let result = find_wasm_artifact(Path::new(
+            "/tmp/__assura_nonexistent_dir_build_test_98231__",
+        ));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn build_find_wasm_artifact_returns_none_for_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = find_wasm_artifact(dir.path());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn build_find_wasm_artifact_finds_wasm_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let wasm_path = dir.path().join("output.wasm");
+        fs::write(&wasm_path, b"fake wasm").unwrap();
+        let result = find_wasm_artifact(dir.path());
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().extension().unwrap(), "wasm");
+    }
+
+    #[test]
+    fn build_find_wasm_artifact_ignores_non_wasm_files() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("lib.rs"), b"fn main() {}").unwrap();
+        fs::write(dir.path().join("data.json"), b"{}").unwrap();
+        let result = find_wasm_artifact(dir.path());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn build_find_wasm_artifact_picks_first_wasm_among_many() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.wasm"), b"w1").unwrap();
+        fs::write(dir.path().join("b.wasm"), b"w2").unwrap();
+        fs::write(dir.path().join("c.txt"), b"not wasm").unwrap();
+        let result = find_wasm_artifact(dir.path());
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().extension().unwrap(), "wasm");
+    }
+
+    // ---------------------------------------------------------------
+    // resolve_output_dir
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn build_resolve_output_dir_cli_overrides_config() {
+        // CLI flag is not the default "generated", so CLI wins.
+        assert_eq!(
+            resolve_output_dir("custom_out", "from_config"),
+            "custom_out"
+        );
+    }
+
+    #[test]
+    fn build_resolve_output_dir_config_used_when_cli_is_default() {
+        // CLI is "generated" (sentinel for "not specified"), so config wins.
+        assert_eq!(
+            resolve_output_dir("generated", "from_config"),
+            "from_config"
+        );
+    }
+
+    #[test]
+    fn build_resolve_output_dir_both_default() {
+        assert_eq!(resolve_output_dir("generated", "generated"), "generated");
+    }
+
+    #[test]
+    fn build_resolve_output_dir_cli_empty_string_overrides() {
+        // Even an empty CLI flag overrides (it differs from "generated").
+        assert_eq!(resolve_output_dir("", "from_config"), "");
+    }
+
+    // ---------------------------------------------------------------
+    // resolve_solver
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn build_resolve_solver_cli_overrides_config() {
+        let result = resolve_solver(
+            Some(assura_smt::SolverChoice::Cvc5),
+            Some(assura_smt::SolverChoice::Z3),
+        );
+        assert_eq!(result, assura_smt::SolverChoice::Cvc5);
+    }
+
+    #[test]
+    fn build_resolve_solver_config_used_when_cli_is_none() {
+        let result = resolve_solver(None, Some(assura_smt::SolverChoice::Cvc5));
+        assert_eq!(result, assura_smt::SolverChoice::Cvc5);
+    }
+
+    #[test]
+    fn build_resolve_solver_default_z3() {
+        let result = resolve_solver(None, None);
+        assert_eq!(result, assura_smt::SolverChoice::Z3);
+    }
+
+    #[test]
+    fn build_resolve_solver_portfolio_from_cli() {
+        let result = resolve_solver(
+            Some(assura_smt::SolverChoice::Portfolio),
+            Some(assura_smt::SolverChoice::Z3),
+        );
+        assert_eq!(result, assura_smt::SolverChoice::Portfolio);
+    }
+
+    // ---------------------------------------------------------------
+    // resolve_target
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn build_resolve_target_cli_overrides_config() {
+        let result = resolve_target(Some(assura_codegen::CompileTarget::Wasm), Some("native"));
+        assert_eq!(result, assura_codegen::CompileTarget::Wasm);
+    }
+
+    #[test]
+    fn build_resolve_target_config_used_when_cli_is_none() {
+        let result = resolve_target(None, Some("wasm"));
+        assert_eq!(result, assura_codegen::CompileTarget::Wasm);
+    }
+
+    #[test]
+    fn build_resolve_target_default_native() {
+        let result = resolve_target(None, None);
+        assert_eq!(result, assura_codegen::CompileTarget::Native);
+    }
+
+    #[test]
+    fn build_resolve_target_unknown_config_falls_back_to_native() {
+        // Config has an unrecognized target string; falls back to Native.
+        let result = resolve_target(None, Some("riscv64"));
+        assert_eq!(result, assura_codegen::CompileTarget::Native);
+    }
+
+    #[test]
+    fn build_resolve_target_wasm32_wasi_alias() {
+        let result = resolve_target(None, Some("wasm32-wasi"));
+        assert_eq!(result, assura_codegen::CompileTarget::Wasm);
+    }
+
+    #[test]
+    fn build_resolve_target_wasm32_wasip1_alias() {
+        let result = resolve_target(None, Some("wasm32-wasip1"));
+        assert_eq!(result, assura_codegen::CompileTarget::Wasm);
+    }
+}
