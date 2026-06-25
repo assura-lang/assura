@@ -429,7 +429,7 @@ pub(crate) fn verify_monotonic_state_cvc5(
     }
 
     // Step 1: No-decrease check (requires + ensures => body)
-    let mut all_assumptions: Vec<&SpExpr> = sibling_clauses
+    let all_assumptions: Vec<&SpExpr> = sibling_clauses
         .iter()
         .filter(|c| c.kind == ClauseKind::Requires || c.kind == ClauseKind::Ensures)
         .map(|c| &c.body)
