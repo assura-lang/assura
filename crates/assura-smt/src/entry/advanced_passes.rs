@@ -563,5 +563,3 @@ pub(crate) fn merge_portfolio_results(
 ) -> Vec<VerificationResult> {
     crate::portfolio_policy::merge_portfolio_results(z3, cvc5)
 }
-
-
