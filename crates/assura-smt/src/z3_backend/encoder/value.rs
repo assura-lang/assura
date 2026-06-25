@@ -56,8 +56,10 @@ impl Z3Value {
                 let zero = ast::BV::from_u64(0, width);
                 b.ite(&one, &zero)
             }
-            // Non-int/non-bool/non-bv: last-resort uninterpreted (caller should avoid this path).
-            _ => ast::BV::new_const("__bv_coerce_unknown", width),
+            // Real: truncate to int, then to BV (mirrors as_int Real path).
+            Z3Value::Real(r) => ast::BV::from_int(&ast::Real::to_int(r), width),
+            // Str: use length as int, then to BV (mirrors as_int Str path).
+            Z3Value::Str(s) => ast::BV::from_int(&s.length(), width),
         }
     }
 
@@ -74,9 +76,129 @@ impl Z3Value {
             }
             // Str: coerce via length
             Z3Value::Str(s) => ast::Real::from_int(&s.length()),
-            Z3Value::Bv(b) => ast::Real::from_int(&ast::Int::new_const(
-                crate::encode_atom_policy::bv_as_real_name(b).as_str(),
-            )),
+            // BV: sound unsigned int interpretation, then to Real (fixes #514).
+            Z3Value::Bv(b) => ast::Real::from_int(&b.to_int(false)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn as_bool_passthrough() {
+        z3::with_z3_config(&z3::Config::new(), || {
+            let b = Z3Value::Bool(ast::Bool::from_bool(true));
+            let _ = b.as_bool(); // should not panic
+        });
+    }
+
+    #[test]
+    fn as_bool_from_int() {
+        z3::with_z3_config(&z3::Config::new(), || {
+            let v = Z3Value::Int(ast::Int::from_i64(0));
+            let _ = v.as_bool(); // produces `0 != 0` which is false
+        });
+    }
+
+    #[test]
+    fn as_int_from_bool() {
+        z3::with_z3_config(&z3::Config::new(), || {
+            let v = Z3Value::Bool(ast::Bool::from_bool(true));
+            let mut counter = 0u32;
+            let _ = v.as_int(&mut counter); // ite(true, 1, 0)
+        });
+    }
+
+    #[test]
+    fn as_int_from_real() {
+        z3::with_z3_config(&z3::Config::new(), || {
+            let v = Z3Value::Real(ast::Real::from_rational(7, 2));
+            let mut counter = 0u32;
+            let _ = v.as_int(&mut counter); // real2int(3.5) = 3
+        });
+    }
+
+    #[test]
+    fn as_bv_from_int() {
+        z3::with_z3_config(&z3::Config::new(), || {
+            let v = Z3Value::Int(ast::Int::from_i64(42));
+            let bv = v.as_bv(8);
+            assert_eq!(bv.get_size(), 8);
+        });
+    }
+
+    #[test]
+    fn as_bv_from_bool() {
+        z3::with_z3_config(&z3::Config::new(), || {
+            let v = Z3Value::Bool(ast::Bool::from_bool(false));
+            let bv = v.as_bv(16);
+            assert_eq!(bv.get_size(), 16);
+        });
+    }
+
+    #[test]
+    fn as_real_from_int() {
+        z3::with_z3_config(&z3::Config::new(), || {
+            let v = Z3Value::Int(ast::Int::from_i64(5));
+            let mut counter = 0u32;
+            let _ = v.as_real(&mut counter); // int2real(5)
+        });
+    }
+
+    #[test]
+    fn as_real_from_bool() {
+        z3::with_z3_config(&z3::Config::new(), || {
+            let v = Z3Value::Bool(ast::Bool::from_bool(true));
+            let mut counter = 0u32;
+            let _ = v.as_real(&mut counter); // ite(true, 1.0, 0.0)
+        });
+    }
+
+    #[test]
+    fn as_bool_from_bv() {
+        z3::with_z3_config(&z3::Config::new(), || {
+            let v = Z3Value::Bv(ast::BV::from_u64(0, 8));
+            let _ = v.as_bool(); // bv == 0 then NOT => false
+        });
+    }
+
+    #[test]
+    fn as_int_from_bv() {
+        z3::with_z3_config(&z3::Config::new(), || {
+            let v = Z3Value::Bv(ast::BV::from_u64(255, 8));
+            let mut counter = 0u32;
+            let _ = v.as_int(&mut counter); // bv2int(255, unsigned)
+        });
+    }
+
+    // Regression tests for #513: as_bv Real/Str coercion was unsound
+    #[test]
+    fn as_bv_from_real() {
+        z3::with_z3_config(&z3::Config::new(), || {
+            let v = Z3Value::Real(ast::Real::from_rational(7, 2));
+            let bv = v.as_bv(16);
+            assert_eq!(bv.get_size(), 16);
+        });
+    }
+
+    #[test]
+    fn as_bv_from_str() {
+        z3::with_z3_config(&z3::Config::new(), || {
+            let v = Z3Value::Str(ast::String::from("hello"));
+            let bv = v.as_bv(8);
+            assert_eq!(bv.get_size(), 8);
+        });
+    }
+
+    // Regression test for #514: as_real BV used display-dependent UF name
+    #[test]
+    fn as_real_from_bv() {
+        z3::with_z3_config(&z3::Config::new(), || {
+            let v = Z3Value::Bv(ast::BV::from_u64(42, 8));
+            let mut counter = 0u32;
+            let _ = v.as_real(&mut counter); // should use bv2int, not UF
+        });
     }
 }
