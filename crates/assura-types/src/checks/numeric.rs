@@ -71,8 +71,7 @@ fn check_expr_fixed_width_full(
             self.visit_expr(lhs);
             self.visit_expr(rhs);
 
-            if let Some(left_type) =
-                infer_fixed_width_type_ext(lhs, self.type_env, self.fw_checker)
+            if let Some(left_type) = infer_fixed_width_type_ext(lhs, self.type_env, self.fw_checker)
                 && let Some(right_type) =
                     infer_fixed_width_type_ext(rhs, self.type_env, self.fw_checker)
             {
@@ -87,9 +86,9 @@ fn check_expr_fixed_width_full(
                     // already covered by check_binop's signedness check
                 }
                 // Use check_binop for combined overflow + signedness + div-by-zero
-                for fwe in
-                    self.fw_checker
-                        .check_binop(op, &left_type, &right_type, rhs, self.span)
+                for fwe in self
+                    .fw_checker
+                    .check_binop(op, &left_type, &right_type, rhs, self.span)
                 {
                     self.errors.push(TypeError {
                         code: fwe.code,
