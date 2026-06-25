@@ -119,3 +119,42 @@ pub(crate) fn run_doctor() {
 }
 
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn z3_version_prefix_strip() {
+        // run_doctor extracts the Z3 version with this logic:
+        let ver = "Z3 version 4.13.0 - 64 bit";
+        let short = ver
+            .strip_prefix("Z3 version ")
+            .and_then(|s| s.split_whitespace().next())
+            .unwrap_or(ver);
+        assert_eq!(short, "4.13.0");
+    }
+
+    #[test]
+    fn z3_version_unexpected_format_falls_back() {
+        let ver = "z3 unknown format";
+        let short = ver
+            .strip_prefix("Z3 version ")
+            .and_then(|s| s.split_whitespace().next())
+            .unwrap_or(ver);
+        // Falls back to the full string when prefix doesn't match.
+        assert_eq!(short, "z3 unknown format");
+    }
+
+    #[test]
+    fn rustc_version_prefix_strip() {
+        let ver = "rustc 1.85.0 (4d91de4e4 2025-02-17)";
+        let short = ver.strip_prefix("rustc ").unwrap_or(ver);
+        assert_eq!(short, "1.85.0 (4d91de4e4 2025-02-17)");
+    }
+
+    #[test]
+    fn cargo_version_prefix_strip() {
+        let ver = "cargo 1.85.0 (d73d2caf9 2024-12-31)";
+        let short = ver.strip_prefix("cargo ").unwrap_or(ver);
+        assert_eq!(short, "1.85.0 (d73d2caf9 2024-12-31)");
+    }
+}

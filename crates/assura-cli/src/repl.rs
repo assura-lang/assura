@@ -178,3 +178,37 @@ pub(crate) fn repl_eval(source: &str) {
 }
 
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn repl_eval_valid_contract_does_not_panic() {
+        // repl_eval prints to stdout/stderr; verify it does not panic on valid input.
+        let source = r#"
+contract SafeDiv {
+    input(a: Int, b: Int)
+    output(result: Int)
+    requires { b != 0 }
+}
+"#;
+        super::repl_eval(source);
+    }
+
+    #[test]
+    fn repl_eval_empty_source_does_not_panic() {
+        // Empty source should produce "No declarations found." on stderr, not panic.
+        super::repl_eval("");
+    }
+
+    #[test]
+    fn repl_explain_known_code() {
+        // A01001 is the "Unexpected character" error; explain should not panic.
+        super::repl_explain("A01001");
+    }
+
+    #[test]
+    fn repl_explain_unknown_code() {
+        // Unknown codes should print an error message, not panic.
+        super::repl_explain("Z99999");
+    }
+}

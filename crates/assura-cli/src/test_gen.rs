@@ -111,3 +111,53 @@ pub(crate) fn run_test_gen(filename: &str, output: Option<&str>, verbosity: Verb
 }
 
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_generator_produces_tests_from_contract() {
+        let mut tg = assura_types::TestGenerator::new();
+        tg.add_contract(assura_types::TestableContract {
+            name: "SafeDiv".to_string(),
+            params: vec![
+                ("a".to_string(), assura_types::Type::Int),
+                ("b".to_string(), assura_types::Type::Int),
+            ],
+            requires: vec!["b != 0".to_string()],
+            ensures: vec!["result * b + (a % b) == a".to_string()],
+        });
+
+        let tests = tg.generate_all();
+        assert!(
+            !tests.is_empty(),
+            "should generate at least one test from a contract"
+        );
+        // Each test should have a non-empty body.
+        for t in &tests {
+            assert!(!t.body.is_empty(), "test body should not be empty");
+            assert!(!t.name.is_empty(), "test name should not be empty");
+        }
+    }
+
+    #[test]
+    fn test_generator_empty_contracts_produces_no_tests() {
+        let tg = assura_types::TestGenerator::new();
+        let tests = tg.generate_all();
+        assert!(tests.is_empty(), "no contracts should yield no tests");
+    }
+
+    #[test]
+    fn test_generator_contract_name_appears_in_test_name() {
+        let mut tg = assura_types::TestGenerator::new();
+        tg.add_contract(assura_types::TestableContract {
+            name: "BoundsCheck".to_string(),
+            params: vec![("idx".to_string(), assura_types::Type::Nat)],
+            requires: vec![],
+            ensures: vec![],
+        });
+
+        let tests = tg.generate_all();
+        let has_name = tests.iter().any(|t| t.name.contains("BoundsCheck"));
+        assert!(has_name, "at least one test name should reference the contract name");
+    }
+}

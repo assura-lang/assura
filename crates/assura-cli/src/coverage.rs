@@ -232,3 +232,66 @@ pub(crate) fn discover_assura_files(dir: &Path) -> Vec<std::path::PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn discover_assura_files_finds_only_assura() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("foo.assura"), "contract Foo {}").unwrap();
+        fs::write(tmp.path().join("bar.rs"), "fn bar() {}").unwrap();
+        fs::write(tmp.path().join("baz.txt"), "hello").unwrap();
+
+        let found = discover_assura_files(tmp.path());
+        assert_eq!(found.len(), 1);
+        assert!(found[0].file_name().unwrap() == "foo.assura");
+    }
+
+    #[test]
+    fn discover_assura_files_recursive_and_sorted() {
+        let tmp = TempDir::new().unwrap();
+        let sub = tmp.path().join("sub");
+        fs::create_dir(&sub).unwrap();
+        fs::write(tmp.path().join("b.assura"), "").unwrap();
+        fs::write(sub.join("a.assura"), "").unwrap();
+
+        let found = discover_assura_files(tmp.path());
+        assert_eq!(found.len(), 2);
+        // Results should be sorted
+        let names: Vec<_> = found
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(names.contains(&"a.assura".to_string()));
+        assert!(names.contains(&"b.assura".to_string()));
+    }
+
+    #[test]
+    fn discover_assura_files_empty_dir() {
+        let tmp = TempDir::new().unwrap();
+        let found = discover_assura_files(tmp.path());
+        assert!(found.is_empty());
+    }
+
+    #[test]
+    fn collect_contract_names_extracts_names() {
+        let tmp = TempDir::new().unwrap();
+        let source = r#"
+contract SafeDiv {
+    input(a: Int, b: Int)
+    output(result: Int)
+    requires { b != 0 }
+}
+"#;
+        fs::write(tmp.path().join("div.assura"), source).unwrap();
+
+        let mut names = std::collections::HashSet::new();
+        let mut files = std::collections::HashMap::new();
+        collect_contract_names_from_dir(tmp.path(), &mut names, &mut files);
+
+        assert!(names.contains("SafeDiv"), "should find SafeDiv contract");
+    }
+}

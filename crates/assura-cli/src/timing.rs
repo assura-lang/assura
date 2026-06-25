@@ -108,3 +108,69 @@ fn total_ms(timing: &PhaseTiming, verify_ms: Option<f64>) -> f64 {
         + timing.typecheck_ms.unwrap_or(0.0)
         + verify_ms.unwrap_or(0.0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_timing(parse: f64, resolve: Option<f64>, typecheck: Option<f64>) -> PhaseTiming {
+        PhaseTiming {
+            parse_ms: parse,
+            resolve_ms: resolve,
+            typecheck_ms: typecheck,
+            verify_ms: None,
+            codegen_ms: None,
+            token_count: 0,
+        }
+    }
+
+    #[test]
+    fn total_ms_all_phases() {
+        let timing = make_timing(1.5, Some(2.0), Some(3.0));
+        let total = total_ms(&timing, Some(4.0));
+        assert!((total - 10.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn total_ms_missing_phases() {
+        let timing = make_timing(5.0, None, None);
+        let total = total_ms(&timing, None);
+        assert!((total - 5.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn total_ms_verify_from_timing_struct() {
+        let mut timing = make_timing(1.0, Some(2.0), Some(3.0));
+        timing.verify_ms = Some(4.0);
+        // When external verify_ms is None, total_ms ignores timing.verify_ms
+        // (the function takes explicit verify_ms, not from timing struct).
+        let total = total_ms(&timing, None);
+        assert!((total - 6.0).abs() < f64::EPSILON);
+
+        // Pass timing.verify_ms explicitly.
+        let total_with = total_ms(&timing, timing.verify_ms);
+        assert!((total_with - 10.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn print_pipeline_timing_skips_non_verbose() {
+        // Should be a no-op when verbosity is not Verbose.
+        let output = assura_pipeline::compile(
+            "contract Foo { input(x: Int) }",
+            "<test>",
+            &assura_config::CompilerConfig::default(),
+        );
+        let opts = TimingOptions {
+            filename: "<test>",
+            output_mode: OutputMode::Human,
+            verbosity: Verbosity::Normal,
+            project: None,
+            config_line: None,
+            verify_ms: None,
+            show_total: false,
+            show_phase_failures: false,
+        };
+        // Should not panic; returns immediately for non-Verbose.
+        print_pipeline_timing(&output, opts);
+    }
+}

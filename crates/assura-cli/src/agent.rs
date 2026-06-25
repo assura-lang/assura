@@ -272,3 +272,55 @@ contract WriteLog {{
 }
 
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn type_mapping_pairs_are_correct() {
+        // The agent instructions rely on rust_type_to_assura; verify key mappings.
+        use assura_codegen::type_map::rust_type_to_assura;
+        assert_eq!(rust_type_to_assura("i64"), "Int");
+        assert_eq!(rust_type_to_assura("u32"), "Nat");
+        assert_eq!(rust_type_to_assura("f64"), "Float");
+        assert_eq!(rust_type_to_assura("bool"), "Bool");
+        assert_eq!(rust_type_to_assura("String"), "String");
+        assert_eq!(rust_type_to_assura("Vec<u8>"), "Bytes");
+        assert_eq!(rust_type_to_assura("()"), "Unit");
+    }
+
+    #[test]
+    fn error_catalog_is_nonempty() {
+        // The agent instructions build error code groups from the catalog.
+        let catalog = assura_diagnostics::error_catalog();
+        assert!(!catalog.is_empty(), "error catalog should not be empty");
+        // Every entry should have a non-empty code starting with 'A'.
+        for info in &catalog {
+            assert!(
+                info.code.starts_with('A'),
+                "error code should start with 'A': {}",
+                info.code
+            );
+        }
+    }
+
+    #[test]
+    fn dynamic_type_mappings_produce_nonempty_strings() {
+        use assura_codegen::type_map::rust_type_to_assura;
+        // Generic / wrapper type mappings used in run_agent_instructions.
+        let generics = [
+            "Vec<i64>",
+            "Option<i64>",
+            "HashMap<String, i64>",
+            "HashSet<i64>",
+            "Arc<String>",
+            "&i64",
+        ];
+        for rust_type in generics {
+            let mapped = rust_type_to_assura(rust_type);
+            assert!(
+                !mapped.is_empty(),
+                "rust_type_to_assura({rust_type}) should produce a non-empty string"
+            );
+        }
+    }
+}

@@ -101,3 +101,44 @@ pub(crate) fn run_ir(
         print!("{rust_code}");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn parse_ir_module_valid() {
+        let source = "\
+module TestMod {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $result = load $0 : Int
+  }
+}";
+        let module = assura_smt::parse_ir_module(source).expect("should parse valid IR");
+        assert_eq!(module.name, "TestMod");
+        assert_eq!(module.functions.len(), 1);
+    }
+
+    #[test]
+    fn parse_ir_module_rejects_invalid_input() {
+        let source = "not a valid module";
+        let result = assura_smt::parse_ir_module(source);
+        assert!(result.is_err(), "malformed IR should produce errors");
+    }
+
+    #[test]
+    fn ir_to_rust_produces_module_comment() {
+        let source = "\
+module MyMod {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $result = load $0 : Int
+  }
+}";
+        let module = assura_smt::parse_ir_module(source).expect("should parse");
+        let rust_code = assura_smt::ir_to_rust(&module);
+        assert!(
+            rust_code.contains("MyMod"),
+            "generated Rust should reference the module name"
+        );
+    }
+}
