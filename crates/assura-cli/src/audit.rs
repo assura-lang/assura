@@ -410,3 +410,309 @@ pub(crate) fn discover_rs_files(dir: &Path) -> Vec<std::path::PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    // ---- discover_rs_files ----
+
+    #[test]
+    fn discover_rs_files_empty_dir() {
+        let tmp = TempDir::new().unwrap();
+        let files = discover_rs_files(tmp.path());
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn discover_rs_files_finds_rs_only() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("main.rs"), "fn main() {}").unwrap();
+        fs::write(tmp.path().join("readme.md"), "# readme").unwrap();
+        fs::write(tmp.path().join("data.json"), "{}").unwrap();
+
+        let files = discover_rs_files(tmp.path());
+        assert_eq!(files.len(), 1);
+        assert!(files[0].file_name().unwrap() == "main.rs");
+    }
+
+    #[test]
+    fn discover_rs_files_recursive() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("lib.rs"), "").unwrap();
+        let sub = tmp.path().join("util");
+        fs::create_dir(&sub).unwrap();
+        fs::write(sub.join("helpers.rs"), "").unwrap();
+        let deep = sub.join("inner");
+        fs::create_dir(&deep).unwrap();
+        fs::write(deep.join("deep.rs"), "").unwrap();
+
+        let files = discover_rs_files(tmp.path());
+        assert_eq!(files.len(), 3);
+        let names: Vec<_> = files
+            .iter()
+            .map(|f| f.file_name().unwrap().to_str().unwrap().to_string())
+            .collect();
+        assert!(names.contains(&"lib.rs".to_string()));
+        assert!(names.contains(&"helpers.rs".to_string()));
+        assert!(names.contains(&"deep.rs".to_string()));
+    }
+
+    #[test]
+    fn discover_rs_files_sorted() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("z.rs"), "").unwrap();
+        fs::write(tmp.path().join("a.rs"), "").unwrap();
+        fs::write(tmp.path().join("m.rs"), "").unwrap();
+
+        let files = discover_rs_files(tmp.path());
+        assert_eq!(files.len(), 3);
+        let names: Vec<_> = files
+            .iter()
+            .map(|f| f.file_name().unwrap().to_str().unwrap().to_string())
+            .collect();
+        assert_eq!(names, vec!["a.rs", "m.rs", "z.rs"]);
+    }
+
+    #[test]
+    fn discover_rs_files_nonexistent_dir() {
+        let files = discover_rs_files(Path::new("/nonexistent/path/that/does/not/exist"));
+        assert!(files.is_empty());
+    }
+
+    // ---- discover_workspace_src_dirs ----
+
+    #[test]
+    fn workspace_src_dirs_no_cargo_toml() {
+        let tmp = TempDir::new().unwrap();
+        let dirs = discover_workspace_src_dirs(tmp.path());
+        assert!(dirs.is_empty());
+    }
+
+    #[test]
+    fn workspace_src_dirs_single_crate() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[package]\nname = \"my-crate\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        let src = tmp.path().join("src");
+        fs::create_dir(&src).unwrap();
+        fs::write(src.join("lib.rs"), "").unwrap();
+
+        let dirs = discover_workspace_src_dirs(tmp.path());
+        assert_eq!(dirs.len(), 1);
+        assert_eq!(dirs[0], src);
+    }
+
+    #[test]
+    fn workspace_src_dirs_single_crate_no_src() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[package]\nname = \"my-crate\"\n",
+        )
+        .unwrap();
+        let dirs = discover_workspace_src_dirs(tmp.path());
+        assert!(dirs.is_empty());
+    }
+
+    #[test]
+    fn workspace_src_dirs_workspace_with_explicit_members() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crate-a\", \"crate-b\"]\n",
+        )
+        .unwrap();
+
+        let a_src = tmp.path().join("crate-a").join("src");
+        fs::create_dir_all(&a_src).unwrap();
+        fs::write(a_src.join("lib.rs"), "").unwrap();
+
+        let b_src = tmp.path().join("crate-b").join("src");
+        fs::create_dir_all(&b_src).unwrap();
+        fs::write(b_src.join("lib.rs"), "").unwrap();
+
+        let dirs = discover_workspace_src_dirs(tmp.path());
+        assert_eq!(dirs.len(), 2);
+        assert!(dirs.contains(&a_src));
+        assert!(dirs.contains(&b_src));
+    }
+
+    #[test]
+    fn workspace_src_dirs_workspace_with_glob() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]\n",
+        )
+        .unwrap();
+
+        let crates_dir = tmp.path().join("crates");
+        fs::create_dir(&crates_dir).unwrap();
+
+        let alpha_src = crates_dir.join("alpha").join("src");
+        fs::create_dir_all(&alpha_src).unwrap();
+        fs::write(alpha_src.join("lib.rs"), "").unwrap();
+
+        let beta_src = crates_dir.join("beta").join("src");
+        fs::create_dir_all(&beta_src).unwrap();
+        fs::write(beta_src.join("lib.rs"), "").unwrap();
+
+        let dirs = discover_workspace_src_dirs(tmp.path());
+        assert_eq!(dirs.len(), 2);
+        assert!(dirs.contains(&alpha_src));
+        assert!(dirs.contains(&beta_src));
+    }
+
+    #[test]
+    fn workspace_src_dirs_workspace_skips_member_without_src() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"has-src\", \"no-src\"]\n",
+        )
+        .unwrap();
+
+        let has_src = tmp.path().join("has-src").join("src");
+        fs::create_dir_all(&has_src).unwrap();
+        fs::write(has_src.join("lib.rs"), "").unwrap();
+
+        fs::create_dir_all(tmp.path().join("no-src")).unwrap();
+
+        let dirs = discover_workspace_src_dirs(tmp.path());
+        assert_eq!(dirs.len(), 1);
+        assert_eq!(dirs[0], has_src);
+    }
+
+    #[test]
+    fn workspace_src_dirs_multiline_members() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\n    \"lib-a\",\n    \"lib-b\",\n]\n",
+        )
+        .unwrap();
+
+        let a_src = tmp.path().join("lib-a").join("src");
+        fs::create_dir_all(&a_src).unwrap();
+        fs::write(a_src.join("lib.rs"), "").unwrap();
+
+        let b_src = tmp.path().join("lib-b").join("src");
+        fs::create_dir_all(&b_src).unwrap();
+        fs::write(b_src.join("lib.rs"), "").unwrap();
+
+        let dirs = discover_workspace_src_dirs(tmp.path());
+        assert_eq!(dirs.len(), 2);
+        assert!(dirs.contains(&a_src));
+        assert!(dirs.contains(&b_src));
+    }
+
+    #[test]
+    fn workspace_src_dirs_result_is_sorted() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"zzz\", \"aaa\"]\n",
+        )
+        .unwrap();
+
+        let z_src = tmp.path().join("zzz").join("src");
+        fs::create_dir_all(&z_src).unwrap();
+        let a_src = tmp.path().join("aaa").join("src");
+        fs::create_dir_all(&a_src).unwrap();
+
+        let dirs = discover_workspace_src_dirs(tmp.path());
+        assert_eq!(dirs.len(), 2);
+        assert!(dirs[0] < dirs[1]);
+    }
+
+    #[test]
+    fn workspace_src_dirs_other_section_after_workspace() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"core\"]\n\n[dependencies]\nserde = \"1\"\n",
+        )
+        .unwrap();
+
+        let core_src = tmp.path().join("core").join("src");
+        fs::create_dir_all(&core_src).unwrap();
+
+        let dirs = discover_workspace_src_dirs(tmp.path());
+        assert_eq!(dirs.len(), 1);
+        assert_eq!(dirs[0], core_src);
+    }
+
+    // ---- AuditFinding ----
+
+    #[test]
+    fn audit_finding_with_counterexample() {
+        let finding = AuditFinding {
+            function: "my_crate::process".to_string(),
+            clause: "counterexample".to_string(),
+            severity: "warning".to_string(),
+            message: "Counterexample found".to_string(),
+            counterexample: Some("x = 0, y = -1".to_string()),
+        };
+        assert_eq!(finding.function, "my_crate::process");
+        assert_eq!(finding.clause, "counterexample");
+        assert_eq!(finding.severity, "warning");
+        assert_eq!(finding.counterexample.as_deref(), Some("x = 0, y = -1"));
+    }
+
+    #[test]
+    fn audit_finding_without_counterexample() {
+        let finding = AuditFinding {
+            function: "module::timeout_fn".to_string(),
+            clause: "timeout".to_string(),
+            severity: "info".to_string(),
+            message: "Solver timed out".to_string(),
+            counterexample: None,
+        };
+        assert!(finding.counterexample.is_none());
+        assert_eq!(finding.severity, "info");
+    }
+
+    // ---- AuditOptions ----
+
+    #[test]
+    fn audit_options_all_fields() {
+        let opts = AuditOptions {
+            path: "/tmp/project",
+            depth: "medium",
+            format: "json",
+            focus: Some("my_fn"),
+            max_functions: Some(10),
+            timeout_ms: 5000,
+            unsafe_only: true,
+        };
+        assert_eq!(opts.path, "/tmp/project");
+        assert_eq!(opts.depth, "medium");
+        assert_eq!(opts.format, "json");
+        assert_eq!(opts.focus, Some("my_fn"));
+        assert_eq!(opts.max_functions, Some(10));
+        assert_eq!(opts.timeout_ms, 5000);
+        assert!(opts.unsafe_only);
+    }
+
+    #[test]
+    fn audit_options_minimal() {
+        let opts = AuditOptions {
+            path: ".",
+            depth: "shallow",
+            format: "human",
+            focus: None,
+            max_functions: None,
+            timeout_ms: 30000,
+            unsafe_only: false,
+        };
+        assert_eq!(opts.path, ".");
+        assert!(opts.focus.is_none());
+        assert!(opts.max_functions.is_none());
+        assert!(!opts.unsafe_only);
+    }
+}
