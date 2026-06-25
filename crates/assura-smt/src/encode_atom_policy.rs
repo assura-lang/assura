@@ -248,11 +248,6 @@ pub(crate) fn ir_construct_uf_name(type_id: &str) -> String {
     format!("__ir_construct_{type_id}")
 }
 
-/// Bit-vector-as-real temporary (`__bv_as_real_{bits}`).
-pub(crate) fn bv_as_real_name(bits: impl std::fmt::Display) -> String {
-    format!("__bv_as_real_{bits}")
-}
-
 /// Tuple element accessor UIF (`__tuple_{arity}_{index}`).
 pub(crate) fn tuple_accessor_name(arity: usize, index: usize) -> String {
     format!("__tuple_{arity}_{index}")
@@ -609,7 +604,6 @@ mod tests {
         );
         assert_eq!(ir_field_uf_name("pair", 0), "__ir_field_pair_0");
         assert_eq!(ir_construct_uf_name("T1"), "__ir_construct_T1");
-        assert_eq!(bv_as_real_name(32), "__bv_as_real_32");
         assert_eq!(measure_ax_xs_name("m"), "__ax_m_xs");
         assert_eq!(measure_append_uf_name("m"), "__append_m");
         assert_eq!(LIST_GET_UF_NAME, "__list_get");

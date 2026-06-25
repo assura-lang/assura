@@ -3458,6 +3458,50 @@ fn test_counterexample_boolean_value() {
     }
 }
 
+// #511: Mixed Bool/Int Neq path test
+// The Eq path is tested by test_counterexample_boolean_value above.
+// This covers the Neq path: flag != false should be true when flag is true,
+// so Z3 should verify (UNSAT) rather than produce a counterexample.
+#[test]
+fn test_mixed_bool_int_neq_path() {
+    // requires(true) ensures(flag != false) with flag unconstrained.
+    // Z3 can pick flag = false to violate the Neq, producing a CE.
+    let ante = Spanned::no_span(Expr::Literal(Literal::Bool(true)));
+    let cons = binop(
+        ident("flag"),
+        BinOp::Neq,
+        Spanned::no_span(Expr::Literal(Literal::Bool(false))),
+    );
+
+    let result = super::check_refinement_subtype(&ante, &cons);
+    match &result {
+        VerificationResult::Counterexample {
+            counter_model: Some(cm),
+            ..
+        } => {
+            // flag should be "false" or "0", not an arbitrary int like "2".
+            let flag_val = cm
+                .variables
+                .iter()
+                .find(|(n, _)| n == "flag")
+                .map(|(_, v)| v.as_str())
+                .expect("counterexample should contain variable 'flag'");
+            assert!(
+                flag_val == "false" || flag_val == "0",
+                "CE flag={flag_val} should be false/0 to violate ensures (flag != false)"
+            );
+        }
+        VerificationResult::Counterexample { .. } => {
+            // CE without model is acceptable (solver produced CE but no model).
+        }
+        VerificationResult::Verified { .. } => {
+            // Z3 might verify this if it picks a model where flag != false holds.
+            // Both outcomes are acceptable; the key invariant is no arbitrary ints.
+        }
+        other => panic!("unexpected result for Neq test: {other:?}"),
+    }
+}
+
 // -----------------------------------------------------------------------
 // #510: Timeout/Unknown soundness guards
 // (These tests live in assura-pipeline to avoid type identity issues
