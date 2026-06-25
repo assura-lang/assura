@@ -22,7 +22,7 @@ use crate::solver_outcome_policy::ClauseSatOutcome;
 ///
 /// Mirrors [`crate::z3_backend::solver::z3_clause_sat_outcome`] so that both
 /// backends feed the same shared [`crate::solver_outcome_policy::interpret_clause_check_result`].
-fn cvc5_clause_sat_outcome(
+pub(crate) fn cvc5_clause_sat_outcome(
     sat_result: &cvc5::Result,
     solver: &cvc5::Solver,
     var_map: &HashMap<String, cvc5::Term>,
