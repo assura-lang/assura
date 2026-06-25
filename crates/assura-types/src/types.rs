@@ -46,7 +46,21 @@ pub(crate) const DEFAULT_PARAM_ONE: i64 = 1;
 // Type representation
 // ---------------------------------------------------------------------------
 
-/// Represents all Assura types.
+/// Represents all Assura types in the type checker.
+///
+/// # Indeterminate types
+///
+/// Two variants represent "we don't have a concrete type":
+/// - [`Unknown`](Type::Unknown): genuinely unknown (unresolved reference, missing type args)
+/// - [`Error`](Type::Error): error already reported upstream; suppresses cascading diagnostics
+///
+/// Always use [`is_indeterminate()`](Type::is_indeterminate) instead of matching
+/// `Type::Unknown` directly, to avoid missing `Error` and producing cascade false positives.
+///
+/// # Numeric types
+///
+/// `Int`, `Nat`, `Float`, and fixed-width variants (`U8`..`I64`, `F32`, `F64`) are all
+/// considered numeric. Use `is_numeric()` to test.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     // --- Base types ---
@@ -334,5 +348,292 @@ impl std::fmt::Display for Type {
             Type::Unknown => write!(f, "Unknown"),
             Type::Error => write!(f, "<error>"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- is_indeterminate ----
+
+    #[test]
+    fn is_indeterminate_unknown() {
+        assert!(Type::Unknown.is_indeterminate());
+    }
+
+    #[test]
+    fn is_indeterminate_error() {
+        assert!(Type::Error.is_indeterminate());
+    }
+
+    #[test]
+    fn is_indeterminate_concrete_types_return_false() {
+        let concrete = [
+            Type::Int,
+            Type::Nat,
+            Type::Float,
+            Type::Bool,
+            Type::String,
+            Type::Bytes,
+            Type::Unit,
+            Type::Never,
+            Type::U8,
+            Type::U16,
+            Type::U32,
+            Type::U64,
+            Type::I8,
+            Type::I16,
+            Type::I32,
+            Type::I64,
+            Type::F32,
+            Type::F64,
+            Type::List(Box::new(Type::Int)),
+            Type::Map(Box::new(Type::String), Box::new(Type::Int)),
+            Type::Set(Box::new(Type::Nat)),
+            Type::Option(Box::new(Type::Bool)),
+            Type::Result(Box::new(Type::Int), Box::new(Type::String)),
+            Type::Sequence(Box::new(Type::Int)),
+            Type::Named("Foo".into()),
+            Type::TypeParam("T".into()),
+            Type::Fn {
+                params: vec![Type::Int],
+                ret: Box::new(Type::Bool),
+            },
+            Type::Tuple(vec![Type::Int, Type::Bool]),
+            Type::Refined {
+                base: Box::new(Type::Int),
+                predicate: "x > 0".into(),
+            },
+        ];
+        for ty in &concrete {
+            assert!(
+                !ty.is_indeterminate(),
+                "{ty} should not be indeterminate"
+            );
+        }
+    }
+
+    // ---- Display formatting ----
+
+    #[test]
+    fn display_base_types() {
+        assert_eq!(Type::Int.to_string(), "Int");
+        assert_eq!(Type::Nat.to_string(), "Nat");
+        assert_eq!(Type::Float.to_string(), "Float");
+        assert_eq!(Type::Bool.to_string(), "Bool");
+        assert_eq!(Type::String.to_string(), "String");
+        assert_eq!(Type::Bytes.to_string(), "Bytes");
+        assert_eq!(Type::Unit.to_string(), "Unit");
+        assert_eq!(Type::Never.to_string(), "Never");
+    }
+
+    #[test]
+    fn display_fixed_width_integers() {
+        assert_eq!(Type::U8.to_string(), "U8");
+        assert_eq!(Type::U64.to_string(), "U64");
+        assert_eq!(Type::I32.to_string(), "I32");
+        assert_eq!(Type::F64.to_string(), "F64");
+    }
+
+    #[test]
+    fn display_generic_containers() {
+        assert_eq!(
+            Type::List(Box::new(Type::Int)).to_string(),
+            "List<Int>"
+        );
+        assert_eq!(
+            Type::Map(Box::new(Type::String), Box::new(Type::Nat)).to_string(),
+            "Map<String, Nat>"
+        );
+        assert_eq!(
+            Type::Set(Box::new(Type::Bool)).to_string(),
+            "Set<Bool>"
+        );
+        assert_eq!(
+            Type::Option(Box::new(Type::Float)).to_string(),
+            "Option<Float>"
+        );
+        assert_eq!(
+            Type::Result(Box::new(Type::Int), Box::new(Type::String)).to_string(),
+            "Result<Int, String>"
+        );
+        assert_eq!(
+            Type::Sequence(Box::new(Type::Bytes)).to_string(),
+            "Sequence<Bytes>"
+        );
+    }
+
+    #[test]
+    fn display_fn_type() {
+        let ty = Type::Fn {
+            params: vec![Type::Int, Type::Bool],
+            ret: Box::new(Type::String),
+        };
+        assert_eq!(ty.to_string(), "fn(Int, Bool) -> String");
+    }
+
+    #[test]
+    fn display_fn_no_params() {
+        let ty = Type::Fn {
+            params: vec![],
+            ret: Box::new(Type::Unit),
+        };
+        assert_eq!(ty.to_string(), "fn() -> Unit");
+    }
+
+    #[test]
+    fn display_tuple() {
+        let ty = Type::Tuple(vec![Type::Int, Type::Bool, Type::String]);
+        assert_eq!(ty.to_string(), "(Int, Bool, String)");
+    }
+
+    #[test]
+    fn display_refined_with_predicate() {
+        let ty = Type::Refined {
+            base: Box::new(Type::Int),
+            predicate: "x > 0".into(),
+        };
+        assert_eq!(ty.to_string(), "{ x : Int | x > 0 }");
+    }
+
+    #[test]
+    fn display_refined_empty_predicate() {
+        let ty = Type::Refined {
+            base: Box::new(Type::Nat),
+            predicate: "".into(),
+        };
+        // Empty predicate just displays the base type
+        assert_eq!(ty.to_string(), "Nat");
+    }
+
+    #[test]
+    fn display_unknown_and_error() {
+        assert_eq!(Type::Unknown.to_string(), "Unknown");
+        assert_eq!(Type::Error.to_string(), "<error>");
+    }
+
+    #[test]
+    fn display_named_and_type_param() {
+        assert_eq!(Type::Named("MyStruct".into()).to_string(), "MyStruct");
+        assert_eq!(Type::TypeParam("T".into()).to_string(), "T");
+    }
+
+    #[test]
+    fn display_nested_generics() {
+        // List<Option<Int>>
+        let ty = Type::List(Box::new(Type::Option(Box::new(Type::Int))));
+        assert_eq!(ty.to_string(), "List<Option<Int>>");
+    }
+
+    // ---- builtin_type ----
+
+    #[test]
+    fn builtin_type_base_types() {
+        assert_eq!(builtin_type("Int"), Some(Type::Int));
+        assert_eq!(builtin_type("Nat"), Some(Type::Nat));
+        assert_eq!(builtin_type("Float"), Some(Type::Float));
+        assert_eq!(builtin_type("Bool"), Some(Type::Bool));
+        assert_eq!(builtin_type("String"), Some(Type::String));
+        assert_eq!(builtin_type("Bytes"), Some(Type::Bytes));
+        assert_eq!(builtin_type("Unit"), Some(Type::Unit));
+        assert_eq!(builtin_type("Never"), Some(Type::Never));
+    }
+
+    #[test]
+    fn builtin_type_fixed_width() {
+        assert_eq!(builtin_type("U8"), Some(Type::U8));
+        assert_eq!(builtin_type("U16"), Some(Type::U16));
+        assert_eq!(builtin_type("U32"), Some(Type::U32));
+        assert_eq!(builtin_type("U64"), Some(Type::U64));
+        assert_eq!(builtin_type("I8"), Some(Type::I8));
+        assert_eq!(builtin_type("I64"), Some(Type::I64));
+        assert_eq!(builtin_type("F32"), Some(Type::F32));
+        assert_eq!(builtin_type("F64"), Some(Type::F64));
+    }
+
+    #[test]
+    fn builtin_type_generic_containers_bare() {
+        // Bare generic names produce Unknown inner types
+        assert_eq!(
+            builtin_type("List"),
+            Some(Type::List(Box::new(Type::Unknown)))
+        );
+        assert_eq!(
+            builtin_type("Set"),
+            Some(Type::Set(Box::new(Type::Unknown)))
+        );
+        assert_eq!(
+            builtin_type("Option"),
+            Some(Type::Option(Box::new(Type::Unknown)))
+        );
+    }
+
+    #[test]
+    fn builtin_type_unknown_name() {
+        assert_eq!(builtin_type("FooBar"), None);
+        assert_eq!(builtin_type(""), None);
+        assert_eq!(builtin_type("int"), None); // case-sensitive
+    }
+
+    // ---- TypeEnv ----
+
+    #[test]
+    fn type_env_insert_and_lookup() {
+        let mut env = TypeEnv::new();
+        assert!(env.is_empty());
+        assert_eq!(env.len(), 0);
+
+        env.insert("x".into(), Type::Int);
+        assert_eq!(env.lookup("x"), Some(&Type::Int));
+        assert_eq!(env.len(), 1);
+        assert!(!env.is_empty());
+    }
+
+    #[test]
+    fn type_env_insert_overwrites() {
+        let mut env = TypeEnv::new();
+        let prev = env.insert("x".into(), Type::Int);
+        assert!(prev.is_none());
+
+        let prev = env.insert("x".into(), Type::Bool);
+        assert_eq!(prev, Some(Type::Int));
+        assert_eq!(env.lookup("x"), Some(&Type::Bool));
+    }
+
+    #[test]
+    fn type_env_lookup_missing() {
+        let env = TypeEnv::new();
+        assert_eq!(env.lookup("nonexistent"), None);
+    }
+
+    #[test]
+    fn type_env_lookup_field() {
+        let mut env = TypeEnv::new();
+        env.struct_fields.insert(
+            "Point".into(),
+            vec![
+                ("x".into(), Type::Float),
+                ("y".into(), Type::Float),
+            ],
+        );
+        assert_eq!(env.lookup_field("Point", "x"), Some(&Type::Float));
+        assert_eq!(env.lookup_field("Point", "z"), None);
+        assert_eq!(env.lookup_field("Unknown", "x"), None);
+    }
+
+    // ---- TypeError ----
+
+    #[test]
+    fn type_error_with_context() {
+        let err = TypeError {
+            code: "A03001".into(),
+            message: "type mismatch".into(),
+            span: 10..20,
+            secondary: None,
+        };
+        let enriched = err.with_context("in function foo");
+        assert_eq!(enriched.message, "type mismatch (in function foo)");
+        assert_eq!(enriched.span, 10..20);
     }
 }

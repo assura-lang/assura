@@ -33,7 +33,11 @@ pub struct CompilationOutput {
     pub generated: Option<assura_codegen::GeneratedProject>,
     /// All diagnostics from every phase (parse, resolve, type check).
     pub diagnostics: Vec<assura_diagnostics::Diagnostic>,
-    /// Whether any errors were found.
+    /// Whether any errors were found (parse, resolve, or type check only).
+    ///
+    /// **Important:** SMT counterexamples live in [`verification`](Self::verification)
+    /// and do NOT set `has_errors`. Use [`verification_succeeded`] or
+    /// [`verification_strict_succeeded`] to check verify outcomes.
     pub has_errors: bool,
     /// Timing information for each phase.
     pub timing: PhaseTiming,
