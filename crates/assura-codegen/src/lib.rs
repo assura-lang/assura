@@ -269,6 +269,51 @@ fn collect_type_names(
     (defined_types, feature_max_consts, referenced_types)
 }
 
+/// Visitor that collects type token lists from FnDef/Extern/Bind params and
+/// return types, and optionally from TypeDef struct fields.
+struct TypeTokenCollectVisitor<'a> {
+    token_lists: &'a mut Vec<Vec<String>>,
+    include_typedef_fields: bool,
+}
+
+impl DeclVisitor for TypeTokenCollectVisitor<'_> {
+    fn visit_fn_def(&mut self, f: &FnDef) {
+        self.token_lists
+            .push(type_expr_to_token_vec(f.return_ty.as_ref()));
+        for p in &f.params {
+            self.token_lists
+                .push(type_expr_to_token_vec(p.ty.as_ref()));
+        }
+    }
+    fn visit_extern(&mut self, ex: &ExternDecl) {
+        self.token_lists
+            .push(type_expr_to_token_vec(ex.return_ty.as_ref()));
+        for p in &ex.params {
+            self.token_lists
+                .push(type_expr_to_token_vec(p.ty.as_ref()));
+        }
+    }
+    fn visit_bind(&mut self, b: &BindDecl) {
+        self.token_lists
+            .push(type_expr_to_token_vec(b.return_ty.as_ref()));
+        for p in &b.params {
+            self.token_lists
+                .push(type_expr_to_token_vec(p.ty.as_ref()));
+        }
+    }
+    fn visit_type_def(&mut self, t: &TypeDef) {
+        if self.include_typedef_fields {
+            if let TypeBody::Struct(fields) = &t.body {
+                for f in fields {
+                    self.token_lists
+                        .push(type_expr_to_token_vec(f.ty.as_ref()));
+                }
+            }
+        }
+    }
+    // Contract, Service, EnumDef, Prophecy, CodecRegistry, Block: default no-op
+}
+
 /// Collect all type token lists from FnDef/Extern/Bind params and return types.
 ///
 /// Phases 3, 4, and 4b all need this same walk. The `include_typedef_fields`
@@ -279,42 +324,11 @@ fn collect_all_type_token_lists(
     include_typedef_fields: bool,
 ) -> Vec<Vec<String>> {
     let mut token_lists: Vec<Vec<String>> = Vec::new();
-    for decl in decls {
-        match &decl.node {
-            Decl::FnDef(f) => {
-                token_lists.push(type_expr_to_token_vec(f.return_ty.as_ref()));
-                for p in &f.params {
-                    token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
-                }
-            }
-            Decl::Extern(ex) => {
-                token_lists.push(type_expr_to_token_vec(ex.return_ty.as_ref()));
-                for p in &ex.params {
-                    token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
-                }
-            }
-            Decl::Bind(b) => {
-                token_lists.push(type_expr_to_token_vec(b.return_ty.as_ref()));
-                for p in &b.params {
-                    token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
-                }
-            }
-            Decl::TypeDef(t) if include_typedef_fields => {
-                if let TypeBody::Struct(fields) = &t.body {
-                    for f in fields {
-                        token_lists.push(type_expr_to_token_vec(f.ty.as_ref()));
-                    }
-                }
-            }
-            Decl::Contract(_)
-            | Decl::Service(_)
-            | Decl::TypeDef(_)
-            | Decl::EnumDef(_)
-            | Decl::Prophecy(_)
-            | Decl::CodecRegistry(_)
-            | Decl::Block { .. } => {}
-        }
-    }
+    let mut visitor = TypeTokenCollectVisitor {
+        token_lists: &mut token_lists,
+        include_typedef_fields,
+    };
+    assura_ast::walk_decls(&mut visitor, decls);
     token_lists
 }
 
@@ -462,6 +476,80 @@ impl DeclVisitor for CollectModuleNames {
     }
 }
 
+/// Visitor that generates Rust code for each declaration.
+///
+/// In multi-file mode (`include_contracts_services = false`), contracts and
+/// services are skipped (they get their own files). In single-file mode
+/// (`include_contracts_services = true`), they are generated inline.
+struct CodeGenVisitor<'a> {
+    code: &'a mut String,
+    include_contracts_services: bool,
+}
+
+impl DeclVisitor for CodeGenVisitor<'_> {
+    fn visit_type_def(&mut self, t: &TypeDef) {
+        generate_type_def(t, self.code);
+    }
+    fn visit_enum_def(&mut self, e: &EnumDef) {
+        generate_enum_def(e, self.code);
+    }
+    fn visit_extern(&mut self, ex: &ExternDecl) {
+        generate_extern(ex, self.code);
+    }
+    fn visit_bind(&mut self, b: &BindDecl) {
+        generate_bind(b, self.code);
+    }
+    fn visit_fn_def(&mut self, f: &FnDef) {
+        if !f.is_ghost && !f.is_lemma {
+            generate_fn_def(f, self.code);
+        }
+    }
+    fn visit_block(
+        &mut self,
+        kind: &BlockKind,
+        name: &str,
+        _value: &Option<Vec<String>>,
+        body: &[Clause],
+    ) {
+        if *kind != BlockKind::FeatureMax {
+            generate_block(kind, name, body, self.code);
+        }
+    }
+    fn visit_codec_registry(&mut self, cr: &CodecRegistryDecl) {
+        generate_codec_registry(cr, self.code);
+    }
+    fn visit_contract(&mut self, c: &ContractDecl) {
+        if self.include_contracts_services {
+            generate_contract(c, self.code);
+        }
+    }
+    fn visit_service(&mut self, s: &ServiceDecl) {
+        if self.include_contracts_services {
+            generate_service(s, self.code);
+        }
+    }
+    // Prophecy: default no-op (ghost, erased in codegen)
+}
+
+/// Visitor that emits `pub mod` declarations for contracts and services
+/// in multi-file mode.
+struct ModDeclVisitor<'a> {
+    code: &'a mut String,
+}
+
+impl DeclVisitor for ModDeclVisitor<'_> {
+    fn visit_contract(&mut self, c: &ContractDecl) {
+        let mod_name = c.name.to_lowercase();
+        self.code
+            .push_str(&format!("pub mod contract_{mod_name};\n"));
+    }
+    fn visit_service(&mut self, s: &ServiceDecl) {
+        let mod_name = s.name.to_lowercase();
+        self.code.push_str(&format!("pub mod {mod_name};\n"));
+    }
+    // All others: default no-op
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -579,54 +667,17 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
         // placeholder structs)
         shared.push_str(&code);
 
-        for decl in &source.decls {
-            match &decl.node {
-                Decl::TypeDef(t) => generate_type_def(t, &mut shared),
-                Decl::EnumDef(e) => generate_enum_def(e, &mut shared),
-                Decl::Extern(ex) => generate_extern(ex, &mut shared),
-                Decl::Bind(b) => generate_bind(b, &mut shared),
-                Decl::FnDef(f) => {
-                    if !f.is_ghost && !f.is_lemma {
-                        generate_fn_def(f, &mut shared);
-                    }
-                }
-                Decl::Block {
-                    kind, name, body, ..
-                } => {
-                    if *kind != BlockKind::FeatureMax {
-                        generate_block(kind, name, body, &mut shared);
-                    }
-                }
-                // Prophecy variables are ghost; erased in codegen.
-                Decl::Prophecy(_) => {}
-                // CodecRegistry: generate dispatch function into shared lib.rs
-                Decl::CodecRegistry(cr) => generate_codec_registry(cr, &mut shared),
-                // Contracts and services go into their own files.
-                Decl::Contract(_) | Decl::Service(_) => {}
-            }
-        }
+        // Generate shared code (types, enums, externs, functions, blocks).
+        // Contracts and services go into their own files in multi-file mode.
+        let mut codegen_visitor = CodeGenVisitor {
+            code: &mut shared,
+            include_contracts_services: false,
+        };
+        assura_ast::walk_decls(&mut codegen_visitor, &source.decls);
 
         // Add pub mod declarations for each contract/service module
-        for decl in &source.decls {
-            match &decl.node {
-                Decl::Contract(c) => {
-                    let mod_name = c.name.to_lowercase();
-                    shared.push_str(&format!("pub mod contract_{mod_name};\n"));
-                }
-                Decl::Service(s) => {
-                    let mod_name = s.name.to_lowercase();
-                    shared.push_str(&format!("pub mod {mod_name};\n"));
-                }
-                Decl::TypeDef(_)
-                | Decl::EnumDef(_)
-                | Decl::FnDef(_)
-                | Decl::Extern(_)
-                | Decl::Bind(_)
-                | Decl::Prophecy(_)
-                | Decl::CodecRegistry(_)
-                | Decl::Block { .. } => {}
-            }
-        }
+        let mut mod_visitor = ModDeclVisitor { code: &mut shared };
+        assura_ast::walk_decls(&mut mod_visitor, &source.decls);
 
         let formatted_shared = format_rust(&shared);
         let lib_rs = format!(
@@ -682,32 +733,12 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
         all_code.push_str("#![allow(dead_code, unused_variables, unused_parens, non_camel_case_types, unreachable_code)]\n\n");
         all_code.push_str(&code);
 
-        for decl in &source.decls {
-            match &decl.node {
-                Decl::TypeDef(t) => generate_type_def(t, &mut all_code),
-                Decl::EnumDef(e) => generate_enum_def(e, &mut all_code),
-                Decl::Contract(c) => generate_contract(c, &mut all_code),
-                Decl::Extern(ex) => generate_extern(ex, &mut all_code),
-                Decl::Bind(b) => generate_bind(b, &mut all_code),
-                Decl::FnDef(f) => {
-                    if !f.is_ghost && !f.is_lemma {
-                        generate_fn_def(f, &mut all_code);
-                    }
-                }
-                Decl::Service(s) => generate_service(s, &mut all_code),
-                // Prophecy variables are ghost; erased in codegen.
-                Decl::Prophecy(_) => {}
-                // CodecRegistry: generate dispatch function
-                Decl::CodecRegistry(cr) => generate_codec_registry(cr, &mut all_code),
-                Decl::Block {
-                    kind, name, body, ..
-                } => {
-                    if *kind != BlockKind::FeatureMax {
-                        generate_block(kind, name, body, &mut all_code);
-                    }
-                }
-            }
-        }
+        // Generate code for all declarations (single-file: contracts and services inline).
+        let mut codegen_visitor = CodeGenVisitor {
+            code: &mut all_code,
+            include_contracts_services: true,
+        };
+        assura_ast::walk_decls(&mut codegen_visitor, &source.decls);
 
         // S009: Generate proptest tests for testable contracts
         // Skip proptest for Cranelift (dev builds prioritize fast compilation)
