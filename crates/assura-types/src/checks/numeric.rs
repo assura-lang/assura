@@ -1,6 +1,6 @@
 //! Numeric, fixed-width, and collection checks.
 
-use assura_parser::ast::{BinOp, ClauseKind, Decl, Expr, ExprVisitor, SpExpr};
+use assura_parser::ast::{BinOp, ClauseKind, Expr, ExprVisitor, SpExpr};
 
 use crate::checkers::*;
 use crate::domain::*;
@@ -18,11 +18,8 @@ pub(crate) fn run_fixed_width_checks(
 ) -> Vec<TypeError> {
     let mut errors = Vec::new();
     for decl in &source.decls {
-        let (params, clauses): (&[assura_parser::ast::Param], &[_]) = match &decl.node {
-            Decl::Contract(c) => (&[], c.clauses.as_slice()),
-            Decl::FnDef(f) => (f.params.as_slice(), f.clauses.as_slice()),
-            Decl::Extern(e) => (e.params.as_slice(), e.clauses.as_slice()),
-            _ => continue,
+        let Some((clauses, params)) = super::runtime_decl_clauses_params(&decl.node) else {
+            continue;
         };
 
         // Build a per-decl checker with declared fixed-width bindings
@@ -198,10 +195,8 @@ pub(crate) fn run_collection_contract_checks(
     let mut errors = Vec::new();
 
     for decl in &source.decls {
-        let (name, clauses) = match &decl.node {
-            Decl::Contract(c) => (&c.name, &c.clauses),
-            Decl::FnDef(f) => (&f.name, &f.clauses),
-            _ => continue,
+        let Some((name, clauses)) = super::fn_or_contract_name_clauses(&decl.node) else {
+            continue;
         };
 
         // Check if the contract/function name matches a known collection op

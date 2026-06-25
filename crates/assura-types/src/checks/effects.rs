@@ -14,75 +14,49 @@ pub(crate) fn run_effect_checks(source: &assura_parser::ast::SourceFile) -> Vec<
     let effect_map = build_effect_map(source, &checker);
 
     for decl in &source.decls {
-        match &decl.node {
-            Decl::FnDef(f) => {
-                let (declared, actual) = extract_effects_from_clauses(&f.clauses);
-                if let Some(ref declared_set) = declared {
-                    // Validate all effect names are known
-                    for ee in checker.check_known(declared_set, &decl.span) {
+        let Some(clauses) = super::clauses_contract_fn_extern(&decl.node) else {
+            continue;
+        };
+
+        let (declared, actual) = extract_effects_from_clauses(clauses);
+        if let Some(ref declared_set) = declared {
+            // Validate all effect names are known
+            for ee in checker.check_known(declared_set, &decl.span) {
+                errors.push(TypeError {
+                    code: ee.code,
+                    message: ee.message,
+                    span: ee.span,
+                    secondary: None,
+                });
+            }
+
+            // FnDef-specific: containment + call-graph effect inference
+            if matches!(&decl.node, Decl::FnDef(_)) {
+                // Check containment: actual subset of declared
+                if let Some(actual_set) = actual {
+                    for ee in checker.check_containment(declared_set, &actual_set, &decl.span) {
                         errors.push(TypeError {
                             code: ee.code,
                             message: ee.message,
                             span: ee.span,
                             secondary: None,
                         });
-                    }
-                    // Check containment: actual subset of declared
-                    if let Some(actual_set) = actual {
-                        for ee in checker.check_containment(declared_set, &actual_set, &decl.span) {
-                            errors.push(TypeError {
-                                code: ee.code,
-                                message: ee.message,
-                                span: ee.span,
-                                secondary: None,
-                            });
-                        }
                     }
                 }
 
                 // Pass 2: Call-graph effect inference. For each function call in
                 // clause bodies, look up the callee's declared effects and check
                 // they are a subset of the caller's declared effects.
-                if let Some(ref declared_set) = declared {
-                    let callee_effects = infer_callee_effects(&f.clauses, &effect_map);
-                    for ee in checker.check_containment(declared_set, &callee_effects, &decl.span) {
-                        // Rewrite the error message to include call-graph context
-                        errors.push(TypeError {
-                            code: ee.code,
-                            message: ee.message,
-                            span: ee.span,
-                            secondary: None,
-                        });
-                    }
+                let callee_effects = infer_callee_effects(clauses, &effect_map);
+                for ee in checker.check_containment(declared_set, &callee_effects, &decl.span) {
+                    errors.push(TypeError {
+                        code: ee.code,
+                        message: ee.message,
+                        span: ee.span,
+                        secondary: None,
+                    });
                 }
             }
-            Decl::Extern(e) => {
-                let (declared, _) = extract_effects_from_clauses(&e.clauses);
-                if let Some(declared_set) = declared {
-                    for ee in checker.check_known(&declared_set, &decl.span) {
-                        errors.push(TypeError {
-                            code: ee.code,
-                            message: ee.message,
-                            span: ee.span,
-                            secondary: None,
-                        });
-                    }
-                }
-            }
-            Decl::Contract(c) => {
-                let (declared, _) = extract_effects_from_clauses(&c.clauses);
-                if let Some(declared_set) = declared {
-                    for ee in checker.check_known(&declared_set, &decl.span) {
-                        errors.push(TypeError {
-                            code: ee.code,
-                            message: ee.message,
-                            span: ee.span,
-                            secondary: None,
-                        });
-                    }
-                }
-            }
-            _ => {}
         }
     }
     errors
@@ -96,37 +70,23 @@ pub(crate) fn build_effect_map(
 ) -> HashMap<String, EffectSet> {
     let mut map = HashMap::new();
     for decl in &source.decls {
-        match &decl.node {
-            Decl::FnDef(f) => {
-                let (declared, _) = extract_effects_from_clauses(&f.clauses);
-                if let Some(declared_set) = declared {
-                    map.insert(f.name.clone(), checker.expand(&declared_set));
-                }
+        if let Some(clauses) = super::clauses_contract_fn_extern(&decl.node) {
+            let (declared, _) = extract_effects_from_clauses(clauses);
+            if let Some(declared_set) = declared
+                && let Some(name) = decl.node.name()
+            {
+                map.insert(name.to_string(), checker.expand(&declared_set));
             }
-            Decl::Contract(c) => {
-                let (declared, _) = extract_effects_from_clauses(&c.clauses);
-                if let Some(declared_set) = declared {
-                    map.insert(c.name.clone(), checker.expand(&declared_set));
-                }
-            }
-            Decl::Extern(e) => {
-                let (declared, _) = extract_effects_from_clauses(&e.clauses);
-                if let Some(declared_set) = declared {
-                    map.insert(e.name.clone(), checker.expand(&declared_set));
-                }
-            }
-            Decl::Service(s) => {
-                // Service operations may have effects
-                for item in &s.items {
-                    if let ServiceItem::Operation { name, clauses, .. } = item {
-                        let (declared, _) = extract_effects_from_clauses(clauses);
-                        if let Some(declared_set) = declared {
-                            map.insert(name.clone(), checker.expand(&declared_set));
-                        }
+        } else if let Decl::Service(s) = &decl.node {
+            // Service operations may have effects
+            for item in &s.items {
+                if let ServiceItem::Operation { name, clauses, .. } = item {
+                    let (declared, _) = extract_effects_from_clauses(clauses);
+                    if let Some(declared_set) = declared {
+                        map.insert(name.clone(), checker.expand(&declared_set));
                     }
                 }
             }
-            _ => {}
         }
     }
     map

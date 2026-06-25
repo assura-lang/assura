@@ -98,11 +98,8 @@ pub(crate) fn run_match_exhaustiveness_checks(
 
     // Walk all clause bodies looking for match expressions
     for decl in &source.decls {
-        let clauses: &[assura_parser::ast::Clause] = match &decl.node {
-            Decl::Contract(c) => &c.clauses,
-            Decl::FnDef(f) => &f.clauses,
-            Decl::Extern(e) => &e.clauses,
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_extern(&decl.node) else {
+            continue;
         };
         for clause in clauses {
             check_match_exhaustiveness_expr(
@@ -573,12 +570,10 @@ pub(crate) fn run_behavioral_equivalence_checks(
     let mut checker = BehavioralEquivalenceChecker::new();
     let mut found = false;
     for decl in &source.decls {
-        let (clauses, parent_name) = match &decl.node {
-            Decl::Contract(c) => (&c.clauses, c.name.as_str()),
-            Decl::FnDef(f) => (&f.clauses, f.name.as_str()),
-            Decl::Block { body, name, .. } => (body, name.as_str()),
-            _ => continue,
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
         };
+        let parent_name = decl.node.name().unwrap_or("");
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
                 && (k == "equivalent" || k == "behavioral_equiv" || k == "equiv")
