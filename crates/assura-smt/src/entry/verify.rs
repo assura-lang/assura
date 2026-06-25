@@ -624,3 +624,371 @@ pub fn verify_decrease(
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Unit tests for result classification and success predicates
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use crate::result::{
+        KNOWN_SMT_LIMITATION_MARKER, VerificationResult, is_known_smt_limitation,
+        not_encoded_reason,
+    };
+
+    /// Inline replica of `verification_succeeded` to avoid
+    /// the cross-crate type mismatch (assura-pipeline depends on assura-smt,
+    /// creating two copies of `VerificationResult` in the test dep graph).
+    fn verification_succeeded(results: &[VerificationResult]) -> bool {
+        !results.iter().any(|r| {
+            matches!(
+                r,
+                VerificationResult::Counterexample { .. } | VerificationResult::Timeout { .. }
+            )
+        })
+    }
+
+    /// Inline replica of `verification_strict_succeeded`.
+    fn verification_strict_succeeded(results: &[VerificationResult]) -> bool {
+        if !verification_succeeded(results) {
+            return false;
+        }
+        !results.iter().any(|r| match r {
+            VerificationResult::Unknown { reason, .. } => !is_known_smt_limitation(reason),
+            _ => false,
+        })
+    }
+
+    // -- VerificationResult::verified() constructor --
+
+    #[test]
+    fn verified_constructor_sets_clause_desc() {
+        let r = VerificationResult::verified("SafeDiv::ensures");
+        assert!(matches!(
+            &r,
+            VerificationResult::Verified {
+                clause_desc,
+                unsat_core: None,
+            } if clause_desc == "SafeDiv::ensures"
+        ));
+    }
+
+    #[test]
+    fn verified_constructor_from_string() {
+        let desc = String::from("Contract::invariant");
+        let r = VerificationResult::verified(desc);
+        assert_eq!(r.clause_desc(), "Contract::invariant");
+    }
+
+    // -- VerificationResult::unknown_not_encoded() --
+
+    #[test]
+    fn unknown_not_encoded_includes_marker() {
+        let r = VerificationResult::unknown_not_encoded("Foo::ensures", "linear types");
+        match &r {
+            VerificationResult::Unknown { reason, .. } => {
+                assert!(
+                    reason.contains(KNOWN_SMT_LIMITATION_MARKER),
+                    "reason should contain marker: {reason}"
+                );
+                assert!(reason.contains("linear types"));
+            }
+            other => panic!("expected Unknown, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unknown_not_encoded_with_empty_detail() {
+        let r = VerificationResult::unknown_not_encoded("Bar::ensures", "");
+        match &r {
+            VerificationResult::Unknown { reason, .. } => {
+                assert_eq!(reason, KNOWN_SMT_LIMITATION_MARKER);
+            }
+            other => panic!("expected Unknown, got {other:?}"),
+        }
+    }
+
+    // -- VerificationResult::no_solver_result() --
+
+    #[test]
+    fn no_solver_result_is_unknown() {
+        let r = VerificationResult::no_solver_result("Empty::ensures");
+        assert!(matches!(&r, VerificationResult::Unknown { reason, .. }
+            if reason == crate::result::NO_SOLVER_RESULT_REASON
+        ));
+    }
+
+    // -- clause_desc() and contract_name() accessors --
+
+    #[test]
+    fn clause_desc_accessor_all_variants() {
+        let cases: Vec<VerificationResult> = vec![
+            VerificationResult::verified("A::ensures"),
+            VerificationResult::Counterexample {
+                clause_desc: "B::invariant".into(),
+                model: "x=0".into(),
+                counter_model: None,
+            },
+            VerificationResult::Timeout {
+                clause_desc: "C::ensures".into(),
+            },
+            VerificationResult::Unknown {
+                clause_desc: "D::rule".into(),
+                reason: "unknown".into(),
+            },
+        ];
+        let expected = ["A::ensures", "B::invariant", "C::ensures", "D::rule"];
+        for (r, exp) in cases.iter().zip(expected.iter()) {
+            assert_eq!(r.clause_desc(), *exp);
+        }
+    }
+
+    #[test]
+    fn contract_name_extracts_prefix() {
+        let r = VerificationResult::verified("SafeDivision::ensures");
+        assert_eq!(r.contract_name(), "SafeDivision");
+    }
+
+    #[test]
+    fn contract_name_no_separator() {
+        let r = VerificationResult::verified("standalone");
+        assert_eq!(r.contract_name(), "standalone");
+    }
+
+    // -- is_known_limitation() instance method --
+
+    #[test]
+    fn is_known_limitation_true_for_marker() {
+        let r = VerificationResult::unknown_not_encoded("X::ensures", "effects");
+        assert!(r.is_known_limitation());
+    }
+
+    #[test]
+    fn is_known_limitation_false_for_other_unknown() {
+        let r = VerificationResult::Unknown {
+            clause_desc: "X::ensures".into(),
+            reason: "non-linear arithmetic".into(),
+        };
+        assert!(!r.is_known_limitation());
+    }
+
+    #[test]
+    fn is_known_limitation_false_for_non_unknown_variants() {
+        assert!(!VerificationResult::verified("A").is_known_limitation());
+        assert!(
+            !VerificationResult::Timeout {
+                clause_desc: "B".into()
+            }
+            .is_known_limitation()
+        );
+        assert!(
+            !VerificationResult::Counterexample {
+                clause_desc: "C".into(),
+                model: String::new(),
+                counter_model: None,
+            }
+            .is_known_limitation()
+        );
+    }
+
+    // -- is_known_smt_limitation() free function --
+
+    #[test]
+    fn known_smt_limitation_with_exact_marker() {
+        assert!(is_known_smt_limitation(KNOWN_SMT_LIMITATION_MARKER));
+    }
+
+    #[test]
+    fn known_smt_limitation_with_marker_embedded() {
+        let reason = format!("linear types {KNOWN_SMT_LIMITATION_MARKER}");
+        assert!(is_known_smt_limitation(&reason));
+    }
+
+    #[test]
+    fn known_smt_limitation_false_for_unrelated() {
+        assert!(!is_known_smt_limitation("non-linear arithmetic"));
+        assert!(!is_known_smt_limitation("timeout fallback"));
+        assert!(!is_known_smt_limitation(""));
+    }
+
+    // -- not_encoded_reason() --
+
+    #[test]
+    fn not_encoded_reason_with_detail() {
+        let r = not_encoded_reason("typestate transitions");
+        assert!(r.contains("typestate transitions"));
+        assert!(r.contains(KNOWN_SMT_LIMITATION_MARKER));
+    }
+
+    #[test]
+    fn not_encoded_reason_already_contains_marker() {
+        let input = format!("already {KNOWN_SMT_LIMITATION_MARKER}");
+        let r = not_encoded_reason(&input);
+        // Should not double the marker
+        assert_eq!(r, input);
+    }
+
+    // -- verification_succeeded (lenient) from assura_pipeline --
+
+    #[test]
+    fn succeeded_empty_results() {
+        assert!(verification_succeeded(&[]));
+    }
+
+    #[test]
+    fn succeeded_all_verified() {
+        let results = vec![
+            VerificationResult::verified("A::ensures"),
+            VerificationResult::verified("B::ensures"),
+        ];
+        let ok = verification_succeeded(&results);
+        assert!(ok);
+    }
+
+    #[test]
+    fn succeeded_fails_on_counterexample() {
+        let results: Vec<VerificationResult> = vec![
+            VerificationResult::verified("A::ensures"),
+            VerificationResult::Counterexample {
+                clause_desc: "B::ensures".into(),
+                model: "x=0".into(),
+                counter_model: None,
+            },
+        ];
+        let ok = verification_succeeded(&results);
+        assert!(!ok);
+    }
+
+    #[test]
+    fn succeeded_fails_on_timeout() {
+        let results: Vec<VerificationResult> = vec![VerificationResult::Timeout {
+            clause_desc: "Slow::ensures".into(),
+        }];
+        let ok = verification_succeeded(&results);
+        assert!(!ok);
+    }
+
+    #[test]
+    fn succeeded_allows_unknown_with_any_reason() {
+        // Lenient: Unknown does not cause failure (only CE and Timeout do)
+        let results: Vec<VerificationResult> = vec![
+            VerificationResult::verified("A::ensures"),
+            VerificationResult::Unknown {
+                clause_desc: "B::ensures".into(),
+                reason: "non-linear arithmetic".into(),
+            },
+        ];
+        let ok = verification_succeeded(&results);
+        assert!(ok);
+    }
+
+    #[test]
+    fn succeeded_allows_known_limitation() {
+        let results: Vec<VerificationResult> = vec![VerificationResult::unknown_not_encoded(
+            "C::ensures",
+            "effect types",
+        )];
+        let ok = verification_succeeded(&results);
+        assert!(ok);
+    }
+
+    // -- verification_strict_succeeded from assura_pipeline --
+
+    #[test]
+    fn strict_succeeded_empty_results() {
+        assert!(verification_strict_succeeded(&[]));
+    }
+
+    #[test]
+    fn strict_succeeded_all_verified() {
+        let results: Vec<VerificationResult> = vec![
+            VerificationResult::verified("A::ensures"),
+            VerificationResult::verified("B::ensures"),
+        ];
+        let ok = verification_strict_succeeded(&results);
+        assert!(ok);
+    }
+
+    #[test]
+    fn strict_succeeded_allows_known_limitation() {
+        let results: Vec<VerificationResult> = vec![
+            VerificationResult::verified("A::ensures"),
+            VerificationResult::unknown_not_encoded("B::ensures", "linear types"),
+        ];
+        let ok = verification_strict_succeeded(&results);
+        assert!(ok);
+    }
+
+    #[test]
+    fn strict_succeeded_rejects_non_limitation_unknown() {
+        let results: Vec<VerificationResult> = vec![
+            VerificationResult::verified("A::ensures"),
+            VerificationResult::Unknown {
+                clause_desc: "B::ensures".into(),
+                reason: "non-linear arithmetic".into(),
+            },
+        ];
+        let ok = verification_strict_succeeded(&results);
+        assert!(!ok);
+    }
+
+    #[test]
+    fn strict_succeeded_rejects_counterexample() {
+        let results: Vec<VerificationResult> = vec![VerificationResult::Counterexample {
+            clause_desc: "X::ensures".into(),
+            model: "x = -1".into(),
+            counter_model: None,
+        }];
+        let ok = verification_strict_succeeded(&results);
+        assert!(!ok);
+    }
+
+    // -- Mixed vectors --
+
+    #[test]
+    fn mixed_results_lenient_vs_strict() {
+        let results: Vec<VerificationResult> = vec![
+            VerificationResult::verified("A::ensures"),
+            VerificationResult::unknown_not_encoded("B::ensures", "effects"),
+            VerificationResult::Unknown {
+                clause_desc: "C::ensures".into(),
+                reason: "solver gave up".into(),
+            },
+        ];
+        // Lenient: passes (no CE or Timeout)
+        let lenient = verification_succeeded(&results);
+        assert!(lenient);
+        // Strict: fails (C has non-limitation Unknown)
+        let strict = verification_strict_succeeded(&results);
+        assert!(!strict);
+    }
+
+    // -- verified_with_core() --
+
+    #[test]
+    fn verified_with_core_stores_core() {
+        let r = VerificationResult::verified_with_core(
+            "X::ensures",
+            vec!["req_0".into(), "req_1".into()],
+        );
+        match &r {
+            VerificationResult::Verified { unsat_core, .. } => {
+                let core = unsat_core.as_ref().expect("should have unsat core");
+                assert_eq!(core.len(), 2);
+                assert_eq!(core[0], "req_0");
+            }
+            other => panic!("expected Verified, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verified_with_core_empty_is_none() {
+        let r = VerificationResult::verified_with_core("X::ensures", vec![]);
+        match &r {
+            VerificationResult::Verified { unsat_core, .. } => {
+                assert!(unsat_core.is_none(), "empty core should be None");
+            }
+            other => panic!("expected Verified, got {other:?}"),
+        }
+    }
+}
