@@ -564,12 +564,4 @@ pub(crate) fn merge_portfolio_results(
     crate::portfolio_policy::merge_portfolio_results(z3, cvc5)
 }
 
-/// Pick the better of two results for the same clause (delegates to [`crate::portfolio_policy`]).
-#[cfg(feature = "z3-verify")]
-#[allow(dead_code)] // re-export for tests / call sites that still use this name
-pub(crate) fn pick_better_result(
-    z3r: VerificationResult,
-    cvc5r: VerificationResult,
-) -> VerificationResult {
-    crate::portfolio_policy::pick_better_portfolio_result(z3r, cvc5r)
-}
+

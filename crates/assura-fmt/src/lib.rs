@@ -656,7 +656,6 @@ impl<'a> ExprFolder for FmtExprFolder<'a> {
     }
 }
 
-#[allow(dead_code)]
 pub(crate) fn binop_str(op: &BinOp) -> &'static str {
     match op {
         BinOp::Implies => "==>",
