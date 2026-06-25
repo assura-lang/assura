@@ -1,6 +1,5 @@
 use super::*;
 
-use super::*;
 use assura_resolve::ResolutionError;
 use assura_types::TypeError;
 
