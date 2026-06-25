@@ -483,7 +483,8 @@ impl Encoder {
                 use crate::encode_let_policy::{BlockReducePlan, classify_block};
 
                 match classify_block(body) {
-                    BlockReducePlan::Empty => Z3Value::Int(self.fresh_int()),
+                    // Align with CVC5 and shared policy: empty block is `true` (fixes #458).
+                    BlockReducePlan::Empty => Z3Value::Bool(ast::Bool::from_bool(true)),
                     BlockReducePlan::LastExpr => {
                         let mut result = Z3Value::Int(self.fresh_int());
                         for expr in body {
@@ -539,6 +540,26 @@ impl Encoder {
             let (rhs, next_pos) = self.parse_raw_expr(&tokens[pos..], op_prec + 1);
             // Adjust pos relative to original tokens
             pos += next_pos;
+
+            // Comparison chaining: `a < b < c` => `(a < b) AND (b < c)` (fixes #460,
+            // parity with CVC5 raw parser).
+            if crate::encode_raw_ops_policy::raw_op_is_comparison(op_kind)
+                && pos < tokens.len()
+                && let Some((next_prec, next_op)) =
+                    crate::encode_raw_ops_policy::raw_op_info(tokens[pos].as_str())
+                && crate::encode_raw_ops_policy::raw_op_is_comparison(next_op)
+                && next_prec >= min_prec
+            {
+                let left_cmp = self.apply_raw_op(op_kind, lhs, rhs.clone());
+                pos += 1;
+                let (rhs2, next_pos2) = self.parse_raw_expr(&tokens[pos..], next_prec + 1);
+                pos += next_pos2;
+                let right_cmp = self.apply_raw_op(next_op, rhs, rhs2);
+                let l = left_cmp.as_bool();
+                let r = right_cmp.as_bool();
+                lhs = Z3Value::Bool(ast::Bool::and(&[&l, &r]));
+                continue;
+            }
 
             lhs = self.apply_raw_op(op_kind, lhs, rhs);
         }
@@ -778,8 +799,8 @@ impl Encoder {
             }
             let end = p + 1; // skip closing ')'
 
-            // Extract the base function name (last segment after dots)
-            let func_name = name.rsplit('.').next().unwrap_or(&name);
+            // Extract the base function name (last segment after collapsed dots).
+            let func_name = crate::encode_atom_policy::extract_raw_base_name(&name);
 
             // Dispatch via classify_encode_call for all known call kinds
             // (parity with CVC5 encode_uf_call_cvc5 / shell encode_call_smtlib).

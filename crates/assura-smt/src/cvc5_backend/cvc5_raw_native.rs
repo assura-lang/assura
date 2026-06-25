@@ -118,9 +118,9 @@ fn parse_raw_atom_cvc5<'a>(
     if tok == "result" {
         let key = crate::encode_atom_policy::RESULT_VAR_NAME;
         let v = vars
-            .get(key)
-            .cloned()
-            .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), key));
+            .entry(key.to_string())
+            .or_insert_with(|| tm.mk_const(tm.integer_sort(), key))
+            .clone();
         return Some((v, start + 1));
     }
 
@@ -270,8 +270,8 @@ fn parse_raw_atom_cvc5<'a>(
         }
         let end = p + 1;
 
-        // Extract base function name (last segment after dot-join separator).
-        let func_name = name.rsplit("__").next().unwrap_or(&name);
+        // Extract base function name via shared policy (fixes #464).
+        let func_name = crate::encode_atom_policy::extract_raw_base_name(&name);
 
         // Dispatch via classify_encode_call (parity with Z3 parse_raw_atom).
         use crate::encode_call_policy::{EncodeCallKind, classify_encode_call};
@@ -329,9 +329,9 @@ fn parse_raw_atom_cvc5<'a>(
         // Fallback: uninterpreted function or zero-arg variable lookup.
         if arg_vals.is_empty() {
             let v = vars
-                .get(&name)
-                .cloned()
-                .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &name));
+                .entry(name.clone())
+                .or_insert_with(|| tm.mk_const(tm.integer_sort(), &name))
+                .clone();
             return Some((v, end));
         }
         let n_args = arg_vals.len();
@@ -343,10 +343,11 @@ fn parse_raw_atom_cvc5<'a>(
         return Some((tm.mk_term(cvc5::Kind::ApplyUf, &all_args), end));
     }
 
+    // Cache newly created variables (fixes #457: parity with Z3 var caching).
     let v = vars
-        .get(&name)
-        .cloned()
-        .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &name));
+        .entry(name.clone())
+        .or_insert_with(|| tm.mk_const(tm.integer_sort(), &name))
+        .clone();
     Some((v, next))
 }
 

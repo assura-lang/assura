@@ -3111,3 +3111,63 @@ mod batch2_policy_tests {
         );
     }
 }
+
+// ---------------------------------------------------------------
+// Batch 3: #457 (var caching), #464 (base name extraction)
+// ---------------------------------------------------------------
+
+#[cfg(feature = "cvc5-verify")]
+#[test]
+fn test_cvc5_raw_var_caching() {
+    // Fix #457: CVC5 raw encoder should cache newly created variables.
+    // Two references to the same name must return the same Term.
+    use crate::cvc5_backend::cvc5_raw_native::encode_raw_tokens_cvc5;
+    use std::collections::HashMap;
+
+    let tm = cvc5::TermManager::new();
+    let mut vars: HashMap<String, cvc5::Term> = HashMap::new();
+    let mut state = crate::cvc5_encoder_state::default_cvc5_encoder_state();
+
+    // First reference to "x" should create and cache it.
+    let tokens_1 = vec!["x".to_string()];
+    let _v1 = encode_raw_tokens_cvc5(&tm, &tokens_1, &mut vars, &mut state);
+    assert!(vars.contains_key("x"), "first reference should cache 'x'");
+
+    // Second reference should hit the cache (map already has "x").
+    let before_len = vars.len();
+    let _v2 = encode_raw_tokens_cvc5(&tm, &tokens_1, &mut vars, &mut state);
+    assert_eq!(
+        vars.len(),
+        before_len,
+        "second reference should not add new entries"
+    );
+}
+
+#[cfg(feature = "cvc5-verify")]
+#[test]
+fn test_cvc5_raw_result_var_caching() {
+    // Fix #457: `result` keyword should also cache in the var map.
+    use crate::cvc5_backend::cvc5_raw_native::encode_raw_tokens_cvc5;
+    use std::collections::HashMap;
+
+    let tm = cvc5::TermManager::new();
+    let mut vars: HashMap<String, cvc5::Term> = HashMap::new();
+    let mut state = crate::cvc5_encoder_state::default_cvc5_encoder_state();
+
+    let tokens = vec!["result".to_string()];
+    let _v = encode_raw_tokens_cvc5(&tm, &tokens, &mut vars, &mut state);
+    assert!(
+        vars.contains_key(crate::encode_atom_policy::RESULT_VAR_NAME),
+        "result keyword should cache under RESULT_VAR_NAME"
+    );
+}
+
+#[cfg(feature = "cvc5-verify")]
+#[test]
+fn test_cvc5_raw_base_name_extraction() {
+    // Fix #464: base name extraction uses shared policy function.
+    use crate::encode_atom_policy::extract_raw_base_name;
+    // After dotted segments are collapsed with _, rsplit('_') extracts the base.
+    assert_eq!(extract_raw_base_name("obj_length"), "length");
+    assert_eq!(extract_raw_base_name("a_b_min"), "min");
+}

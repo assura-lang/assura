@@ -27,6 +27,15 @@ pub(crate) fn append_raw_dotted_segment(base: &mut String, segment: &str) {
     base.push_str(&sanitize_smt_name(segment));
 }
 
+/// Extract the base function name from a collapsed dotted path.
+///
+/// `append_raw_dotted_segment` joins with `_`, so the inverse is `rsplit('_')`.
+/// Both Z3 and CVC5 raw parsers must use this instead of ad-hoc `rsplit` calls
+/// (fixes #464: Z3 used `.`, CVC5 used `__`, neither matched the `_` joiner).
+pub(crate) fn extract_raw_base_name(collapsed: &str) -> &str {
+    collapsed.rsplit('_').next().unwrap_or(collapsed)
+}
+
 /// Map source `result` ident to [`RESULT_VAR_NAME`]; other idents are sanitized only.
 pub(crate) fn encode_ident_name(name: &str) -> String {
     if name == "result" {
