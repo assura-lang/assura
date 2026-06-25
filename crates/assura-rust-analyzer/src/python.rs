@@ -1,6 +1,7 @@
 //! Python language adapter for contract annotation extraction.
 
 use crate::LanguageAdapter;
+use crate::RustAnalyzerError;
 use crate::parse::parse_doc_clauses;
 use crate::types::{AnnotatedItem, AnnotatedItemKind, ParamInfo};
 
@@ -19,7 +20,7 @@ impl LanguageAdapter for PythonAdapter {
         &["py"]
     }
 
-    fn parse_source(&self, source: &str) -> Result<Vec<AnnotatedItem>, String> {
+    fn parse_source(&self, source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyzerError> {
         parse_python_source(source)
     }
 
@@ -45,7 +46,7 @@ impl LanguageAdapter for PythonAdapter {
 /// Supports two annotation styles:
 /// 1. Hash comments: `# @requires x > 0`
 /// 2. Docstring annotations: `"""@requires x > 0"""`
-fn parse_python_source(source: &str) -> Result<Vec<AnnotatedItem>, String> {
+fn parse_python_source(source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyzerError> {
     let lines: Vec<&str> = source.lines().collect();
     let mut items = Vec::new();
     let mut i = 0;

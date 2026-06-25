@@ -14,6 +14,20 @@ pub use parse::{parse_doc_clauses, parse_rust_file, parse_rust_source, scan_dire
 pub use python::PythonAdapter;
 pub use types::{AnnotatedItem, AnnotatedItemKind, ContractClause, InlineClauseKind, InlineContract};
 
+/// Errors produced by the `assura-rust-analyzer` crate.
+#[derive(Debug, thiserror::Error)]
+pub enum RustAnalyzerError {
+    /// A Rust/Python source file could not be parsed.
+    #[error("parse error: {0}")]
+    Parse(String),
+    /// An I/O operation (reading a file or scanning a directory) failed.
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    /// Catch-all for other error conditions.
+    #[error("{0}")]
+    Other(String),
+}
+
 // ---------------------------------------------------------------------------
 // Multi-language annotation framework
 // ---------------------------------------------------------------------------
@@ -31,7 +45,7 @@ pub trait LanguageAdapter {
     fn file_extensions(&self) -> &[&str];
 
     /// Extract annotated items from source text.
-    fn parse_source(&self, source: &str) -> Result<Vec<AnnotatedItem>, String>;
+    fn parse_source(&self, source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyzerError>;
 
     /// Map a language-specific type name to an Assura type.
     /// Returns `None` if the type has no Assura equivalent.
@@ -50,7 +64,7 @@ impl LanguageAdapter for RustAdapter {
         &["rs"]
     }
 
-    fn parse_source(&self, source: &str) -> Result<Vec<AnnotatedItem>, String> {
+    fn parse_source(&self, source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyzerError> {
         parse_rust_source(source)
     }
 

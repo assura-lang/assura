@@ -4,6 +4,7 @@ use std::path::Path;
 
 use quote::ToTokens;
 
+use crate::RustAnalyzerError;
 use crate::types::{
     AnnotatedItem, AnnotatedItemKind, ContractClause, FieldInfo, InlineClauseKind, InlineContract,
     ParamInfo,
@@ -172,8 +173,9 @@ fn offset_to_line(source: &str, offset: usize) -> usize {
 }
 
 /// Parse a Rust source string and extract all annotated items.
-pub fn parse_rust_source(source: &str) -> Result<Vec<AnnotatedItem>, String> {
-    let file = syn::parse_file(source).map_err(|e| format!("syn parse error: {e}"))?;
+pub fn parse_rust_source(source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyzerError> {
+    let file =
+        syn::parse_file(source).map_err(|e| RustAnalyzerError::Parse(format!("{e}")))?;
 
     let mut items = Vec::new();
 
@@ -307,14 +309,13 @@ fn line_col_to_offset(source: &str, line: usize, column: usize) -> usize {
 }
 
 /// Parse a Rust source file from disk and extract all annotated items.
-pub fn parse_rust_file(path: &Path) -> Result<Vec<AnnotatedItem>, String> {
-    let source = std::fs::read_to_string(path)
-        .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+pub fn parse_rust_file(path: &Path) -> Result<Vec<AnnotatedItem>, RustAnalyzerError> {
+    let source = std::fs::read_to_string(path)?;
     parse_rust_source(&source)
 }
 
 /// Scan a directory recursively for `.rs` files and extract all annotated items.
-pub fn scan_directory(dir: &Path) -> Result<Vec<(std::path::PathBuf, Vec<AnnotatedItem>)>, String> {
+pub fn scan_directory(dir: &Path) -> Result<Vec<(std::path::PathBuf, Vec<AnnotatedItem>)>, RustAnalyzerError> {
     let mut results = Vec::new();
     scan_dir_recursive(dir, &mut results)?;
     Ok(results)
@@ -323,11 +324,10 @@ pub fn scan_directory(dir: &Path) -> Result<Vec<(std::path::PathBuf, Vec<Annotat
 fn scan_dir_recursive(
     dir: &Path,
     results: &mut Vec<(std::path::PathBuf, Vec<AnnotatedItem>)>,
-) -> Result<(), String> {
-    let entries =
-        std::fs::read_dir(dir).map_err(|e| format!("failed to read dir {}: {e}", dir.display()))?;
+) -> Result<(), RustAnalyzerError> {
+    let entries = std::fs::read_dir(dir)?;
     for entry in entries {
-        let entry = entry.map_err(|e| format!("dir entry error: {e}"))?;
+        let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
             // Skip target, hidden dirs, and generated dirs
