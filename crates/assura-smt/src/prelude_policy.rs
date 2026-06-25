@@ -68,6 +68,26 @@ pub(crate) fn is_nat_type_tokens(ty: &[String]) -> bool {
     ty.len() == 1 && ty[0] == "Nat"
 }
 
+/// Return bit width and signedness for fixed-width type tokens (`u8`, `i32`, etc.).
+///
+/// Shared between Z3 and CVC5 backends (parity: #453).
+pub(crate) fn fixed_width_bits(ty: &[String]) -> Option<(u32, bool)> {
+    if ty.len() != 1 {
+        return None;
+    }
+    match ty[0].as_str() {
+        "u8" => Some((8, false)),
+        "u16" => Some((16, false)),
+        "u32" => Some((32, false)),
+        "u64" => Some((64, false)),
+        "i8" => Some((8, true)),
+        "i16" => Some((16, true)),
+        "i32" => Some((32, true)),
+        "i64" => Some((64, true)),
+        _ => None,
+    }
+}
+
 /// Param type tokens via shared entry helper (single source of truth).
 pub(crate) fn param_type_tokens(param: &Param) -> Vec<String> {
     crate::entry::type_expr_to_token_vec(param.ty.as_ref())

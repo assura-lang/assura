@@ -10,6 +10,8 @@
 pub(crate) mod cvc5_adt;
 pub(crate) mod cvc5_atom_encode;
 pub(crate) mod cvc5_binop_encode;
+#[cfg(feature = "cvc5-verify")]
+pub(crate) mod cvc5_bitvector_encode;
 // cvc5_builtins / cvc5_common removed: policy + unmodelable/lemma modules used directly.
 pub(crate) mod cvc5_call_encode;
 pub(crate) mod cvc5_collect;

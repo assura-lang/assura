@@ -19,6 +19,8 @@ pub(crate) struct Cvc5EncoderState<'a> {
     pub(crate) struct_adt_defs: HashMap<String, Cvc5AdtDef>,
     /// Contract-level quantifier trigger manager (seeded from clauses, refined during encode).
     pub(crate) trigger_manager: crate::advanced::TriggerManager,
+    /// Fixed-width params: name -> signed? (false = unsigned). Parity with Z3 `bv_signed` (#453).
+    pub(crate) bv_signed: HashMap<String, bool>,
 }
 
 #[cfg(feature = "cvc5-verify")]
@@ -33,6 +35,7 @@ pub(crate) fn default_cvc5_encoder_state<'a>() -> Cvc5EncoderState<'a> {
         struct_adt_symbols: HashMap::new(),
         struct_adt_defs: HashMap::new(),
         trigger_manager: crate::advanced::TriggerManager::new(),
+        bv_signed: HashMap::new(),
     }
 }
 
