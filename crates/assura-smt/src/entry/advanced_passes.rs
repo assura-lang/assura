@@ -53,7 +53,7 @@ fn resolve_prophecy_vars(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManager)
             {
                 let value = args
                     .get(1)
-                    .map(|a| expr_to_string(a))
+                    .map(expr_to_string)
                     .unwrap_or_default();
                 if let Err(e) = pm.resolve(&format!("{fn_name}:{var_name}"), value) {
                     eprintln!("warning: prophecy resolution failed: {e}");
@@ -90,7 +90,7 @@ fn constrain_prophecy_vars(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManage
             {
                 let constraint = args
                     .get(1)
-                    .map(|a| expr_to_string(a))
+                    .map(expr_to_string)
                     .unwrap_or_default();
                 pm.add_constraint(&format!("{fn_name}:{var_name}"), constraint);
             }

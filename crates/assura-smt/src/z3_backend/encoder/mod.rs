@@ -1,18 +1,24 @@
 //! Z3 expression encoder: translates Assura AST expressions into Z3 formulas.
 //!
-//! Split by agent edit surface:
+//! Split by expression category:
 //! - [`value`] — `Z3Value`
-//! - [`core_impl`] — setup, ADT, quantifiers, call/field/index/literal/match
-//! - [`methods`] — `encode_expr`, raw tokens, binops
+//! - [`core_impl`] — `Encoder` construction, shared helpers (fresh vars, UFs, lengths, literals)
+//! - [`methods`] — `encode_expr` dispatch, raw tokens, binops
+//! - [`adt`] — ADT emulation (define/construct/test/access), match-pattern encoding
+//! - [`calls`] — function/method call, field access, index encoding
+//! - [`quantifier`] — forall/exists domain guards, trigger pattern inference
 //! - [`unmodelable`] — unmodelable-feature detection / reasons
 //! - [`bitvector`] — fixed-width BV helpers (`BitvectorEncoder`)
 //!
 //! Contains the `Encoder` struct, Z3 value wrapper types, raw-token parsing,
 //! and unmodelable-feature detection.
 
+mod adt;
 mod bitvector;
+mod calls;
 mod core_impl;
 mod methods;
+mod quantifier;
 mod unmodelable;
 mod value;
 
