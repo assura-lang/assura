@@ -3270,3 +3270,70 @@ contract MinimalCore {
         other => panic!("expected verified ensures, got: {other:?}"),
     }
 }
+
+// ---------------------------------------------------------------
+// Batch 3 fixes: #458 (empty block), #460 (comparison chaining),
+//                #464 (function name extraction)
+// ---------------------------------------------------------------
+
+#[test]
+fn test_z3_empty_block_returns_bool_true() {
+    // Fix #458: empty block should return Bool(true), not fresh Int.
+    use crate::z3_backend::encoder::{Encoder, Z3Value};
+    z3::with_z3_config(&z3::Config::new(), || {
+        let mut enc = Encoder::new();
+        let block_expr = Spanned::no_span(Expr::Block(vec![]));
+        let result = enc.encode_expr(&block_expr);
+        assert!(
+            matches!(result, Z3Value::Bool(_)),
+            "empty block should return Bool (policy: true), not Int"
+        );
+    });
+}
+
+#[test]
+fn test_z3_raw_comparison_chaining() {
+    // Fix #460: `0 <= x < 10` should become `(0 <= x) AND (x < 10)`.
+    use crate::z3_backend::encoder::{Encoder, Z3Value};
+    z3::with_z3_config(&z3::Config::new(), || {
+        let mut enc = Encoder::new();
+        let tokens: Vec<String> = vec!["0", "<=", "x", "<", "10"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let result = enc.encode_raw_tokens(&tokens);
+        // Should be Bool (conjunction), not an integer comparison of bool < int.
+        assert!(
+            matches!(result, Z3Value::Bool(_)),
+            "chained comparison should produce Bool"
+        );
+    });
+}
+
+#[test]
+fn test_z3_raw_comparison_chaining_three_ops() {
+    // `a < b <= c` should become `(a < b) AND (b <= c)`.
+    use crate::z3_backend::encoder::{Encoder, Z3Value};
+    z3::with_z3_config(&z3::Config::new(), || {
+        let mut enc = Encoder::new();
+        let tokens: Vec<String> = vec!["a", "<", "b", "<=", "c"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let result = enc.encode_raw_tokens(&tokens);
+        assert!(
+            matches!(result, Z3Value::Bool(_)),
+            "chained comparison should produce Bool"
+        );
+    });
+}
+
+#[test]
+fn test_extract_raw_base_name_policy() {
+    // Fix #464: shared function name extraction.
+    use crate::encode_atom_policy::extract_raw_base_name;
+    assert_eq!(extract_raw_base_name("state_field_length"), "length");
+    assert_eq!(extract_raw_base_name("length"), "length");
+    assert_eq!(extract_raw_base_name("a_b_c"), "c");
+    assert_eq!(extract_raw_base_name("simple"), "simple");
+}
