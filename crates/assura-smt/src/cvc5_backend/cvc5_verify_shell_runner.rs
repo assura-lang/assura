@@ -39,10 +39,10 @@ pub(crate) fn cvc5_shell_query_to_verification_result(
         Cvc5Result::Timeout => {
             cvc5_interpret_clause_check_result(desc, kind, Cvc5ClauseSatOutcome::timeout())
         }
-        Cvc5Result::Error(reason) => VerificationResult::Unknown {
-            clause_desc: desc.to_string(),
-            reason,
-        },
+        Cvc5Result::Error(reason) => {
+            // Route through shared policy for consistent outcome classification (#466).
+            cvc5_interpret_clause_check_result(desc, kind, Cvc5ClauseSatOutcome::unknown(reason))
+        }
     }
 }
 
@@ -59,7 +59,7 @@ fn execute_cvc5(script: &str) -> Result<String, String> {
     cmd.arg("--lang")
         .arg("smt2")
         .arg("--tlimit")
-        .arg("1000")
+        .arg(crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_TLIMIT)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

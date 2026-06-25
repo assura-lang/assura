@@ -51,12 +51,9 @@ pub(crate) fn assert_cvc5_solver_prelude<'a>(
                         .assert_formula(tm.mk_term(cvc5::Kind::Geq, &[term.clone(), zero.clone()]));
                 }
             }
-            Cvc5TypeConstraint::ConstantEq(name, value) => {
-                if let Some(term) = var_map.get(&name) {
-                    solver.assert_formula(
-                        tm.mk_term(cvc5::Kind::Equal, &[term.clone(), tm.mk_integer(value)]),
-                    );
-                }
+            Cvc5TypeConstraint::ConstantEq(..) => {
+                // Skip: build_cvc5_var_map already inserts mk_integer(value)
+                // for constants, so asserting value == value is redundant (#467).
             }
             Cvc5TypeConstraint::NarrowingLe(name, value) => {
                 if let Some(var) = var_map.get(&name) {
@@ -82,7 +79,10 @@ pub(crate) fn new_cvc5_solver<'a>(
     let mut solver = cvc5::Solver::new(tm);
     solver.set_logic("ALL");
     solver.set_option("produce-models", "true");
-    solver.set_option("tlimit", "2000");
+    solver.set_option(
+        "tlimit",
+        crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_TLIMIT,
+    );
     if opts.incremental {
         solver.set_option("incremental", "true");
     }
@@ -194,21 +194,54 @@ pub(crate) fn extract_cvc5_counterexample_model<'a>(
     (model_str, counter_model)
 }
 
+/// Convert a CVC5 `check_sat` result to a solver-neutral [`Cvc5ClauseSatOutcome`].
+///
+/// Shared by the contract path (`finish_cvc5_clause_check`) and the standalone
+/// validity/satisfiability checks (`cvc5_verify_native_checks`).
+pub(crate) fn cvc5_clause_sat_outcome<'a>(
+    sat_result: &cvc5::Result,
+    solver: &cvc5::Solver<'a>,
+    var_map: &HashMap<String, cvc5::Term<'a>>,
+    tracked_assumptions: &[cvc5::Term<'a>],
+) -> Cvc5ClauseSatOutcome {
+    if sat_result.is_unsat() {
+        if tracked_assumptions.is_empty() {
+            Cvc5ClauseSatOutcome::unsat()
+        } else {
+            let core = extract_cvc5_unsat_core_labels(solver, tracked_assumptions);
+            Cvc5ClauseSatOutcome::unsat_with_core(core)
+        }
+    } else if sat_result.is_sat() {
+        let (model_str, counter_model) = extract_cvc5_counterexample_model(solver, var_map);
+        Cvc5ClauseSatOutcome::sat(model_str, counter_model)
+    } else {
+        // CVC5 returned Unknown: classify via unknown_explanation (#456).
+        let explanation = sat_result.unknown_explanation();
+        match explanation {
+            cvc5::UnknownExplanation::Timeout
+            | cvc5::UnknownExplanation::Resourceout
+            | cvc5::UnknownExplanation::Memout => Cvc5ClauseSatOutcome::timeout(),
+            _ => {
+                let reason = cvc5::unknown_explanation_to_string(explanation);
+                Cvc5ClauseSatOutcome::unknown(reason)
+            }
+        }
+    }
+}
+
 pub(crate) fn finish_cvc5_clause_check<'a>(
     desc: &str,
     kind: ClauseKind,
     solver: &mut cvc5::Solver<'a>,
     var_map: &HashMap<String, cvc5::Term<'a>>,
+    tracked_labels: &[cvc5::Term<'a>],
 ) -> VerificationResult {
-    let sat_result = solver.check_sat();
-    let outcome = if sat_result.is_unsat() {
-        Cvc5ClauseSatOutcome::unsat()
-    } else if sat_result.is_sat() {
-        let (model_str, counter_model) = extract_cvc5_counterexample_model(solver, var_map);
-        Cvc5ClauseSatOutcome::sat(model_str, counter_model)
+    let sat_result = if tracked_labels.is_empty() {
+        solver.check_sat()
     } else {
-        Cvc5ClauseSatOutcome::timeout()
+        solver.check_sat_assuming(tracked_labels)
     };
+    let outcome = cvc5_clause_sat_outcome(&sat_result, solver, var_map, tracked_labels);
     cvc5_interpret_clause_check_result(desc, kind, outcome)
 }
 
@@ -294,4 +327,30 @@ pub(crate) fn assert_cvc5_requires<'a>(
             solver.assert_formula(term);
         }
     }
+}
+
+/// Assert requires with tracking labels for unsat-core extraction (#455).
+///
+/// Mirrors Z3's `assert_tracked` pattern: each requires is guarded by a fresh
+/// boolean constant (`req_0`, `req_1`, ...) via `Implies(label, body)`.
+/// Returns the tracking labels for later `check_sat_assuming`.
+pub(crate) fn assert_cvc5_requires_tracked<'a>(
+    tm: &'a cvc5::TermManager,
+    solver: &mut cvc5::Solver<'a>,
+    requires: &[&SpExpr],
+    var_map: &mut HashMap<String, cvc5::Term<'a>>,
+    enc_state: &mut Cvc5EncoderState<'a>,
+) -> Vec<cvc5::Term<'a>> {
+    let bool_sort = tm.boolean_sort();
+    let mut tracked = Vec::with_capacity(requires.len());
+    for (i, req) in requires.iter().enumerate() {
+        if let Some(term) = encode_expr_cvc5(tm, req, var_map, enc_state) {
+            let label = format!("req_{i}");
+            let track = tm.mk_const(bool_sort.clone(), &label);
+            tracked.push(track.clone());
+            let implication = tm.mk_term(cvc5::Kind::Implies, &[track, term]);
+            solver.assert_formula(implication);
+        }
+    }
+    tracked
 }

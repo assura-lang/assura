@@ -84,6 +84,7 @@ mod encode_method_policy;
 mod encode_old_policy;
 mod encode_quantifier_policy;
 mod encode_raw_ops_policy;
+mod encode_timeout_policy;
 mod encode_tuple_policy;
 mod ir_encode;
 mod ir_exec;
