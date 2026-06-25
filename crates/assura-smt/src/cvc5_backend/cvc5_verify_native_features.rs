@@ -107,6 +107,10 @@ pub(crate) fn verify_decrease_cvc5(
 }
 
 /// CVC5 implementation of taint safety verification.
+///
+/// Matches Z3's `verify_taint_safety_impl` strategy: collects all safety
+/// constraints into a single conjunction, negates, and checks once via
+/// `solver_outcome_policy`.
 pub(crate) fn verify_taint_safety_cvc5(
     taint_labels: &[(String, assura_types::TaintLabel)],
     _validation_fns: &[String],
@@ -114,39 +118,58 @@ pub(crate) fn verify_taint_safety_cvc5(
 ) -> VerificationResult {
     use crate::encode_atom_policy::taint_label_to_int;
 
+    if sensitive_uses.is_empty() {
+        return VerificationResult::verified("taint_safety (no sensitive uses)");
+    }
+
     let tm = cvc5::TermManager::new();
     let mut solver = new_cvc5_solver(&tm, Cvc5SolverOpts::default());
 
     let mut var_map: HashMap<String, cvc5::Term> = HashMap::new();
 
-    // Create taint level variables
+    // Create taint level variables and assert their label values
     for (name, label) in taint_labels {
-        let level = tm.mk_integer(taint_label_to_int(*label));
-        var_map.insert(name.clone(), level);
+        let taint_var = tm.mk_const(tm.integer_sort(), &format!("taint_{name}"));
+        let label_val = tm.mk_integer(taint_label_to_int(*label));
+        let eq = tm.mk_term(cvc5::Kind::Equal, &[taint_var.clone(), label_val]);
+        solver.assert_formula(eq);
+        var_map.insert(name.clone(), taint_var);
     }
 
-    // Check sensitive uses: each must have taint level >= required
-    for (name, required_label) in sensitive_uses {
-        let required_level = tm.mk_integer(taint_label_to_int(*required_label));
-        if let Some(actual) = var_map.get(name) {
-            let check = tm.mk_term(cvc5::Kind::Geq, &[actual.clone(), required_level]);
-            let neg = tm.mk_term(cvc5::Kind::Not, &[check]);
-            // If the negation is satisfiable, the taint check fails
-            solver.push(1);
-            solver.assert_formula(neg);
-            let result = solver.check_sat();
-            solver.pop(1);
-            if result.is_sat() {
-                return VerificationResult::Counterexample {
-                    clause_desc: "taint_safety".to_string(),
-                    model: format!("{name} has insufficient taint level"),
-                    counter_model: None,
-                };
-            }
+    // Collect safety constraints: each sensitive use must have taint >= required
+    let mut safe_terms: Vec<cvc5::Term> = Vec::new();
+    for (var_name, required) in sensitive_uses {
+        let required_int = tm.mk_integer(taint_label_to_int(*required));
+        if let Some(taint_v) = var_map.get(var_name) {
+            safe_terms.push(tm.mk_term(cvc5::Kind::Geq, &[taint_v.clone(), required_int]));
+        } else {
+            // Unknown var: assume trusted (level 2), always safe (matches Z3)
+            let trusted = tm.mk_integer(2);
+            safe_terms.push(tm.mk_term(cvc5::Kind::Geq, &[trusted, required_int]));
         }
     }
 
-    VerificationResult::verified("taint_safety".to_string())
+    // Negate the conjunction: if all safe, UNSAT
+    let all_safe = if safe_terms.len() == 1 {
+        safe_terms.remove(0)
+    } else {
+        tm.mk_term(cvc5::Kind::And, &safe_terms)
+    };
+    let negated = tm.mk_term(cvc5::Kind::Not, &[all_safe]);
+    solver.assert_formula(negated);
+
+    let sat_result = solver.check_sat();
+    let outcome = crate::cvc5_verify_native_checks::cvc5_clause_sat_outcome(
+        &sat_result,
+        &solver,
+        &var_map,
+        &[],
+    );
+    crate::solver_outcome_policy::interpret_clause_check_result(
+        "taint_safety",
+        &assura_ast::ClauseKind::Ensures,
+        outcome,
+    )
 }
 
 /// CVC5 implementation of feature clause body verification.
