@@ -1,6 +1,6 @@
 //! Advanced SMT passes: prophecy, weak memory, liveness, layer2, codec, portfolio helpers.
 
-use assura_ast::{expr_to_string, BinOp, BlockKind, Clause, ClauseKind, Decl, Expr, SpExpr};
+use assura_ast::{expr_to_string, BinOp, BlockKind, ClauseKind, Decl, Expr, SpExpr};
 use assura_types::TypedFile;
 use assura_types::checkers::expr_references_var;
 
@@ -162,11 +162,14 @@ pub(crate) fn run_weak_memory_checks(typed: &TypedFile) -> Vec<VerificationResul
     let mut results = Vec::new();
     let mut wm_checker = WeakMemoryChecker::new();
     for decl in &typed.resolved.source.decls {
-        let (name, clauses) = match &decl.node {
-            Decl::Contract(c) => (c.name.as_str(), &c.clauses[..]),
-            Decl::FnDef(f) => (f.name.as_str(), &f.clauses[..]),
-            _ => continue,
+        let name = match decl.node.name() {
+            Some(n) => n,
+            None => continue,
         };
+        let clauses = decl.node.clauses();
+        if clauses.is_empty() {
+            continue;
+        }
         // Prefer structured ClauseKind::Ordering over keyword scanning
         let mut found_ordering = false;
         for clause in clauses {
@@ -232,11 +235,14 @@ pub(crate) fn run_prophecy_checks(typed: &TypedFile) -> Vec<VerificationResult> 
         }
     }
     for decl in &typed.resolved.source.decls {
-        let (clauses, ctx_name) = match &decl.node {
-            Decl::FnDef(f) => (&f.clauses[..], f.name.as_str()),
-            Decl::Contract(c) => (&c.clauses[..], c.name.as_str()),
-            _ => continue,
+        let ctx_name = match decl.node.name() {
+            Some(n) => n,
+            None => continue,
         };
+        let clauses = decl.node.clauses();
+        if clauses.is_empty() {
+            continue;
+        }
         for clause in clauses {
             if clause.kind == ClauseKind::Ensures {
                 collect_prophecy_refs(&clause.body, ctx_name, &mut pm);
@@ -349,11 +355,14 @@ pub(crate) fn run_layer2_checks(typed: &TypedFile, timeout_ms: u64) -> Vec<Verif
     let mut l2 = crate::layer2::Layer2Verifier::new(l2_config);
 
     for decl in &typed.resolved.source.decls {
-        let (name, clauses): (&str, &[Clause]) = match &decl.node {
-            Decl::Contract(c) => (&c.name, &c.clauses),
-            Decl::FnDef(f) => (&f.name, &f.clauses),
-            _ => continue,
+        let name = match decl.node.name() {
+            Some(n) => n,
+            None => continue,
         };
+        let clauses = decl.node.clauses();
+        if clauses.is_empty() {
+            continue;
+        }
         for clause in clauses {
             if clause.kind == ClauseKind::Invariant {
                 match &clause.body.node {

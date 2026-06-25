@@ -52,13 +52,14 @@ pub struct SmtQuery {
 pub fn dump_smt_queries(typed: &TypedFile) -> Vec<SmtQuery> {
     let mut queries = Vec::new();
     for decl in &typed.resolved.source.decls {
-        // Prefer Decl::name/clauses accessors for simple contract/fn/extern jobs.
-        let (name, clauses) = match &decl.node {
-            Decl::Contract(c) => (c.name.clone(), c.clauses.as_slice()),
-            Decl::FnDef(f) => (f.name.clone(), f.clauses.as_slice()),
-            Decl::Extern(e) => (e.name.clone(), e.clauses.as_slice()),
-            _ => continue,
+        let name = match decl.node.name() {
+            Some(n) => n.to_string(),
+            None => continue,
         };
+        let clauses = decl.node.clauses();
+        if clauses.is_empty() {
+            continue;
+        }
 
         let requires_exprs: Vec<&SpExpr> = clauses
             .iter()
@@ -141,36 +142,28 @@ pub fn dump_smt_queries(typed: &TypedFile) -> Vec<SmtQuery> {
 pub fn validate_quantifier_bounds(typed: &TypedFile) -> Vec<UnboundedQuantifierWarning> {
     let mut warnings = Vec::new();
     for decl in &typed.resolved.source.decls {
-        match &decl.node {
-            Decl::Contract(c) => {
-                for clause in &c.clauses {
-                    collect_unbounded_quantifiers(&clause.body, &c.name, &mut warnings);
+        // Handle Service specially (operations/queries have their own clauses)
+        if let Decl::Service(s) = &decl.node {
+            for item in &s.items {
+                let (name, clauses) = match item {
+                    ServiceItem::Operation { name, clauses } => (name, clauses),
+                    ServiceItem::Query { name, clauses } => (name, clauses),
+                    _ => continue,
+                };
+                let ctx = format!("{}::{}", s.name, name);
+                for clause in clauses {
+                    collect_unbounded_quantifiers(&clause.body, &ctx, &mut warnings);
                 }
             }
-            Decl::FnDef(f) => {
-                for clause in &f.clauses {
-                    collect_unbounded_quantifiers(&clause.body, &f.name, &mut warnings);
-                }
-            }
-            Decl::Extern(e) => {
-                for clause in &e.clauses {
-                    collect_unbounded_quantifiers(&clause.body, &e.name, &mut warnings);
-                }
-            }
-            Decl::Service(s) => {
-                for item in &s.items {
-                    let (name, clauses) = match item {
-                        ServiceItem::Operation { name, clauses } => (name, clauses),
-                        ServiceItem::Query { name, clauses } => (name, clauses),
-                        _ => continue,
-                    };
-                    let ctx = format!("{}::{}", s.name, name);
-                    for clause in clauses {
-                        collect_unbounded_quantifiers(&clause.body, &ctx, &mut warnings);
-                    }
-                }
-            }
-            _ => {}
+            continue;
+        }
+        // All other decl kinds: use name()/clauses() accessors
+        let ctx = match decl.node.name() {
+            Some(n) => n,
+            None => continue,
+        };
+        for clause in decl.node.clauses() {
+            collect_unbounded_quantifiers(&clause.body, ctx, &mut warnings);
         }
     }
     warnings
