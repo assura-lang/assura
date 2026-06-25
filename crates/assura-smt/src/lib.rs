@@ -159,6 +159,8 @@ pub(crate) use cvc5_backend::cvc5_atom_encode;
     reason = "stable crate::cvc5_binop_encode path; cvc5-verify / tests"
 )]
 pub(crate) use cvc5_backend::cvc5_binop_encode;
+#[cfg(feature = "cvc5-verify")]
+pub(crate) use cvc5_backend::cvc5_bitvector_encode;
 // Encode paths import encode_*_policy directly (no cvc5_builtins compatibility surface).
 pub(crate) use cvc5_backend::cvc5_call_encode;
 pub(crate) use cvc5_backend::cvc5_collect;

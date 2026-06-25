@@ -60,21 +60,10 @@ impl Encoder {
     }
 
     /// Return bit width for fixed-width type tokens (`u8`, `i32`, etc.).
+    ///
+    /// Delegates to [`crate::prelude_policy::fixed_width_bits`] (shared with CVC5, #453).
     pub(crate) fn fixed_width_bits(ty: &[String]) -> Option<(u32, bool)> {
-        if ty.len() != 1 {
-            return None;
-        }
-        match ty[0].as_str() {
-            "u8" => Some((8, false)),
-            "u16" => Some((16, false)),
-            "u32" => Some((32, false)),
-            "u64" => Some((64, false)),
-            "i8" => Some((8, true)),
-            "i16" => Some((16, true)),
-            "i32" => Some((32, true)),
-            "i64" => Some((64, true)),
-            _ => None,
-        }
+        crate::prelude_policy::fixed_width_bits(ty)
     }
 
     /// Register a parameter as a fixed-width bitvector variable (#265).

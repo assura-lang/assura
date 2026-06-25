@@ -59,10 +59,33 @@ pub(crate) fn encode_ast_binop_cvc5<'a>(
             ))
         }
         AstBinOpKind::Standard => {
+            // Bitvector dispatch: if either operand is BV-sorted, use BV operations (#453).
+            if (super::cvc5_bitvector_encode::is_bv(&l) || super::cvc5_bitvector_encode::is_bv(&r))
+                && let Some(bv_kind) = bv_ast_binop_cvc5_kind(op)
+            {
+                return Some(tm.mk_term(bv_kind, &[l, r]));
+            }
             let kind = crate::cvc5_raw_ops::standard_ast_binop_cvc5_kind(op)?;
             Some(tm.mk_term(kind, &[l, r]))
         }
         AstBinOpKind::Unsupported => None,
+    }
+}
+
+/// Map an AST binary operator to its CVC5 bitvector Kind (if applicable).
+#[cfg(feature = "cvc5-verify")]
+fn bv_ast_binop_cvc5_kind(op: &BinOp) -> Option<cvc5::Kind> {
+    match op {
+        BinOp::Add => Some(cvc5::Kind::BitvectorAdd),
+        BinOp::Sub => Some(cvc5::Kind::BitvectorSub),
+        BinOp::Mul => Some(cvc5::Kind::BitvectorMult),
+        // Default to unsigned comparisons (parity with Z3 which uses bvult/bvule).
+        BinOp::Lt => Some(cvc5::Kind::BitvectorUlt),
+        BinOp::Lte => Some(cvc5::Kind::BitvectorUle),
+        BinOp::Gt => Some(cvc5::Kind::BitvectorUgt),
+        BinOp::Gte => Some(cvc5::Kind::BitvectorUge),
+        BinOp::Eq => Some(cvc5::Kind::Equal),
+        _ => None,
     }
 }
 
@@ -78,8 +101,20 @@ pub(crate) fn encode_ast_unary_cvc5<'a>(
     use crate::encode_binop_policy::{AstUnaryKind, classify_ast_unary};
 
     match classify_ast_unary(op) {
-        AstUnaryKind::Not => tm.mk_term(cvc5::Kind::Not, &[inner]),
-        AstUnaryKind::Neg => tm.mk_term(cvc5::Kind::Neg, &[inner]),
+        AstUnaryKind::Not => {
+            if super::cvc5_bitvector_encode::is_bv(&inner) {
+                tm.mk_term(cvc5::Kind::BitvectorNot, &[inner])
+            } else {
+                tm.mk_term(cvc5::Kind::Not, &[inner])
+            }
+        }
+        AstUnaryKind::Neg => {
+            if super::cvc5_bitvector_encode::is_bv(&inner) {
+                tm.mk_term(cvc5::Kind::BitvectorNeg, &[inner])
+            } else {
+                tm.mk_term(cvc5::Kind::Neg, &[inner])
+            }
+        }
     }
 }
 

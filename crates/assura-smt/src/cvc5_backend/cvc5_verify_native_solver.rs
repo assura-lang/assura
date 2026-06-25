@@ -30,6 +30,26 @@ pub(crate) fn build_cvc5_var_map<'a>(
     var_map
 }
 
+/// Register fixed-width parameters as bitvector variables (#453).
+///
+/// Replaces `integer_sort()` entries in `var_map` with `mk_bv_sort(width)` entries
+/// and records signedness in `enc_state.bv_signed`.
+pub(crate) fn register_cvc5_fixed_width_params<'a>(
+    tm: &'a cvc5::TermManager,
+    params: &[assura_ast::Param],
+    var_map: &mut HashMap<String, cvc5::Term<'a>>,
+    enc_state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
+) {
+    for param in params {
+        let pt = crate::prelude_policy::param_type_tokens(param);
+        if let Some((width, signed)) = crate::prelude_policy::fixed_width_bits(&pt) {
+            let bv = super::cvc5_bitvector_encode::bv_const(tm, &param.name, width);
+            var_map.insert(param.name.clone(), bv);
+            enc_state.bv_signed.insert(param.name.clone(), signed);
+        }
+    }
+}
+
 pub(crate) fn assert_cvc5_solver_prelude<'a>(
     tm: &'a cvc5::TermManager,
     solver: &mut cvc5::Solver<'a>,
