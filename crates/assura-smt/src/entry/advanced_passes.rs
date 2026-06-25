@@ -1,6 +1,6 @@
 //! Advanced SMT passes: prophecy, weak memory, liveness, layer2, codec, portfolio helpers.
 
-use assura_ast::{BinOp, BlockKind, Clause, ClauseKind, Decl, Expr, SpExpr};
+use assura_ast::{expr_to_string, BinOp, BlockKind, Clause, ClauseKind, Decl, Expr, SpExpr};
 use assura_types::TypedFile;
 use assura_types::checkers::expr_references_var;
 
@@ -53,7 +53,7 @@ fn resolve_prophecy_vars(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManager)
             {
                 let value = args
                     .get(1)
-                    .map(|a| format!("{:?}", a.node))
+                    .map(|a| expr_to_string(a))
                     .unwrap_or_default();
                 if let Err(e) = pm.resolve(&format!("{fn_name}:{var_name}"), value) {
                     eprintln!("warning: prophecy resolution failed: {e}");
@@ -90,7 +90,7 @@ fn constrain_prophecy_vars(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManage
             {
                 let constraint = args
                     .get(1)
-                    .map(|a| format!("{:?}", a.node))
+                    .map(|a| expr_to_string(a))
                     .unwrap_or_default();
                 pm.add_constraint(&format!("{fn_name}:{var_name}"), constraint);
             }
@@ -107,7 +107,7 @@ fn constrain_prophecy_vars(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManage
                 && let Some(first) = args.first()
                 && let Expr::Ident(var_name) = &first.node
             {
-                pm.add_constraint(&format!("{fn_name}:{var_name}"), format!("{:?}", rhs.node));
+                pm.add_constraint(&format!("{fn_name}:{var_name}"), expr_to_string(rhs));
             }
             constrain_prophecy_vars(lhs, fn_name, pm);
             constrain_prophecy_vars(rhs, fn_name, pm);
@@ -277,13 +277,13 @@ pub(crate) fn run_liveness_checks(typed: &TypedFile) -> Vec<VerificationResult> 
                 for clause in body {
                     match &clause.kind {
                         ClauseKind::Other(k) if k == "assume" => {
-                            let text = format!("{:?}", clause.body.node);
+                            let text = expr_to_string(&clause.body);
                             if text.contains("fair") {
                                 lc.add_fairness(format!("{name}:fair"));
                             }
                         }
                         ClauseKind::Other(k) if k == "prove" => {
-                            let text = format!("{:?}", clause.body.node);
+                            let text = expr_to_string(&clause.body);
                             let liveness_kind = if expr_references_var(&clause.body, "leads_to") {
                                 LivenessKind::LeadsTo
                             } else if expr_references_var(&clause.body, "eventually_within") {
@@ -312,7 +312,7 @@ pub(crate) fn run_liveness_checks(typed: &TypedFile) -> Vec<VerificationResult> 
                         lc.add_obligation(
                             format!("{}:liveness", c.name),
                             LivenessKind::Eventually,
-                            format!("{:?}", clause.body.node),
+                            expr_to_string(&clause.body),
                             String::new(),
                         );
                     }
@@ -358,20 +358,20 @@ pub(crate) fn run_layer2_checks(typed: &TypedFile, timeout_ms: u64) -> Vec<Verif
             if clause.kind == ClauseKind::Invariant {
                 match &clause.body.node {
                     Expr::Forall { var, domain, body } => {
-                        let sort = format!("{:?}", domain.node);
+                        let sort = expr_to_string(domain);
                         l2.add_invariant(crate::layer2::QuantifiedInvariant {
                             name: format!("{name}:invariant"),
                             bound_vars: vec![(var.clone(), sort)],
-                            body: format!("{:?}", body.node),
+                            body: expr_to_string(body),
                             triggers: Vec::new(),
                         });
                     }
                     Expr::Exists { var, domain, body } => {
-                        let sort = format!("{:?}", domain.node);
+                        let sort = expr_to_string(domain);
                         l2.add_invariant(crate::layer2::QuantifiedInvariant {
                             name: format!("{name}:invariant"),
                             bound_vars: vec![(var.clone(), sort)],
-                            body: format!("{:?}", body.node),
+                            body: expr_to_string(body),
                             triggers: Vec::new(),
                         });
                     }
@@ -381,7 +381,7 @@ pub(crate) fn run_layer2_checks(typed: &TypedFile, timeout_ms: u64) -> Vec<Verif
             if clause.kind == ClauseKind::Decreases {
                 l2.add_termination(crate::layer2::TerminationObligation {
                     fn_name: name.to_string(),
-                    measure: format!("{:?}", clause.body.node),
+                    measure: expr_to_string(&clause.body),
                     recursive_calls: Vec::new(),
                 });
             }
