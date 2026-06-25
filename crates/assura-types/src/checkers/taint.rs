@@ -378,51 +378,34 @@ impl TaintChecker {
 
         // Pass 1: discover validation functions and trusted sinks
         for decl in &source.decls {
-            match &decl.node {
-                Decl::FnDef(f) => {
-                    if let Some(TaintLabel::Validated) = extract_taint_label(&f.return_ty) {
-                        checker.register_validator(f.name.clone());
-                        has_taint_annotations = true;
-                    }
-                    let param_labels: Vec<Option<TaintLabel>> = f
-                        .params
-                        .iter()
-                        .map(|p| extract_taint_label(&p.ty))
-                        .collect();
-                    // If any param requires validated/trusted, register as sink
-                    if param_labels
-                        .iter()
-                        .any(|l| matches!(l, Some(TaintLabel::Validated | TaintLabel::Trusted)))
-                    {
-                        checker.register_trusted_sink(f.name.clone(), param_labels.clone());
-                        has_taint_annotations = true;
-                    }
-                    if param_labels.iter().any(|l| l.is_some()) {
-                        has_taint_annotations = true;
-                    }
-                }
-                Decl::Extern(e) => {
-                    if let Some(TaintLabel::Validated) = extract_taint_label(&e.return_ty) {
-                        checker.register_validator(e.name.clone());
-                        has_taint_annotations = true;
-                    }
-                    let param_labels: Vec<Option<TaintLabel>> = e
-                        .params
-                        .iter()
-                        .map(|p| extract_taint_label(&p.ty))
-                        .collect();
-                    if param_labels
-                        .iter()
-                        .any(|l| matches!(l, Some(TaintLabel::Validated | TaintLabel::Trusted)))
-                    {
-                        checker.register_trusted_sink(e.name.clone(), param_labels.clone());
-                        has_taint_annotations = true;
-                    }
-                    if param_labels.iter().any(|l| l.is_some()) {
-                        has_taint_annotations = true;
-                    }
-                }
-                _ => {}
+            if !matches!(&decl.node, Decl::FnDef(_) | Decl::Extern(_)) {
+                continue;
+            }
+            let name = decl.node.name().unwrap();
+            if let Some(TaintLabel::Validated) = decl
+                .node
+                .return_ty()
+                .and_then(|ty| extract_taint_label_from_tokens(&ty.to_tokens()))
+            {
+                checker.register_validator(name.to_string());
+                has_taint_annotations = true;
+            }
+            let param_labels: Vec<Option<TaintLabel>> = decl
+                .node
+                .params()
+                .iter()
+                .map(|p| extract_taint_label(&p.ty))
+                .collect();
+            // If any param requires validated/trusted, register as sink
+            if param_labels
+                .iter()
+                .any(|l| matches!(l, Some(TaintLabel::Validated | TaintLabel::Trusted)))
+            {
+                checker.register_trusted_sink(name.to_string(), param_labels.clone());
+                has_taint_annotations = true;
+            }
+            if param_labels.iter().any(|l| l.is_some()) {
+                has_taint_annotations = true;
             }
         }
 
@@ -436,28 +419,15 @@ impl TaintChecker {
         // Pass 2: check each declaration with scoped taint labels
         for decl in &source.decls {
             match &decl.node {
-                Decl::FnDef(f) => {
+                Decl::FnDef(_) | Decl::Extern(_) | Decl::Bind(_) => {
                     let mut fn_checker = checker.clone();
-                    for param in &f.params {
+                    for param in decl.node.params() {
                         if let Some(label) = extract_taint_label(&param.ty) {
                             fn_checker.declare(param.name.clone(), label);
                         }
                     }
                     if fn_checker.has_taint_info() {
-                        for clause in &f.clauses {
-                            errors.extend(fn_checker.check_expr(&clause.body, &decl.span));
-                        }
-                    }
-                }
-                Decl::Extern(e) => {
-                    let mut fn_checker = checker.clone();
-                    for param in &e.params {
-                        if let Some(label) = extract_taint_label(&param.ty) {
-                            fn_checker.declare(param.name.clone(), label);
-                        }
-                    }
-                    if fn_checker.has_taint_info() {
-                        for clause in &e.clauses {
+                        for clause in decl.node.clauses() {
                             errors.extend(fn_checker.check_expr(&clause.body, &decl.span));
                         }
                     }
@@ -485,19 +455,6 @@ impl TaintChecker {
                 Decl::Block { body, .. } => {
                     for clause in body {
                         errors.extend(checker.check_expr(&clause.body, &decl.span));
-                    }
-                }
-                Decl::Bind(b) => {
-                    let mut fn_checker = checker.clone();
-                    for param in &b.params {
-                        if let Some(label) = extract_taint_label(&param.ty) {
-                            fn_checker.declare(param.name.clone(), label);
-                        }
-                    }
-                    if fn_checker.has_taint_info() {
-                        for clause in &b.clauses {
-                            errors.extend(fn_checker.check_expr(&clause.body, &decl.span));
-                        }
                     }
                 }
                 // Prophecy, CodecRegistry, TypeDef, EnumDef: no taint tracking needed.
