@@ -2527,7 +2527,9 @@ fn test_measure_with_wrong_ensures_counterexample_cvc5() {
     assert!(
         matches!(
             result,
-            VerificationResult::Counterexample { .. } | VerificationResult::Timeout { .. } | VerificationResult::Unknown { .. }
+            VerificationResult::Counterexample { .. }
+                | VerificationResult::Timeout { .. }
+                | VerificationResult::Unknown { .. }
         ),
         "x > 0 => x < 0 should produce counterexample (or timeout/unknown with quantifiers), got: {result:?}"
     );
@@ -2683,7 +2685,9 @@ fn test_measure_no_requires_counterexample_cvc5() {
     assert!(
         matches!(
             result,
-            VerificationResult::Counterexample { .. } | VerificationResult::Timeout { .. } | VerificationResult::Unknown { .. }
+            VerificationResult::Counterexample { .. }
+                | VerificationResult::Timeout { .. }
+                | VerificationResult::Unknown { .. }
         ),
         "no requires with measures should produce counterexample (or timeout/unknown with quantifiers), got: {result:?}"
     );
