@@ -80,6 +80,23 @@ fn verify_contract_cvc5_native_incremental(
     let mut enc_state = default_cvc5_encoder_state();
     seed_cvc5_trigger_manager_from_clauses(&mut enc_state, contract.clauses);
 
+    // Havoc+assume: parity with per-clause path (fixes #451).
+    // Build input inline to avoid borrow conflict with session.cache.
+    {
+        use crate::havoc_assume::HavocAssumeInput;
+        use crate::verify_context::LoadedIrContext;
+        let ir = contract.ir.as_ref();
+        let havoc_input = HavocAssumeInput {
+            requires: &prepared.requires_clauses,
+            ensures: &prepared.ensures_clauses,
+            return_ty: contract.return_ty,
+            param_names: &prepared.param_names,
+            ir: ir.and_then(LoadedIrContext::body),
+            enc_ctx: ir.map(LoadedIrContext::enc_ctx).unwrap_or_default(),
+        };
+        apply_havoc_assume_cvc5(&tm, &havoc_input, &mut var_map, &mut enc_state);
+    }
+
     assert_cvc5_requires(
         &tm,
         &mut solver,

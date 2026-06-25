@@ -136,12 +136,34 @@ pub(crate) fn assert_cvc5_clause_check<'a>(
     kind: ClauseKind,
     body_term: cvc5::Term<'a>,
 ) {
-    // Polarity from shared clause_policy (CVC5 coarse path; Z3 handles Decreases via measure).
-    if crate::clause_policy::cvc5_assert_negates_body(&kind) {
-        let negated = tm.mk_term(cvc5::Kind::Not, &[body_term]);
-        solver.assert_formula(negated);
-    } else {
-        solver.assert_formula(body_term);
+    use crate::clause_policy::{ClauseCheckPolarity, clause_check_polarity};
+
+    match clause_check_polarity(&kind) {
+        Some(ClauseCheckPolarity::ValidityNegateBody) => {
+            let negated = tm.mk_term(cvc5::Kind::Not, &[body_term]);
+            solver.assert_formula(negated);
+        }
+        Some(ClauseCheckPolarity::SatisfiabilityAssertBody)
+        | Some(ClauseCheckPolarity::ValidityAssertBody) => {
+            solver.assert_formula(body_term);
+        }
+        Some(ClauseCheckPolarity::DecreasesNonNeg) => {
+            // Parity with Z3: extract measure as integer, assert NOT(measure >= 0).
+            // UNSAT means the measure is always non-negative (verified).
+            let zero = tm.mk_integer(0);
+            let measure_int = if body_term.sort().is_boolean() {
+                tm.mk_term(
+                    cvc5::Kind::Ite,
+                    &[body_term, tm.mk_integer(1), tm.mk_integer(0)],
+                )
+            } else {
+                body_term
+            };
+            let non_neg = tm.mk_term(cvc5::Kind::Geq, &[measure_int, zero]);
+            let negated = tm.mk_term(cvc5::Kind::Not, &[non_neg]);
+            solver.assert_formula(negated);
+        }
+        None => {}
     }
 }
 

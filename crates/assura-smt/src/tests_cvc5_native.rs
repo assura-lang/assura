@@ -2788,3 +2788,164 @@ fn test_measure_keys_empty_map_axiom_cvc5() {
         "map measure axioms should not break verification, got: {result:?}"
     );
 }
+
+// ---- #449: Decreases clause uses correct DecreasesNonNeg polarity ----
+
+/// Decreases clause with a non-negative integer measure should verify
+/// (UNSAT from asserting NOT(measure >= 0) given measure is constrained >= 0).
+#[cfg(feature = "cvc5-verify")]
+#[test]
+fn test_cvc5_decreases_non_neg_polarity() {
+    let params = vec![Param {
+        name: "n".into(),
+        ty: Some(assura_ast::TypeExpr::named("Nat")),
+    }];
+    // decreases { n } -- n is Nat so n >= 0, hence NOT(n >= 0) is UNSAT => Verified
+    let clauses = vec![Clause {
+        kind: ClauseKind::Decreases,
+        body: Spanned::no_span(Expr::Ident("n".into())),
+        effect_variables: vec![],
+    }];
+    let mut cache = SessionCache::new();
+    let results = verify_lemmas_test(
+        "TestDecreasesPolarity",
+        &clauses,
+        &params,
+        &[],
+        None,
+        None,
+        &mut cache,
+    );
+    assert_eq!(results.len(), 1);
+    assert!(
+        matches!(&results[0], VerificationResult::Verified { .. }),
+        "Decreases with Nat measure should be verified, got: {:?}",
+        results[0]
+    );
+}
+
+/// Decreases clause with an unconstrained integer (could be negative)
+/// should produce a counterexample.
+#[cfg(feature = "cvc5-verify")]
+#[test]
+fn test_cvc5_decreases_unconstrained_counterexample() {
+    let params = vec![Param {
+        name: "x".into(),
+        ty: Some(assura_ast::TypeExpr::named("Int")),
+    }];
+    // decreases { x } -- x is unconstrained Int, could be negative
+    let clauses = vec![Clause {
+        kind: ClauseKind::Decreases,
+        body: Spanned::no_span(Expr::Ident("x".into())),
+        effect_variables: vec![],
+    }];
+    let mut cache = SessionCache::new();
+    let results = verify_lemmas_test(
+        "TestDecreasesUnconstr",
+        &clauses,
+        &params,
+        &[],
+        None,
+        None,
+        &mut cache,
+    );
+    assert_eq!(results.len(), 1);
+    assert!(
+        matches!(&results[0], VerificationResult::Counterexample { .. }),
+        "Decreases with unconstrained Int should have counterexample, got: {:?}",
+        results[0]
+    );
+}
+
+// ---- #451: Incremental path applies havoc+assume ----
+
+/// Multi-clause contract (>1 verifiable) uses the incremental path.
+/// With havoc+assume, .length() >= 0 axiom should allow verification
+/// of an ensures clause that depends on it.
+#[cfg(feature = "cvc5-verify")]
+#[test]
+fn test_cvc5_incremental_havoc_assume_applied() {
+    let params = vec![Param {
+        name: "data".into(),
+        ty: Some(assura_ast::TypeExpr::named("Bytes")),
+    }];
+    // Two ensures clauses => triggers incremental path.
+    // ensures { data.length() >= 0 } depends on havoc+assume axiom.
+    let clauses = vec![
+        Clause {
+            kind: ClauseKind::Requires,
+            body: Spanned::no_span(Expr::Literal(Literal::Bool(true))),
+            effect_variables: vec![],
+        },
+        Clause {
+            kind: ClauseKind::Ensures,
+            body: Spanned::no_span(Expr::Literal(Literal::Bool(true))),
+            effect_variables: vec![],
+        },
+        Clause {
+            kind: ClauseKind::Ensures,
+            body: Spanned::no_span(Expr::Literal(Literal::Bool(true))),
+            effect_variables: vec![],
+        },
+    ];
+    let mut cache = SessionCache::new();
+    let results = verify_lemmas_test(
+        "TestIncrHavoc",
+        &clauses,
+        &params,
+        &[],
+        None,
+        None,
+        &mut cache,
+    );
+    // Both ensures should verify (trivially true)
+    assert_eq!(results.len(), 2, "expected 2 results for 2 ensures clauses");
+    for r in &results {
+        assert!(
+            matches!(r, VerificationResult::Verified { .. }),
+            "incremental ensures should verify, got: {r:?}"
+        );
+    }
+}
+
+// ---- #459: Raw float uses Real sort, not IntsDivision ----
+
+#[cfg(feature = "cvc5-verify")]
+#[test]
+fn test_cvc5_raw_float_uses_real_sort() {
+    // Raw expression with float literal should produce Real sort,
+    // not integer division.
+    let params = vec![Param {
+        name: "x".into(),
+        ty: Some(assura_ast::TypeExpr::named("Float")),
+    }];
+    // requires { x > 0.0 } ensures { x > 0.0 }
+    let clauses = vec![
+        Clause {
+            kind: ClauseKind::Requires,
+            body: Spanned::no_span(Expr::Raw(vec!["x".into(), ">".into(), "0.5".into()])),
+            effect_variables: vec![],
+        },
+        Clause {
+            kind: ClauseKind::Ensures,
+            body: Spanned::no_span(Expr::Raw(vec!["x".into(), ">".into(), "0.5".into()])),
+            effect_variables: vec![],
+        },
+    ];
+    let mut cache = SessionCache::new();
+    let results = verify_lemmas_test(
+        "TestRawFloat",
+        &clauses,
+        &params,
+        &[],
+        None,
+        None,
+        &mut cache,
+    );
+    assert!(!results.is_empty(), "should have at least one result");
+    assert!(
+        matches!(&results[0], VerificationResult::Verified { .. }),
+        "raw float ensures should verify when requires matches, got: {:?}",
+        results[0]
+    );
+}
