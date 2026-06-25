@@ -347,10 +347,8 @@ pub(crate) fn run_weak_memory_checks(source: &assura_parser::ast::SourceFile) ->
     let mut errors = Vec::new();
 
     for decl in &source.decls {
-        let (name, clauses) = match &decl.node {
-            Decl::Contract(c) => (c.name.as_str(), &c.clauses),
-            Decl::FnDef(f) => (f.name.as_str(), &f.clauses),
-            _ => continue,
+        let Some((name, clauses)) = super::fn_or_contract_name_clauses(&decl.node) else {
+            continue;
         };
 
         let mut ordering_value: Option<MemoryOrdering> = None;
