@@ -4,7 +4,7 @@
 //! complexity bounds, behavioral equivalence, refinement,
 //! incremental contracts, scoped invariants, composition, libraries.
 
-use assura_parser::ast::{BlockKind, ClauseKind, Decl, Expr, SpExpr};
+use assura_parser::ast::{BlockKind, ClauseKind, Decl, Expr, ExprVisitor, MatchArm, SpExpr};
 
 use crate::checkers::*;
 use crate::convert::parse_type_tokens;
@@ -126,17 +126,23 @@ fn check_match_exhaustiveness_expr(
     _symbols: &assura_resolve::SymbolTable,
     errors: &mut Vec<TypeError>,
 ) {
-    match &expr.node {
-        Expr::Match { scrutinee, arms } => {
-            // Recurse into scrutinee and arm bodies
-            check_match_exhaustiveness_expr(scrutinee, span, enum_variants, _symbols, errors);
+    struct MatchExhaustivenessVisitor<'a> {
+        span: &'a std::ops::Range<usize>,
+        enum_variants: &'a std::collections::HashMap<String, Vec<String>>,
+        errors: &'a mut Vec<TypeError>,
+    }
+
+    impl ExprVisitor for MatchExhaustivenessVisitor<'_> {
+        fn visit_match(&mut self, scrutinee: &SpExpr, arms: &[MatchArm]) {
+            // Recurse into scrutinee and arm bodies (default traversal)
+            self.visit_expr(scrutinee);
             for arm in arms {
-                check_match_exhaustiveness_expr(&arm.body, span, enum_variants, _symbols, errors);
+                self.visit_expr(&arm.body);
             }
 
             // Try to determine the enum type from the scrutinee
             if let Expr::Ident(name) = &scrutinee.node
-                && let Some(variants) = enum_variants.get(name)
+                && let Some(variants) = self.enum_variants.get(name)
             {
                 let patterns: Vec<Pattern> = arms
                     .iter()
@@ -155,13 +161,13 @@ fn check_match_exhaustiveness_expr(
                     // NOTE: Spec Section 7.2 assigns A09001 to non-exhaustive
                     // patterns, but A09001 is used for totality/decreases in
                     // this implementation. Using A10001 instead.
-                    errors.push(TypeError {
+                    self.errors.push(TypeError {
                         code: "A10001".into(),
                         message: format!(
                             "non-exhaustive match: missing variants {}",
                             missing.join(", ")
                         ),
-                        span: span.clone(),
+                        span: self.span.clone(),
                         secondary: None,
                     });
                 }
@@ -173,86 +179,30 @@ fn check_match_exhaustiveness_expr(
                 .iter()
                 .any(|arm| matches!(arm.pattern, assura_parser::ast::Pattern::Wildcard));
             let has_enum_coverage = if let Expr::Ident(name) = &scrutinee.node {
-                enum_variants.contains_key(name)
+                self.enum_variants.contains_key(name)
             } else {
                 false
             };
             if !has_wildcard && !has_enum_coverage && !arms.is_empty() {
                 // Warn about match without wildcard on unknown scrutinee type
-                errors.push(TypeError {
+                self.errors.push(TypeError {
                     code: "A10002".into(),
                     message: "match expression on unknown type has no wildcard `_` arm; \
                               consider adding a catch-all pattern"
                         .into(),
-                    span: span.clone(),
+                    span: self.span.clone(),
                     secondary: None,
                 });
             }
         }
-        // Recurse into sub-expressions
-        Expr::BinOp { lhs, rhs, .. } => {
-            check_match_exhaustiveness_expr(lhs, span, enum_variants, _symbols, errors);
-            check_match_exhaustiveness_expr(rhs, span, enum_variants, _symbols, errors);
-        }
-        Expr::UnaryOp { expr: e, .. }
-        | Expr::Old(e)
-        | Expr::Ghost(e)
-        | Expr::Field(e, _)
-        | Expr::Cast { expr: e, .. } => {
-            check_match_exhaustiveness_expr(e, span, enum_variants, _symbols, errors);
-        }
-        Expr::Call { func, args } => {
-            check_match_exhaustiveness_expr(func, span, enum_variants, _symbols, errors);
-            for a in args {
-                check_match_exhaustiveness_expr(a, span, enum_variants, _symbols, errors);
-            }
-        }
-        Expr::Apply { args, .. } => {
-            for a in args {
-                check_match_exhaustiveness_expr(a, span, enum_variants, _symbols, errors);
-            }
-        }
-        Expr::MethodCall { receiver, args, .. } => {
-            check_match_exhaustiveness_expr(receiver, span, enum_variants, _symbols, errors);
-            for a in args {
-                check_match_exhaustiveness_expr(a, span, enum_variants, _symbols, errors);
-            }
-        }
-        Expr::Index { expr: e, index } => {
-            check_match_exhaustiveness_expr(e, span, enum_variants, _symbols, errors);
-            check_match_exhaustiveness_expr(index, span, enum_variants, _symbols, errors);
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            check_match_exhaustiveness_expr(cond, span, enum_variants, _symbols, errors);
-            check_match_exhaustiveness_expr(then_branch, span, enum_variants, _symbols, errors);
-            if let Some(e) = else_branch {
-                check_match_exhaustiveness_expr(e, span, enum_variants, _symbols, errors);
-            }
-        }
-        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
-            check_match_exhaustiveness_expr(domain, span, enum_variants, _symbols, errors);
-            check_match_exhaustiveness_expr(body, span, enum_variants, _symbols, errors);
-        }
-        Expr::Block(exprs) | Expr::List(exprs) => {
-            for e in exprs {
-                check_match_exhaustiveness_expr(e, span, enum_variants, _symbols, errors);
-            }
-        }
-        Expr::Let { value, body, .. } => {
-            check_match_exhaustiveness_expr(value, span, enum_variants, _symbols, errors);
-            check_match_exhaustiveness_expr(body, span, enum_variants, _symbols, errors);
-        }
-        Expr::Tuple(elems) => {
-            for e in elems {
-                check_match_exhaustiveness_expr(e, span, enum_variants, _symbols, errors);
-            }
-        }
-        Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
     }
+
+    let mut visitor = MatchExhaustivenessVisitor {
+        span,
+        enum_variants,
+        errors,
+    };
+    visitor.visit_expr(expr);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 //! Numeric, fixed-width, and collection checks.
 
-use assura_parser::ast::{ClauseKind, Decl, Expr, SpExpr};
+use assura_parser::ast::{BinOp, ClauseKind, Decl, Expr, ExprVisitor, SpExpr};
 
 use crate::checkers::*;
 use crate::domain::*;
@@ -58,13 +58,22 @@ fn check_expr_fixed_width_full(
     span: &std::ops::Range<usize>,
     errors: &mut Vec<TypeError>,
 ) {
-    match &expr.node {
-        Expr::BinOp { lhs, op, rhs } => {
-            check_expr_fixed_width_full(lhs, type_env, fw_checker, span, errors);
-            check_expr_fixed_width_full(rhs, type_env, fw_checker, span, errors);
+    struct FixedWidthVisitor<'a> {
+        type_env: &'a TypeEnv,
+        fw_checker: &'a FixedWidthChecker,
+        span: &'a std::ops::Range<usize>,
+        errors: &'a mut Vec<TypeError>,
+    }
 
-            if let Some(left_type) = infer_fixed_width_type_ext(lhs, type_env, fw_checker)
-                && let Some(right_type) = infer_fixed_width_type_ext(rhs, type_env, fw_checker)
+    impl ExprVisitor for FixedWidthVisitor<'_> {
+        fn visit_binop(&mut self, lhs: &SpExpr, op: &BinOp, rhs: &SpExpr) {
+            // Recurse into sub-expressions first (default traversal)
+            self.visit_expr(lhs);
+            self.visit_expr(rhs);
+
+            if let Some(left_type) = infer_fixed_width_type_ext(lhs, self.type_env, self.fw_checker)
+                && let Some(right_type) =
+                    infer_fixed_width_type_ext(rhs, self.type_env, self.fw_checker)
             {
                 // Warn when mixing unsigned and signed in arithmetic (not just comparison)
                 if op.is_arithmetic()
@@ -77,20 +86,25 @@ fn check_expr_fixed_width_full(
                     // already covered by check_binop's signedness check
                 }
                 // Use check_binop for combined overflow + signedness + div-by-zero
-                for fwe in fw_checker.check_binop(op, &left_type, &right_type, rhs, span) {
-                    errors.push(TypeError {
+                for fwe in self
+                    .fw_checker
+                    .check_binop(op, &left_type, &right_type, rhs, self.span)
+                {
+                    self.errors.push(TypeError {
                         code: fwe.code,
                         message: fwe.message,
                         span: fwe.span,
                         secondary: None,
                     });
                 }
-            } else if let Some(left_type) = infer_fixed_width_type_ext(lhs, type_env, fw_checker) {
+            } else if let Some(left_type) =
+                infer_fixed_width_type_ext(lhs, self.type_env, self.fw_checker)
+            {
                 // Even without right type, check division by zero
                 if let Some(fwe) =
-                    FixedWidthChecker::check_division_by_zero(op, rhs, &left_type, span)
+                    FixedWidthChecker::check_division_by_zero(op, rhs, &left_type, self.span)
                 {
-                    errors.push(TypeError {
+                    self.errors.push(TypeError {
                         code: fwe.code,
                         message: fwe.message,
                         span: fwe.span,
@@ -99,13 +113,18 @@ fn check_expr_fixed_width_full(
                 }
             }
         }
-        Expr::Cast { expr: inner, ty } => {
-            check_expr_fixed_width_full(inner, type_env, fw_checker, span, errors);
-            if let Some(from_type) = infer_fixed_width_type_ext(inner, type_env, fw_checker)
+
+        fn visit_cast(&mut self, inner: &SpExpr, ty: &str) {
+            // Recurse into the inner expression first (default traversal)
+            self.visit_expr(inner);
+
+            if let Some(from_type) =
+                infer_fixed_width_type_ext(inner, self.type_env, self.fw_checker)
                 && let Some(to_ty) = token_to_fixed_width_type(ty)
-                && let Some(fwe) = FixedWidthChecker::check_cast_safety(&from_type, &to_ty, span)
+                && let Some(fwe) =
+                    FixedWidthChecker::check_cast_safety(&from_type, &to_ty, self.span)
             {
-                errors.push(TypeError {
+                self.errors.push(TypeError {
                     code: fwe.code,
                     message: fwe.message,
                     span: fwe.span,
@@ -113,33 +132,15 @@ fn check_expr_fixed_width_full(
                 });
             }
         }
-        Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) | Expr::Ghost(inner) => {
-            check_expr_fixed_width_full(inner, type_env, fw_checker, span, errors);
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            check_expr_fixed_width_full(cond, type_env, fw_checker, span, errors);
-            check_expr_fixed_width_full(then_branch, type_env, fw_checker, span, errors);
-            if let Some(e) = else_branch {
-                check_expr_fixed_width_full(e, type_env, fw_checker, span, errors);
-            }
-        }
-        Expr::Call { func, args } => {
-            check_expr_fixed_width_full(func, type_env, fw_checker, span, errors);
-            for a in args {
-                check_expr_fixed_width_full(a, type_env, fw_checker, span, errors);
-            }
-        }
-        Expr::Block(items) => {
-            for item in items {
-                check_expr_fixed_width_full(item, type_env, fw_checker, span, errors);
-            }
-        }
-        _ => {}
     }
+
+    let mut visitor = FixedWidthVisitor {
+        type_env,
+        fw_checker,
+        span,
+        errors,
+    };
+    visitor.visit_expr(expr);
 }
 
 /// Infer fixed-width type using both type env and the checker's bindings.
@@ -231,36 +232,33 @@ pub(crate) fn run_collection_contract_checks(
 
 /// Check if an expression mentions `len` (used by collection contract checks).
 fn expr_mentions_len(expr: &SpExpr) -> bool {
-    match &expr.node {
-        Expr::Call { func, args } => {
-            if let Expr::Ident(name) = &func.as_ref().node
-                && name == "len"
-            {
-                return true;
-            }
-            args.iter().any(expr_mentions_len)
-        }
-        Expr::Ident(name) => name == "len",
-        Expr::BinOp { lhs, rhs, .. } => expr_mentions_len(lhs) || expr_mentions_len(rhs),
-        Expr::UnaryOp { expr, .. } => expr_mentions_len(expr),
-        Expr::Old(e) | Expr::Ghost(e) => expr_mentions_len(e),
-        Expr::Field(e, _) => expr_mentions_len(e),
-        Expr::Block(exprs) | Expr::List(exprs) => exprs.iter().any(expr_mentions_len),
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            expr_mentions_len(cond)
-                || expr_mentions_len(then_branch)
-                || else_branch.as_ref().is_some_and(|e| expr_mentions_len(e))
-        }
-        Expr::Forall { body, domain, .. } | Expr::Exists { body, domain, .. } => {
-            expr_mentions_len(body) || expr_mentions_len(domain)
-        }
-        Expr::Raw(tokens) => tokens.iter().any(|t| t == "len"),
-        _ => false,
+    struct LenMentionVisitor {
+        found: bool,
     }
+
+    impl ExprVisitor for LenMentionVisitor {
+        fn visit_expr(&mut self, expr: &SpExpr) {
+            if !self.found {
+                assura_parser::ast::walk_expr(self, expr);
+            }
+        }
+
+        fn visit_ident(&mut self, name: &str) {
+            if name == "len" {
+                self.found = true;
+            }
+        }
+
+        fn visit_raw(&mut self, tokens: &[String]) {
+            if tokens.iter().any(|t| t == "len") {
+                self.found = true;
+            }
+        }
+    }
+
+    let mut visitor = LenMentionVisitor { found: false };
+    visitor.visit_expr(expr);
+    visitor.found
 }
 
 pub(crate) fn run_numerical_precision_checks(
@@ -422,30 +420,53 @@ fn extract_cast_target_bits(expr: &SpExpr, var_name: &str) -> u32 {
 
 /// Check if a clause body contains a cast-like expression for a variable.
 fn clause_contains_cast(expr: &SpExpr, var_name: &str) -> bool {
-    match &expr.node {
-        Expr::Cast { expr: inner, .. } => {
-            if let Expr::Ident(name) = &inner.node {
-                name == var_name
-            } else {
-                clause_contains_cast(inner, var_name)
+    struct CastFinder<'a> {
+        var_name: &'a str,
+        found: bool,
+    }
+
+    impl ExprVisitor for CastFinder<'_> {
+        fn visit_expr(&mut self, expr: &SpExpr) {
+            if !self.found {
+                assura_parser::ast::walk_expr(self, expr);
             }
         }
-        Expr::Call { func, args } => {
-            if let Expr::Ident(fn_name) = &func.as_ref().node
+
+        fn visit_cast(&mut self, inner: &SpExpr, _ty: &str) {
+            if let Expr::Ident(name) = &inner.node
+                && name == self.var_name
+            {
+                self.found = true;
+                return;
+            }
+            // Recurse into inner expression
+            self.visit_expr(inner);
+        }
+
+        fn visit_call(&mut self, func: &SpExpr, args: &[SpExpr]) {
+            if let Expr::Ident(fn_name) = &func.node
                 && (fn_name == "as_f32" || fn_name == "narrow" || fn_name == "truncate")
                 && args
                     .iter()
-                    .any(|a| matches!(&a.node, Expr::Ident(n) if n == var_name))
+                    .any(|a| matches!(&a.node, Expr::Ident(n) if n == self.var_name))
             {
-                return true;
+                self.found = true;
+                return;
             }
-            args.iter().any(|a| clause_contains_cast(a, var_name))
+            // Recurse into func and args (default traversal)
+            self.visit_expr(func);
+            for arg in args {
+                self.visit_expr(arg);
+            }
         }
-        Expr::BinOp { lhs, rhs, .. } => {
-            clause_contains_cast(lhs, var_name) || clause_contains_cast(rhs, var_name)
-        }
-        _ => false,
     }
+
+    let mut visitor = CastFinder {
+        var_name,
+        found: false,
+    };
+    visitor.visit_expr(expr);
+    visitor.found
 }
 
 /// Scan for precomputed table annotations.
