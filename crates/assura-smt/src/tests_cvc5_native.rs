@@ -27,6 +27,16 @@ fn verify_lemmas_test(
     verify_contract_cvc5_with_lemmas(&ctx, lemma_defs, cache)
 }
 
+/// Shared test helper: build a [`Clause`] from kind and body expression.
+#[cfg(feature = "cvc5-verify")]
+fn make_clause(kind: ClauseKind, body: Expr) -> Clause {
+    Clause {
+        kind,
+        body: Spanned::no_span(body),
+        effect_variables: vec![],
+    }
+}
+
 #[cfg(feature = "cvc5-verify")]
 mod native_tests {
     use super::*;
@@ -355,13 +365,8 @@ mod native_tests {
     // String method axiom tests (CVC5 native, issue #251)
     // -------------------------------------------------------------------
 
-    fn make_clause(kind: ClauseKind, body: Expr) -> Clause {
-        Clause {
-            kind,
-            body: Spanned::no_span(body),
-            effect_variables: vec![],
-        }
-    }
+    // make_clause is at file level (super::make_clause) per #512.
+    use super::make_clause;
 
     #[test]
     fn test_cvc5_string_substring_axiom() {
@@ -4543,13 +4548,8 @@ mod cvc5_parity_468 {
     // #509: Counterexample value verification (CVC5)
     // -------------------------------------------------------------------
 
-    fn make_clause(kind: ClauseKind, body: Expr) -> Clause {
-        Clause {
-            kind,
-            body: Spanned::no_span(body),
-            effect_variables: vec![],
-        }
-    }
+    // make_clause is at file level (super::make_clause) per #512.
+    use super::make_clause;
 
     #[test]
     fn cvc5_counterexample_value_correct() {

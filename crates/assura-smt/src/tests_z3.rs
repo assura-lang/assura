@@ -3447,10 +3447,11 @@ fn test_counterexample_boolean_value() {
                 .find(|(n, _)| n == "flag")
                 .map(|(_, v)| v.as_str())
                 .expect("counterexample should contain variable 'flag'");
-            // Z3 may encode booleans as integers; the value should NOT be "true" / "1"
+            // With #511 fix, mixed Bool/Int equality coerces to Bool sort,
+            // so Z3 returns "false" or "0" (not arbitrary ints like "2").
             assert!(
-                flag_val != "true" && flag_val != "1",
-                "CE flag={flag_val} should not be true to violate ensures (flag == true)"
+                flag_val == "false" || flag_val == "0",
+                "CE flag={flag_val} should be false/0 to violate ensures (flag == true)"
             );
         }
         other => panic!("expected counterexample with model, got: {other:?}"),

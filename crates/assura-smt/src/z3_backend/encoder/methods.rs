@@ -908,6 +908,12 @@ impl Encoder {
             RawBinOp::Eq => match (&lhs, &rhs) {
                 (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l.eq(r)),
                 (Z3Value::Str(l), Z3Value::Str(r)) => Z3Value::Bool(l.eq(r)),
+                // Mixed Bool/Int: coerce to Bool (#511).
+                _ if Self::is_bool(&lhs) || Self::is_bool(&rhs) => {
+                    let l = lhs.as_bool();
+                    let r = rhs.as_bool();
+                    Z3Value::Bool(l.eq(&r))
+                }
                 _ => {
                     let l = lhs.as_int(&mut self.fresh_counter);
                     let r = rhs.as_int(&mut self.fresh_counter);
@@ -917,6 +923,12 @@ impl Encoder {
             RawBinOp::Neq => match (&lhs, &rhs) {
                 (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l.eq(r).not()),
                 (Z3Value::Str(l), Z3Value::Str(r)) => Z3Value::Bool(l.eq(r).not()),
+                // Mixed Bool/Int: coerce to Bool (#511).
+                _ if Self::is_bool(&lhs) || Self::is_bool(&rhs) => {
+                    let l = lhs.as_bool();
+                    let r = rhs.as_bool();
+                    Z3Value::Bool(l.eq(&r).not())
+                }
                 _ => {
                     let l = lhs.as_int(&mut self.fresh_counter);
                     let r = rhs.as_int(&mut self.fresh_counter);
@@ -964,6 +976,10 @@ impl Encoder {
     /// Returns true if the value is a Real.
     pub(crate) fn is_real(v: &Z3Value) -> bool {
         matches!(v, Z3Value::Real(_))
+    }
+
+    pub(crate) fn is_bool(v: &Z3Value) -> bool {
+        matches!(v, Z3Value::Bool(_))
     }
 
     pub(crate) fn is_bv(v: &Z3Value) -> bool {
@@ -1020,6 +1036,12 @@ impl Encoder {
                     _ if Self::is_real(&lv) || Self::is_real(&rv) => {
                         let l = lv.as_real(&mut self.fresh_counter);
                         let r = rv.as_real(&mut self.fresh_counter);
+                        Z3Value::Bool(l.eq(&r).not())
+                    }
+                    // Mixed Bool/Int: coerce to Bool (#511).
+                    _ if Self::is_bool(&lv) || Self::is_bool(&rv) => {
+                        let l = lv.as_bool();
+                        let r = rv.as_bool();
                         Z3Value::Bool(l.eq(&r).not())
                     }
                     _ => {
@@ -1153,6 +1175,13 @@ impl Encoder {
                 _ if Self::is_real(&lv) || Self::is_real(&rv) => {
                     let l = lv.as_real(&mut self.fresh_counter);
                     let r = rv.as_real(&mut self.fresh_counter);
+                    Z3Value::Bool(l.eq(&r))
+                }
+                // Mixed Bool/Int: coerce to Bool so counterexample models
+                // produce 0/1 instead of arbitrary integers (#511).
+                _ if Self::is_bool(&lv) || Self::is_bool(&rv) => {
+                    let l = lv.as_bool();
+                    let r = rv.as_bool();
                     Z3Value::Bool(l.eq(&r))
                 }
                 _ => {
