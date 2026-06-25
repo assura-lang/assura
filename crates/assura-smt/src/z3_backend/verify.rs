@@ -51,6 +51,7 @@ fn param_ty_tokens(param: &assura_ast::Param) -> Vec<String> {
 
 // Re-use extract_output_return_type and extract_input_params from entry.rs
 // (single source of truth, avoids divergence between parallel and non-parallel paths).
+#[cfg(test)]
 pub(crate) use crate::entry::{extract_input_params, extract_output_return_type};
 
 /// Like `verify_clauses` but also asserts type-level constraints from
@@ -342,18 +343,6 @@ fn verify_clauses_with_types(
     }
 }
 
-/// Verify a standalone invariant expression (e.g., service invariant).
-fn verify_invariant_expr(parent_name: &str, expr: &SpExpr, results: &mut Vec<VerificationResult>) {
-    let desc = crate::verify_labels::invariant_desc(parent_name);
-    let solver = Solver::new();
-    let mut encoder = Encoder::new();
-    encoder.init_adt_infrastructure();
-    let val = encoder.encode_expr(expr);
-    let bool_val = val.as_bool();
-    solver.assert(&bool_val);
-    check_satisfiability(&solver, desc, results);
-}
-
 // -----------------------------------------------------------------------
 // Entry point
 // -----------------------------------------------------------------------
@@ -475,189 +464,31 @@ pub(crate) fn verify_impl_with_timeout(
     // #188: derive refinement narrowing pairs from feature_max names.
     let narrowings = derive_narrowings(&constants);
 
-    for decl in &typed.resolved.source.decls {
-        match &decl.node {
-            Decl::Contract(c) => {
-                // #190: Extract type constraints from output() and input()
-                // clauses. Contracts use `output(result: Nat)` instead of
-                // function return types, so we need to parse those clauses
-                // to get the same Nat >= 0 constraints that fn defs get.
-                let output_ty = extract_output_return_type(&c.clauses);
-                let input_params = extract_input_params(&c.clauses);
-                // Merge input params with any fn_params from inline fn defs
-                let mut all_params = input_params;
-                all_params.extend_from_slice(&c.fn_params);
-                let ir_body = ir_bodies.and_then(|m| m.get(&c.name));
-                let ir_blocks = ir_block_maps.and_then(|m| m.get(&c.name));
-                verify_clauses_with_types(
-                    &c.name,
-                    &c.clauses,
-                    &lemma_defs,
-                    &mut cache,
-                    &mut results,
-                    &TypeConstraints {
-                        params: &all_params,
-                        return_ty: &output_ty,
-                        constants: &constants,
-                        narrowings: &narrowings,
-                        ir_body,
-                        ir_blocks,
-                        ir_bodies,
-                        type_env: file_type_env,
-                        ..Default::default()
-                    },
-                );
-            }
-            Decl::FnDef(f) => {
-                let ir_body = ir_bodies.and_then(|m| m.get(&f.name));
-                let ir_blocks = ir_block_maps.and_then(|m| m.get(&f.name));
-                let f_return_ty = crate::entry::type_expr_to_token_vec(f.return_ty.as_ref());
-                let types = TypeConstraints {
-                    params: &f.params,
-                    return_ty: &f_return_ty,
-                    constants: &constants,
-                    narrowings: &narrowings,
-                    ir_body,
-                    ir_blocks,
-                    ir_bodies,
-                    type_env: file_type_env,
-                    ..Default::default()
-                };
-                verify_clauses_with_types(
-                    &f.name,
-                    &f.clauses,
-                    &lemma_defs,
-                    &mut cache,
-                    &mut results,
-                    &types,
-                );
-            }
-            Decl::Extern(e) => {
-                let ir_body = ir_bodies.and_then(|m| m.get(&e.name));
-                let ir_blocks = ir_block_maps.and_then(|m| m.get(&e.name));
-                let e_return_ty = crate::entry::type_expr_to_token_vec(e.return_ty.as_ref());
-                let types = TypeConstraints {
-                    params: &e.params,
-                    return_ty: &e_return_ty,
-                    constants: &constants,
-                    narrowings: &narrowings,
-                    ir_body,
-                    ir_blocks,
-                    ir_bodies,
-                    type_env: file_type_env,
-                    ..Default::default()
-                };
-                verify_clauses_with_types(
-                    &e.name,
-                    &e.clauses,
-                    &lemma_defs,
-                    &mut cache,
-                    &mut results,
-                    &types,
-                );
-            }
-            Decl::Service(s) => {
-                for item in &s.items {
-                    match item {
-                        ServiceItem::Operation { name, clauses } => {
-                            let qname = format!("{}.{}", s.name, name);
-                            let ir_body = ir_bodies.and_then(|m| m.get(&qname));
-                            let ir_blocks = ir_block_maps.and_then(|m| m.get(&qname));
-                            let svc_types = TypeConstraints {
-                                constants: &constants,
-                                narrowings: &narrowings,
-                                ir_body,
-                                ir_blocks,
-                                ir_bodies,
-                                type_env: file_type_env,
-                                ..Default::default()
-                            };
-                            verify_clauses_with_types(
-                                &qname,
-                                clauses,
-                                &lemma_defs,
-                                &mut cache,
-                                &mut results,
-                                &svc_types,
-                            );
-                        }
-                        ServiceItem::Query { name, clauses } => {
-                            let qname = format!("{}.{}", s.name, name);
-                            let ir_body = ir_bodies.and_then(|m| m.get(&qname));
-                            let ir_blocks = ir_block_maps.and_then(|m| m.get(&qname));
-                            let svc_types = TypeConstraints {
-                                constants: &constants,
-                                narrowings: &narrowings,
-                                ir_body,
-                                ir_blocks,
-                                ir_bodies,
-                                type_env: file_type_env,
-                                ..Default::default()
-                            };
-                            verify_clauses_with_types(
-                                &qname,
-                                clauses,
-                                &lemma_defs,
-                                &mut cache,
-                                &mut results,
-                                &svc_types,
-                            );
-                        }
-                        ServiceItem::Invariant(expr) => {
-                            verify_invariant_expr(&s.name, expr, &mut results);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Decl::Block { name, body, .. } => {
-                let ir_body = ir_bodies.and_then(|m| m.get(name));
-                let ir_blocks = ir_block_maps.and_then(|m| m.get(name));
-                verify_clauses_with_types(
-                    name,
-                    body,
-                    &lemma_defs,
-                    &mut cache,
-                    &mut results,
-                    &TypeConstraints {
-                        constants: &constants,
-                        narrowings: &narrowings,
-                        ir_body,
-                        ir_blocks,
-                        ir_bodies,
-                        type_env: file_type_env,
-                        ..Default::default()
-                    },
-                );
-            }
-            Decl::Bind(b) => {
-                let ir_body = ir_bodies.and_then(|m| m.get(&b.name));
-                let ir_blocks = ir_block_maps.and_then(|m| m.get(&b.name));
-                let b_return_ty = crate::entry::type_expr_to_token_vec(b.return_ty.as_ref());
-                let types = TypeConstraints {
-                    params: &b.params,
-                    return_ty: &b_return_ty,
-                    constants: &constants,
-                    narrowings: &narrowings,
-                    ir_body,
-                    ir_blocks,
-                    ir_bodies,
-                    type_env: file_type_env,
-                    ..Default::default()
-                };
-                verify_clauses_with_types(
-                    &b.name,
-                    &b.clauses,
-                    &lemma_defs,
-                    &mut cache,
-                    &mut results,
-                    &types,
-                );
-            }
-            // Prophecy variables don't have verifiable clauses directly;
-            // they are used as existential witnesses in contract proofs.
-            Decl::Prophecy(_) | Decl::CodecRegistry(_) | Decl::TypeDef(_) | Decl::EnumDef(_) => {}
-        }
+    // #213: Use shared job collection (DeclVisitor-based) instead of
+    // hand-coded match &decl.node. Same dispatch used by CVC5 and
+    // parallel paths.
+    for (name, clauses, params, return_ty) in crate::entry::collect_verification_jobs(typed) {
+        let ir_body = ir_bodies.and_then(|m| m.get(name.as_str()));
+        let ir_blocks = ir_block_maps.and_then(|m| m.get(name.as_str()));
+        let types = TypeConstraints {
+            params: &params,
+            return_ty: &return_ty,
+            constants: &constants,
+            narrowings: &narrowings,
+            ir_body,
+            ir_blocks,
+            ir_bodies,
+            type_env: file_type_env,
+            ..Default::default()
+        };
+        verify_clauses_with_types(
+            &name,
+            &clauses,
+            &lemma_defs,
+            &mut cache,
+            &mut results,
+            &types,
+        );
     }
 
     // Run all 5 advanced passes via shared solver-agnostic functions (#214)
