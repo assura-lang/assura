@@ -437,38 +437,6 @@ pub(crate) fn raw_tokens_to_rust(tokens: &[String]) -> String {
 // old(expr) support
 // ---------------------------------------------------------------------------
 
-/// Derive a variable name for an `old(expr)` snapshot from the expression.
-/// E.g., `old(x)` -> `__assura_old_x`, `old(buf.len)` -> `__assura_old_buf_len`.
-/// Generate a debug_assert! that handles multi-line expressions.
-///
-/// If the expression contains newlines (e.g. a match block), wraps it in a
-/// block `{ ... }` so the assert is valid Rust syntax.
-///
-/// If the expression contains patterns that would fail on stub types
-/// (nested field accesses like `a.b.c`), emit it as a comment instead
-/// to keep the generated code compilable while preserving the contract intent.
-#[cfg(test)]
-pub(crate) fn generate_debug_assert(code: &mut String, expr: &str, label: &str) {
-    // If expression references deep field chains (e.g., state.head.extra.extra_max),
-    // emit as a comment since stub types don't have these fields.
-    if has_deep_field_access(expr) {
-        code.push_str(&format!("    // {label}: {}\n", expr.replace('"', "\\\"")));
-        return;
-    }
-    if expr.contains('\n') {
-        // Multi-line expressions (match, etc.) need a block wrapper
-        let msg = expr.replace('\n', " ").replace('"', "\\\"");
-        code.push_str(&format!(
-            "    debug_assert!({{ {expr} }}, \"{label}: {msg}\");\n"
-        ));
-    } else {
-        code.push_str(&format!(
-            "    debug_assert!({expr}, \"{label}: {}\");\n",
-            expr.replace('"', "\\\"")
-        ));
-    }
-}
-
 /// Check if an expression string contains patterns that would fail to compile
 /// against placeholder stub types:
 /// - Any field access (a.b) since stub types have no fields
@@ -550,32 +518,6 @@ pub(crate) fn has_deep_field_access(expr: &str) -> bool {
         }
     }
     false
-}
-
-/// Like `generate_debug_assert` but with configurable indent level.
-#[cfg(test)]
-pub(crate) fn generate_debug_assert_indented(
-    code: &mut String,
-    expr: &str,
-    label: &str,
-    indent: usize,
-) {
-    let pad = "    ".repeat(indent);
-    if has_deep_field_access(expr) {
-        code.push_str(&format!("{pad}// {label}: {}\n", expr.replace('"', "\\\"")));
-        return;
-    }
-    if expr.contains('\n') {
-        let msg = expr.replace('\n', " ").replace('"', "\\\"");
-        code.push_str(&format!(
-            "{pad}debug_assert!({{ {expr} }}, \"{label}: {msg}\");\n"
-        ));
-    } else {
-        code.push_str(&format!(
-            "{pad}debug_assert!({expr}, \"{label}: {}\");\n",
-            expr.replace('"', "\\\"")
-        ));
-    }
 }
 
 /// Convert a pattern to Rust pattern syntax.

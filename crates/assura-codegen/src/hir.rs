@@ -1,6 +1,6 @@
 //! Typed Rust HIR (High-level Intermediate Representation) for codegen.
 //!
-//! Instead of building Rust source code via `push_str(&format!(...))`,
+//! Instead of building Rust source code via string concatenation,
 //! codegen builds structured `RustItem` / `RustStmt` / `RustExpr` trees.
 //! These are converted to `syn` AST nodes, then formatted by `prettyplease`.
 //!
@@ -8,6 +8,8 @@
 //! - Structural validation: malformed HIR caught at construction, not formatting.
 //! - Testability: assert on HIR structure (e.g., "2 Assert nodes"), not strings.
 //! - No string-escaping bugs: identifiers and types are typed, not interpolated.
+
+use std::fmt::Write as _;
 
 // ---------------------------------------------------------------------------
 // Core HIR types
@@ -324,13 +326,13 @@ fn render_item(item: &RustItem, out: &mut String) {
         RustItem::Mod(m) => render_mod(m, out),
         RustItem::Const(c) => render_const(c, out),
         RustItem::Use(path) => {
-            out.push_str(&format!("use {path};\n"));
+            let _ = writeln!(out, "use {path};");
         }
         RustItem::Comment(text) => {
-            out.push_str(&format!("// {text}\n"));
+            let _ = writeln!(out, "// {text}");
         }
         RustItem::InnerAttr(attr) => {
-            out.push_str(&format!("#![{attr}]\n"));
+            let _ = writeln!(out, "#![{attr}]");
         }
         RustItem::Raw(code) => {
             out.push_str(code);
@@ -343,10 +345,10 @@ fn render_item(item: &RustItem, out: &mut String) {
 
 fn render_fn(f: &RustFn, out: &mut String) {
     for doc in &f.doc {
-        out.push_str(&format!("/// {doc}\n"));
+        let _ = writeln!(out, "/// {doc}");
     }
     for attr in &f.attrs {
-        out.push_str(&format!("#[{attr}]\n"));
+        let _ = writeln!(out, "#[{attr}]");
     }
 
     let vis = if f.is_pub { "pub " } else { "" };
@@ -377,15 +379,9 @@ fn render_fn(f: &RustFn, out: &mut String) {
     };
 
     if f.is_abstract {
-        out.push_str(&format!(
-            "{vis}{unsafe_kw}fn {}{tps}({params_s}){ret};\n\n",
-            f.name
-        ));
+        let _ = writeln!(out, "{vis}{unsafe_kw}fn {}{tps}({params_s}){ret};\n", f.name);
     } else {
-        out.push_str(&format!(
-            "{vis}{unsafe_kw}fn {}{tps}({params_s}){ret} {{\n",
-            f.name
-        ));
+        let _ = writeln!(out, "{vis}{unsafe_kw}fn {}{tps}({params_s}){ret} {{", f.name);
 
         for stmt in &f.body {
             render_stmt(stmt, out, 1);
@@ -397,10 +393,10 @@ fn render_fn(f: &RustFn, out: &mut String) {
 
 fn render_struct(s: &RustStruct, out: &mut String) {
     for doc in &s.doc {
-        out.push_str(&format!("/// {doc}\n"));
+        let _ = writeln!(out, "/// {doc}");
     }
     if !s.derives.is_empty() {
-        out.push_str(&format!("#[derive({})]\n", s.derives.join(", ")));
+        let _ = writeln!(out, "#[derive({})]", s.derives.join(", "));
     }
 
     let vis = if s.is_pub { "pub " } else { "" };
@@ -411,16 +407,12 @@ fn render_struct(s: &RustStruct, out: &mut String) {
     };
 
     if s.fields.is_empty() {
-        out.push_str(&format!("{vis}struct {}{tps};\n\n", s.name));
+        let _ = writeln!(out, "{vis}struct {}{tps};\n", s.name);
     } else {
-        out.push_str(&format!("{vis}struct {}{tps} {{\n", s.name));
+        let _ = writeln!(out, "{vis}struct {}{tps} {{", s.name);
         for field in &s.fields {
             let fvis = if field.is_pub { "pub " } else { "" };
-            out.push_str(&format!(
-                "    {fvis}{}: {},\n",
-                field.name,
-                render_type(&field.ty)
-            ));
+            let _ = writeln!(out, "    {fvis}{}: {},", field.name, render_type(&field.ty));
         }
         out.push_str("}\n\n");
     }
@@ -428,13 +420,13 @@ fn render_struct(s: &RustStruct, out: &mut String) {
 
 fn render_enum(e: &RustEnum, out: &mut String) {
     for doc in &e.doc {
-        out.push_str(&format!("/// {doc}\n"));
+        let _ = writeln!(out, "/// {doc}");
     }
     if !e.derives.is_empty() {
-        out.push_str(&format!("#[derive({})]\n", e.derives.join(", ")));
+        let _ = writeln!(out, "#[derive({})]", e.derives.join(", "));
     }
     for attr in &e.attrs {
-        out.push_str(&format!("#[{attr}]\n"));
+        let _ = writeln!(out, "#[{attr}]");
     }
 
     let vis = if e.is_pub { "pub " } else { "" };
@@ -444,16 +436,16 @@ fn render_enum(e: &RustEnum, out: &mut String) {
         format!("<{}>", e.type_params.join(", "))
     };
 
-    out.push_str(&format!("{vis}enum {}{tps} {{\n", e.name));
+    let _ = writeln!(out, "{vis}enum {}{tps} {{", e.name);
     for variant in &e.variants {
         for attr in &variant.attrs {
-            out.push_str(&format!("    #[{attr}]\n"));
+            let _ = writeln!(out, "    #[{attr}]");
         }
         if variant.fields.is_empty() {
-            out.push_str(&format!("    {},\n", variant.name));
+            let _ = writeln!(out, "    {},", variant.name);
         } else {
             let fields: Vec<String> = variant.fields.iter().map(render_type).collect();
-            out.push_str(&format!("    {}({}),\n", variant.name, fields.join(", ")));
+            let _ = writeln!(out, "    {}({}),", variant.name, fields.join(", "));
         }
     }
     out.push_str("}\n\n");
@@ -461,7 +453,7 @@ fn render_enum(e: &RustEnum, out: &mut String) {
 
 fn render_trait(t: &RustTrait, out: &mut String) {
     for doc in &t.doc {
-        out.push_str(&format!("/// {doc}\n"));
+        let _ = writeln!(out, "/// {doc}");
     }
 
     let vis = if t.is_pub { "pub " } else { "" };
@@ -476,7 +468,7 @@ fn render_trait(t: &RustTrait, out: &mut String) {
         format!(": {}", t.supertraits.join(" + "))
     };
 
-    out.push_str(&format!("{vis}trait {}{tps}{bounds} {{\n", t.name));
+    let _ = writeln!(out, "{vis}trait {}{tps}{bounds} {{", t.name);
     for method in &t.methods {
         // Render as a trait method (with or without default body)
         render_fn(method, out);
@@ -493,13 +485,10 @@ fn render_impl(i: &RustImpl, out: &mut String) {
 
     match &i.trait_name {
         Some(trait_name) => {
-            out.push_str(&format!(
-                "impl{tps} {trait_name} for {}{tps} {{\n",
-                i.target
-            ));
+            let _ = writeln!(out, "impl{tps} {trait_name} for {}{tps} {{", i.target);
         }
         None => {
-            out.push_str(&format!("impl{tps} {}{tps} {{\n", i.target));
+            let _ = writeln!(out, "impl{tps} {}{tps} {{", i.target);
         }
     }
     for method in &i.methods {
@@ -510,10 +499,10 @@ fn render_impl(i: &RustImpl, out: &mut String) {
 
 fn render_mod(m: &RustMod, out: &mut String) {
     for doc in &m.doc {
-        out.push_str(&format!("/// {doc}\n"));
+        let _ = writeln!(out, "/// {doc}");
     }
     let vis = if m.is_pub { "pub " } else { "" };
-    out.push_str(&format!("{vis}mod {} {{\n", m.name));
+    let _ = writeln!(out, "{vis}mod {} {{", m.name);
     for item in &m.items {
         render_item(item, out);
     }
@@ -522,15 +511,10 @@ fn render_mod(m: &RustMod, out: &mut String) {
 
 fn render_const(c: &RustConst, out: &mut String) {
     for doc in &c.doc {
-        out.push_str(&format!("/// {doc}\n"));
+        let _ = writeln!(out, "/// {doc}");
     }
     let vis = if c.is_pub { "pub " } else { "" };
-    out.push_str(&format!(
-        "{vis}const {}: {} = {};\n",
-        c.name,
-        render_type(&c.ty),
-        c.value
-    ));
+    let _ = writeln!(out, "{vis}const {}: {} = {};", c.name, render_type(&c.ty), c.value);
 }
 
 fn render_type(ty: &RustType) -> String {
@@ -552,7 +536,7 @@ fn render_type(ty: &RustType) -> String {
     }
 }
 
-fn render_stmt(stmt: &RustStmt, out: &mut String, indent: usize) {
+pub(crate) fn render_stmt(stmt: &RustStmt, out: &mut String, indent: usize) {
     let pad = "    ".repeat(indent);
     match stmt {
         RustStmt::Let { name, ty, init } => {
@@ -560,35 +544,30 @@ fn render_stmt(stmt: &RustStmt, out: &mut String, indent: usize) {
                 Some(t) => format!(": {}", render_type(t)),
                 None => String::new(),
             };
-            out.push_str(&format!("{pad}let {name}{ty_s} = {};\n", render_expr(init)));
+            let _ = writeln!(out, "{pad}let {name}{ty_s} = {};", render_expr(init));
         }
         RustStmt::Assert { cond, label } => {
             // If expression references deep field chains (e.g., state.head.extra),
             // emit as a comment since stub types don't have these fields.
-            // Matches the guard in generate_debug_assert (expr.rs).
             if crate::has_deep_field_access(cond) {
-                out.push_str(&format!("{pad}// {label}: {}\n", cond.replace('"', "\\\"")));
+                let _ = writeln!(out, "{pad}// {label}: {}", cond.replace('"', "\\\""));
             } else if cond.contains('\n') {
                 let msg = cond.replace('\n', " ").replace('"', "\\\"");
-                out.push_str(&format!(
-                    "{pad}debug_assert!({{ {cond} }}, \"{label}: {msg}\");\n"
-                ));
+                let _ = writeln!(out, "{pad}debug_assert!({{ {cond} }}, \"{label}: {msg}\");");
             } else {
                 let escaped_cond = cond.replace('"', "\\\"");
-                out.push_str(&format!(
-                    "{pad}debug_assert!({cond}, \"{label}: {escaped_cond}\");\n"
-                ));
+                let _ = writeln!(out, "{pad}debug_assert!({cond}, \"{label}: {escaped_cond}\");");
             }
         }
         RustStmt::Comment(text) => {
-            out.push_str(&format!("{pad}// {text}\n"));
+            let _ = writeln!(out, "{pad}// {text}");
         }
         RustStmt::Expr(expr) => {
-            out.push_str(&format!("{pad}{}\n", render_expr(expr)));
+            let _ = writeln!(out, "{pad}{}", render_expr(expr));
         }
         RustStmt::Raw(code) => {
             for line in code.lines() {
-                out.push_str(&format!("{pad}{line}\n"));
+                let _ = writeln!(out, "{pad}{line}");
             }
         }
     }

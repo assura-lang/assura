@@ -495,12 +495,15 @@ fn no_deep_field_result_method() {
     assert!(!has_deep_field_access(&format!("{RESULT_VAR}.is_some()")));
 }
 
-// ---- generate_debug_assert ----
+// ---- RustStmt::Assert rendering (replaces generate_debug_assert) ----
 
 #[test]
 fn debug_assert_simple() {
     let mut code = String::new();
-    generate_debug_assert(&mut code, "x > 0", "requires");
+    crate::hir::render_stmt(
+        &crate::hir::RustStmt::Assert { cond: "x > 0".into(), label: "requires".into() },
+        &mut code, 1,
+    );
     assert!(code.contains("debug_assert!(x > 0,"));
     assert!(code.contains("requires"));
 }
@@ -508,7 +511,10 @@ fn debug_assert_simple() {
 #[test]
 fn debug_assert_deep_field_becomes_comment() {
     let mut code = String::new();
-    generate_debug_assert(&mut code, "state.head.extra", "ensures");
+    crate::hir::render_stmt(
+        &crate::hir::RustStmt::Assert { cond: "state.head.extra".into(), label: "ensures".into() },
+        &mut code, 1,
+    );
     assert!(code.starts_with("    // ensures:"));
     assert!(!code.contains("debug_assert!"));
 }
@@ -516,14 +522,20 @@ fn debug_assert_deep_field_becomes_comment() {
 #[test]
 fn debug_assert_multiline() {
     let mut code = String::new();
-    generate_debug_assert(&mut code, "x > 0\n&& y > 0", "requires");
+    crate::hir::render_stmt(
+        &crate::hir::RustStmt::Assert { cond: "x > 0\n&& y > 0".into(), label: "requires".into() },
+        &mut code, 1,
+    );
     assert!(code.contains("debug_assert!({"));
 }
 
 #[test]
 fn debug_assert_indented() {
     let mut code = String::new();
-    generate_debug_assert_indented(&mut code, "x > 0", "test", 2);
+    crate::hir::render_stmt(
+        &crate::hir::RustStmt::Assert { cond: "x > 0".into(), label: "test".into() },
+        &mut code, 2,
+    );
     assert!(code.starts_with("        debug_assert!"));
 }
 
