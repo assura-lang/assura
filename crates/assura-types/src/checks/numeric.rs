@@ -564,7 +564,77 @@ pub(crate) fn run_precomputed_table_checks(
     errors.extend(checker.check_generator());
     errors.extend(checker.check_non_empty());
     errors.extend(checker.check_generator_exists(&fn_names));
+    errors.extend(checker.check_domain_size(None));
     errors
+}
+
+/// Collect SMT verification obligations for precomputed tables.
+///
+/// Returns obligations suitable for Layer 2 verification: each states that
+/// `forall i in 0..size: table[i] == generator_fn(i)`.
+pub fn collect_table_smt_obligations(
+    source: &assura_parser::ast::SourceFile,
+) -> Vec<TableSmtObligation> {
+    let mut checker = PrecomputedTableChecker::new();
+    for decl in &source.decls {
+        let Some(clauses) = super::clauses_contract_fn_block(&decl.node) else {
+            continue;
+        };
+        for clause in clauses {
+            if let ClauseKind::Other(ref k) = clause.kind
+                && (k == "precomputed_table" || k == "lookup_table" || k == "const_table")
+            {
+                match &clause.body.node {
+                    Expr::Call { func, args } => {
+                        if let Expr::Ident(name) = &func.as_ref().node {
+                            let size = args
+                                .first()
+                                .and_then(extract_int_literal)
+                                .unwrap_or(DEFAULT_FEATURE_MAX)
+                                as usize;
+                            let gen_fn = args
+                                .get(1)
+                                .and_then(extract_ident)
+                                .unwrap_or("")
+                                .to_string();
+                            checker.declare_table(name.clone(), size, gen_fn, decl.span.clone());
+                        }
+                    }
+                    Expr::Ident(name) => {
+                        checker.declare_table(
+                            name.clone(),
+                            DEFAULT_FEATURE_MAX as usize,
+                            String::new(),
+                            decl.span.clone(),
+                        );
+                    }
+                    _ => {
+                        let kvs = extract_kv_pairs(&clause.body);
+                        let name = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "name" || *k == "table")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("unnamed")
+                            .to_string();
+                        let size = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "size" || *k == "entries")
+                            .and_then(|(_, v)| extract_int_literal(v))
+                            .unwrap_or(DEFAULT_FEATURE_MAX)
+                            as usize;
+                        let gen_fn = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "generator" || *k == "gen")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("")
+                            .to_string();
+                        checker.declare_table(name, size, gen_fn, decl.span.clone());
+                    }
+                }
+            }
+        }
+    }
+    checker.smt_obligations()
 }
 
 #[cfg(test)]
@@ -727,6 +797,139 @@ mod tests {
         assert!(
             errors.iter().any(|e| e.code == "A10101"),
             "U8 + U8 should flag potential overflow A10101: {errors:?}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // check_domain_size (A43005)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn precomputed_table_domain_size_nonstandard_flagged() {
+        // A table with a non-standard size (100) should produce A43005.
+        let mut checker = PrecomputedTableChecker::new();
+        checker.declare_table("odd_table".into(), 100, "gen_fn".into(), 0..10);
+        let errors = checker.check_domain_size(None);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A43005");
+        assert!(errors[0].message.contains("100"));
+    }
+
+    #[test]
+    fn precomputed_table_domain_size_standard_ok() {
+        // Standard sizes (256, 16, 128, 65536) should not trigger A43005.
+        for size in [16, 128, 256, 65536] {
+            let mut checker = PrecomputedTableChecker::new();
+            checker.declare_table("std_table".into(), size, "gen_fn".into(), 0..10);
+            let errors = checker.check_domain_size(None);
+            assert!(
+                errors.is_empty(),
+                "standard size {size} should not trigger A43005: {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn precomputed_table_domain_size_explicit_mismatch() {
+        // Explicit expected domain size (256) vs actual (100) should flag.
+        let mut checker = PrecomputedTableChecker::new();
+        checker.declare_table("crc_table".into(), 100, "compute_crc".into(), 0..10);
+        let errors = checker.check_domain_size(Some(256));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A43005");
+        assert!(errors[0].message.contains("256"));
+    }
+
+    #[test]
+    fn precomputed_table_domain_size_explicit_match() {
+        // When actual matches expected, no error.
+        let mut checker = PrecomputedTableChecker::new();
+        checker.declare_table("byte_table".into(), 256, "gen".into(), 0..10);
+        let errors = checker.check_domain_size(Some(256));
+        assert!(errors.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // smt_obligations (table verification obligations)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn smt_obligations_empty_for_no_generator() {
+        let mut checker = PrecomputedTableChecker::new();
+        checker.declare_table("bare_table".into(), 256, String::new(), 0..10);
+        let obs = checker.smt_obligations();
+        assert!(
+            obs.is_empty(),
+            "table without generator should have no SMT obligation"
+        );
+    }
+
+    #[test]
+    fn smt_obligations_returns_obligation_with_generator() {
+        let mut checker = PrecomputedTableChecker::new();
+        checker.declare_table("crc32_table".into(), 256, "compute_crc32".into(), 0..10);
+        let obs = checker.smt_obligations();
+        assert_eq!(obs.len(), 1);
+        assert_eq!(obs[0].table_name, "crc32_table");
+        assert_eq!(obs[0].generator_fn, "compute_crc32");
+        assert_eq!(obs[0].domain_size, 256);
+    }
+
+    #[test]
+    fn smt_obligations_skips_zero_size_tables() {
+        let mut checker = PrecomputedTableChecker::new();
+        checker.declare_table("empty".into(), 0, "gen".into(), 0..5);
+        let obs = checker.smt_obligations();
+        assert!(
+            obs.is_empty(),
+            "zero-size table should produce no obligation"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // collect_table_smt_obligations (source-level integration)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn collect_table_smt_obligations_no_tables() {
+        let src = r#"contract Simple { requires { true } }"#;
+        let sf = parse_source(src);
+        let obs = collect_table_smt_obligations(&sf);
+        assert!(obs.is_empty());
+    }
+
+    #[test]
+    fn collect_table_smt_obligations_with_bare_table() {
+        // A bare `precomputed_table name` has no generator function,
+        // so it should produce no SMT obligations.
+        let src = r#"contract Lookup { precomputed_table crc_table }"#;
+        let sf = parse_source(src);
+        let obs = collect_table_smt_obligations(&sf);
+        assert!(
+            obs.is_empty(),
+            "bare table without generator should have no SMT obligation"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // run_precomputed_table_checks now includes domain_size (A43005)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn precomputed_table_checks_include_domain_size_error() {
+        // A bare `precomputed_table name` gets default size (256) which IS
+        // a standard domain size, so no A43005. But it still gets A43001
+        // (coverage) and A43002 (no generator).
+        let src = r#"contract Lookup { precomputed_table crc_table }"#;
+        let sf = parse_source(src);
+        let errors = run_precomputed_table_checks(&sf);
+        // A43001 (coverage) + A43002 (no generator) expected, but NOT A43005
+        // because 256 is a standard domain size.
+        assert!(errors.iter().any(|e| e.code == "A43001"));
+        assert!(errors.iter().any(|e| e.code == "A43002"));
+        assert!(
+            !errors.iter().any(|e| e.code == "A43005"),
+            "256 is standard, should not get A43005"
         );
     }
 }

@@ -198,6 +198,78 @@ impl PrecomputedTableChecker {
             })
             .collect()
     }
+
+    /// Check that declared table sizes match expected domain sizes.
+    ///
+    /// Common domains: byte (256), nibble (16), ascii (128), unicode_bmp (65536).
+    /// Reports A43005 when the table size does not match any standard domain.
+    pub fn check_domain_size(&self, expected_domain_size: Option<usize>) -> Vec<TypeError> {
+        self.tables
+            .iter()
+            .filter(|t| {
+                if let Some(expected) = expected_domain_size {
+                    t.size != expected
+                } else {
+                    // No explicit domain: check against standard sizes
+                    !STANDARD_DOMAIN_SIZES.contains(&t.size)
+                }
+            })
+            .map(|t| {
+                let msg = if let Some(expected) = expected_domain_size {
+                    format!(
+                        "table `{}` has {} entries but the declared domain requires {}",
+                        t.name, t.size, expected
+                    )
+                } else {
+                    format!(
+                        "table `{}` has {} entries which does not match any standard domain \
+                         size (16, 128, 256, 65536)",
+                        t.name, t.size
+                    )
+                };
+                TypeError {
+                    code: "A43005".into(),
+                    message: msg,
+                    span: t.span.clone(),
+                    secondary: None,
+                }
+            })
+            .collect()
+    }
+
+    /// Generate SMT verification obligations for table correctness.
+    ///
+    /// For each table with a generator function, produces an obligation:
+    /// `forall i in 0..size: table[i] == generator_fn(i)`
+    ///
+    /// Returns `(table_name, generator_fn, size)` tuples that the pipeline
+    /// can dispatch to the Layer 2 verifier.
+    pub fn smt_obligations(&self) -> Vec<TableSmtObligation> {
+        self.tables
+            .iter()
+            .filter(|t| !t.generator_fn.is_empty() && t.size > 0)
+            .map(|t| TableSmtObligation {
+                table_name: t.name.clone(),
+                generator_fn: t.generator_fn.clone(),
+                domain_size: t.size,
+                span: t.span.clone(),
+            })
+            .collect()
+    }
+}
+
+/// Standard domain sizes for precomputed tables.
+const STANDARD_DOMAIN_SIZES: &[usize] = &[16, 128, 256, 65536];
+
+/// An SMT verification obligation for a precomputed table.
+///
+/// Represents the proof goal: `forall i in 0..domain_size: table[i] == generator_fn(i)`
+#[derive(Debug, Clone)]
+pub struct TableSmtObligation {
+    pub table_name: String,
+    pub generator_fn: String,
+    pub domain_size: usize,
+    pub span: std::ops::Range<usize>,
 }
 
 impl Default for PrecomputedTableChecker {

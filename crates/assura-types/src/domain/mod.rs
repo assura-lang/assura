@@ -33,3 +33,4 @@ pub(crate) use storage::*;
 pub use core::{
     GeneratedTest, QuantifierTriggerChecker, TestGenerator, TestKind, TestableContract,
 };
+pub use numeric::TableSmtObligation;

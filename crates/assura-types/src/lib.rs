@@ -39,7 +39,10 @@ pub use types::{Type, TypeEnv, TypeError, TypedFile};
 pub use checkers::{FrameChecker, PendingDecreaseCheck, TaintLabel};
 
 // From domain module
-pub use domain::{GeneratedTest, TestGenerator, TestKind, TestableContract};
+pub use domain::{GeneratedTest, TableSmtObligation, TestGenerator, TestKind, TestableContract};
+
+// From checks module (public API for pipeline)
+pub use checks::collect_table_smt_obligations;
 
 // From convert module (pub(crate) items accessed within crate)
 pub(crate) use convert::parse_type_tokens;

@@ -34,6 +34,7 @@ pub(crate) use info_flow::*;
 pub(crate) use linear_typestate::*;
 pub(crate) use memory::*;
 pub(crate) use meta::*;
+pub use numeric::collect_table_smt_obligations;
 pub(crate) use numeric::*;
 pub(crate) use platform::*;
 pub(crate) use safety::*;

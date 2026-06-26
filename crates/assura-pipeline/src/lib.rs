@@ -234,6 +234,16 @@ fn run_layer2_verification(
         collect_roundtrip_obligations(&decl.node, &mut verifier);
     }
 
+    // Collect precomputed table verification obligations (forall i: table[i] == gen(i))
+    let table_obligations = assura_types::collect_table_smt_obligations(&typed.resolved.source);
+    for obligation in &table_obligations {
+        verifier.add_roundtrip(assura_smt::RoundtripObligation {
+            type_name: obligation.table_name.clone(),
+            serialize_fn: obligation.generator_fn.clone(),
+            deserialize_fn: format!("table_lookup_{}", obligation.table_name),
+        });
+    }
+
     if verifier.obligation_count() == 0 {
         return Vec::new();
     }
