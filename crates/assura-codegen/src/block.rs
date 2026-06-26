@@ -6,21 +6,16 @@ use super::*;
 // ---------------------------------------------------------------------------
 
 pub(crate) fn generate_codec_registry(cr: &CodecRegistryDecl, code: &mut String) {
-    // Generate a dispatch function that matches magic bytes
+    use crate::hir::*;
+
     let output_ty = if cr.output_type.is_empty() {
         "()".to_string()
     } else {
         cr.output_type.join(" ")
     };
-    code.push_str(&format!(
-        "/// Codec registry `{}` dispatch function.\n",
-        cr.name
-    ));
-    code.push_str(&format!(
-        "pub fn dispatch_{}(data: &[u8]) -> Option<{}> {{\n",
-        cr.name.to_lowercase(),
-        output_ty
-    ));
+
+    let mut body: Vec<RustStmt> = Vec::new();
+
     for codec in &cr.codecs {
         match &codec.magic {
             MagicPattern::Bytes { bytes, prefix: _ } => {
@@ -31,22 +26,39 @@ pub(crate) fn generate_codec_registry(cr: &CodecRegistryDecl, code: &mut String)
                     .map(|(i, b)| format!("data[{i}] == 0x{b:02X}"))
                     .collect();
                 let cond = byte_checks.join(" && ");
-                code.push_str(&format!("    if data.len() >= {len} && {cond} {{\n"));
-                code.push_str(&format!("        return Some({}(data));\n", codec.decoder));
-                code.push_str("    }\n");
+                body.push(RustStmt::Raw(format!(
+                    "if data.len() >= {len} && {cond} {{\n    return Some({}(data));\n}}",
+                    codec.decoder
+                )));
             }
             MagicPattern::Extension(exts) => {
-                code.push_str(&format!("    // Extension-based detection: {:?}\n", exts));
+                body.push(RustStmt::Comment(format!(
+                    "Extension-based detection: {exts:?}"
+                )));
             }
             MagicPattern::Probe(fn_name) => {
-                code.push_str(&format!(
-                    "    if {fn_name}(data) {{\n        return Some({}(data));\n    }}\n",
+                body.push(RustStmt::Raw(format!(
+                    "if {fn_name}(data) {{\n    return Some({}(data));\n}}",
                     codec.decoder
-                ));
+                )));
             }
         }
     }
-    code.push_str("    None\n}\n\n");
+
+    body.push(RustStmt::Expr(RustExpr::Ident("None".into())));
+
+    let item = RustItem::Fn(RustFn {
+        name: format!("dispatch_{}", cr.name.to_lowercase()),
+        params: vec![RustParam {
+            name: "data".into(),
+            ty: RustType::Raw("&[u8]".into()),
+        }],
+        ret: Some(RustType::Raw(format!("Option<{output_ty}>"))),
+        body,
+        doc: vec![format!("Codec registry `{}` dispatch function.", cr.name)],
+        ..RustFn::default()
+    });
+    code.push_str(&render_item_raw(&item));
 }
 
 // ---------------------------------------------------------------------------
@@ -54,6 +66,8 @@ pub(crate) fn generate_codec_registry(cr: &CodecRegistryDecl, code: &mut String)
 // ---------------------------------------------------------------------------
 
 pub(crate) fn generate_block(kind: &BlockKind, name: &str, body: &[Clause], code: &mut String) {
+    use crate::hir::*;
+
     // Interface blocks generate Rust traits
     if *kind == BlockKind::Interface {
         generate_interface_trait(name, body, code);
@@ -61,94 +75,110 @@ pub(crate) fn generate_block(kind: &BlockKind, name: &str, body: &[Clause], code
     }
 
     // Feature blocks with only Other clauses: compile-time only, no Rust codegen needed.
-    // Feature blocks that contain structural clauses (Ordering, Effects, Ensures, etc.)
-    // are handled by the generic block codegen below.
     if *kind == BlockKind::Feature
         && body
             .iter()
             .all(|c| matches!(c.kind, ClauseKind::Other(_) | ClauseKind::Requires))
     {
-        code.push_str(&format!("// {kind} {name}: compile-time feature flag\n\n"));
+        let item = RustItem::Comment(format!("{kind} {name}: compile-time feature flag"));
+        code.push_str(&render_item_raw(&item));
+        code.push('\n');
         return;
     }
 
-    // Table blocks: generate a doc comment describing the table.
-    // The actual compile-time verification happens in the SMT layer,
-    // not in generated Rust code.
+    // Table blocks: compile-time verified by SMT, no Rust codegen.
     if *kind == BlockKind::Table {
-        code.push_str(&format!(
-            "// {kind} {name}: compile-time verified by SMT\n\n"
-        ));
+        let item = RustItem::Comment(format!("{kind} {name}: compile-time verified by SMT"));
+        code.push_str(&render_item_raw(&item));
+        code.push('\n');
         return;
     }
 
-    // Other blocks: generate as documented constants/assertions
-    code.push_str(&format!("/// {kind}: {name}\n"));
-    code.push_str(&format!("pub mod block_{} {{\n", name.to_lowercase()));
+    // Other blocks: generate as a module with documented constants/assertions
+    let lower_name = name.to_lowercase();
+    let mut items: Vec<RustItem> = Vec::new();
 
     for clause in body {
         let expr = expr_to_rust(&clause.body);
         match clause.kind {
             ClauseKind::Ensures | ClauseKind::Invariant => {
-                code.push_str(&format!(
-                    "    /// Invariant: {expr}\n    pub fn check_{name}() {{ debug_assert!({expr}); }}\n",
-                    name = name.to_lowercase()
-                ));
+                items.push(RustItem::Fn(RustFn {
+                    name: format!("check_{lower_name}"),
+                    body: vec![RustStmt::Raw(format!("debug_assert!({expr});"))],
+                    is_pub: true,
+                    doc: vec![format!("Invariant: {expr}")],
+                    ..RustFn::default()
+                }));
             }
             ClauseKind::Requires => {
-                code.push_str(&format!(
-                    "    /// Precondition: {expr}\n    pub const PRECONDITION: &str = \"{}\";\n",
-                    expr.replace('"', "\\\"")
-                ));
-            }
-            ClauseKind::Effects => {
-                code.push_str(&format!("    /// Effects: {expr}\n"));
-            }
-            ClauseKind::Modifies => {
-                code.push_str(&format!("    /// Modifies: {expr}\n"));
-            }
-            ClauseKind::Input => {
-                code.push_str(&format!("    /// Input: {expr}\n"));
-            }
-            ClauseKind::Output => {
-                code.push_str(&format!("    /// Output: {expr}\n"));
-            }
-            ClauseKind::Errors => {
-                code.push_str(&format!("    /// Errors: {expr}\n"));
+                items.push(RustItem::Const(RustConst {
+                    name: "PRECONDITION".into(),
+                    ty: RustType::Raw("&str".into()),
+                    value: format!("\"{}\"", expr.replace('"', "\\\"")),
+                    is_pub: true,
+                    doc: vec![format!("Precondition: {expr}")],
+                }));
             }
             ClauseKind::Rule => {
-                code.push_str(&format!(
-                    "    /// Rule: {expr}\n    pub fn check_rule_{name}() {{ debug_assert!({expr}); }}\n",
-                    name = name.to_lowercase()
-                ));
-            }
-            ClauseKind::DataFlow => {
-                code.push_str(&format!("    /// DataFlow: {expr}\n"));
+                items.push(RustItem::Fn(RustFn {
+                    name: format!("check_rule_{lower_name}"),
+                    body: vec![RustStmt::Raw(format!("debug_assert!({expr});"))],
+                    is_pub: true,
+                    doc: vec![format!("Rule: {expr}")],
+                    ..RustFn::default()
+                }));
             }
             ClauseKind::MustNot => {
-                code.push_str(&format!(
-                    "    /// MustNot: {expr}\n    pub fn check_must_not_{name}() {{ debug_assert!(!({expr})); }}\n",
-                    name = name.to_lowercase()
-                ));
-            }
-            ClauseKind::Decreases => {
-                code.push_str(&format!("    /// Decreases: {expr}\n"));
+                items.push(RustItem::Fn(RustFn {
+                    name: format!("check_must_not_{lower_name}"),
+                    body: vec![RustStmt::Raw(format!("debug_assert!(!({expr}));"))],
+                    is_pub: true,
+                    doc: vec![format!("MustNot: {expr}")],
+                    ..RustFn::default()
+                }));
             }
             ClauseKind::Ordering => {
-                code.push_str(&format!("    /// Ordering: {expr}\n"));
+                items.push(RustItem::Raw(format!("/// Ordering: {expr}\n")));
                 if let Some(ord) = resolve_ordering_variant(&clause.body) {
-                    code.push_str(&format!(
-                        "    const ORDERING: std::sync::atomic::Ordering = std::sync::atomic::Ordering::{ord};\n"
-                    ));
+                    items.push(RustItem::Raw(format!(
+                        "const ORDERING: std::sync::atomic::Ordering = std::sync::atomic::Ordering::{ord};\n"
+                    )));
                 }
             }
+            ClauseKind::Effects => {
+                items.push(RustItem::Raw(format!("/// Effects: {expr}\n")));
+            }
+            ClauseKind::Modifies => {
+                items.push(RustItem::Raw(format!("/// Modifies: {expr}\n")));
+            }
+            ClauseKind::Input => {
+                items.push(RustItem::Raw(format!("/// Input: {expr}\n")));
+            }
+            ClauseKind::Output => {
+                items.push(RustItem::Raw(format!("/// Output: {expr}\n")));
+            }
+            ClauseKind::Errors => {
+                items.push(RustItem::Raw(format!("/// Errors: {expr}\n")));
+            }
+            ClauseKind::DataFlow => {
+                items.push(RustItem::Raw(format!("/// DataFlow: {expr}\n")));
+            }
+            ClauseKind::Decreases => {
+                items.push(RustItem::Raw(format!("/// Decreases: {expr}\n")));
+            }
             ClauseKind::Other(ref kind_name) => {
-                code.push_str(&format!("    /// {kind_name}: {expr}\n"));
+                items.push(RustItem::Raw(format!("/// {kind_name}: {expr}\n")));
             }
         }
     }
 
-    code.push_str("}\n\n");
+    let m = RustItem::Mod(RustMod {
+        name: format!("block_{lower_name}"),
+        items,
+        is_pub: true,
+        doc: vec![format!("{kind}: {name}")],
+    });
+    code.push_str(&render_item_raw(&m));
 }
 
 // ---------------------------------------------------------------------------

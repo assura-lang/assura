@@ -26,6 +26,7 @@ pub(crate) fn extract_state_comparison(body: &SpExpr) -> Option<String> {
     None
 }
 
+#[cfg(test)]
 pub(crate) fn generate_service_method(
     code: &mut String,
     name: &str,
@@ -34,13 +35,27 @@ pub(crate) fn generate_service_method(
     has_invariants: bool,
     ir_bodies: Option<&std::collections::HashMap<String, String>>,
 ) {
-    // Extract input/output from clauses
+    use crate::hir::*;
+
+    let method = build_service_method_fn(name, clauses, is_mutation, has_invariants, ir_bodies);
+    code.push_str(&render_item_raw(&RustItem::Fn(method)));
+}
+
+/// Build a `RustFn` for a service operation or query method.
+fn build_service_method_fn(
+    name: &str,
+    clauses: &[Clause],
+    is_mutation: bool,
+    has_invariants: bool,
+    ir_bodies: Option<&std::collections::HashMap<String, String>>,
+) -> crate::hir::RustFn {
+    use crate::hir::*;
+
     let mut input_params: Vec<(String, String)> = Vec::new();
     let mut output_type = "()".to_string();
     let mut output_name: Option<String> = None;
     let mut requires_exprs: Vec<String> = Vec::new();
     let mut ensures_exprs: Vec<String> = Vec::new();
-    let mut modifies: Vec<String> = Vec::new();
     let mut invariants: Vec<String> = Vec::new();
     let mut pre_state: Option<String> = None;
     let mut post_state: Option<String> = None;
@@ -55,7 +70,6 @@ pub(crate) fn generate_service_method(
                 output_name = extract_output_name(&clause.body);
             }
             ClauseKind::Requires => {
-                // Check for state guard pattern: requires { self.state == X }
                 if let Some(state) = extract_state_comparison(&clause.body) {
                     pre_state = Some(state);
                 } else {
@@ -63,186 +77,151 @@ pub(crate) fn generate_service_method(
                 }
             }
             ClauseKind::Ensures => {
-                // Check for state transition pattern: ensures { self.state == X }
                 if let Some(state) = extract_state_comparison(&clause.body) {
                     post_state = Some(state);
                 } else {
                     ensures_exprs.push(expr_to_rust(&clause.body));
                 }
             }
-            ClauseKind::Modifies => {
-                modifies.push(expr_to_rust(&clause.body));
-            }
             ClauseKind::Invariant => {
                 invariants.push(expr_to_rust(&clause.body));
             }
-            ClauseKind::Effects
-            | ClauseKind::Errors
-            | ClauseKind::Rule
-            | ClauseKind::DataFlow
-            | ClauseKind::MustNot
-            | ClauseKind::Decreases
-            | ClauseKind::Ordering
-            | ClauseKind::Other(_) => {}
+            _ => {}
         }
     }
 
     let kind_label = if is_mutation { "Operation" } else { "Query" };
-    code.push_str(&format!("        /// {kind_label}: {name}\n"));
 
-    // Doc comments for requires/ensures/effects/modifies
+    // Build doc comments
+    let mut doc: Vec<String> = vec![format!("{kind_label}: {name}")];
     for clause in clauses {
         match clause.kind {
-            ClauseKind::Requires => {
-                let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!("        /// Requires: {expr}\n"));
-            }
-            ClauseKind::Ensures => {
-                let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!("        /// Ensures: {expr}\n"));
-            }
-            ClauseKind::Effects => {
-                let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!("        /// Effects: {expr}\n"));
-            }
-            ClauseKind::Modifies => {
-                let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!("        /// Modifies: {expr}\n"));
-            }
+            ClauseKind::Requires => doc.push(format!("Requires: {}", expr_to_rust(&clause.body))),
+            ClauseKind::Ensures => doc.push(format!("Ensures: {}", expr_to_rust(&clause.body))),
+            ClauseKind::Effects => doc.push(format!("Effects: {}", expr_to_rust(&clause.body))),
+            ClauseKind::Modifies => doc.push(format!("Modifies: {}", expr_to_rust(&clause.body))),
             ClauseKind::Ordering => {
-                let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!("        /// Ordering: {expr}\n"));
-                if let Some(ord) = resolve_ordering_variant(&clause.body) {
-                    code.push_str(&format!(
-                        "        const ORDERING: std::sync::atomic::Ordering = std::sync::atomic::Ordering::{ord};\n"
-                    ));
-                }
+                doc.push(format!("Ordering: {}", expr_to_rust(&clause.body)));
             }
-            // Input/Output are handled in the signature generation.
-            // Other clause kinds don't produce doc comments.
-            ClauseKind::Input
-            | ClauseKind::Output
-            | ClauseKind::Invariant
-            | ClauseKind::Errors
-            | ClauseKind::Rule
-            | ClauseKind::DataFlow
-            | ClauseKind::MustNot
-            | ClauseKind::Decreases
-            | ClauseKind::Other(_) => {}
+            _ => {}
         }
     }
 
-    // Build function signature
+    // Build params (self + input params)
     let self_param = if is_mutation { "&mut self" } else { "&self" };
-    let extra_params = if input_params.is_empty() {
-        String::new()
+    let mut params = vec![RustParam {
+        name: self_param.into(),
+        ty: RustType::Raw("&Self".into()),
+    }];
+    for (n, t) in &input_params {
+        params.push(RustParam {
+            name: n.clone(),
+            ty: RustType::Raw(t.clone()),
+        });
+    }
+
+    let ret = if output_type == "()" {
+        None
     } else {
-        let ps: Vec<String> = input_params
-            .iter()
-            .map(|(n, t)| format!("{n}: {t}"))
-            .collect();
-        format!(", {}", ps.join(", "))
-    };
-    let ret_sig = if output_type == "()" {
-        String::new()
-    } else {
-        format!(" -> {output_type}")
+        Some(RustType::Raw(output_type.clone()))
     };
 
-    code.push_str(&format!(
-        "        pub fn {name}({self_param}{extra_params}){ret_sig} {{\n"
-    ));
+    // Build function body
+    let mut body: Vec<RustStmt> = Vec::new();
 
-    // Invariant check at entry
     if has_invariants {
-        code.push_str("            self.check_invariant();\n");
+        body.push(RustStmt::Raw("self.check_invariant();".into()));
     }
-
-    // State pre-condition guard
     if let Some(ref state) = pre_state {
-        code.push_str(&format!(
-            "            debug_assert_eq!(self.state, State::{state}, \"requires state {state}\");\n"
-        ));
+        body.push(RustStmt::Raw(format!(
+            "debug_assert_eq!(self.state, State::{state}, \"requires state {state}\");"
+        )));
     }
-
-    // Requires assertions
     for req in &requires_exprs {
-        generate_debug_assert_indented(code, req, "requires", 3);
+        body.push(RustStmt::Assert {
+            cond: req.clone(),
+            label: "requires".into(),
+        });
     }
 
     let ir_body = ir_bodies.and_then(|m| m.get(name));
 
     if output_type == "()" {
-        // State transition
         if let Some(ref state) = post_state {
-            code.push_str(&format!("            self.state = State::{state};\n"));
+            body.push(RustStmt::Raw(format!("self.state = State::{state};")));
         }
-        if let Some(body) = ir_body {
-            code.push_str(body);
+        if let Some(ir) = ir_body {
+            body.push(RustStmt::Raw(ir.clone()));
         } else {
-            code.push_str(&format!(
-                "            todo!(\"{} implementation\")\n",
+            body.push(RustStmt::Expr(RustExpr::Todo(format!(
+                "{} implementation",
                 kind_label.to_lowercase()
-            ));
+            ))));
         }
-        // Operation-level invariant assertions
         for inv in &invariants {
-            generate_debug_assert_indented(code, inv, "invariant", 3);
+            body.push(RustStmt::Assert {
+                cond: inv.clone(),
+                label: "invariant".into(),
+            });
         }
-        // Invariant check at exit (for void operations)
         if has_invariants {
-            code.push_str("            self.check_invariant();\n");
+            body.push(RustStmt::Raw("self.check_invariant();".into()));
         }
     } else {
-        if let Some(body) = ir_body {
-            code.push_str(body);
+        if let Some(ir) = ir_body {
+            body.push(RustStmt::Raw(ir.clone()));
         } else {
-            code.push_str(&format!(
-                "            let {result_var}: {output_type} = todo!(\"{} implementation\");\n",
-                kind_label.to_lowercase(),
-                result_var = RESULT_VAR
-            ));
+            body.push(RustStmt::Raw(format!(
+                "let {RESULT_VAR}: {output_type} = todo!(\"{} implementation\");",
+                kind_label.to_lowercase()
+            )));
         }
-        // Bind the output variable name so ensures clauses can reference it
-        if let Some(ref name) = output_name {
-            code.push_str(&format!("            let {name} = {RESULT_VAR}.clone();\n"));
+        if let Some(ref oname) = output_name {
+            body.push(RustStmt::Raw(format!(
+                "let {oname} = {RESULT_VAR}.clone();"
+            )));
         }
-        // Ensures assertions
         for ens in &ensures_exprs {
-            generate_debug_assert_indented(code, ens, "ensures", 3);
+            body.push(RustStmt::Assert {
+                cond: ens.clone(),
+                label: "ensures".into(),
+            });
         }
-        // Operation-level invariant assertions
         for inv in &invariants {
-            generate_debug_assert_indented(code, inv, "invariant", 3);
+            body.push(RustStmt::Assert {
+                cond: inv.clone(),
+                label: "invariant".into(),
+            });
         }
-        // State transition
         if let Some(ref state) = post_state {
-            code.push_str(&format!("            self.state = State::{state};\n"));
+            body.push(RustStmt::Raw(format!("self.state = State::{state};")));
         }
-        // Invariant check at exit
         if has_invariants {
-            code.push_str("            self.check_invariant();\n");
+            body.push(RustStmt::Raw("self.check_invariant();".into()));
         }
-        code.push_str(&format!("            {RESULT_VAR}\n"));
+        body.push(RustStmt::Expr(RustExpr::Ident(RESULT_VAR.into())));
     }
 
-    code.push_str("        }\n\n");
+    RustFn {
+        name: name.to_string(),
+        params,
+        ret,
+        body,
+        doc,
+        ..RustFn::default()
+    }
 }
 
-/// Generate a service method for typestate-encoded services.
-///
-/// State transitions consume `self` and return `ServiceName<NewState>`.
-/// Pre-state guards are enforced by the type system (the method only
-/// exists on `impl ServiceName<PreState>`), so no runtime assertions.
-pub(crate) fn generate_typestate_method(
-    code: &mut String,
+/// Build a `RustFn` for a typestate service method.
+fn build_typestate_method_fn(
     service_name: &str,
     name: &str,
     clauses: &[Clause],
     is_mutation: bool,
-    _has_invariants: bool,
     ir_bodies: Option<&std::collections::HashMap<String, String>>,
-) {
+) -> crate::hir::RustFn {
+    use crate::hir::*;
+
     let mut input_params: Vec<(String, String)> = Vec::new();
     let mut output_type = "()".to_string();
     let mut output_name: Option<String> = None;
@@ -253,15 +232,12 @@ pub(crate) fn generate_typestate_method(
 
     for clause in clauses {
         match &clause.kind {
-            ClauseKind::Input => {
-                extract_input_params(&clause.body, &mut input_params);
-            }
+            ClauseKind::Input => extract_input_params(&clause.body, &mut input_params),
             ClauseKind::Output => {
                 output_type = extract_output_type(&clause.body);
                 output_name = extract_output_name(&clause.body);
             }
             ClauseKind::Requires => {
-                // State guards are encoded in the type, skip them
                 if extract_state_comparison(&clause.body).is_none() {
                     requires_exprs.push(expr_to_rust(&clause.body));
                 }
@@ -273,140 +249,113 @@ pub(crate) fn generate_typestate_method(
                     ensures_exprs.push(expr_to_rust(&clause.body));
                 }
             }
-            ClauseKind::Invariant => {
-                invariants.push(expr_to_rust(&clause.body));
-            }
-            ClauseKind::Modifies
-            | ClauseKind::Effects
-            | ClauseKind::Errors
-            | ClauseKind::Rule
-            | ClauseKind::DataFlow
-            | ClauseKind::MustNot
-            | ClauseKind::Decreases
-            | ClauseKind::Ordering
-            | ClauseKind::Other(_) => {}
+            ClauseKind::Invariant => invariants.push(expr_to_rust(&clause.body)),
+            _ => {}
         }
     }
 
     let kind_label = if is_mutation { "Operation" } else { "Query" };
-    code.push_str(&format!("/// {kind_label}: {name}\n"));
 
     // Doc comments
+    let mut doc: Vec<String> = vec![format!("{kind_label}: {name}")];
     for clause in clauses {
         match clause.kind {
-            ClauseKind::Requires => {
-                let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!("/// Requires: {expr}\n"));
-            }
-            ClauseKind::Ensures => {
-                let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!("/// Ensures: {expr}\n"));
-            }
-            ClauseKind::Effects => {
-                let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!("/// Effects: {expr}\n"));
-            }
-            ClauseKind::Modifies => {
-                let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!("/// Modifies: {expr}\n"));
-            }
-            ClauseKind::Ordering => {
-                let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!("/// Ordering: {expr}\n"));
-                if let Some(ord) = resolve_ordering_variant(&clause.body) {
-                    code.push_str(&format!(
-                        "const ORDERING: std::sync::atomic::Ordering = std::sync::atomic::Ordering::{ord};\n"
-                    ));
-                }
-            }
-            ClauseKind::Input
-            | ClauseKind::Output
-            | ClauseKind::Invariant
-            | ClauseKind::Errors
-            | ClauseKind::Rule
-            | ClauseKind::DataFlow
-            | ClauseKind::MustNot
-            | ClauseKind::Decreases
-            | ClauseKind::Other(_) => {}
+            ClauseKind::Requires => doc.push(format!("Requires: {}", expr_to_rust(&clause.body))),
+            ClauseKind::Ensures => doc.push(format!("Ensures: {}", expr_to_rust(&clause.body))),
+            ClauseKind::Effects => doc.push(format!("Effects: {}", expr_to_rust(&clause.body))),
+            ClauseKind::Modifies => doc.push(format!("Modifies: {}", expr_to_rust(&clause.body))),
+            ClauseKind::Ordering => doc.push(format!("Ordering: {}", expr_to_rust(&clause.body))),
+            _ => {}
         }
     }
 
-    // Determine self parameter and return type based on state transition
+    // Self parameter depends on whether there's a state transition
     let has_transition = post_state.is_some();
     let self_param = if has_transition {
-        "self" // consume self for state transitions
+        "self"
     } else if is_mutation {
         "&mut self"
     } else {
         "&self"
     };
 
-    let extra_params = if input_params.is_empty() {
-        String::new()
-    } else {
-        let ps: Vec<String> = input_params
-            .iter()
-            .map(|(n, t)| format!("{n}: {t}"))
-            .collect();
-        format!(", {}", ps.join(", "))
-    };
-
-    let ret_sig = if let Some(ref new_state) = post_state {
-        format!(" -> {service_name}<{new_state}>")
-    } else if output_type == "()" {
-        String::new()
-    } else {
-        format!(" -> {output_type}")
-    };
-
-    code.push_str(&format!(
-        "pub fn {name}({self_param}{extra_params}){ret_sig} {{\n"
-    ));
-
-    // Requires assertions (non-state-guard ones)
-    for req in &requires_exprs {
-        generate_debug_assert_indented(code, req, "requires", 1);
+    let mut params = vec![RustParam {
+        name: self_param.into(),
+        ty: RustType::Raw("Self".into()),
+    }];
+    for (n, t) in &input_params {
+        params.push(RustParam {
+            name: n.clone(),
+            ty: RustType::Raw(t.clone()),
+        });
     }
 
-    // For state transitions, todo!() coerces to the return type
-    // For non-transitions, standard pattern
-    // Invariant assertions (emitted before the body in all cases)
+    let ret = if let Some(ref new_state) = post_state {
+        Some(RustType::Raw(format!("{service_name}<{new_state}>")))
+    } else if output_type == "()" {
+        None
+    } else {
+        Some(RustType::Raw(output_type.clone()))
+    };
+
+    // Build body
+    let mut body: Vec<RustStmt> = Vec::new();
+
+    for req in &requires_exprs {
+        body.push(RustStmt::Assert {
+            cond: req.clone(),
+            label: "requires".into(),
+        });
+    }
     for inv in &invariants {
-        generate_debug_assert_indented(code, inv, "invariant", 1);
+        body.push(RustStmt::Assert {
+            cond: inv.clone(),
+            label: "invariant".into(),
+        });
     }
 
     let ir_body = ir_bodies.and_then(|m| m.get(name));
 
     if post_state.is_some() || output_type == "()" {
-        if let Some(body) = ir_body {
-            code.push_str(body);
+        if let Some(ir) = ir_body {
+            body.push(RustStmt::Raw(ir.clone()));
         } else {
-            code.push_str(&format!(
-                "    todo!(\"{} implementation\")\n",
+            body.push(RustStmt::Expr(RustExpr::Todo(format!(
+                "{} implementation",
                 kind_label.to_lowercase()
-            ));
+            ))));
         }
     } else {
-        if let Some(body) = ir_body {
-            code.push_str(body);
+        if let Some(ir) = ir_body {
+            body.push(RustStmt::Raw(ir.clone()));
         } else {
-            code.push_str(&format!(
-                "    let {result_var}: {output_type} = todo!(\"{} implementation\");\n",
-                kind_label.to_lowercase(),
-                result_var = RESULT_VAR
-            ));
+            body.push(RustStmt::Raw(format!(
+                "let {RESULT_VAR}: {output_type} = todo!(\"{} implementation\");",
+                kind_label.to_lowercase()
+            )));
         }
-        // Bind the output variable name so ensures clauses can reference it
-        if let Some(ref name) = output_name {
-            code.push_str(&format!("    let {name} = {RESULT_VAR}.clone();\n"));
+        if let Some(ref oname) = output_name {
+            body.push(RustStmt::Raw(format!(
+                "let {oname} = {RESULT_VAR}.clone();"
+            )));
         }
         for ens in &ensures_exprs {
-            generate_debug_assert_indented(code, ens, "ensures", 1);
+            body.push(RustStmt::Assert {
+                cond: ens.clone(),
+                label: "ensures".into(),
+            });
         }
-        code.push_str(&format!("    {RESULT_VAR}\n"));
+        body.push(RustStmt::Expr(RustExpr::Ident(RESULT_VAR.into())));
     }
 
-    code.push_str("}\n");
+    RustFn {
+        name: name.to_string(),
+        params,
+        ret,
+        body,
+        doc,
+        ..RustFn::default()
+    }
 }
 
 /// Collect state names from a ServiceDecl.
@@ -438,36 +387,41 @@ pub(crate) fn generate_typestate_service_body(
     code: &mut String,
     ir_bodies: Option<&std::collections::HashMap<String, String>>,
 ) {
-    let states = collect_service_states(s);
-    let has_invariants = s
-        .items
-        .iter()
-        .any(|i| matches!(i, ServiceItem::Invariant(_)));
+    use crate::hir::*;
 
+    let states = collect_service_states(s);
     // Generate nested type/enum definitions
     for item in &s.items {
         match item {
             ServiceItem::TypeDef(t) => generate_type_def(t, code),
             ServiceItem::EnumDef(e) => generate_enum_def(e, code),
-            ServiceItem::States(_)
-            | ServiceItem::Operation { .. }
-            | ServiceItem::Query { .. }
-            | ServiceItem::Invariant(_)
-            | ServiceItem::Other { .. } => {}
+            _ => {}
         }
     }
 
     // State marker structs
     for state in &states {
-        code.push_str(&format!("/// State marker: {state}\npub struct {state};\n"));
+        let marker = RustStruct {
+            name: state.clone(),
+            derives: vec![],
+            doc: vec![format!("State marker: {state}")],
+            ..RustStruct::default()
+        };
+        code.push_str(&render_item_raw(&RustItem::Struct(marker)));
     }
-    code.push('\n');
 
     // Generic service struct with PhantomData
-    code.push_str(&format!(
-        "#[derive(Debug)]\npub struct {}<State> {{\n    _state: std::marker::PhantomData<State>,\n}}\n\n",
-        s.name
-    ));
+    code.push_str(&render_item_raw(&RustItem::Struct(RustStruct {
+        name: s.name.clone(),
+        type_params: vec!["State".into()],
+        fields: vec![RustField {
+            name: "_state".into(),
+            ty: RustType::Raw("std::marker::PhantomData<State>".into()),
+            is_pub: false,
+        }],
+        derives: vec!["Debug".into()],
+        ..RustStruct::default()
+    })));
 
     // Group methods by pre_state
     struct MethodRef<'a> {
@@ -482,15 +436,12 @@ pub(crate) fn generate_typestate_service_body(
 
     // Build ordered grouping: preserve state order from declaration
     let mut state_order: Vec<Option<String>> = Vec::new();
-    // First entry: initial state (for new())
     if let Some(first) = states.first() {
         state_order.push(Some(first.clone()));
     }
-    // Remaining states
     for state in states.iter().skip(1) {
         state_order.push(Some(state.clone()));
     }
-    // Generic (None) for state-independent methods
     state_order.push(None);
 
     for key in &state_order {
@@ -508,11 +459,8 @@ pub(crate) fn generate_typestate_service_body(
                 };
                 if let Some(group) = state_methods.iter_mut().find(|(k, _)| *k == pre) {
                     group.1.push(method);
-                } else {
-                    // State not in declared list; add to generic
-                    if let Some(group) = state_methods.iter_mut().find(|(k, _)| k.is_none()) {
-                        group.1.push(method);
-                    }
+                } else if let Some(group) = state_methods.iter_mut().find(|(k, _)| k.is_none()) {
+                    group.1.push(method);
                 }
             }
             ServiceItem::Query { name, clauses } => {
@@ -524,15 +472,13 @@ pub(crate) fn generate_typestate_service_body(
                 };
                 if let Some(group) = state_methods.iter_mut().find(|(k, _)| *k == pre) {
                     group.1.push(method);
-                } else {
-                    if let Some(group) = state_methods.iter_mut().find(|(k, _)| k.is_none()) {
-                        group.1.push(method);
-                    }
+                } else if let Some(group) = state_methods.iter_mut().find(|(k, _)| k.is_none()) {
+                    group.1.push(method);
                 }
             }
             ServiceItem::Invariant(expr) => invariant_exprs.push(expr),
             ServiceItem::Other { kind, body } => other_items.push((kind, body)),
-            ServiceItem::TypeDef(_) | ServiceItem::EnumDef(_) | ServiceItem::States(_) => {}
+            _ => {}
         }
     }
 
@@ -549,53 +495,77 @@ pub(crate) fn generate_typestate_service_body(
                 if methods.is_empty() && !is_initial {
                     continue;
                 }
-                code.push_str(&format!("impl {}<{state_name}> {{\n", s.name));
+                let mut impl_methods: Vec<RustFn> = Vec::new();
                 if is_initial {
-                    code.push_str(
-                        "pub fn new() -> Self { Self { _state: std::marker::PhantomData } }\n",
-                    );
+                    impl_methods.push(RustFn {
+                        name: "new".into(),
+                        ret: Some(RustType::Raw("Self".into())),
+                        body: vec![RustStmt::Raw(
+                            "Self { _state: std::marker::PhantomData }".into(),
+                        )],
+                        ..RustFn::default()
+                    });
                 }
                 for method in methods {
-                    generate_typestate_method(
-                        code,
+                    impl_methods.push(build_typestate_method_fn(
                         &s.name,
                         method.name,
                         method.clauses,
                         method.is_mutation,
-                        has_invariants,
                         ir_bodies,
-                    );
+                    ));
                 }
-                code.push_str("}\n\n");
+                code.push_str(&render_item_raw(&RustItem::Impl(RustImpl {
+                    trait_name: None,
+                    target: format!("{}<{state_name}>", s.name),
+                    type_params: vec![],
+                    methods: impl_methods,
+                })));
             }
             None => {
-                // Generic impl block for state-independent methods + invariants
                 if methods.is_empty() && invariant_exprs.is_empty() && other_items.is_empty() {
                     continue;
                 }
-                code.push_str(&format!("impl<S> {}<S> {{\n", s.name));
+                let mut impl_methods: Vec<RustFn> = Vec::new();
                 for method in methods {
-                    generate_typestate_method(
-                        code,
+                    impl_methods.push(build_typestate_method_fn(
                         &s.name,
                         method.name,
                         method.clauses,
                         method.is_mutation,
-                        has_invariants,
                         ir_bodies,
-                    );
+                    ));
                 }
                 for expr in &invariant_exprs {
                     let rust_expr = expr_to_rust(expr);
-                    code.push_str(&format!(
-                        "/// Service invariant\npub fn check_invariant(&self) {{ debug_assert!({rust_expr}); }}\n"
-                    ));
+                    impl_methods.push(RustFn {
+                        name: "check_invariant".into(),
+                        params: vec![RustParam {
+                            name: "&self".into(),
+                            ty: RustType::Raw("&Self".into()),
+                        }],
+                        body: vec![RustStmt::Raw(format!("debug_assert!({rust_expr});"))],
+                        doc: vec!["Service invariant".into()],
+                        ..RustFn::default()
+                    });
                 }
+                // Other items as raw comments inside the impl
+                let mut raw_items: Vec<String> = Vec::new();
                 for (kind, body) in &other_items {
-                    let rust_expr = expr_to_rust(body);
-                    code.push_str(&format!("// {kind}: {rust_expr}\n"));
+                    raw_items.push(format!("// {kind}: {}", expr_to_rust(body)));
                 }
-                code.push_str("}\n\n");
+
+                code.push_str(&render_item_raw(&RustItem::Impl(RustImpl {
+                    trait_name: None,
+                    target: s.name.clone(),
+                    type_params: vec!["S".into()],
+                    methods: impl_methods,
+                })));
+                // Append raw other items after the impl (they don't fit in methods)
+                for raw in &raw_items {
+                    code.push_str(raw);
+                    code.push('\n');
+                }
             }
         }
     }
@@ -608,6 +578,8 @@ pub(crate) fn generate_service_contents(
     code: &mut String,
     ir_bodies: Option<&std::collections::HashMap<String, String>>,
 ) {
+    use crate::hir::*;
+
     let has_states = s.items.iter().any(|i| matches!(i, ServiceItem::States(_)));
 
     if has_states {
@@ -615,53 +587,94 @@ pub(crate) fn generate_service_contents(
         return;
     }
 
-    // Stateless service: simple struct + impl block
+    // Stateless service: nested type/enum definitions first
     for item in &s.items {
         match item {
             ServiceItem::TypeDef(t) => generate_type_def(t, code),
             ServiceItem::EnumDef(e) => generate_enum_def(e, code),
-            ServiceItem::States(_)
-            | ServiceItem::Operation { .. }
-            | ServiceItem::Query { .. }
-            | ServiceItem::Invariant(_)
-            | ServiceItem::Other { .. } => {}
+            _ => {}
         }
     }
 
-    code.push_str(&format!("#[derive(Debug)]\npub struct {} {{\n", s.name));
-    code.push_str("}\n\n");
+    // Struct definition
+    code.push_str(&render_item_raw(&RustItem::Struct(RustStruct {
+        name: s.name.clone(),
+        derives: vec!["Debug".into()],
+        ..RustStruct::default()
+    })));
 
-    code.push_str(&format!("impl {} {{\n", s.name));
-    code.push_str("    pub fn new() -> Self {\n        Self { }\n    }\n\n");
-
+    // Impl block with new() + methods
     let has_invariants = s
         .items
         .iter()
         .any(|i| matches!(i, ServiceItem::Invariant(_)));
 
+    let mut methods: Vec<RustFn> = Vec::new();
+
+    // new() constructor
+    methods.push(RustFn {
+        name: "new".into(),
+        ret: Some(RustType::Raw("Self".into())),
+        body: vec![RustStmt::Raw("Self { }".into())],
+        ..RustFn::default()
+    });
+
     for item in &s.items {
         match item {
             ServiceItem::Operation { name, clauses } => {
-                generate_service_method(code, name, clauses, true, has_invariants, ir_bodies);
+                methods.push(build_service_method_fn(
+                    name,
+                    clauses,
+                    true,
+                    has_invariants,
+                    ir_bodies,
+                ));
             }
             ServiceItem::Query { name, clauses } => {
-                generate_service_method(code, name, clauses, false, has_invariants, ir_bodies);
+                methods.push(build_service_method_fn(
+                    name,
+                    clauses,
+                    false,
+                    has_invariants,
+                    ir_bodies,
+                ));
             }
             ServiceItem::Invariant(expr) => {
                 let rust_expr = expr_to_rust(expr);
-                code.push_str(&format!(
-                    "    /// Service invariant\n    pub fn check_invariant(&self) {{ debug_assert!({rust_expr}); }}\n\n"
-                ));
+                methods.push(RustFn {
+                    name: "check_invariant".into(),
+                    params: vec![RustParam {
+                        name: "&self".into(),
+                        ty: RustType::Raw("&Self".into()),
+                    }],
+                    body: vec![RustStmt::Raw(format!("debug_assert!({rust_expr});"))],
+                    doc: vec!["Service invariant".into()],
+                    ..RustFn::default()
+                });
             }
-            ServiceItem::Other { kind, body } => {
-                let rust_expr = expr_to_rust(body);
-                code.push_str(&format!("    // {kind}: {rust_expr}\n\n"));
-            }
-            ServiceItem::TypeDef(_) | ServiceItem::EnumDef(_) | ServiceItem::States(_) => {}
+            _ => {}
         }
     }
 
-    code.push_str("}\n"); // close impl
+    // Collect Other items separately (they go as raw comments after the impl)
+    let mut other_comments: Vec<String> = Vec::new();
+    for item in &s.items {
+        if let ServiceItem::Other { kind, body } = item {
+            other_comments.push(format!("// {kind}: {}", expr_to_rust(body)));
+        }
+    }
+
+    code.push_str(&render_item_raw(&RustItem::Impl(RustImpl {
+        trait_name: None,
+        target: s.name.clone(),
+        type_params: vec![],
+        methods,
+    })));
+
+    for comment in &other_comments {
+        code.push_str(comment);
+        code.push('\n');
+    }
 }
 
 pub(crate) fn generate_service(
@@ -669,24 +682,20 @@ pub(crate) fn generate_service(
     code: &mut String,
     ir_bodies: Option<&std::collections::HashMap<String, String>>,
 ) {
-    code.push_str(&format!(
-        "/// Service: {}\npub mod {} {{\n",
-        s.name,
-        s.name.to_lowercase()
-    ));
+    use crate::hir::*;
 
-    // Generate the service body (typestate or classic), then indent it
+    // Generate the service body into a separate buffer
     let mut inner = String::new();
     generate_service_contents(s, &mut inner, ir_bodies);
-    for line in inner.lines() {
-        if line.is_empty() {
-            code.push('\n');
-        } else {
-            code.push_str(&format!("    {line}\n"));
-        }
-    }
 
-    code.push_str("}\n\n"); // close mod
+    // Wrap in a module using RustMod
+    let m = RustItem::Mod(RustMod {
+        name: s.name.to_lowercase(),
+        items: vec![RustItem::Raw(inner)],
+        is_pub: true,
+        doc: vec![format!("Service: {}", s.name)],
+    });
+    code.push_str(&render_item_raw(&m));
 }
 
 // ---------------------------------------------------------------------------
@@ -699,6 +708,8 @@ pub(crate) fn generate_service(
 /// methods, and `extends` clauses that declare supertrait bounds.
 /// Generates a Rust trait with the declared methods.
 pub(crate) fn generate_interface_trait(name: &str, body: &[Clause], code: &mut String) {
+    use crate::hir::*;
+
     // Collect extends (supertraits)
     let extends: Vec<String> = body
         .iter()
@@ -712,87 +723,102 @@ pub(crate) fn generate_interface_trait(name: &str, body: &[Clause], code: &mut S
         })
         .collect();
 
-    // Build trait header with supertraits
-    if extends.is_empty() {
-        code.push_str(&format!(
-            "/// Interface contract: {name}\npub trait {name} {{\n"
-        ));
-    } else {
-        let bounds = extends.join(" + ");
-        code.push_str(&format!(
-            "/// Interface contract: {name}\npub trait {name}: {bounds} {{\n"
-        ));
-    }
+    let mut methods: Vec<RustFn> = Vec::new();
 
-    // Collect method declarations
     for clause in body {
         match &clause.kind {
             ClauseKind::Other(k) if k == "method" => {
-                generate_trait_method(&clause.body, code);
+                methods.push(build_trait_method_fn(&clause.body));
             }
             ClauseKind::Invariant | ClauseKind::Ensures => {
-                // Interface invariants become provided methods with assertions
                 let expr = expr_to_rust(&clause.body);
-                code.push_str(&format!(
-                    "    /// Interface invariant\n    fn check_invariant(&self) {{ debug_assert!({expr}); }}\n\n"
-                ));
+                methods.push(RustFn {
+                    name: "check_invariant".into(),
+                    params: vec![RustParam {
+                        name: "&self".into(),
+                        ty: RustType::Raw("&Self".into()),
+                    }],
+                    body: vec![RustStmt::Raw(format!("debug_assert!({expr});"))],
+                    is_pub: false,
+                    doc: vec!["Interface invariant".into()],
+                    ..RustFn::default()
+                });
             }
-            // Interface blocks only use method and invariant clauses.
-            // Other clause kinds are ignored in trait generation.
-            ClauseKind::Requires
-            | ClauseKind::Effects
-            | ClauseKind::Modifies
-            | ClauseKind::Input
-            | ClauseKind::Output
-            | ClauseKind::Errors
-            | ClauseKind::Rule
-            | ClauseKind::DataFlow
-            | ClauseKind::MustNot
-            | ClauseKind::Decreases
-            | ClauseKind::Ordering
-            | ClauseKind::Other(_) => {}
+            _ => {}
         }
     }
 
-    code.push_str("}\n\n");
+    let item = RustItem::Trait(RustTrait {
+        name: name.to_string(),
+        type_params: vec![],
+        supertraits: extends,
+        methods,
+        is_pub: true,
+        doc: vec![format!("Interface contract: {name}")],
+    });
+    code.push_str(&render_item_raw(&item));
 }
 
-/// Generate a single trait method declaration from an interface method clause.
+/// Generate a single trait method from an interface `method` clause body.
+///
+/// Public wrapper around `build_trait_method_fn` for callers (contract.rs, tests)
+/// that still use the `&mut String` append pattern.
 pub(crate) fn generate_trait_method(body: &SpExpr, code: &mut String) {
+    use crate::hir::*;
+    let f = build_trait_method_fn(body);
+    code.push_str(&render_item_raw(&RustItem::Fn(f)));
+}
+
+/// Build a `RustFn` from an interface method clause body expression.
+fn build_trait_method_fn(body: &SpExpr) -> crate::hir::RustFn {
+    use crate::hir::*;
+
     match &body.node {
-        Expr::Ident(name) => {
-            // Simple method with no params: fn name(&self);
-            code.push_str(&format!("    fn {name}(&self);\n\n"));
-        }
+        Expr::Ident(name) => RustFn {
+            name: name.clone(),
+            params: vec![RustParam {
+                name: "&self".into(),
+                ty: RustType::Raw("&Self".into()),
+            }],
+            is_pub: false,
+            is_abstract: true,
+            ..RustFn::default()
+        },
         Expr::Call { func, args } => {
-            // Method with params: fn name(&self, param: Type, ...) -> RetType
             let func_name = if let Expr::Ident(n) = &func.as_ref().node {
                 n.clone()
             } else {
                 "unknown".to_string()
             };
-            let params: String = args
-                .iter()
-                .enumerate()
-                .map(|(i, arg)| {
-                    if let Expr::Ident(ty) = &arg.node {
-                        format!("arg{i}: {}", map_type_token(ty))
-                    } else {
-                        format!("arg{i}: i64")
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            if params.is_empty() {
-                code.push_str(&format!("    fn {func_name}(&self);\n\n"));
-            } else {
-                code.push_str(&format!("    fn {func_name}(&self, {params});\n\n"));
+            let mut params = vec![RustParam {
+                name: "&self".into(),
+                ty: RustType::Raw("&Self".into()),
+            }];
+            for (i, arg) in args.iter().enumerate() {
+                let ty = if let Expr::Ident(ty) = &arg.node {
+                    map_type_token(ty).to_string()
+                } else {
+                    "i64".to_string()
+                };
+                params.push(RustParam {
+                    name: format!("arg{i}"),
+                    ty: RustType::Raw(ty),
+                });
+            }
+            RustFn {
+                name: func_name,
+                params,
+                is_pub: false,
+                is_abstract: true,
+                ..RustFn::default()
             }
         }
         Expr::Raw(tokens) => {
-            // Parse method from raw tokens: "name(Type, Type) -> RetType"
             if let Some((name, rest)) = tokens.first().map(|n| (n.clone(), &tokens[1..])) {
-                let mut params = Vec::new();
+                let mut params: Vec<RustParam> = vec![RustParam {
+                    name: "&self".into(),
+                    ty: RustType::Raw("&Self".into()),
+                }];
                 let mut return_type = String::new();
                 let mut i = 0;
                 let mut in_params = false;
@@ -821,60 +847,59 @@ pub(crate) fn generate_trait_method(body: &SpExpr, code: &mut String) {
                         continue;
                     }
                     if in_params {
-                        // Check for "name: Type" pattern
                         if i + 2 < rest.len() && rest[i + 1] == ":" {
                             let pname = tok.clone();
                             let ptype = map_type_token(&rest[i + 2]).to_string();
-                            params.push(format!("{pname}: {ptype}"));
+                            params.push(RustParam {
+                                name: pname,
+                                ty: RustType::Raw(ptype),
+                            });
                             i += 3;
                             continue;
                         }
-                        // Just a type name
                         let ptype = map_type_token(tok).to_string();
-                        params.push(format!("arg{}: {ptype}", params.len()));
+                        params.push(RustParam {
+                            name: format!("arg{}", params.len() - 1),
+                            ty: RustType::Raw(ptype),
+                        });
                     }
                     i += 1;
                 }
 
-                let params_s = if params.is_empty() {
-                    String::new()
+                let ret = if return_type.is_empty() {
+                    None
                 } else {
-                    format!(", {}", params.join(", "))
+                    Some(RustType::Raw(return_type))
                 };
 
-                if return_type.is_empty() {
-                    code.push_str(&format!("    fn {name}(&self{params_s});\n\n"));
-                } else {
-                    code.push_str(&format!(
-                        "    fn {name}(&self{params_s}) -> {return_type};\n\n"
-                    ));
+                RustFn {
+                    name,
+                    params,
+                    ret,
+                    is_pub: false,
+                    is_abstract: true,
+                    ..RustFn::default()
+                }
+            } else {
+                RustFn {
+                    name: "unknown".into(),
+                    is_pub: false,
+                    is_abstract: true,
+                    ..RustFn::default()
                 }
             }
         }
-        // These expression forms are not valid trait method declarations;
-        // emit a compile_error! so the generated Rust surfaces the issue.
-        Expr::Literal(_)
-        | Expr::Field(_, _)
-        | Expr::MethodCall { .. }
-        | Expr::Index { .. }
-        | Expr::BinOp { .. }
-        | Expr::UnaryOp { .. }
-        | Expr::Old(_)
-        | Expr::Forall { .. }
-        | Expr::Exists { .. }
-        | Expr::If { .. }
-        | Expr::List(_)
-        | Expr::Cast { .. }
-        | Expr::Block(_)
-        | Expr::Ghost(_)
-        | Expr::Apply { .. }
-        | Expr::Let { .. }
-        | Expr::Match { .. }
-        | Expr::Tuple(_) => {
-            code.push_str(&format!(
-                "    compile_error!(\"unsupported expression in trait method: {:?}\");\n\n",
-                std::mem::discriminant(&body.node)
-            ));
+        _ => {
+            // Unsupported expressions: build a function with compile_error body
+            RustFn {
+                name: "unsupported".into(),
+                body: vec![RustStmt::Raw(format!(
+                    "compile_error!(\"unsupported expression in trait method: {:?}\");",
+                    std::mem::discriminant(&body.node)
+                ))],
+                is_pub: false,
+                ..RustFn::default()
+            }
         }
     }
 }

@@ -552,6 +552,7 @@ pub(crate) fn has_deep_field_access(expr: &str) -> bool {
 }
 
 /// Like `generate_debug_assert` but with configurable indent level.
+#[cfg(test)]
 pub(crate) fn generate_debug_assert_indented(
     code: &mut String,
     expr: &str,
