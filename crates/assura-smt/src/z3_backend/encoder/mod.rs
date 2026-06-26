@@ -17,6 +17,7 @@ mod adt;
 mod bitvector;
 mod calls;
 mod core_impl;
+mod encode_term_impl;
 mod methods;
 mod quantifier;
 mod unmodelable;

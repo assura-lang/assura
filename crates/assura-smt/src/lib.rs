@@ -69,7 +69,9 @@ mod clause_policy;
 //   encode_match_policy      — match / ADT scrutinee plan
 //   encode_binop_policy      — binary/unary op plan (arith/cmp/logic; AstBinOpKind/AstUnaryKind)
 //   encode_adt_policy        — ADT constructor/test plan
-// Not full `Expr`→solver-term unify: Z3 `Encoder` and CVC5 term builders stay separate.
+// Shared `Expr`→solver-term encoding via `EncodeTerm` trait (issue #602).
+mod encode_term;
+
 mod encode_adt_policy;
 mod encode_atom_policy;
 mod encode_binop_policy;
