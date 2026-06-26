@@ -354,11 +354,13 @@ fn collect_roundtrip_obligations(decl: &Decl, verifier: &mut assura_smt::Layer2V
 ///
 /// Collects state-machine-like declarations (contracts with invariant clauses
 /// and transition-like ensures clauses) and runs BMC safety/liveness checks.
+/// Also extracts liveness obligations from `liveness` blocks and reduces them
+/// to safety properties via monitor automata.
 fn run_layer3_verification(
     typed: &assura_types::TypedFile,
     config: &CompilerConfig,
 ) -> Vec<assura_smt::VerificationResult> {
-    use assura_parser::ast::ClauseKind;
+    use assura_parser::ast::{BlockKind, ClauseKind};
 
     let timeout = config.verify.timeout_ms.max(30_000);
     let mut results = Vec::new();
@@ -367,7 +369,19 @@ fn run_layer3_verification(
         let decl_name = decl.node.name().unwrap_or("anonymous");
         let clauses = decl.node.clauses();
 
-        // Collect state variables from input/output clauses
+        // --- Liveness blocks: reduce to safety via monitor automata ---
+        if let Decl::Block {
+            kind: BlockKind::Liveness,
+            body,
+            ..
+        } = &decl.node
+        {
+            let liveness_results = run_liveness_reduction(decl_name, body, timeout);
+            results.extend(liveness_results);
+            continue;
+        }
+
+        // --- Standard contracts: invariant-based safety checking ---
         let params = decl.node.params();
         if params.is_empty() && clauses.is_empty() {
             continue;
@@ -376,7 +390,6 @@ fn run_layer3_verification(
         // Collect invariant clauses as safety properties
         let mut safety_properties = Vec::new();
         let mut initial_constraints = Vec::new();
-        let mut transitions = Vec::new();
 
         for clause in clauses {
             match &clause.kind {
@@ -391,13 +404,6 @@ fn run_layer3_verification(
                     let pred = expr_to_predicate_string(&clause.body);
                     if !pred.is_empty() && pred != "true" {
                         initial_constraints.push(pred);
-                    }
-                }
-                ClauseKind::Ensures => {
-                    let pred = expr_to_predicate_string(&clause.body);
-                    if !pred.is_empty() && pred != "true" {
-                        // Treat ensures as transition constraints
-                        transitions.push(pred);
                     }
                 }
                 _ => {}
@@ -436,6 +442,114 @@ fn run_layer3_verification(
             for br in bmc_results {
                 results.push(bmc_result_to_verification_result(br));
             }
+        }
+    }
+
+    results
+}
+
+/// Extract liveness obligations from a `liveness` block and reduce them to
+/// safety properties via monitor automata, then dispatch to BMC.
+fn run_liveness_reduction(
+    decl_name: &str,
+    clauses: &[assura_parser::ast::Clause],
+    timeout: u64,
+) -> Vec<assura_smt::VerificationResult> {
+    use assura_parser::ast::Expr;
+
+    let mut checker = assura_smt::LivenessChecker::new();
+
+    for clause in clauses {
+        let body_str = expr_to_predicate_string(&clause.body);
+
+        // Check for temporal operators in clause bodies
+        match &clause.body.node {
+            Expr::Call { func, args } => {
+                let func_name = match &func.node {
+                    Expr::Ident(n) => n.as_str(),
+                    _ => "",
+                };
+                match func_name {
+                    "eventually" => {
+                        let goal = args
+                            .first()
+                            .map(expr_to_predicate_string)
+                            .unwrap_or_else(|| body_str.clone());
+                        checker.add_obligation(
+                            format!("{decl_name}::eventually"),
+                            assura_smt::LivenessKind::Eventually,
+                            "true".into(),
+                            goal,
+                        );
+                    }
+                    "eventually_within" => {
+                        let goal = args
+                            .first()
+                            .map(expr_to_predicate_string)
+                            .unwrap_or_else(|| body_str.clone());
+                        checker.add_obligation(
+                            format!("{decl_name}::eventually_within"),
+                            assura_smt::LivenessKind::EventuallyWithin(100),
+                            "true".into(),
+                            goal,
+                        );
+                    }
+                    "leads_to" => {
+                        let premise = args
+                            .first()
+                            .map(expr_to_predicate_string)
+                            .unwrap_or_default();
+                        let conclusion = args
+                            .get(1)
+                            .map(expr_to_predicate_string)
+                            .unwrap_or_default();
+                        checker.add_obligation(
+                            format!("{decl_name}::leads_to"),
+                            assura_smt::LivenessKind::LeadsTo,
+                            premise,
+                            conclusion,
+                        );
+                    }
+                    _ => {}
+                }
+            }
+            _ => {
+                // Non-call clause bodies (e.g., assume: fair)
+                if clause.kind == assura_parser::ast::ClauseKind::Other("assume".into()) {
+                    checker.add_fairness(body_str);
+                }
+            }
+        }
+    }
+
+    if checker.obligation_count() == 0 {
+        return Vec::new();
+    }
+
+    // Reduce liveness to safety via monitor automata
+    let reductions = checker.reduce_to_safety();
+    let bmc_config = assura_smt::BmcConfig::new()
+        .with_bound(10)
+        .with_timeout(timeout);
+
+    let mut results = Vec::new();
+    for reduction in &reductions {
+        let components = reduction.to_bmc_components();
+        let mut engine = assura_smt::BmcEngine::new(bmc_config.clone());
+
+        for sv in &components.state_vars {
+            engine.add_state_variable(sv.name.clone(), sv.sort.clone());
+        }
+
+        for ic in &components.initial_constraints {
+            engine.add_initial_constraint(ic.clone());
+        }
+
+        engine.add_property(components.property);
+
+        let bmc_results = engine.check();
+        for br in bmc_results {
+            results.push(bmc_result_to_verification_result(br));
         }
     }
 
@@ -1314,6 +1428,98 @@ mod tests {
         assert!(
             bmc_results.is_empty(),
             "contract without invariant should not produce BMC results"
+        );
+    }
+
+    #[test]
+    fn layer3_liveness_eventually_produces_results() {
+        // Liveness block with eventually should produce BMC results at layer 3
+        let source = "liveness Progress {\n  prove: eventually(turn == 1)\n}";
+        let output = compile_layer3(source);
+        assert!(
+            !output.has_errors,
+            "unexpected errors: {:?}",
+            output.diagnostics
+        );
+        // Should produce either Verified, Counterexample, or Unknown (not empty)
+        let liveness_results: Vec<_> = output
+            .verification
+            .iter()
+            .filter(|r| match r {
+                assura_smt::VerificationResult::Verified { clause_desc, .. }
+                | assura_smt::VerificationResult::Counterexample { clause_desc, .. }
+                | assura_smt::VerificationResult::Timeout { clause_desc, .. }
+                | assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
+                    clause_desc.contains("eventually") || clause_desc.contains("BMC")
+                }
+            })
+            .collect();
+        assert!(
+            !liveness_results.is_empty(),
+            "liveness block with eventually should produce results at layer 3, got: {:?}",
+            output.verification
+        );
+    }
+
+    #[test]
+    fn layer3_liveness_leads_to_produces_results() {
+        // Liveness block with leads_to should produce BMC results at layer 3
+        let source = "liveness Response {\n  assume: fair\n  prove: leads_to(request == true, response == true)\n}";
+        let output = compile_layer3(source);
+        assert!(
+            !output.has_errors,
+            "unexpected errors: {:?}",
+            output.diagnostics
+        );
+        let liveness_results: Vec<_> = output
+            .verification
+            .iter()
+            .filter(|r| match r {
+                assura_smt::VerificationResult::Verified { clause_desc, .. }
+                | assura_smt::VerificationResult::Counterexample { clause_desc, .. }
+                | assura_smt::VerificationResult::Timeout { clause_desc, .. }
+                | assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
+                    clause_desc.contains("leads_to") || clause_desc.contains("BMC")
+                }
+            })
+            .collect();
+        assert!(
+            !liveness_results.is_empty(),
+            "liveness block with leads_to should produce results at layer 3, got: {:?}",
+            output.verification
+        );
+    }
+
+    #[test]
+    fn layer3_liveness_skipped_at_layer2() {
+        // Liveness blocks should not produce monitor-based results at layer 2
+        let source = "liveness Progress {\n  prove: eventually(turn == 1)\n}";
+        let config = CompilerConfig {
+            verify: assura_config::VerifyOptions {
+                layer: 2,
+                parallel: false,
+                decrease_checks: false,
+                enable_cache: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let output = compile_full(source, "test.assura", &config);
+        let bmc_results: Vec<_> = output
+            .verification
+            .iter()
+            .filter(|r| match r {
+                assura_smt::VerificationResult::Verified { clause_desc, .. }
+                | assura_smt::VerificationResult::Counterexample { clause_desc, .. }
+                | assura_smt::VerificationResult::Timeout { clause_desc, .. }
+                | assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
+                    clause_desc.contains("eventually") || clause_desc.contains("BMC")
+                }
+            })
+            .collect();
+        assert!(
+            bmc_results.is_empty(),
+            "liveness blocks should not produce BMC results at layer 2"
         );
     }
 

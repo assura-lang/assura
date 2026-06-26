@@ -8,7 +8,9 @@ mod trigger;
 mod weak_memory;
 
 pub use codec::{CodecDispatcher, CodecEntry, DispatchResult};
-pub use liveness::{LivenessChecker, LivenessKind, LivenessObligation};
+pub use liveness::{
+    BmcComponents, LivenessChecker, LivenessKind, LivenessObligation, MonitorReduction,
+};
 pub use prophecy::{ProphecyError, ProphecyManager, ProphecyVariable};
 pub use trigger::{TriggerManager, TriggerPattern};
 pub use weak_memory::{MemoryAccess, MemoryOrdering, WeakMemoryChecker};

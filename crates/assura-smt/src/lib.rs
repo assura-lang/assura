@@ -287,9 +287,9 @@ pub mod smt_features;
 // Re-export key types from submodules so callers and tests can use them
 // without qualifying the module path.
 pub use advanced::{
-    CodecDispatcher, CodecEntry, DispatchResult, LivenessChecker, LivenessKind, LivenessObligation,
-    MemoryAccess, MemoryOrdering, ProphecyError, ProphecyManager, ProphecyVariable, TriggerManager,
-    TriggerPattern, WeakMemoryChecker,
+    BmcComponents, CodecDispatcher, CodecEntry, DispatchResult, LivenessChecker, LivenessKind,
+    LivenessObligation, MemoryAccess, MemoryOrdering, MonitorReduction, ProphecyError,
+    ProphecyManager, ProphecyVariable, TriggerManager, TriggerPattern, WeakMemoryChecker,
 };
 pub use bmc::{BmcConfig, BmcEngine, BmcProperty, BmcResult, BmcSort, BmcTraceStep, StateVariable};
 pub use cache::{SessionCache, SessionCacheEntry, VerificationCache};
