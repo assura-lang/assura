@@ -67,7 +67,7 @@ enum Commands {
         /// Source file to check
         file: String,
 
-        /// Verification layer (0=structural, 1=SMT)
+        /// Verification layer (0=structural, 1=SMT, 2=quantified/termination, 3=BMC)
         #[arg(long, default_value_t = 255)]
         layer: u8,
 
@@ -97,7 +97,7 @@ enum Commands {
         /// Rust source file or directory to check
         path: String,
 
-        /// Verification layer (0=structural, 1=SMT)
+        /// Verification layer (0=structural, 1=SMT, 2=quantified/termination, 3=BMC)
         #[arg(long, default_value_t = 1)]
         layer: u8,
 

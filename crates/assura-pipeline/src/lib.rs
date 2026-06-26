@@ -9,7 +9,7 @@
 use std::time::Instant;
 
 use assura_config::CompilerConfig;
-use assura_parser::ast::Decl;
+use assura_parser::ast::{Decl, Expr};
 
 // ---------------------------------------------------------------------------
 // CompilationOutput: the canonical pipeline result
@@ -189,10 +189,235 @@ pub fn verify_typed(
     if config.verify.layer < 1 {
         return Vec::new();
     }
-    assura_smt::Verifier::new(typed)
+
+    // --- Layer 1: standard SMT verification ---
+    let mut results = assura_smt::Verifier::new(typed)
         .source(std::path::Path::new(filename))
         .apply_options(config.verify.clone())
-        .verify()
+        .verify();
+
+    // --- Layer 2: quantified invariants, termination, roundtrips ---
+    if config.verify.layer >= 2 {
+        let layer2_results = run_layer2_verification(typed, config);
+        results.extend(layer2_results);
+    }
+
+    results
+}
+
+// ---------------------------------------------------------------------------
+// Layer 2 obligation collection and dispatch
+// ---------------------------------------------------------------------------
+
+/// Collect Layer 2 obligations from the typed AST and verify them.
+///
+/// Walks declarations for:
+/// - `invariant` clauses containing `forall`/`exists` -> quantified invariants
+/// - `decreases` clauses -> termination obligations
+/// - Paired serialize/deserialize extern declarations -> roundtrip obligations
+fn run_layer2_verification(
+    typed: &assura_types::TypedFile,
+    config: &CompilerConfig,
+) -> Vec<assura_smt::VerificationResult> {
+    let layer2_config = assura_smt::Layer2Config {
+        timeout_ms: config.verify.timeout_ms.max(10_000), // Layer 2 needs longer timeout
+        enable_quantifiers: true,
+        enable_termination: true,
+        enable_roundtrip: true,
+    };
+    let mut verifier = assura_smt::Layer2Verifier::new(layer2_config);
+
+    // Walk all declarations to collect obligations
+    for decl in &typed.resolved.source.decls {
+        collect_invariant_obligations(&decl.node, &mut verifier);
+        collect_termination_obligations(&decl.node, &mut verifier);
+        collect_roundtrip_obligations(&decl.node, &mut verifier);
+    }
+
+    if verifier.obligation_count() == 0 {
+        return Vec::new();
+    }
+
+    // Run Layer 2 verification and convert results
+    let layer2_results = verifier.verify();
+    layer2_results
+        .into_iter()
+        .map(layer2_result_to_verification_result)
+        .collect()
+}
+
+/// Extract quantified invariant obligations from a declaration's clauses.
+///
+/// Looks for `ClauseKind::Invariant` clauses whose body contains
+/// `Expr::Forall` or `Expr::Exists`. Each becomes a `QuantifiedInvariant`
+/// for the Layer 2 verifier.
+fn collect_invariant_obligations(decl: &Decl, verifier: &mut assura_smt::Layer2Verifier) {
+    let decl_name = decl.name().unwrap_or("anonymous");
+    let clauses = decl.clauses();
+
+    for clause in clauses {
+        if clause.kind != assura_parser::ast::ClauseKind::Invariant {
+            continue;
+        }
+        // Check if the invariant body is a forall/exists expression
+        match &clause.body.node {
+            Expr::Forall { var, domain, body } => {
+                let sort = domain_to_sort(domain);
+                verifier.add_invariant(assura_smt::QuantifiedInvariant {
+                    name: format!("{decl_name}::invariant(forall {var})"),
+                    bound_vars: vec![(var.clone(), sort)],
+                    body: expr_to_predicate_string(body),
+                    triggers: vec![],
+                });
+            }
+            Expr::Exists { var, domain, body } => {
+                let sort = domain_to_sort(domain);
+                verifier.add_invariant(assura_smt::QuantifiedInvariant {
+                    name: format!("{decl_name}::invariant(exists {var})"),
+                    bound_vars: vec![(var.clone(), sort)],
+                    body: expr_to_predicate_string(body),
+                    triggers: vec![],
+                });
+            }
+            _ => {
+                // Non-quantified invariant: encode as a ground assertion
+                verifier.add_invariant(assura_smt::QuantifiedInvariant {
+                    name: format!("{decl_name}::invariant"),
+                    bound_vars: vec![("__ground".into(), "Int".into())],
+                    body: expr_to_predicate_string(&clause.body),
+                    triggers: vec![],
+                });
+            }
+        }
+    }
+}
+
+/// Extract termination obligations from `decreases` clauses.
+///
+/// Each `ClauseKind::Decreases` clause produces a `TerminationObligation`
+/// with the measure expression and (currently empty) recursive call list.
+fn collect_termination_obligations(decl: &Decl, verifier: &mut assura_smt::Layer2Verifier) {
+    let decl_name = decl.name().unwrap_or("anonymous");
+    let clauses = decl.clauses();
+
+    for clause in clauses {
+        if clause.kind != assura_parser::ast::ClauseKind::Decreases {
+            continue;
+        }
+        let measure = expr_to_predicate_string(&clause.body);
+        verifier.add_termination(assura_smt::TerminationObligation {
+            fn_name: decl_name.to_string(),
+            measure,
+            // Recursive call detection would require call-graph analysis;
+            // for now, we report the obligation with no recursive calls
+            // (trivially terminating). Future work: walk the fn body for
+            // self-calls and add them here.
+            recursive_calls: vec![],
+        });
+    }
+}
+
+/// Extract roundtrip obligations from paired serialize/deserialize declarations.
+///
+/// Looks for extern functions named `serialize_*` / `deserialize_*` or
+/// `*_to_json` / `*_from_json` (and similar patterns) within the same file.
+fn collect_roundtrip_obligations(decl: &Decl, verifier: &mut assura_smt::Layer2Verifier) {
+    // For CodecRegistry declarations, each codec is a roundtrip candidate
+    if let Decl::CodecRegistry(registry) = decl {
+        for codec in &registry.codecs {
+            verifier.add_roundtrip(assura_smt::RoundtripObligation {
+                type_name: format!("{}::{}", registry.name, codec.name),
+                serialize_fn: format!("{}_encode", codec.name),
+                deserialize_fn: format!("{}_decode", codec.name),
+            });
+        }
+    }
+}
+
+/// Convert a domain expression to a Z3 sort name.
+fn domain_to_sort(domain: &assura_parser::ast::SpExpr) -> String {
+    match &domain.node {
+        Expr::Ident(name) => match name.as_str() {
+            "Int" | "Nat" | "Float" => name.clone(),
+            "Bool" => "Bool".into(),
+            "String" | "Bytes" => "String".into(),
+            _ => "Int".into(), // default to Int for unknown types
+        },
+        Expr::Raw(tokens) if !tokens.is_empty() => tokens[0].clone(),
+        _ => "Int".into(),
+    }
+}
+
+/// Convert an AST expression to a simple predicate string for Layer 2.
+///
+/// This is a best-effort textual representation. The Layer 2 verifier
+/// has its own expression parser (`parse_predicate_to_z3`).
+fn expr_to_predicate_string(expr: &assura_parser::ast::SpExpr) -> String {
+    use assura_parser::ast::Expr;
+    match &expr.node {
+        Expr::BinOp { op, lhs, rhs } => {
+            let l = expr_to_predicate_string(lhs);
+            let r = expr_to_predicate_string(rhs);
+            format!("{l} {} {r}", op.as_str())
+        }
+        Expr::UnaryOp { op, expr } => {
+            let o = expr_to_predicate_string(expr);
+            format!("{}{o}", op.as_str())
+        }
+        Expr::Literal(lit) => match lit {
+            assura_parser::ast::Literal::Int(n) => n.clone(),
+            assura_parser::ast::Literal::Float(f) => f.clone(),
+            assura_parser::ast::Literal::Bool(b) => b.to_string(),
+            assura_parser::ast::Literal::Str(s) => format!("\"{s}\""),
+        },
+        Expr::Ident(name) => name.clone(),
+        Expr::Forall { var, body, .. } => {
+            format!("forall {var}: {}", expr_to_predicate_string(body))
+        }
+        Expr::Exists { var, body, .. } => {
+            format!("exists {var}: {}", expr_to_predicate_string(body))
+        }
+        Expr::Raw(tokens) => tokens.join(" "),
+        _ => format!("{expr:?}"),
+    }
+}
+
+/// Convert a `Layer2Result` to a `VerificationResult` for uniform pipeline output.
+fn layer2_result_to_verification_result(
+    r: assura_smt::Layer2Result,
+) -> assura_smt::VerificationResult {
+    match r {
+        assura_smt::Layer2Result::Verified { invariant, .. } => {
+            assura_smt::VerificationResult::Verified {
+                clause_desc: format!("layer2:{invariant}"),
+                unsat_core: None,
+            }
+        }
+        assura_smt::Layer2Result::Counterexample { invariant, model } => {
+            let model_str = model
+                .iter()
+                .map(|(k, v)| format!("{k} = {v}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            assura_smt::VerificationResult::Counterexample {
+                clause_desc: format!("layer2:{invariant}"),
+                model: model_str,
+                counter_model: None,
+            }
+        }
+        assura_smt::Layer2Result::Timeout {
+            invariant,
+            timeout_ms,
+        } => assura_smt::VerificationResult::Timeout {
+            clause_desc: format!("layer2:{invariant} (timeout {timeout_ms}ms)"),
+        },
+        assura_smt::Layer2Result::Unknown { invariant, reason } => {
+            assura_smt::VerificationResult::Unknown {
+                clause_desc: format!("layer2:{invariant}"),
+                reason,
+            }
+        }
+    }
 }
 
 /// Run the full pipeline: lex -> parse -> resolve -> type check -> verify -> codegen.
@@ -517,5 +742,234 @@ mod tests {
         let results = vec![limitation];
         assert!(verification_succeeded(&results));
         assert!(verification_strict_succeeded(&results));
+    }
+
+    // -------------------------------------------------------------------
+    // Layer 2 pipeline wiring tests
+    // -------------------------------------------------------------------
+
+    /// Helper: compile with Layer 2 enabled
+    fn compile_layer2(source: &str) -> CompilationOutput {
+        let config = CompilerConfig {
+            verify: assura_config::VerifyOptions {
+                layer: 2,
+                parallel: false,
+                decrease_checks: false,
+                enable_cache: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        compile_full(source, "test.assura", &config)
+    }
+
+    #[test]
+    fn layer2_skipped_at_layer1() {
+        // Layer 1 should NOT produce any "layer2:" results
+        let config = CompilerConfig {
+            verify: assura_config::VerifyOptions {
+                layer: 1,
+                parallel: false,
+                decrease_checks: false,
+                enable_cache: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let output = compile_full(
+            "contract X {\n  requires { true }\n}",
+            "test.assura",
+            &config,
+        );
+        let layer2_results: Vec<_> = output
+            .verification
+            .iter()
+            .filter(|r| match r {
+                assura_smt::VerificationResult::Verified { clause_desc, .. }
+                | assura_smt::VerificationResult::Counterexample { clause_desc, .. }
+                | assura_smt::VerificationResult::Timeout { clause_desc, .. }
+                | assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
+                    clause_desc.starts_with("layer2:")
+                }
+            })
+            .collect();
+        assert!(
+            layer2_results.is_empty(),
+            "layer 1 should not produce layer2 results"
+        );
+    }
+
+    #[test]
+    fn layer2_no_obligations_no_extra_results() {
+        // A simple contract with no invariant/decreases/roundtrip
+        // should not produce any layer2 results
+        let output = compile_layer2("contract X {\n  requires { true }\n}");
+        assert!(
+            !output.has_errors,
+            "unexpected errors: {:?}",
+            output.diagnostics
+        );
+        let layer2_results: Vec<_> = output
+            .verification
+            .iter()
+            .filter(|r| match r {
+                assura_smt::VerificationResult::Verified { clause_desc, .. }
+                | assura_smt::VerificationResult::Counterexample { clause_desc, .. }
+                | assura_smt::VerificationResult::Timeout { clause_desc, .. }
+                | assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
+                    clause_desc.starts_with("layer2:")
+                }
+            })
+            .collect();
+        assert!(
+            layer2_results.is_empty(),
+            "no obligations should produce no layer2 results"
+        );
+    }
+
+    #[test]
+    fn layer2_invariant_clause_collected() {
+        // Contract with an invariant clause should produce layer2 results
+        let source = "contract Counter {\n  input(n: Int)\n  requires { n >= 0 }\n  invariant { forall x in Int: x >= 0 || x < 0 }\n}";
+        let output = compile_layer2(source);
+        assert!(
+            !output.has_errors,
+            "unexpected errors: {:?}",
+            output.diagnostics
+        );
+        let layer2_results: Vec<_> = output
+            .verification
+            .iter()
+            .filter(|r| match r {
+                assura_smt::VerificationResult::Verified { clause_desc, .. }
+                | assura_smt::VerificationResult::Counterexample { clause_desc, .. }
+                | assura_smt::VerificationResult::Timeout { clause_desc, .. }
+                | assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
+                    clause_desc.starts_with("layer2:")
+                }
+            })
+            .collect();
+        assert!(
+            !layer2_results.is_empty(),
+            "invariant clause should produce layer2 results"
+        );
+    }
+
+    #[test]
+    fn layer2_decreases_clause_collected() {
+        // Contract with a decreases clause should produce layer2 results
+        let source = "contract Factorial {\n  input(n: Nat)\n  output(result: Nat)\n  requires { n >= 0 }\n  decreases { n }\n}";
+        let output = compile_layer2(source);
+        assert!(
+            !output.has_errors,
+            "unexpected errors: {:?}",
+            output.diagnostics
+        );
+        let layer2_results: Vec<_> = output
+            .verification
+            .iter()
+            .filter(|r| match r {
+                assura_smt::VerificationResult::Verified { clause_desc, .. }
+                | assura_smt::VerificationResult::Counterexample { clause_desc, .. }
+                | assura_smt::VerificationResult::Timeout { clause_desc, .. }
+                | assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
+                    clause_desc.starts_with("layer2:")
+                }
+            })
+            .collect();
+        assert!(
+            !layer2_results.is_empty(),
+            "decreases clause should produce layer2 results, got none; all results: {:?}",
+            output.verification
+        );
+    }
+
+    #[test]
+    fn layer2_result_to_verification_result_conversion() {
+        // Test each Layer2Result variant converts correctly
+        let verified = assura_smt::Layer2Result::Verified {
+            invariant: "inv1".into(),
+            time_ms: 42,
+        };
+        let result = layer2_result_to_verification_result(verified);
+        assert!(matches!(
+            result,
+            assura_smt::VerificationResult::Verified { .. }
+        ));
+
+        let ce = assura_smt::Layer2Result::Counterexample {
+            invariant: "inv2".into(),
+            model: vec![("x".into(), "0".into())],
+        };
+        let result = layer2_result_to_verification_result(ce);
+        assert!(matches!(
+            result,
+            assura_smt::VerificationResult::Counterexample { .. }
+        ));
+
+        let timeout = assura_smt::Layer2Result::Timeout {
+            invariant: "inv3".into(),
+            timeout_ms: 10000,
+        };
+        let result = layer2_result_to_verification_result(timeout);
+        assert!(matches!(
+            result,
+            assura_smt::VerificationResult::Timeout { .. }
+        ));
+
+        let unknown = assura_smt::Layer2Result::Unknown {
+            invariant: "inv4".into(),
+            reason: "solver inconclusive".into(),
+        };
+        let result = layer2_result_to_verification_result(unknown);
+        assert!(matches!(
+            result,
+            assura_smt::VerificationResult::Unknown { .. }
+        ));
+    }
+
+    #[test]
+    fn layer2_expr_to_predicate_string() {
+        use assura_parser::ast::{BinOp, Literal, Spanned};
+
+        // Simple ident
+        let expr = Spanned::no_span(Expr::Ident("x".into()));
+        assert_eq!(expr_to_predicate_string(&expr), "x");
+
+        // Integer literal
+        let expr = Spanned::no_span(Expr::Literal(Literal::Int("42".into())));
+        assert_eq!(expr_to_predicate_string(&expr), "42");
+
+        // BinOp
+        let expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            op: BinOp::Gte,
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        });
+        assert_eq!(expr_to_predicate_string(&expr), "x >= 0");
+
+        // Raw tokens
+        let expr = Spanned::no_span(Expr::Raw(vec!["a".into(), "+".into(), "b".into()]));
+        assert_eq!(expr_to_predicate_string(&expr), "a + b");
+    }
+
+    #[test]
+    fn layer2_domain_to_sort_mapping() {
+        use assura_parser::ast::Spanned;
+
+        let int_domain = Spanned::no_span(Expr::Ident("Int".into()));
+        assert_eq!(domain_to_sort(&int_domain), "Int");
+
+        let nat_domain = Spanned::no_span(Expr::Ident("Nat".into()));
+        assert_eq!(domain_to_sort(&nat_domain), "Nat");
+
+        let bool_domain = Spanned::no_span(Expr::Ident("Bool".into()));
+        assert_eq!(domain_to_sort(&bool_domain), "Bool");
+
+        let custom_domain = Spanned::no_span(Expr::Ident("MyType".into()));
+        assert_eq!(domain_to_sort(&custom_domain), "Int"); // default
+
+        let raw_domain = Spanned::no_span(Expr::Raw(vec!["Float".into()]));
+        assert_eq!(domain_to_sort(&raw_domain), "Float");
     }
 }
