@@ -2017,3 +2017,190 @@ fn build_multiple_demos_succeed() {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }
+
+// =======================================================================
+// Init / Check / Build workflow integration tests
+// =======================================================================
+
+#[test]
+fn init_creates_project_structure() {
+    let tmp = unique_temp("assura_init_structure");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["init", "test-project"])
+        .current_dir(&tmp)
+        .output()
+        .expect("failed to run assura init");
+    assert!(
+        out.status.success(),
+        "init should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let project = tmp.join("test-project");
+    assert!(
+        project.join("assura.toml").exists(),
+        "assura.toml should exist"
+    );
+    assert!(
+        project.join("contracts/lib.assura").exists(),
+        "contracts/lib.assura should exist"
+    );
+
+    let toml_content = std::fs::read_to_string(project.join("assura.toml")).unwrap();
+    assert!(
+        toml_content.contains("[package]"),
+        "assura.toml should contain [package]: {toml_content}"
+    );
+
+    let lib_content = std::fs::read_to_string(project.join("contracts/lib.assura")).unwrap();
+    assert!(
+        lib_content.contains("SafeDivision"),
+        "lib.assura should contain SafeDivision: {lib_content}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn init_fails_on_existing_directory() {
+    let tmp = unique_temp("assura_init_existing");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    // Pre-create the project directory so init should fail
+    std::fs::create_dir_all(tmp.join("test-project")).unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["init", "test-project"])
+        .current_dir(&tmp)
+        .output()
+        .expect("failed to run assura init");
+    assert!(
+        !out.status.success(),
+        "init should fail when directory already exists"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("already exists"),
+        "stderr should mention directory already exists: {stderr}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn init_then_check_contracts() {
+    let tmp = unique_temp("assura_init_check");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    // Step 1: init
+    let init_out = Command::new(assura_bin())
+        .args(["init", "test-project"])
+        .current_dir(&tmp)
+        .output()
+        .expect("failed to run assura init");
+    assert!(
+        init_out.status.success(),
+        "init should succeed: {}",
+        String::from_utf8_lossy(&init_out.stderr)
+    );
+
+    // Step 2: check the generated contract file
+    let contract = tmp.join("test-project/contracts/lib.assura");
+    let check_out = Command::new(assura_bin())
+        .args(["check", contract.to_str().unwrap()])
+        .output()
+        .expect("failed to run assura check on init'd contract");
+    assert!(
+        check_out.status.success(),
+        "check on init'd contract should succeed: {}",
+        String::from_utf8_lossy(&check_out.stderr)
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn check_project_directory_mode() {
+    let tmp = unique_temp("assura_check_project");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("contracts")).unwrap();
+
+    // Create assura.toml
+    std::fs::write(
+        tmp.join("assura.toml"),
+        "[package]\nname = \"test\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+
+    // Create a valid contract
+    std::fs::write(
+        tmp.join("contracts/lib.assura"),
+        "contract Simple {\n    input(x: Int)\n    output(result: Int)\n    requires { x >= 0 }\n    ensures { x >= 0 }\n}\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check", tmp.to_str().unwrap()])
+        .output()
+        .expect("failed to run assura check on project directory");
+    assert!(
+        out.status.success(),
+        "check on project directory should succeed: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn init_then_build_generates_rust() {
+    let tmp = unique_temp("assura_init_build");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    // Step 1: init
+    let init_out = Command::new(assura_bin())
+        .args(["init", "test-project"])
+        .current_dir(&tmp)
+        .output()
+        .expect("failed to run assura init");
+    assert!(
+        init_out.status.success(),
+        "init should succeed: {}",
+        String::from_utf8_lossy(&init_out.stderr)
+    );
+
+    // Step 2: build the generated contract
+    let contract = tmp.join("test-project/contracts/lib.assura");
+    let gen_dir = tmp.join("generated");
+    let build_out = Command::new(assura_bin())
+        .args([
+            "build",
+            contract.to_str().unwrap(),
+            "--output",
+            gen_dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run assura build on init'd contract");
+    assert!(
+        build_out.status.success(),
+        "build on init'd contract should succeed: {}",
+        String::from_utf8_lossy(&build_out.stderr)
+    );
+    assert!(
+        gen_dir.join("Cargo.toml").exists(),
+        "generated/Cargo.toml should exist"
+    );
+    assert!(
+        gen_dir.join("src/lib.rs").exists(),
+        "generated/src/lib.rs should exist"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
