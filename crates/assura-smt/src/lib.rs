@@ -278,6 +278,8 @@ pub mod bmc;
 pub mod cache;
 /// Incremental verification: skip re-checking unchanged clauses.
 pub mod incremental;
+/// K-induction for unbounded proofs (Layer 3).
+pub mod k_induction;
 /// Layer 2 verification: cross-contract and module-level properties.
 pub mod layer2;
 /// Feature-specific SMT verification for all 50 features.
@@ -292,6 +294,7 @@ pub use advanced::{
 pub use bmc::{BmcConfig, BmcEngine, BmcProperty, BmcResult, BmcSort, BmcTraceStep, StateVariable};
 pub use cache::{SessionCache, SessionCacheEntry, VerificationCache};
 pub use incremental::{IncrementalCompiler, ModuleState};
+pub use k_induction::{KInduction, KInductionConfig, KInductionObligation, KInductionResult};
 pub use layer2::{
     Layer2Config, Layer2Result, Layer2Verifier, QuantifiedInvariant, RoundtripObligation,
     TerminationObligation, verify_quantified_expr,

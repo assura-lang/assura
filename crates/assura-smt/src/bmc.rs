@@ -480,7 +480,7 @@ impl BmcEngine {
     }
 
     /// Rename state variables in a predicate for a specific step.
-    fn rename_predicate(&self, predicate: &str, step: usize) -> String {
+    pub fn rename_predicate(&self, predicate: &str, step: usize) -> String {
         let mut result = predicate.to_string();
         // Sort by length descending to avoid partial replacements
         let mut sorted_vars: Vec<&str> = self
