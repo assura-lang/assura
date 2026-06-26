@@ -2054,8 +2054,8 @@ fn refinement_default() {
 #[test]
 fn incremental_strengthens_precondition() {
     let mut ic = IncrementalContractChecker::new();
-    ic.add_version("SafeDiv".into(), 1, 1, 1);
-    ic.add_version("SafeDiv".into(), 2, 3, 1); // more requires = stronger
+    ic.add_version("SafeDiv".into(), 1, 1, 1, 0..1);
+    ic.add_version("SafeDiv".into(), 2, 3, 1, 0..1); // more requires = stronger
     let errs = ic.check_precondition_weakening();
     assert_eq!(errs.len(), 1);
     assert_eq!(errs[0].code, "A51001");
@@ -2064,8 +2064,8 @@ fn incremental_strengthens_precondition() {
 #[test]
 fn incremental_weakens_postcondition() {
     let mut ic = IncrementalContractChecker::new();
-    ic.add_version("SafeDiv".into(), 1, 1, 3);
-    ic.add_version("SafeDiv".into(), 2, 1, 1); // fewer ensures = weaker
+    ic.add_version("SafeDiv".into(), 1, 1, 3, 0..1);
+    ic.add_version("SafeDiv".into(), 2, 1, 1, 0..1); // fewer ensures = weaker
     let errs = ic.check_postcondition_strengthening();
     assert_eq!(errs.len(), 1);
     assert_eq!(errs[0].code, "A51002");
@@ -2074,8 +2074,8 @@ fn incremental_weakens_postcondition() {
 #[test]
 fn incremental_version_gap() {
     let mut ic = IncrementalContractChecker::new();
-    ic.add_version("SafeDiv".into(), 1, 1, 1);
-    ic.add_version("SafeDiv".into(), 5, 1, 1);
+    ic.add_version("SafeDiv".into(), 1, 1, 1, 0..1);
+    ic.add_version("SafeDiv".into(), 5, 1, 1, 0..1);
     let errs = ic.check_version_continuity();
     assert_eq!(errs.len(), 1);
     assert_eq!(errs[0].code, "A51003");
@@ -2084,8 +2084,8 @@ fn incremental_version_gap() {
 #[test]
 fn incremental_ok() {
     let mut ic = IncrementalContractChecker::new();
-    ic.add_version("SafeDiv".into(), 1, 3, 1);
-    ic.add_version("SafeDiv".into(), 2, 2, 2); // weaker pre, stronger post
+    ic.add_version("SafeDiv".into(), 1, 3, 1, 0..1);
+    ic.add_version("SafeDiv".into(), 2, 2, 2, 0..1); // weaker pre, stronger post
     assert!(ic.check_precondition_weakening().is_empty());
     assert!(ic.check_postcondition_strengthening().is_empty());
 }

@@ -245,6 +245,43 @@ impl FrameChecker {
     pub fn is_modified(&self, name: &str) -> bool {
         self.modified.contains(name)
     }
+
+    /// Check ensures clause for references to variables that appear to be
+    /// modified (referenced directly, not via `old()`) but are not in the
+    /// modifies set. Returns A14002 errors.
+    ///
+    /// The heuristic: if a variable `x` appears both as `old(x)` and as
+    /// bare `x` in an ensures clause, the contract implies `x` changes.
+    /// If `x` is not in the modifies set, that violates the frame contract.
+    pub fn check_ensures_modifications(
+        &self,
+        ensures_body: &SpExpr,
+        span: &Range<usize>,
+    ) -> Vec<TypeError> {
+        if !self.has_modifies() {
+            return Vec::new();
+        }
+        let mut errors = Vec::new();
+        let old_refs = collect_old_references(ensures_body);
+        let ident_refs = collect_ident_references(ensures_body);
+
+        // Variables that appear both in old() and as bare idents imply
+        // modification (e.g., `ensures { x > old(x) }`).
+        for name in &old_refs {
+            if ident_refs.contains(name) && !self.is_modified_or_under_modified(name) {
+                errors.push(TypeError {
+                    code: "A14002".into(),
+                    message: format!(
+                        "`{name}` appears modified in ensures clause (both `{name}` and \
+                         `old({name})` referenced) but is not in the modifies set"
+                    ),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+        errors
+    }
 }
 
 impl std::fmt::Debug for FrameChecker {

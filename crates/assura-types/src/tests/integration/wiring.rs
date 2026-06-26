@@ -427,8 +427,8 @@ fn domain_incremental_contract_no_annotation_passes() {
 #[test]
 fn domain_incremental_contract_direct_api() {
     let mut checker = IncrementalContractChecker::new();
-    checker.add_version("c1".into(), 1, 2, 3);
-    checker.add_version("c1".into(), 2, 5, 3);
+    checker.add_version("c1".into(), 1, 2, 3, 0..1);
+    checker.add_version("c1".into(), 2, 5, 3, 0..1);
     let errs = checker.check_precondition_weakening();
     assert_eq!(errs.len(), 1);
     assert_eq!(errs[0].code, "A51001");

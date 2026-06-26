@@ -513,6 +513,7 @@ pub(crate) struct StdlibTypeDef {
 impl StdlibTypes {
     pub fn new() -> Self {
         let mut types = std::collections::HashMap::new();
+        // Numeric refinement types
         types.insert(
             "Pos".into(),
             StdlibTypeDef {
@@ -528,17 +529,10 @@ impl StdlibTypes {
             },
         );
         types.insert(
-            "Email".into(),
+            "Nat".into(),
             StdlibTypeDef {
-                name: "Email".into(),
-                base_type: Type::String,
-            },
-        );
-        types.insert(
-            "Uuid".into(),
-            StdlibTypeDef {
-                name: "Uuid".into(),
-                base_type: Type::String,
+                name: "Nat".into(),
+                base_type: Type::Nat,
             },
         );
         types.insert(
@@ -555,11 +549,90 @@ impl StdlibTypes {
                 base_type: Type::Float,
             },
         );
+        // String refinement types
+        types.insert(
+            "Email".into(),
+            StdlibTypeDef {
+                name: "Email".into(),
+                base_type: Type::String,
+            },
+        );
+        types.insert(
+            "Uuid".into(),
+            StdlibTypeDef {
+                name: "Uuid".into(),
+                base_type: Type::String,
+            },
+        );
+        types.insert(
+            "Url".into(),
+            StdlibTypeDef {
+                name: "Url".into(),
+                base_type: Type::String,
+            },
+        );
+        types.insert(
+            "FilePath".into(),
+            StdlibTypeDef {
+                name: "FilePath".into(),
+                base_type: Type::String,
+            },
+        );
+        types.insert(
+            "IpAddr".into(),
+            StdlibTypeDef {
+                name: "IpAddr".into(),
+                base_type: Type::String,
+            },
+        );
+        types.insert(
+            "Hostname".into(),
+            StdlibTypeDef {
+                name: "Hostname".into(),
+                base_type: Type::String,
+            },
+        );
+        // Byte/buffer types
+        types.insert(
+            "NonEmptyBytes".into(),
+            StdlibTypeDef {
+                name: "NonEmptyBytes".into(),
+                base_type: Type::Bytes,
+            },
+        );
+        types.insert(
+            "BoundedBytes".into(),
+            StdlibTypeDef {
+                name: "BoundedBytes".into(),
+                base_type: Type::Bytes,
+            },
+        );
+        // Timestamp / duration
+        types.insert(
+            "Timestamp".into(),
+            StdlibTypeDef {
+                name: "Timestamp".into(),
+                base_type: Type::Int,
+            },
+        );
+        types.insert(
+            "Duration".into(),
+            StdlibTypeDef {
+                name: "Duration".into(),
+                base_type: Type::Int,
+            },
+        );
         Self { types }
     }
 
     pub fn all_types(&self) -> Vec<&StdlibTypeDef> {
         self.types.values().collect()
+    }
+
+    /// Look up a stdlib type by name.
+    #[allow(dead_code)]
+    pub fn lookup(&self, name: &str) -> Option<&StdlibTypeDef> {
+        self.types.get(name)
     }
 }
 

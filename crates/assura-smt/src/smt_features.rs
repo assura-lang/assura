@@ -763,22 +763,101 @@ pub fn verify_feature_clause(
             body,
             sibling_clauses,
         )],
-        // Features without SMT verification (type-level or compile-time only)
-        Feature::GhostErasure
-        | Feature::LemmaErasure
-        | Feature::FrameConditions
-        | Feature::AxiomaticDefinitions
-        | Feature::TriggerPatterns
-        | Feature::ProphecyVariables
-        | Feature::Liveness
-        | Feature::RegionAnnotations
-        | Feature::FixedWidth
-        | Feature::TaintTracking
-        | Feature::DependentTypes
-        | Feature::Determinism
-        | Feature::Deadline
-        | Feature::WeakMemoryOrdering
-        | Feature::CodecRegistry => vec![],
+        // CORE: features with boolean predicate bodies verified via Z3
+        Feature::GhostErasure => vec![verify_feature_body(
+            parent_name,
+            "ghost_erasure",
+            body,
+            sibling_clauses,
+        )],
+        Feature::LemmaErasure => vec![verify_feature_body(
+            parent_name,
+            "lemma_erasure",
+            body,
+            sibling_clauses,
+        )],
+        Feature::FrameConditions => vec![verify_feature_body(
+            parent_name,
+            "frame_conditions",
+            body,
+            sibling_clauses,
+        )],
+        Feature::AxiomaticDefinitions => vec![verify_feature_body(
+            parent_name,
+            "axiomatic_definitions",
+            body,
+            sibling_clauses,
+        )],
+        Feature::TriggerPatterns => vec![verify_feature_body(
+            parent_name,
+            "trigger_patterns",
+            body,
+            sibling_clauses,
+        )],
+        Feature::ProphecyVariables => vec![verify_feature_body(
+            parent_name,
+            "prophecy_variables",
+            body,
+            sibling_clauses,
+        )],
+        Feature::Liveness => vec![verify_feature_body(
+            parent_name,
+            "liveness",
+            body,
+            sibling_clauses,
+        )],
+        // MEM
+        Feature::RegionAnnotations => vec![verify_feature_body(
+            parent_name,
+            "region_annotations",
+            body,
+            sibling_clauses,
+        )],
+        Feature::FixedWidth => vec![verify_feature_body(
+            parent_name,
+            "fixed_width",
+            body,
+            sibling_clauses,
+        )],
+        // SEC
+        Feature::TaintTracking => vec![verify_feature_body(
+            parent_name,
+            "taint_tracking",
+            body,
+            sibling_clauses,
+        )],
+        Feature::DependentTypes => vec![verify_feature_body(
+            parent_name,
+            "dependent_types",
+            body,
+            sibling_clauses,
+        )],
+        // CONC
+        Feature::Determinism => vec![verify_feature_body(
+            parent_name,
+            "determinism",
+            body,
+            sibling_clauses,
+        )],
+        Feature::Deadline => vec![verify_feature_body(
+            parent_name,
+            "deadline",
+            body,
+            sibling_clauses,
+        )],
+        Feature::WeakMemoryOrdering => vec![verify_feature_body(
+            parent_name,
+            "weak_memory_ordering",
+            body,
+            sibling_clauses,
+        )],
+        // FMT
+        Feature::CodecRegistry => vec![verify_feature_body(
+            parent_name,
+            "codec_registry",
+            body,
+            sibling_clauses,
+        )],
     }
 }
 

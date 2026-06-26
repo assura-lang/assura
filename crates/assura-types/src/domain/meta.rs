@@ -354,6 +354,7 @@ pub(crate) struct ContractVersionEntry {
     pub version: u32,
     pub requires_count: usize,
     pub ensures_count: usize,
+    pub span: std::ops::Range<usize>,
 }
 
 impl IncrementalContractChecker {
@@ -369,6 +370,7 @@ impl IncrementalContractChecker {
         version: u32,
         requires_count: usize,
         ensures_count: usize,
+        span: std::ops::Range<usize>,
     ) {
         let history = self
             .contracts
@@ -380,6 +382,7 @@ impl IncrementalContractChecker {
             version,
             requires_count,
             ensures_count,
+            span,
         });
     }
 
@@ -394,8 +397,11 @@ impl IncrementalContractChecker {
                             "contract `{name}` v{} strengthens preconditions",
                             history.versions[i].version
                         ),
-                        span: 0..1,
-                        secondary: None,
+                        span: history.versions[i].span.clone(),
+                        secondary: Some((
+                            history.versions[i - 1].span.clone(),
+                            format!("previous version v{}", history.versions[i - 1].version),
+                        )),
                     });
                 }
             }
@@ -414,8 +420,11 @@ impl IncrementalContractChecker {
                             "contract `{name}` v{} weakens postconditions",
                             history.versions[i].version
                         ),
-                        span: 0..1,
-                        secondary: None,
+                        span: history.versions[i].span.clone(),
+                        secondary: Some((
+                            history.versions[i - 1].span.clone(),
+                            format!("previous version v{}", history.versions[i - 1].version),
+                        )),
                     });
                 }
             }
@@ -435,8 +444,11 @@ impl IncrementalContractChecker {
                             history.versions[i - 1].version,
                             history.versions[i].version
                         ),
-                        span: 0..1,
-                        secondary: None,
+                        span: history.versions[i].span.clone(),
+                        secondary: Some((
+                            history.versions[i - 1].span.clone(),
+                            format!("v{}", history.versions[i - 1].version),
+                        )),
                     });
                 }
             }

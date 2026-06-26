@@ -551,9 +551,19 @@ pub(crate) fn run_precomputed_table_checks(
             }
         }
     }
+    // Validate generator functions exist in the source
+    let fn_names: Vec<String> = source
+        .decls
+        .iter()
+        .filter_map(|d| match &d.node {
+            assura_parser::ast::Decl::FnDef(f) => Some(f.name.clone()),
+            _ => None,
+        })
+        .collect();
     let mut errors = checker.check_coverage();
     errors.extend(checker.check_generator());
     errors.extend(checker.check_non_empty());
+    errors.extend(checker.check_generator_exists(&fn_names));
     errors
 }
 

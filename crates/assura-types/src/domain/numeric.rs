@@ -181,6 +181,23 @@ impl PrecomputedTableChecker {
             })
             .collect()
     }
+
+    /// Validate that declared generator functions exist in the source.
+    pub fn check_generator_exists(&self, fn_names: &[String]) -> Vec<TypeError> {
+        self.tables
+            .iter()
+            .filter(|t| !t.generator_fn.is_empty() && !fn_names.contains(&t.generator_fn))
+            .map(|t| TypeError {
+                code: "A43004".into(),
+                message: format!(
+                    "table `{}` references generator function `{}` which is not defined",
+                    t.name, t.generator_fn
+                ),
+                span: t.span.clone(),
+                secondary: None,
+            })
+            .collect()
+    }
 }
 
 impl Default for PrecomputedTableChecker {

@@ -261,6 +261,11 @@ impl StringEncodingChecker {
         self.variables.insert(name, encoding);
     }
 
+    /// Look up the declared encoding for a variable.
+    pub fn encoding_of(&self, name: &str) -> Option<&StringEncoding> {
+        self.variables.get(name)
+    }
+
     pub fn check_use_as_string(&self, name: &str, span: &Range<usize>) -> Option<TypeError> {
         match self.variables.get(name) {
             Some(StringEncoding::RawBytes) => Some(TypeError {
@@ -394,6 +399,13 @@ impl ChecksumChecker {
         if let Some(region) = self.regions.get_mut(name) {
             region.verified = true;
         }
+    }
+
+    /// Look up a region's declared algorithm and byte range.
+    pub fn region_info(&self, name: &str) -> Option<(&ChecksumAlgorithm, usize, usize)> {
+        self.regions
+            .get(name)
+            .map(|r| (&r.algorithm, r.byte_start, r.byte_end))
     }
 
     pub fn check_use_before_verify(&self, name: &str, span: &Range<usize>) -> Option<TypeError> {

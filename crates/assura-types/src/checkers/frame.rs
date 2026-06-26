@@ -112,6 +112,10 @@ pub(crate) fn collect_old_references(expr: &SpExpr) -> Vec<String> {
 pub(crate) fn collect_ident_references(expr: &SpExpr) -> Vec<String> {
     struct IdentRefCollector(Vec<String>);
     impl ExprVisitor for IdentRefCollector {
+        fn visit_old(&mut self, _inner: &SpExpr) {
+            // Do NOT recurse into old() -- those references are collected
+            // separately by collect_old_references.
+        }
         fn visit_ident(&mut self, name: &str) {
             if name != "true" && name != "false" && name != "result" && name != "self" {
                 self.0.push(name.to_string());

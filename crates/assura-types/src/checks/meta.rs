@@ -694,13 +694,29 @@ pub(crate) fn run_multi_pass_refinement_checks(
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind
                 && (k == "discharge_pass" || k == "pass_proved")
-                && let Some((name, args)) = extract_call(&clause.body)
             {
-                let count = args
-                    .first()
-                    .and_then(extract_int_literal)
-                    .unwrap_or(DEFAULT_PARAM_ONE) as usize;
-                checker.discharge(name, count);
+                if let Some((name, args)) = extract_call(&clause.body) {
+                    let count = args
+                        .first()
+                        .and_then(extract_int_literal)
+                        .unwrap_or(DEFAULT_PARAM_ONE) as usize;
+                    checker.discharge(name, count);
+                } else if let Expr::Ident(name) = &clause.body.node {
+                    checker.discharge(name, 1);
+                } else {
+                    let kvs = extract_kv_pairs(&clause.body);
+                    let name = kvs
+                        .iter()
+                        .find(|(k, _)| *k == "name" || *k == "pass")
+                        .and_then(|(_, v)| extract_ident(v))
+                        .unwrap_or("unnamed");
+                    let count = kvs
+                        .iter()
+                        .find(|(k, _)| *k == "count" || *k == "obligations")
+                        .and_then(|(_, v)| extract_int_literal(v))
+                        .unwrap_or(DEFAULT_PARAM_ONE) as usize;
+                    checker.discharge(name, count);
+                }
             }
         }
     }
@@ -759,11 +775,18 @@ pub(crate) fn run_incremental_contract_checks(
                                 version,
                                 requires_count,
                                 ensures_count,
+                                decl.span.clone(),
                             );
                         }
                     }
                     Expr::Ident(name) => {
-                        checker.add_version(name.clone(), 10000, requires_count, ensures_count);
+                        checker.add_version(
+                            name.clone(),
+                            10000,
+                            requires_count,
+                            ensures_count,
+                            decl.span.clone(),
+                        );
                     }
                     _ => {
                         let kvs = extract_kv_pairs(&clause.body);
@@ -789,7 +812,13 @@ pub(crate) fn run_incremental_contract_checks(
                                 .and_then(|(_, v)| extract_int_literal(v))
                                 .unwrap_or(DEFAULT_PARAM_ZERO) as u32;
                         let version = major * 10000 + minor * 100 + patch;
-                        checker.add_version(name, version, requires_count, ensures_count);
+                        checker.add_version(
+                            name,
+                            version,
+                            requires_count,
+                            ensures_count,
+                            decl.span.clone(),
+                        );
                     }
                 }
             }

@@ -47,6 +47,11 @@ pub(crate) fn run_frame_checks(
                 secondary: None,
             });
         }
+        // A14002: Deferred -- the current heuristic (both old(x) and bare x
+        // in ensures) produces false positives on frame condition assertions
+        // like `ensures { y == old(y) }` where y is NOT modified. The method
+        // exists on FrameChecker for future use when deeper semantic analysis
+        // can distinguish frame assertions from modification assertions.
     }
     errors
 }

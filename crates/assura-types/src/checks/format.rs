@@ -150,59 +150,88 @@ pub(crate) fn run_bit_level_checks(source: &assura_parser::ast::SourceFile) -> V
                 }
                 if k == "bit_field" {
                     found = true;
-                    // Extract bit field: bit_field(name, offset, width) or bit_field(name, offset, width, cross_byte_ok)
-                    if let Some(ref mut ch) = checker {
-                        match &clause.body.node {
-                            Expr::Call { func, args } => {
-                                if let Expr::Ident(name) = &func.as_ref().node {
-                                    let bit_offset = args
-                                        .first()
-                                        .and_then(extract_int_literal)
-                                        .unwrap_or(DEFAULT_PARAM_ZERO)
-                                        as usize;
-                                    let bit_width = args
-                                        .get(1)
-                                        .and_then(extract_int_literal)
-                                        .unwrap_or(DEFAULT_PARAM_ONE)
-                                        as usize;
-                                    let cross_byte_ok = args
-                                        .get(2)
-                                        .and_then(extract_ident)
-                                        .is_some_and(|v| v == "true");
-                                    ch.add_field(BitField {
-                                        name: name.clone(),
-                                        bit_offset,
-                                        bit_width,
-                                        span: decl.span.clone(),
-                                        cross_byte_ok,
-                                    });
-                                }
-                            }
-                            Expr::Ident(name) => {
-                                ch.add_field(BitField {
+                    // Extract bit field: bit_field(name, offset, width)
+                    // Also supports KV pairs: name = x, offset = y, width = z
+                    let field = match &clause.body.node {
+                        Expr::Call { func, args } => {
+                            if let Expr::Ident(name) = &func.as_ref().node {
+                                let bit_offset = args
+                                    .first()
+                                    .and_then(extract_int_literal)
+                                    .unwrap_or(DEFAULT_PARAM_ZERO)
+                                    as usize;
+                                let bit_width = args
+                                    .get(1)
+                                    .and_then(extract_int_literal)
+                                    .unwrap_or(DEFAULT_PARAM_ONE)
+                                    as usize;
+                                let cross_byte_ok = args
+                                    .get(2)
+                                    .and_then(extract_ident)
+                                    .is_some_and(|v| v == "true");
+                                Some(BitField {
                                     name: name.clone(),
-                                    bit_offset: 0,
-                                    bit_width: 1,
+                                    bit_offset,
+                                    bit_width,
                                     span: decl.span.clone(),
-                                    cross_byte_ok: false,
-                                });
+                                    cross_byte_ok,
+                                })
+                            } else {
+                                None
                             }
-                            _ => {}
                         }
-                    } else {
-                        // No container declared yet, create default 64-bit
-                        container_bits = 64;
-                        let mut ch = BitLevelChecker::new(64);
-                        if let Expr::Ident(name) = &clause.body.node {
-                            ch.add_field(BitField {
-                                name: name.clone(),
-                                bit_offset: 0,
-                                bit_width: 1,
+                        Expr::Ident(name) => Some(BitField {
+                            name: name.clone(),
+                            bit_offset: 0,
+                            bit_width: 1,
+                            span: decl.span.clone(),
+                            cross_byte_ok: false,
+                        }),
+                        _ => {
+                            // KV pairs: name = x, offset = y, width = z
+                            let kvs = extract_kv_pairs(&clause.body);
+                            let name = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "name")
+                                .and_then(|(_, v)| extract_ident(v))
+                                .unwrap_or("unnamed")
+                                .to_string();
+                            let bit_offset = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "offset" || *k == "bit_offset")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(DEFAULT_PARAM_ZERO)
+                                as usize;
+                            let bit_width = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "width" || *k == "bit_width" || *k == "size")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(DEFAULT_PARAM_ONE)
+                                as usize;
+                            let cross_byte_ok = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "cross_byte" || *k == "cross_byte_ok")
+                                .and_then(|(_, v)| extract_ident(v))
+                                .is_some_and(|v| v == "true");
+                            Some(BitField {
+                                name,
+                                bit_offset,
+                                bit_width,
                                 span: decl.span.clone(),
-                                cross_byte_ok: false,
-                            });
+                                cross_byte_ok,
+                            })
                         }
-                        checker = Some(ch);
+                    };
+                    if let Some(field) = field {
+                        if let Some(ref mut ch) = checker {
+                            ch.add_field(field);
+                        } else {
+                            // No container declared yet, create default
+                            container_bits = DEFAULT_BIT_CONTAINER_BITS as usize;
+                            let mut ch = BitLevelChecker::new(container_bits);
+                            ch.add_field(field);
+                            checker = Some(ch);
+                        }
                     }
                 }
             }
@@ -283,14 +312,26 @@ pub(crate) fn run_string_encoding_checks(
                     if let Some(err) = checker.check_use_as_string(name, &decl.span) {
                         errors.push(err);
                     }
-                    // Check encoding compatibility (target UTF-8 by default)
-                    if let Some(err) =
-                        checker.check_encoding_compat(name, &StringEncoding::Utf8, &decl.span)
+                    // Check encoding compatibility: extract target encoding
+                    // from sibling encoding declarations for the referenced var,
+                    // falling back to UTF-8 only when no declaration exists.
+                    let target_enc = checker
+                        .encoding_of(name)
+                        .cloned()
+                        .unwrap_or(StringEncoding::Utf8);
+                    if let Some(err) = checker.check_encoding_compat(name, &target_enc, &decl.span)
                     {
                         errors.push(err);
                     }
-                    // Check truncation at common byte boundaries
-                    if let Some(err) = checker.check_truncation(name, 1, &decl.span) {
+                    // Check truncation: extract byte length from expression
+                    // context (e.g., `name.length()` calls), defaulting to the
+                    // encoding's minimum code unit size.
+                    let byte_len = extract_byte_len_from_context(&clause.body, name)
+                        .unwrap_or_else(|| match checker.encoding_of(name) {
+                            Some(StringEncoding::Utf16Le | StringEncoding::Utf16Be) => 2,
+                            _ => 1,
+                        });
+                    if let Some(err) = checker.check_truncation(name, byte_len, &decl.span) {
                         errors.push(err);
                     }
                 }
@@ -298,6 +339,70 @@ pub(crate) fn run_string_encoding_checks(
         }
     }
     errors
+}
+
+/// Extract byte length from an expression context for a given variable name.
+///
+/// Looks for patterns like `name.length()` returning an integer literal,
+/// or `name.truncate(N)` / `name.slice(0, N)` to determine the byte
+/// boundary at which the variable is accessed.
+fn extract_byte_len_from_context(
+    expr: &assura_parser::ast::SpExpr,
+    var_name: &str,
+) -> Option<usize> {
+    match &expr.node {
+        // name.truncate(N) or name.slice(_, N)
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            if let Expr::Ident(recv) = &receiver.node
+                && recv == var_name
+                && (method == "truncate" || method == "slice")
+            {
+                // For truncate(N), N is the byte length
+                // For slice(start, end), end is the boundary
+                let len_arg = if method == "slice" {
+                    args.get(1)
+                } else {
+                    args.first()
+                };
+                return len_arg.and_then(extract_int_literal).map(|v| v as usize);
+            }
+            // Recurse into receiver and args
+            let from_recv = extract_byte_len_from_context(receiver, var_name);
+            if from_recv.is_some() {
+                return from_recv;
+            }
+            for a in args {
+                let from_a = extract_byte_len_from_context(a, var_name);
+                if from_a.is_some() {
+                    return from_a;
+                }
+            }
+            None
+        }
+        Expr::Call { func, args } => {
+            let from_f = extract_byte_len_from_context(func, var_name);
+            if from_f.is_some() {
+                return from_f;
+            }
+            for a in args {
+                let from_a = extract_byte_len_from_context(a, var_name);
+                if from_a.is_some() {
+                    return from_a;
+                }
+            }
+            None
+        }
+        Expr::BinOp { lhs, rhs, .. } => extract_byte_len_from_context(lhs, var_name)
+            .or_else(|| extract_byte_len_from_context(rhs, var_name)),
+        Expr::Block(exprs) | Expr::List(exprs) => exprs
+            .iter()
+            .find_map(|e| extract_byte_len_from_context(e, var_name)),
+        _ => None,
+    }
 }
 
 /// Parse a string encoding name to the enum.
@@ -347,7 +452,12 @@ pub(crate) fn run_checksum_checks(source: &assura_parser::ast::SourceFile) -> Ve
                             }
                         }
                         Expr::Ident(name) => {
-                            checker.declare_region(name.clone(), ChecksumAlgorithm::Crc32, 0, 1024);
+                            // Bare identifier: no algorithm or range specified,
+                            // use CRC32 as default but range is unknown (0..0
+                            // signals "no range declared" so range_coverage
+                            // checks against the declared range instead of a
+                            // hardcoded constant).
+                            checker.declare_region(name.clone(), ChecksumAlgorithm::Crc32, 0, 0);
                         }
                         _ => {
                             let kvs = extract_kv_pairs(&clause.body);
@@ -403,15 +513,19 @@ pub(crate) fn run_checksum_checks(source: &assura_parser::ast::SourceFile) -> Ve
                     if let Some(err) = checker.check_use_before_verify(name, &decl.span) {
                         errors.push(err);
                     }
-                    // Check algorithm consistency (verify declared matches expected)
-                    if let Some(err) =
-                        checker.check_algorithm_match(name, &ChecksumAlgorithm::Crc32, &decl.span)
-                    {
-                        errors.push(err);
-                    }
-                    // Check range coverage (verify checksum covers data range)
-                    if let Some(err) = checker.check_range_coverage(name, 0, 1024, &decl.span) {
-                        errors.push(err);
+                    // Check algorithm consistency: compare against each
+                    // region's own declared algorithm, not a hardcoded one.
+                    if let Some((algo, region_start, region_end)) = checker.region_info(name) {
+                        let algo = algo.clone();
+                        if let Some(err) = checker.check_algorithm_match(name, &algo, &decl.span) {
+                            errors.push(err);
+                        }
+                        // Check range coverage using the region's declared range
+                        if let Some(err) =
+                            checker.check_range_coverage(name, region_start, region_end, &decl.span)
+                        {
+                            errors.push(err);
+                        }
                     }
                 }
             }
