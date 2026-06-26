@@ -9,9 +9,9 @@
 //! This module is the counterpart of [`IrTermBuilder`](crate::ir_lower::IrTermBuilder)
 //! for AST expression encoding (vs. IR instruction encoding).
 
-use assura_ast::{BinOp, Expr, Literal, SpExpr};
 #[cfg(test)]
 use assura_ast::Spanned;
+use assura_ast::{BinOp, Expr, Literal, SpExpr};
 
 // ---------------------------------------------------------------------------
 // Trait definition
@@ -21,7 +21,7 @@ use assura_ast::Spanned;
 ///
 /// Backends (Z3, CVC5 native) implement this trait on a builder struct
 /// that holds the solver context, variable map, and axiom accumulator.
-#[allow(dead_code, reason = "Phase 1: trait defined; wiring in Phase 2")]
+#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
 pub(crate) trait EncodeTerm {
     /// The backend-specific term type.
     ///
@@ -62,8 +62,7 @@ pub(crate) trait EncodeTerm {
     ///
     /// The backend handles sort coercion (Int/Real/BV) internally.
     /// Returns `None` for genuinely unsupported operator/type combinations.
-    fn apply_binop(&mut self, op: &BinOp, lhs: Self::Term, rhs: Self::Term)
-        -> Option<Self::Term>;
+    fn apply_binop(&mut self, op: &BinOp, lhs: Self::Term, rhs: Self::Term) -> Option<Self::Term>;
 
     // === Unary operations ===
 
@@ -241,23 +240,13 @@ pub(crate) trait EncodeTerm {
     fn encode_raw(&mut self, tokens: &[String]) -> Option<Self::Term>;
 
     /// Encode a `Tuple(elems)` expression.
-    fn encode_tuple(
-        &mut self,
-        elem_vals: &[Self::Term],
-    ) -> Self::Term;
+    fn encode_tuple(&mut self, elem_vals: &[Self::Term]) -> Self::Term;
 
     /// Encode a `List(elems)` expression.
-    fn encode_list(
-        &mut self,
-        elem_vals: &[Self::Term],
-    ) -> Self::Term;
+    fn encode_list(&mut self, elem_vals: &[Self::Term]) -> Self::Term;
 
     /// Encode an `Index { expr, index }` expression.
-    fn encode_index(
-        &mut self,
-        coll: Self::Term,
-        index: Self::Term,
-    ) -> Self::Term;
+    fn encode_index(&mut self, coll: Self::Term, index: Self::Term) -> Self::Term;
 
     /// Encode an `Apply { lemma_name, args }` expression.
     fn encode_apply(
@@ -277,11 +266,8 @@ pub(crate) trait EncodeTerm {
 /// This is the unified replacement for `Encoder::encode_expr` (Z3) and
 /// `encode_expr_cvc5` (CVC5).  It handles AST variant dispatch and policy
 /// classification, delegating term construction to `EncodeTerm` methods.
-#[allow(dead_code, reason = "Phase 1: function defined; wiring in Phase 2")]
-pub(crate) fn encode_expr_shared<B: EncodeTerm>(
-    b: &mut B,
-    expr: &SpExpr,
-) -> Option<B::Term> {
+#[cfg_attr(not(feature = "cvc5-verify"), allow(dead_code))]
+pub(crate) fn encode_expr_shared<B: EncodeTerm>(b: &mut B, expr: &SpExpr) -> Option<B::Term> {
     match &expr.node {
         // --- Literals ---
         Expr::Literal(Literal::Int(s)) => Some(b.make_int_literal(s)),
@@ -341,9 +327,7 @@ pub(crate) fn encode_expr_shared<B: EncodeTerm>(
         }
 
         // --- old(expr) ---
-        Expr::Old(inner) => {
-            b.encode_old(inner, &mut |b, e| encode_expr_shared(b, e))
-        }
+        Expr::Old(inner) => b.encode_old(inner, &mut |b, e| encode_expr_shared(b, e)),
 
         // --- Quantifiers ---
         Expr::Forall { var, domain, body } => {
@@ -405,9 +389,9 @@ pub(crate) fn encode_expr_shared<B: EncodeTerm>(
         }
 
         // --- Match ---
-        Expr::Match { scrutinee, arms, .. } => {
-            b.encode_match(scrutinee, arms, &mut |b, e| encode_expr_shared(b, e))
-        }
+        Expr::Match {
+            scrutinee, arms, ..
+        } => b.encode_match(scrutinee, arms, &mut |b, e| encode_expr_shared(b, e)),
 
         // --- Let ---
         Expr::Let {
@@ -415,9 +399,7 @@ pub(crate) fn encode_expr_shared<B: EncodeTerm>(
         } => b.encode_let(name, value, body, &mut |b, e| encode_expr_shared(b, e)),
 
         // --- Field access ---
-        Expr::Field(obj, field) => {
-            b.encode_field(obj, field, &mut |b, e| encode_expr_shared(b, e))
-        }
+        Expr::Field(obj, field) => b.encode_field(obj, field, &mut |b, e| encode_expr_shared(b, e)),
 
         // --- Index ---
         Expr::Index { expr: coll, index } => {
@@ -427,16 +409,12 @@ pub(crate) fn encode_expr_shared<B: EncodeTerm>(
         }
 
         // --- Block ---
-        Expr::Block(body) => {
-            b.encode_block(body, &mut |b, e| encode_expr_shared(b, e))
-        }
+        Expr::Block(body) => b.encode_block(body, &mut |b, e| encode_expr_shared(b, e)),
 
         // --- Tuple ---
         Expr::Tuple(elems) => {
-            let elem_vals: Option<Vec<_>> = elems
-                .iter()
-                .map(|e| encode_expr_shared(b, e))
-                .collect();
+            let elem_vals: Option<Vec<_>> =
+                elems.iter().map(|e| encode_expr_shared(b, e)).collect();
             Some(b.encode_tuple(&elem_vals?))
         }
 
@@ -447,17 +425,13 @@ pub(crate) fn encode_expr_shared<B: EncodeTerm>(
             args,
         } => {
             b.register_trigger_function(method);
-            b.encode_method_call(receiver, method, args, &mut |b, e| {
-                encode_expr_shared(b, e)
-            })
+            b.encode_method_call(receiver, method, args, &mut |b, e| encode_expr_shared(b, e))
         }
 
         // --- List ---
         Expr::List(elems) => {
-            let elem_vals: Option<Vec<_>> = elems
-                .iter()
-                .map(|e| encode_expr_shared(b, e))
-                .collect();
+            let elem_vals: Option<Vec<_>> =
+                elems.iter().map(|e| encode_expr_shared(b, e)).collect();
             Some(b.encode_list(&elem_vals?))
         }
 
@@ -532,26 +506,61 @@ mod tests {
             Some(format!("({} {} {})", op.as_str(), lhs, rhs))
         }
 
-        fn make_neg(&mut self, t: String) -> String { format!("(neg {t})") }
-        fn make_not(&mut self, t: String) -> String { format!("(not {t})") }
-        fn make_and(&mut self, a: String, b: String) -> String { format!("(and {a} {b})") }
-        fn make_or(&mut self, a: String, b: String) -> String { format!("(or {a} {b})") }
-        fn make_implies(&mut self, a: String, b: String) -> String { format!("(=> {a} {b})") }
+        fn make_neg(&mut self, t: String) -> String {
+            format!("(neg {t})")
+        }
+        fn make_not(&mut self, t: String) -> String {
+            format!("(not {t})")
+        }
+        fn make_and(&mut self, a: String, b: String) -> String {
+            format!("(and {a} {b})")
+        }
+        fn make_or(&mut self, a: String, b: String) -> String {
+            format!("(or {a} {b})")
+        }
+        fn make_implies(&mut self, a: String, b: String) -> String {
+            format!("(=> {a} {b})")
+        }
         fn make_ite(&mut self, c: String, t: String, e: String) -> String {
             format!("(ite {c} {t} {e})")
         }
 
-        fn make_bound_int_var(&mut self, name: &str) -> String { format!("(bound {name})") }
-        fn make_forall(&mut self, _var: &str, _bound: &String, body: String, _pats: Vec<String>) -> String {
+        fn make_bound_int_var(&mut self, name: &str) -> String {
+            format!("(bound {name})")
+        }
+        fn make_forall(
+            &mut self,
+            _var: &str,
+            _bound: &String,
+            body: String,
+            _pats: Vec<String>,
+        ) -> String {
             format!("(forall {body})")
         }
-        fn make_exists(&mut self, _var: &str, _bound: &String, body: String, _pats: Vec<String>) -> String {
+        fn make_exists(
+            &mut self,
+            _var: &str,
+            _bound: &String,
+            body: String,
+            _pats: Vec<String>,
+        ) -> String {
             format!("(exists {body})")
         }
-        fn guard_quantifier_body(&mut self, _dom: &SpExpr, _bound: &String, body: String, _is_forall: bool) -> String {
+        fn guard_quantifier_body(
+            &mut self,
+            _dom: &SpExpr,
+            _bound: &String,
+            body: String,
+            _is_forall: bool,
+        ) -> String {
             body
         }
-        fn infer_quantifier_patterns(&mut self, _body: &SpExpr, _var: &str, _bound: &String) -> Vec<String> {
+        fn infer_quantifier_patterns(
+            &mut self,
+            _body: &SpExpr,
+            _var: &str,
+            _bound: &String,
+        ) -> Vec<String> {
             vec![]
         }
 
@@ -562,9 +571,15 @@ mod tests {
             format!("(uf-bool {name} {})", args.join(" "))
         }
 
-        fn as_bool(&mut self, t: String) -> String { t }
-        fn as_int(&mut self, t: String) -> String { t }
-        fn is_real_sort(&self, _t: &String) -> bool { false }
+        fn as_bool(&mut self, t: String) -> String {
+            t
+        }
+        fn as_int(&mut self, t: String) -> String {
+            t
+        }
+        fn is_real_sort(&self, _t: &String) -> bool {
+            false
+        }
 
         fn fresh_int(&mut self) -> String {
             self.fresh_counter += 1;
@@ -575,38 +590,77 @@ mod tests {
             format!("(fresh-bool {})", self.fresh_counter)
         }
 
-        fn push_axiom(&mut self, a: String) { self.axioms.push(a); }
+        fn push_axiom(&mut self, a: String) {
+            self.axioms.push(a);
+        }
         fn register_trigger_function(&mut self, _name: &str) {}
-        fn canonical_length(&mut self, name: &str) -> String { format!("(len {name})") }
+        fn canonical_length(&mut self, name: &str) -> String {
+            format!("(len {name})")
+        }
 
-        fn encode_call(&mut self, func: &SpExpr, args: &[SpExpr], encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<String>) -> Option<String> {
+        fn encode_call(
+            &mut self,
+            func: &SpExpr,
+            args: &[SpExpr],
+            encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<String>,
+        ) -> Option<String> {
             let f = encode_sub(self, func)?;
             let a: Option<Vec<_>> = args.iter().map(|e| encode_sub(self, e)).collect();
             Some(format!("(call {f} {})", a?.join(" ")))
         }
-        fn encode_method_call(&mut self, recv: &SpExpr, method: &str, args: &[SpExpr], encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<String>) -> Option<String> {
+        fn encode_method_call(
+            &mut self,
+            recv: &SpExpr,
+            method: &str,
+            args: &[SpExpr],
+            encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<String>,
+        ) -> Option<String> {
             let r = encode_sub(self, recv)?;
             let a: Option<Vec<_>> = args.iter().map(|e| encode_sub(self, e)).collect();
             Some(format!("(method {r} {method} {})", a?.join(" ")))
         }
-        fn encode_field(&mut self, obj: &SpExpr, field: &str, encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<String>) -> Option<String> {
+        fn encode_field(
+            &mut self,
+            obj: &SpExpr,
+            field: &str,
+            encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<String>,
+        ) -> Option<String> {
             let o = encode_sub(self, obj)?;
             Some(format!("(field {o} {field})"))
         }
-        fn encode_old(&mut self, inner: &SpExpr, encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<String>) -> Option<String> {
+        fn encode_old(
+            &mut self,
+            inner: &SpExpr,
+            encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<String>,
+        ) -> Option<String> {
             let v = encode_sub(self, inner)?;
             Some(format!("(old {v})"))
         }
-        fn encode_match(&mut self, scrutinee: &SpExpr, _arms: &[assura_ast::MatchArm], encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<String>) -> Option<String> {
+        fn encode_match(
+            &mut self,
+            scrutinee: &SpExpr,
+            _arms: &[assura_ast::MatchArm],
+            encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<String>,
+        ) -> Option<String> {
             let s = encode_sub(self, scrutinee)?;
             Some(format!("(match {s})"))
         }
-        fn encode_let(&mut self, name: &str, value: &SpExpr, body: &SpExpr, encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<String>) -> Option<String> {
+        fn encode_let(
+            &mut self,
+            name: &str,
+            value: &SpExpr,
+            body: &SpExpr,
+            encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<String>,
+        ) -> Option<String> {
             let v = encode_sub(self, value)?;
             self.set_var(name, v);
             encode_sub(self, body)
         }
-        fn encode_block(&mut self, body: &[SpExpr], encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<String>) -> Option<String> {
+        fn encode_block(
+            &mut self,
+            body: &[SpExpr],
+            encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<String>,
+        ) -> Option<String> {
             body.iter().map(|e| encode_sub(self, e)).last()?
         }
         fn encode_raw(&mut self, tokens: &[String]) -> Option<String> {
@@ -621,8 +675,15 @@ mod tests {
         fn encode_index(&mut self, coll: String, idx: String) -> String {
             format!("(index {coll} {idx})")
         }
-        fn encode_apply(&mut self, name: &str, args: &[SpExpr], encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<String>) -> Option<String> {
-            for a in args { encode_sub(self, a); }
+        fn encode_apply(
+            &mut self,
+            name: &str,
+            args: &[SpExpr],
+            encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<String>,
+        ) -> Option<String> {
+            for a in args {
+                encode_sub(self, a);
+            }
             Some(format!("(apply {name})"))
         }
     }
@@ -715,7 +776,10 @@ mod tests {
             rhs: Box::new(c),
         });
         let result = encode_expr_shared(&mut enc, &expr).unwrap();
-        assert!(result.starts_with("(and "), "expected chained comparison: {result}");
+        assert!(
+            result.starts_with("(and "),
+            "expected chained comparison: {result}"
+        );
         assert!(result.contains("(< (var a) (var b))"));
         assert!(result.contains("(< (var b) (var c))"));
     }
@@ -853,5 +917,191 @@ mod tests_z3_encode_term {
             assert!(enc_shared.vars.contains_key("x"));
             assert!(enc_shared.vars.contains_key("y"));
         });
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CVC5 native conformance tests (EncodeTerm for Cvc5TermBuilder)
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, feature = "cvc5-verify"))]
+mod tests_cvc5_encode_term {
+    use super::*;
+    use crate::cvc5_encode_term_impl::Cvc5TermBuilder;
+    use crate::cvc5_encoder_state::default_cvc5_encoder_state;
+    use std::collections::HashMap;
+
+    #[test]
+    fn cvc5_encode_term_int_literal() {
+        let tm = cvc5::TermManager::new();
+        let mut vars = HashMap::new();
+        let mut state = default_cvc5_encoder_state();
+        let mut builder = Cvc5TermBuilder {
+            tm: &tm,
+            vars: &mut vars,
+            state: &mut state,
+        };
+        let expr = Spanned::no_span(Expr::Literal(Literal::Int("42".into())));
+        let result = encode_expr_shared(&mut builder, &expr);
+        assert!(result.is_some(), "CVC5 should encode int literal");
+    }
+
+    #[test]
+    fn cvc5_encode_term_bool_literal() {
+        let tm = cvc5::TermManager::new();
+        let mut vars = HashMap::new();
+        let mut state = default_cvc5_encoder_state();
+        let mut builder = Cvc5TermBuilder {
+            tm: &tm,
+            vars: &mut vars,
+            state: &mut state,
+        };
+        let expr = Spanned::no_span(Expr::Literal(Literal::Bool(true)));
+        let result = encode_expr_shared(&mut builder, &expr);
+        assert!(result.is_some(), "CVC5 should encode bool literal");
+    }
+
+    #[test]
+    fn cvc5_encode_term_ident() {
+        let tm = cvc5::TermManager::new();
+        let mut vars = HashMap::new();
+        let mut state = default_cvc5_encoder_state();
+        let mut builder = Cvc5TermBuilder {
+            tm: &tm,
+            vars: &mut vars,
+            state: &mut state,
+        };
+        let expr = Spanned::no_span(Expr::Ident("x".into()));
+        let result = encode_expr_shared(&mut builder, &expr);
+        assert!(result.is_some(), "CVC5 should encode ident");
+        assert!(vars.contains_key("x"), "x should be registered");
+    }
+
+    #[test]
+    fn cvc5_encode_term_binop_add() {
+        let tm = cvc5::TermManager::new();
+        let mut vars = HashMap::new();
+        let mut state = default_cvc5_encoder_state();
+        let mut builder = Cvc5TermBuilder {
+            tm: &tm,
+            vars: &mut vars,
+            state: &mut state,
+        };
+        let expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            op: BinOp::Add,
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+        });
+        let result = encode_expr_shared(&mut builder, &expr);
+        assert!(result.is_some(), "CVC5 should encode addition");
+    }
+
+    #[test]
+    fn cvc5_encode_term_comparison_lt() {
+        let tm = cvc5::TermManager::new();
+        let mut vars = HashMap::new();
+        let mut state = default_cvc5_encoder_state();
+        let mut builder = Cvc5TermBuilder {
+            tm: &tm,
+            vars: &mut vars,
+            state: &mut state,
+        };
+        let expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+            op: BinOp::Lt,
+            rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+        });
+        let result = encode_expr_shared(&mut builder, &expr);
+        assert!(result.is_some(), "CVC5 should encode comparison");
+    }
+
+    #[test]
+    fn cvc5_encode_term_if_then_else() {
+        let tm = cvc5::TermManager::new();
+        let mut vars = HashMap::new();
+        let mut state = default_cvc5_encoder_state();
+        let mut builder = Cvc5TermBuilder {
+            tm: &tm,
+            vars: &mut vars,
+            state: &mut state,
+        };
+        let expr = Spanned::no_span(Expr::If {
+            cond: Box::new(Spanned::no_span(Expr::Literal(Literal::Bool(true)))),
+            then_branch: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+            else_branch: Some(Box::new(Spanned::no_span(Expr::Literal(Literal::Int(
+                "0".into(),
+            ))))),
+        });
+        let result = encode_expr_shared(&mut builder, &expr);
+        assert!(result.is_some(), "CVC5 should encode if-then-else");
+    }
+
+    #[test]
+    fn cvc5_encode_term_ghost_transparent() {
+        let tm = cvc5::TermManager::new();
+        let mut vars = HashMap::new();
+        let mut state = default_cvc5_encoder_state();
+        let mut builder = Cvc5TermBuilder {
+            tm: &tm,
+            vars: &mut vars,
+            state: &mut state,
+        };
+        let inner = Box::new(Spanned::no_span(Expr::Literal(Literal::Int("7".into()))));
+        let expr = Spanned::no_span(Expr::Ghost(inner));
+        let result = encode_expr_shared(&mut builder, &expr);
+        assert!(result.is_some(), "CVC5 Ghost should be transparent");
+    }
+
+    #[test]
+    fn cvc5_encode_term_unary_neg() {
+        let tm = cvc5::TermManager::new();
+        let mut vars = HashMap::new();
+        let mut state = default_cvc5_encoder_state();
+        let mut builder = Cvc5TermBuilder {
+            tm: &tm,
+            vars: &mut vars,
+            state: &mut state,
+        };
+        let expr = Spanned::no_span(Expr::UnaryOp {
+            op: assura_ast::UnaryOp::Neg,
+            expr: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("5".into())))),
+        });
+        let result = encode_expr_shared(&mut builder, &expr);
+        assert!(result.is_some(), "CVC5 should encode unary neg");
+    }
+
+    #[test]
+    fn cvc5_encode_term_parity_with_encode_expr_cvc5() {
+        // Verify encode_expr_shared via Cvc5TermBuilder produces the same variable
+        // registrations as encode_expr_cvc5 for the same AST.
+        use crate::cvc5_native_encoder::encode_expr_cvc5;
+
+        let tm = cvc5::TermManager::new();
+        let expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            op: BinOp::Add,
+            rhs: Box::new(Spanned::no_span(Expr::Ident("y".into()))),
+        });
+
+        // Direct encode
+        let mut vars_direct = HashMap::new();
+        let mut state_direct = default_cvc5_encoder_state();
+        let _direct = encode_expr_cvc5(&tm, &expr, &mut vars_direct, &mut state_direct);
+
+        // Shared encode
+        let mut vars_shared = HashMap::new();
+        let mut state_shared = default_cvc5_encoder_state();
+        let mut builder = Cvc5TermBuilder {
+            tm: &tm,
+            vars: &mut vars_shared,
+            state: &mut state_shared,
+        };
+        let _shared = encode_expr_shared(&mut builder, &expr);
+
+        // Both should have registered x and y
+        assert!(vars_direct.contains_key("x"));
+        assert!(vars_direct.contains_key("y"));
+        assert!(vars_shared.contains_key("x"));
+        assert!(vars_shared.contains_key("y"));
     }
 }

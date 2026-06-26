@@ -572,7 +572,6 @@ impl EncodeTerm for Encoder {
         let expr = assura_ast::Spanned::no_span(assura_ast::Expr::Match {
             scrutinee: Box::new(scrutinee.clone()),
             arms: arms.to_vec(),
-
         });
         Some(self.encode_expr(&expr))
     }

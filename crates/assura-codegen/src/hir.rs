@@ -379,9 +379,17 @@ fn render_fn(f: &RustFn, out: &mut String) {
     };
 
     if f.is_abstract {
-        let _ = writeln!(out, "{vis}{unsafe_kw}fn {}{tps}({params_s}){ret};\n", f.name);
+        let _ = writeln!(
+            out,
+            "{vis}{unsafe_kw}fn {}{tps}({params_s}){ret};\n",
+            f.name
+        );
     } else {
-        let _ = writeln!(out, "{vis}{unsafe_kw}fn {}{tps}({params_s}){ret} {{", f.name);
+        let _ = writeln!(
+            out,
+            "{vis}{unsafe_kw}fn {}{tps}({params_s}){ret} {{",
+            f.name
+        );
 
         for stmt in &f.body {
             render_stmt(stmt, out, 1);
@@ -514,7 +522,13 @@ fn render_const(c: &RustConst, out: &mut String) {
         let _ = writeln!(out, "/// {doc}");
     }
     let vis = if c.is_pub { "pub " } else { "" };
-    let _ = writeln!(out, "{vis}const {}: {} = {};", c.name, render_type(&c.ty), c.value);
+    let _ = writeln!(
+        out,
+        "{vis}const {}: {} = {};",
+        c.name,
+        render_type(&c.ty),
+        c.value
+    );
 }
 
 fn render_type(ty: &RustType) -> String {
@@ -556,7 +570,10 @@ pub(crate) fn render_stmt(stmt: &RustStmt, out: &mut String, indent: usize) {
                 let _ = writeln!(out, "{pad}debug_assert!({{ {cond} }}, \"{label}: {msg}\");");
             } else {
                 let escaped_cond = cond.replace('"', "\\\"");
-                let _ = writeln!(out, "{pad}debug_assert!({cond}, \"{label}: {escaped_cond}\");");
+                let _ = writeln!(
+                    out,
+                    "{pad}debug_assert!({cond}, \"{label}: {escaped_cond}\");"
+                );
             }
         }
         RustStmt::Comment(text) => {

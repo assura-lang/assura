@@ -167,6 +167,8 @@ pub(crate) use cvc5_backend::cvc5_bitvector_encode;
 pub(crate) use cvc5_backend::cvc5_call_encode;
 pub(crate) use cvc5_backend::cvc5_collect;
 #[cfg(feature = "cvc5-verify")]
+pub(crate) use cvc5_backend::cvc5_encode_term_impl;
+#[cfg(feature = "cvc5-verify")]
 pub(crate) use cvc5_backend::cvc5_encoder_state;
 pub(crate) use cvc5_backend::cvc5_expr_smtlib;
 // Re-exports keep historical `crate::cvc5_*` paths; some shells now use encode_*_policy directly.

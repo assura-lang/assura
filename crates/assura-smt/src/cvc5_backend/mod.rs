@@ -16,6 +16,8 @@ pub(crate) mod cvc5_bitvector_encode;
 pub(crate) mod cvc5_call_encode;
 pub(crate) mod cvc5_collect;
 #[cfg(feature = "cvc5-verify")]
+pub(crate) mod cvc5_encode_term_impl;
+#[cfg(feature = "cvc5-verify")]
 pub(crate) mod cvc5_encoder_state;
 pub(crate) mod cvc5_expr_smtlib;
 pub(crate) mod cvc5_field_access;

@@ -3400,8 +3400,12 @@ fn deep_field_access_no_dots() {
 fn debug_assert_simple() {
     let mut code = String::new();
     crate::hir::render_stmt(
-        &crate::hir::RustStmt::Assert { cond: "x > 0".into(), label: "requires".into() },
-        &mut code, 1,
+        &crate::hir::RustStmt::Assert {
+            cond: "x > 0".into(),
+            label: "requires".into(),
+        },
+        &mut code,
+        1,
     );
     assert!(code.contains("debug_assert!(x > 0"), "got: {code}");
     assert!(code.contains("requires:"), "got: {code}");
@@ -3411,8 +3415,12 @@ fn debug_assert_simple() {
 fn debug_assert_multiline() {
     let mut code = String::new();
     crate::hir::render_stmt(
-        &crate::hir::RustStmt::Assert { cond: "match x {\n  1 => true\n}".into(), label: "ensures".into() },
-        &mut code, 1,
+        &crate::hir::RustStmt::Assert {
+            cond: "match x {\n  1 => true\n}".into(),
+            label: "ensures".into(),
+        },
+        &mut code,
+        1,
     );
     assert!(code.contains("debug_assert!({"), "got: {code}");
 }
@@ -3421,8 +3429,12 @@ fn debug_assert_multiline() {
 fn debug_assert_deep_field_becomes_comment() {
     let mut code = String::new();
     crate::hir::render_stmt(
-        &crate::hir::RustStmt::Assert { cond: "state.head.extra > 0".into(), label: "invariant".into() },
-        &mut code, 1,
+        &crate::hir::RustStmt::Assert {
+            cond: "state.head.extra > 0".into(),
+            label: "invariant".into(),
+        },
+        &mut code,
+        1,
     );
     assert!(
         code.starts_with("    //"),
@@ -3435,8 +3447,12 @@ fn debug_assert_deep_field_becomes_comment() {
 fn debug_assert_indented() {
     let mut code = String::new();
     crate::hir::render_stmt(
-        &crate::hir::RustStmt::Assert { cond: "x > 0".into(), label: "requires".into() },
-        &mut code, 2,
+        &crate::hir::RustStmt::Assert {
+            cond: "x > 0".into(),
+            label: "requires".into(),
+        },
+        &mut code,
+        2,
     );
     assert!(code.starts_with("        debug_assert!"), "got: {code}");
 }
@@ -3445,8 +3461,12 @@ fn debug_assert_indented() {
 fn debug_assert_indented_deep_field_comment() {
     let mut code = String::new();
     crate::hir::render_stmt(
-        &crate::hir::RustStmt::Assert { cond: "a.b.c > 0".into(), label: "inv".into() },
-        &mut code, 3,
+        &crate::hir::RustStmt::Assert {
+            cond: "a.b.c > 0".into(),
+            label: "inv".into(),
+        },
+        &mut code,
+        3,
     );
     assert!(code.starts_with("            //"), "got: {code}");
 }
