@@ -1020,6 +1020,76 @@ pub fn ir_to_rust(module: &IrModule) -> String {
     code
 }
 
+/// Generate only the function body (instructions + postcondition) from an IR function.
+///
+/// Unlike `ir_to_rust` which generates complete Rust functions, this returns
+/// the body code suitable for embedding into codegen-produced contract/fn/service
+/// bodies in place of `todo!()` placeholders. The code uses slot variables
+/// (`slot_0`, `slot_1`, etc.) and assumes the caller maps contract input params
+/// to the corresponding slot bindings.
+pub fn ir_function_body_to_rust(func: &IrFunction) -> String {
+    let mut code = String::new();
+
+    // Pre-condition
+    if let Some(ref pre) = func.pre {
+        let pre_rust = pred_to_rust(pre);
+        if pre_rust != "true" {
+            code.push_str(&format!(
+                "    debug_assert!({pre_rust}, \"IR pre-condition\");\n"
+            ));
+        }
+    }
+
+    // Body instructions
+    for instr in &func.body {
+        let target = if instr.target == usize::MAX {
+            crate::encode_atom_policy::RESULT_VAR_NAME.to_string()
+        } else {
+            format!("slot_{}", instr.target)
+        };
+        let ty = ir_type_to_rust(&instr.ty);
+        let expr_code = ir_expr_to_rust(&instr.expr);
+        code.push_str(&format!("    let {target}: {ty} = {expr_code};\n"));
+    }
+
+    // Post-condition
+    if let Some(ref post) = func.post {
+        let post_rust = pred_to_rust(post);
+        if post_rust != "true" {
+            code.push_str(&format!(
+                "    debug_assert!({post_rust}, \"IR post-condition\");\n"
+            ));
+        }
+    }
+
+    // Return __result if it was assigned
+    if func.body.iter().any(|i| i.target == usize::MAX) {
+        code.push_str("    __result\n");
+    } else {
+        let default_val = ir_type_default(&func.return_type);
+        code.push_str(&format!("    {default_val}\n"));
+    }
+
+    code
+}
+
+/// Build a map from contract/function names to their IR-generated Rust body code.
+///
+/// For each function in the module, the first function is mapped to the module name,
+/// and subsequent functions are mapped to their function ID.
+pub fn ir_module_to_body_map(module: &IrModule) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    for (i, func) in module.functions.iter().enumerate() {
+        let key = if i == 0 {
+            module.name.clone()
+        } else {
+            func.id.trim_start_matches('#').to_string()
+        };
+        map.insert(key, ir_function_body_to_rust(func));
+    }
+    map
+}
+
 pub(crate) fn ir_type_to_rust(ty: &str) -> String {
     match ty {
         "Int" => "i64".to_string(),
@@ -1613,5 +1683,121 @@ module check {
         assert_eq!(parse_cmp_op("gt").unwrap(), IrCmpOp::Gt);
         assert_eq!(parse_cmp_op("ge").unwrap(), IrCmpOp::Ge);
         assert!(parse_cmp_op("bad").is_err());
+    }
+
+    // -------------------------------------------------------------------
+    // ir_function_body_to_rust tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_ir_function_body_generates_instructions() {
+        let func = IrFunction {
+            id: "#0".into(),
+            params: vec![
+                IrSlotDecl {
+                    slot: 0,
+                    ty: "Int".into(),
+                },
+                IrSlotDecl {
+                    slot: 1,
+                    ty: "Int".into(),
+                },
+            ],
+            return_type: "Int".into(),
+            effects: "pure".into(),
+            pre: None,
+            post: None,
+            body: vec![
+                IrInstr {
+                    target: 2,
+                    expr: IrExprKind::Arith {
+                        op: IrArithOp::Add,
+                        lhs: 0,
+                        rhs: 1,
+                    },
+                    ty: "Int".into(),
+                },
+                IrInstr {
+                    target: usize::MAX,
+                    expr: IrExprKind::Load(2),
+                    ty: "Int".into(),
+                },
+            ],
+        };
+        let body = ir_function_body_to_rust(&func);
+        assert!(body.contains("(slot_0 + slot_1)"), "body: {body}");
+        assert!(body.contains("__result"), "body: {body}");
+        // No function signature
+        assert!(
+            !body.contains("fn "),
+            "body should not contain fn signature"
+        );
+    }
+
+    #[test]
+    fn test_ir_function_body_with_pre_post() {
+        let func = IrFunction {
+            id: "#0".into(),
+            params: vec![IrSlotDecl {
+                slot: 0,
+                ty: "Int".into(),
+            }],
+            return_type: "Int".into(),
+            effects: "pure".into(),
+            pre: Some(IrPred::Cmp {
+                op: IrCmpOp::Ge,
+                lhs: IrPredArg::Slot(0),
+                rhs: IrPredArg::Lit(IrLiteral::Int(0)),
+            }),
+            post: Some(IrPred::Cmp {
+                op: IrCmpOp::Ge,
+                lhs: IrPredArg::SlotResult,
+                rhs: IrPredArg::Lit(IrLiteral::Int(0)),
+            }),
+            body: vec![IrInstr {
+                target: usize::MAX,
+                expr: IrExprKind::Load(0),
+                ty: "Int".into(),
+            }],
+        };
+        let body = ir_function_body_to_rust(&func);
+        assert!(body.contains("debug_assert!"), "body: {body}");
+        assert!(body.contains("IR pre-condition"), "body: {body}");
+        assert!(body.contains("IR post-condition"), "body: {body}");
+    }
+
+    #[test]
+    fn test_ir_module_to_body_map() {
+        let module = IrModule {
+            name: "AddOne".into(),
+            functions: vec![IrFunction {
+                id: "#0".into(),
+                params: vec![IrSlotDecl {
+                    slot: 0,
+                    ty: "Int".into(),
+                }],
+                return_type: "Int".into(),
+                effects: "pure".into(),
+                pre: None,
+                post: None,
+                body: vec![IrInstr {
+                    target: 1,
+                    expr: IrExprKind::Arith {
+                        op: IrArithOp::Add,
+                        lhs: 0,
+                        rhs: 0,
+                    },
+                    ty: "Int".into(),
+                }],
+            }],
+        };
+        let map = ir_module_to_body_map(&module);
+        assert!(
+            map.contains_key("AddOne"),
+            "map keys: {:?}",
+            map.keys().collect::<Vec<_>>()
+        );
+        let body = &map["AddOne"];
+        assert!(body.contains("slot_0 + slot_0"), "body: {body}");
     }
 }

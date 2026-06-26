@@ -103,7 +103,14 @@ pub(crate) fn generate_enum_def(e: &EnumDef, code: &mut String) {
 
 /// Generate the body of a contract as standalone module contents (no `pub mod`
 /// wrapper). Used in multi-file mode where each contract gets its own `.rs` file.
-pub(crate) fn generate_contract_contents(c: &ContractDecl, code: &mut String) {
+///
+/// When `ir_bodies` is provided and contains a body for this contract's name,
+/// the IR-generated Rust code replaces the `todo!()` placeholder.
+pub(crate) fn generate_contract_contents(
+    c: &ContractDecl,
+    code: &mut String,
+    ir_bodies: Option<&std::collections::HashMap<String, String>>,
+) {
     // Interface contracts become traits even in multi-file mode
     let is_interface = c
         .clauses
@@ -220,12 +227,23 @@ pub(crate) fn generate_contract_contents(c: &ContractDecl, code: &mut String) {
         code.push_str(&feature_code);
     }
 
+    // Check for IR-generated body to replace todo!() placeholder
+    let ir_body = ir_bodies.and_then(|m| m.get(&c.name));
+
     if ensures_exprs.is_empty() && invariants.is_empty() {
-        code.push_str("    todo!(\"implementation provided by AI agent\")\n");
+        if let Some(body) = ir_body {
+            code.push_str(body);
+        } else {
+            code.push_str("    todo!(\"implementation provided by AI agent\")\n");
+        }
     } else {
-        code.push_str(&format!(
-            "    let __result: {output_type} = todo!(\"implementation provided by AI agent\");\n"
-        ));
+        if let Some(body) = ir_body {
+            code.push_str(body);
+        } else {
+            code.push_str(&format!(
+                "    let __result: {output_type} = todo!(\"implementation provided by AI agent\");\n"
+            ));
+        }
         // Bind the output variable name so ensures clauses can reference it
         if let Some(ref name) = output_name {
             code.push_str(&format!("    let {name} = __result.clone();\n"));
@@ -267,7 +285,11 @@ pub(crate) fn generate_contract_contents(c: &ContractDecl, code: &mut String) {
     }
 }
 
-pub(crate) fn generate_contract(c: &ContractDecl, code: &mut String) {
+pub(crate) fn generate_contract(
+    c: &ContractDecl,
+    code: &mut String,
+    ir_bodies: Option<&std::collections::HashMap<String, String>>,
+) {
     // Interface contracts become traits (no wrapping module needed)
     let is_interface = c
         .clauses
@@ -285,7 +307,7 @@ pub(crate) fn generate_contract(c: &ContractDecl, code: &mut String) {
         c.name,
         c.name.to_lowercase()
     ));
-    generate_contract_contents(c, code);
+    generate_contract_contents(c, code, ir_bodies);
     code.push_str("}\n\n");
 }
 
@@ -1179,7 +1201,7 @@ mod tests {
             )],
         );
         let mut code = String::new();
-        generate_contract(&c, &mut code);
+        generate_contract(&c, &mut code, None);
         assert!(code.contains("pub mod contract_safediv"));
         assert!(code.contains("/// Contract: SafeDiv"));
     }
@@ -1194,7 +1216,7 @@ mod tests {
             )],
         );
         let mut code = String::new();
-        generate_contract(&c, &mut code);
+        generate_contract(&c, &mut code, None);
         assert!(code.contains("pub trait Hashable"));
         assert!(!code.contains("pub mod"));
     }
@@ -1221,7 +1243,7 @@ mod tests {
             ],
         );
         let mut code = String::new();
-        generate_contract_contents(&c, &mut code);
+        generate_contract_contents(&c, &mut code, None);
         assert!(code.contains("pub fn check("));
         assert!(code.contains("debug_assert!"));
         assert!(code.contains("__result"));
@@ -1237,7 +1259,7 @@ mod tests {
             )],
         );
         let mut code = String::new();
-        generate_contract_contents(&c, &mut code);
+        generate_contract_contents(&c, &mut code, None);
         assert!(code.contains("pub enum DivError"));
         assert!(code.contains("Result<"));
         assert!(code.contains("DivError"));
@@ -1247,7 +1269,7 @@ mod tests {
     fn contract_contents_no_ensures_emits_todo() {
         let c = mk_contract("Simple", vec![]);
         let mut code = String::new();
-        generate_contract_contents(&c, &mut code);
+        generate_contract_contents(&c, &mut code, None);
         assert!(code.contains("todo!(\"implementation provided by AI agent\")"));
     }
 
@@ -1261,9 +1283,58 @@ mod tests {
             )],
         );
         let mut code = String::new();
-        generate_contract_contents(&c, &mut code);
+        generate_contract_contents(&c, &mut code, None);
         assert!(code.contains("pub struct MyImpl;"));
         assert!(code.contains("impl Hashable for MyImpl"));
+    }
+
+    // ---- IR body injection ----
+
+    #[test]
+    fn contract_with_ir_body_replaces_todo() {
+        let c = mk_contract(
+            "AddOne",
+            vec![
+                mk_clause(
+                    ClauseKind::Input,
+                    Spanned::no_span(Expr::Cast {
+                        expr: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                        ty: "Int".into(),
+                    }),
+                ),
+                mk_clause(
+                    ClauseKind::Output,
+                    Spanned::no_span(Expr::Cast {
+                        expr: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
+                        ty: "Int".into(),
+                    }),
+                ),
+            ],
+        );
+        // Without IR body: should contain todo!()
+        let mut code_no_ir = String::new();
+        generate_contract_contents(&c, &mut code_no_ir, None);
+        assert!(
+            code_no_ir.contains("todo!"),
+            "without IR body, should have todo!(): {code_no_ir}"
+        );
+
+        // With IR body: todo!() replaced
+        let mut ir_bodies = std::collections::HashMap::new();
+        ir_bodies.insert(
+            "AddOne".to_string(),
+            "    let __result: i64 = (x + 1_i64);\n    __result\n".to_string(),
+        );
+        let mut code_with_ir = String::new();
+        generate_contract_contents(&c, &mut code_with_ir, Some(&ir_bodies));
+        assert!(
+            !code_with_ir.contains("todo!"),
+            "with IR body, should NOT have todo!(): {code_with_ir}"
+        );
+        assert!(
+            code_with_ir.contains("(x + 1_i64)"),
+            "IR body should be present: {code_with_ir}"
+        );
     }
 
     // ---- generate_interface_trait_from_contract ----

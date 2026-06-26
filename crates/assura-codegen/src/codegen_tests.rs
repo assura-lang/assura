@@ -802,6 +802,7 @@ fn backend_cranelift_fast_dev() {
         opt_level: 0,
         debug_info: true,
         target: super::CompileTarget::Native,
+        ..Default::default()
     };
     assert_eq!(config.backend, super::CodegenBackend::Cranelift);
     assert_eq!(config.opt_level, 0);
@@ -829,6 +830,7 @@ fn cranelift_generates_cargo_config() {
             opt_level: 0,
             debug_info: true,
             target: super::CompileTarget::Native,
+            ..Default::default()
         },
     );
     let cargo_config = project
@@ -853,6 +855,7 @@ fn cranelift_output_differs_from_rustc() {
             opt_level: 0,
             debug_info: true,
             target: super::CompileTarget::Native,
+            ..Default::default()
         },
     );
     assert!(
@@ -885,6 +888,7 @@ contract UsePoint { requires(p: Point) ensures(result: Int) }";
             opt_level: 0,
             debug_info: true,
             target: super::CompileTarget::Native,
+            ..Default::default()
         },
     );
     let lib = project
@@ -917,6 +921,7 @@ fn cranelift_adds_no_mangle_extern_c() {
             opt_level: 0,
             debug_info: true,
             target: super::CompileTarget::Native,
+            ..Default::default()
         },
     );
     let lib = project
@@ -949,6 +954,7 @@ fn cranelift_skips_proptest() {
             opt_level: 0,
             debug_info: true,
             target: super::CompileTarget::Native,
+            ..Default::default()
         },
     );
     let cl_lib = cranelift_project
@@ -1044,6 +1050,7 @@ fn codegen_with_config_produces_profile() {
         opt_level: 3,
         debug_info: true,
         target: super::CompileTarget::Native,
+        ..Default::default()
     };
     let project = {
         let out =

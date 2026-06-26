@@ -32,6 +32,7 @@ pub(crate) fn generate_service_method(
     clauses: &[Clause],
     is_mutation: bool,
     has_invariants: bool,
+    ir_bodies: Option<&std::collections::HashMap<String, String>>,
 ) {
     // Extract input/output from clauses
     let mut input_params: Vec<(String, String)> = Vec::new();
@@ -169,15 +170,21 @@ pub(crate) fn generate_service_method(
         generate_debug_assert_indented(code, req, "requires", 3);
     }
 
+    let ir_body = ir_bodies.and_then(|m| m.get(name));
+
     if output_type == "()" {
         // State transition
         if let Some(ref state) = post_state {
             code.push_str(&format!("            self.state = State::{state};\n"));
         }
-        code.push_str(&format!(
-            "            todo!(\"{} implementation\")\n",
-            kind_label.to_lowercase()
-        ));
+        if let Some(body) = ir_body {
+            code.push_str(body);
+        } else {
+            code.push_str(&format!(
+                "            todo!(\"{} implementation\")\n",
+                kind_label.to_lowercase()
+            ));
+        }
         // Operation-level invariant assertions
         for inv in &invariants {
             generate_debug_assert_indented(code, inv, "invariant", 3);
@@ -187,10 +194,14 @@ pub(crate) fn generate_service_method(
             code.push_str("            self.check_invariant();\n");
         }
     } else {
-        code.push_str(&format!(
-            "            let __result: {output_type} = todo!(\"{} implementation\");\n",
-            kind_label.to_lowercase()
-        ));
+        if let Some(body) = ir_body {
+            code.push_str(body);
+        } else {
+            code.push_str(&format!(
+                "            let __result: {output_type} = todo!(\"{} implementation\");\n",
+                kind_label.to_lowercase()
+            ));
+        }
         // Bind the output variable name so ensures clauses can reference it
         if let Some(ref name) = output_name {
             code.push_str(&format!("            let {name} = __result.clone();\n"));
@@ -229,6 +240,7 @@ pub(crate) fn generate_typestate_method(
     clauses: &[Clause],
     is_mutation: bool,
     _has_invariants: bool,
+    ir_bodies: Option<&std::collections::HashMap<String, String>>,
 ) {
     let mut input_params: Vec<(String, String)> = Vec::new();
     let mut output_type = "()".to_string();
@@ -362,16 +374,26 @@ pub(crate) fn generate_typestate_method(
         generate_debug_assert_indented(code, inv, "invariant", 1);
     }
 
+    let ir_body = ir_bodies.and_then(|m| m.get(name));
+
     if post_state.is_some() || output_type == "()" {
-        code.push_str(&format!(
-            "    todo!(\"{} implementation\")\n",
-            kind_label.to_lowercase()
-        ));
+        if let Some(body) = ir_body {
+            code.push_str(body);
+        } else {
+            code.push_str(&format!(
+                "    todo!(\"{} implementation\")\n",
+                kind_label.to_lowercase()
+            ));
+        }
     } else {
-        code.push_str(&format!(
-            "    let __result: {output_type} = todo!(\"{} implementation\");\n",
-            kind_label.to_lowercase()
-        ));
+        if let Some(body) = ir_body {
+            code.push_str(body);
+        } else {
+            code.push_str(&format!(
+                "    let __result: {output_type} = todo!(\"{} implementation\");\n",
+                kind_label.to_lowercase()
+            ));
+        }
         // Bind the output variable name so ensures clauses can reference it
         if let Some(ref name) = output_name {
             code.push_str(&format!("    let {name} = __result.clone();\n"));
@@ -409,7 +431,11 @@ pub(crate) fn method_pre_state(clauses: &[Clause]) -> Option<String> {
 
 /// Generate typestate-encoded service body (marker structs, generic struct,
 /// state-specific impl blocks). Used when the service declares states.
-pub(crate) fn generate_typestate_service_body(s: &ServiceDecl, code: &mut String) {
+pub(crate) fn generate_typestate_service_body(
+    s: &ServiceDecl,
+    code: &mut String,
+    ir_bodies: Option<&std::collections::HashMap<String, String>>,
+) {
     let states = collect_service_states(s);
     let has_invariants = s
         .items
@@ -535,6 +561,7 @@ pub(crate) fn generate_typestate_service_body(s: &ServiceDecl, code: &mut String
                         method.clauses,
                         method.is_mutation,
                         has_invariants,
+                        ir_bodies,
                     );
                 }
                 code.push_str("}\n\n");
@@ -553,6 +580,7 @@ pub(crate) fn generate_typestate_service_body(s: &ServiceDecl, code: &mut String
                         method.clauses,
                         method.is_mutation,
                         has_invariants,
+                        ir_bodies,
                     );
                 }
                 for expr in &invariant_exprs {
@@ -573,11 +601,15 @@ pub(crate) fn generate_typestate_service_body(s: &ServiceDecl, code: &mut String
 
 /// Generate service body as standalone module contents (no `pub mod` wrapper).
 /// Used in multi-file mode where each service gets its own `.rs` file.
-pub(crate) fn generate_service_contents(s: &ServiceDecl, code: &mut String) {
+pub(crate) fn generate_service_contents(
+    s: &ServiceDecl,
+    code: &mut String,
+    ir_bodies: Option<&std::collections::HashMap<String, String>>,
+) {
     let has_states = s.items.iter().any(|i| matches!(i, ServiceItem::States(_)));
 
     if has_states {
-        generate_typestate_service_body(s, code);
+        generate_typestate_service_body(s, code, ir_bodies);
         return;
     }
 
@@ -608,10 +640,10 @@ pub(crate) fn generate_service_contents(s: &ServiceDecl, code: &mut String) {
     for item in &s.items {
         match item {
             ServiceItem::Operation { name, clauses } => {
-                generate_service_method(code, name, clauses, true, has_invariants);
+                generate_service_method(code, name, clauses, true, has_invariants, ir_bodies);
             }
             ServiceItem::Query { name, clauses } => {
-                generate_service_method(code, name, clauses, false, has_invariants);
+                generate_service_method(code, name, clauses, false, has_invariants, ir_bodies);
             }
             ServiceItem::Invariant(expr) => {
                 let rust_expr = expr_to_rust(expr);
@@ -630,7 +662,11 @@ pub(crate) fn generate_service_contents(s: &ServiceDecl, code: &mut String) {
     code.push_str("}\n"); // close impl
 }
 
-pub(crate) fn generate_service(s: &ServiceDecl, code: &mut String) {
+pub(crate) fn generate_service(
+    s: &ServiceDecl,
+    code: &mut String,
+    ir_bodies: Option<&std::collections::HashMap<String, String>>,
+) {
     code.push_str(&format!(
         "/// Service: {}\npub mod {} {{\n",
         s.name,
@@ -639,7 +675,7 @@ pub(crate) fn generate_service(s: &ServiceDecl, code: &mut String) {
 
     // Generate the service body (typestate or classic), then indent it
     let mut inner = String::new();
-    generate_service_contents(s, &mut inner);
+    generate_service_contents(s, &mut inner, ir_bodies);
     for line in inner.lines() {
         if line.is_empty() {
             code.push('\n');
@@ -958,7 +994,7 @@ mod tests {
     #[test]
     fn service_method_operation_mut_self() {
         let mut code = String::new();
-        generate_service_method(&mut code, "process", &[], true, false);
+        generate_service_method(&mut code, "process", &[], true, false, None);
         assert!(code.contains("&mut self"), "operation uses &mut self");
         assert!(code.contains("pub fn process"));
     }
@@ -966,7 +1002,7 @@ mod tests {
     #[test]
     fn service_method_query_ref_self() {
         let mut code = String::new();
-        generate_service_method(&mut code, "get_value", &[], false, false);
+        generate_service_method(&mut code, "get_value", &[], false, false, None);
         assert!(code.contains("&self"), "query uses &self");
         assert!(code.contains("pub fn get_value"));
     }
@@ -974,7 +1010,7 @@ mod tests {
     #[test]
     fn service_method_with_invariant_check() {
         let mut code = String::new();
-        generate_service_method(&mut code, "do_it", &[], true, true);
+        generate_service_method(&mut code, "do_it", &[], true, true, None);
         assert!(
             code.contains("self.check_invariant()"),
             "invariant check on entry/exit"
@@ -995,7 +1031,7 @@ mod tests {
             }),
         )];
         let mut code = String::new();
-        generate_service_method(&mut code, "start", &clauses, true, false);
+        generate_service_method(&mut code, "start", &clauses, true, false, None);
         assert!(
             code.contains("State::Ready"),
             "state guard should be in code"
@@ -1016,7 +1052,7 @@ mod tests {
             }),
         )];
         let mut code = String::new();
-        generate_service_method(&mut code, "start", &clauses, true, false);
+        generate_service_method(&mut code, "start", &clauses, true, false, None);
         assert!(
             code.contains("State::Running"),
             "state transition in output"
@@ -1035,7 +1071,7 @@ mod tests {
             }],
         };
         let mut code = String::new();
-        generate_service(&s, &mut code);
+        generate_service(&s, &mut code, None);
         assert!(code.contains("pub mod counter"));
         assert!(code.contains("pub struct Counter"));
         assert!(code.contains("pub fn new()"));
@@ -1080,7 +1116,7 @@ mod tests {
             ],
         };
         let mut code = String::new();
-        generate_service(&s, &mut code);
+        generate_service(&s, &mut code, None);
         assert!(code.contains("pub struct Closed;"), "Closed marker");
         assert!(code.contains("pub struct Open;"), "Open marker");
         assert!(code.contains("PhantomData"), "generic state param");

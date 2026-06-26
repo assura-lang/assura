@@ -171,7 +171,11 @@ pub(crate) fn generate_extern(ex: &ExternDecl, code: &mut String) {
 // Function definitions
 // ---------------------------------------------------------------------------
 
-pub(crate) fn generate_fn_def(f: &FnDef, code: &mut String) {
+pub(crate) fn generate_fn_def(
+    f: &FnDef,
+    code: &mut String,
+    ir_bodies: Option<&std::collections::HashMap<String, String>>,
+) {
     let params_s: String = f
         .params
         .iter()
@@ -239,8 +243,16 @@ pub(crate) fn generate_fn_def(f: &FnDef, code: &mut String) {
         }
     }
 
+    let ir_body = ir_bodies.and_then(|m| m.get(&f.name));
+
     if ensures_exprs.is_empty() {
-        code.push_str("    todo!(\"implementation provided by AI agent\")\n");
+        if let Some(body) = ir_body {
+            code.push_str(body);
+        } else {
+            code.push_str("    todo!(\"implementation provided by AI agent\")\n");
+        }
+    } else if let Some(body) = ir_body {
+        code.push_str(body);
     } else {
         code.push_str(&format!(
             "    let __result: {ret_ty} = todo!(\"implementation provided by AI agent\");\n"
@@ -427,7 +439,7 @@ mod tests {
             clauses: vec![],
         };
         let mut code = String::new();
-        generate_fn_def(&f, &mut code);
+        generate_fn_def(&f, &mut code, None);
         assert!(code.contains("pub fn do_work()"));
         assert!(!code.contains(" -> "), "no return type");
         assert!(code.contains("todo!"));
@@ -444,7 +456,7 @@ mod tests {
             clauses: vec![],
         };
         let mut code = String::new();
-        generate_fn_def(&f, &mut code);
+        generate_fn_def(&f, &mut code, None);
         assert!(code.contains("pub fn add(a: i64, b: i64) -> i64"));
     }
 
@@ -480,7 +492,7 @@ mod tests {
             ],
         };
         let mut code = String::new();
-        generate_fn_def(&f, &mut code);
+        generate_fn_def(&f, &mut code, None);
         assert!(code.contains("debug_assert!((b != 0)"), "requires b != 0");
         assert!(code.contains("__result"), "result variable");
         assert!(code.contains("ensures"), "ensures assertion");
@@ -510,7 +522,7 @@ mod tests {
             )],
         };
         let mut code = String::new();
-        generate_fn_def(&f, &mut code);
+        generate_fn_def(&f, &mut code, None);
         assert!(
             code.contains("let __old_x = x.clone()"),
             "should save old(x)"
