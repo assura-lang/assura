@@ -1,0 +1,35 @@
+// Standard library: cryptography contracts
+module std.crypto
+
+contract hash_sha256 {
+    input(data: Bytes)
+    output(result: Bytes)
+    effects { pure }
+}
+
+contract hash_sha512 {
+    input(data: Bytes)
+    output(result: Bytes)
+    effects { pure }
+}
+
+contract hmac {
+    input(key: Bytes, data: Bytes)
+    output(result: Bytes)
+    requires { key.length() > 0 }
+    effects { pure }
+}
+
+contract random_bytes {
+    input(count: Nat)
+    output(result: Bytes)
+    requires { count > 0 }
+    effects { rng }
+}
+
+contract constant_time_eq {
+    input(a: Bytes, b: Bytes)
+    output(result: Bool)
+    requires { a.length() == b.length() }
+    effects { pure }
+}

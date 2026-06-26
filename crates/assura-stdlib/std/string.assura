@@ -20,3 +20,57 @@ contract contains {
     output(result: Bool)
     effects { pure }
 }
+
+contract starts_with {
+    input(s: String, prefix: String)
+    output(result: Bool)
+    effects { pure }
+}
+
+contract ends_with {
+    input(s: String, suffix: String)
+    output(result: Bool)
+    effects { pure }
+}
+
+contract trim {
+    input(s: String)
+    output(result: String)
+    effects { pure }
+}
+
+contract to_uppercase {
+    input(s: String)
+    output(result: String)
+    effects { pure }
+}
+
+contract to_lowercase {
+    input(s: String)
+    output(result: String)
+    effects { pure }
+}
+
+contract replace {
+    input(s: String, from: String, to: String)
+    output(result: String)
+    effects { pure }
+}
+
+contract concat {
+    input(a: String, b: String)
+    output(result: String)
+    effects { pure }
+}
+
+contract index_of {
+    input(s: String, needle: String)
+    output(result: Int)
+    effects { pure }
+}
+
+contract is_empty {
+    input(s: String)
+    output(result: Bool)
+    effects { pure }
+}

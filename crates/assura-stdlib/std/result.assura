@@ -1,0 +1,46 @@
+// Standard library: result type contracts
+module std.results
+
+contract is_ok {
+    input(res: Result<Int, String>)
+    output(result: Bool)
+    effects { pure }
+}
+
+contract is_err {
+    input(res: Result<Int, String>)
+    output(result: Bool)
+    effects { pure }
+}
+
+contract unwrap {
+    input(res: Result<Int, String>)
+    output(result: Int)
+    requires { is_ok(res) == true }
+    effects { pure }
+}
+
+contract unwrap_err {
+    input(res: Result<Int, String>)
+    output(result: String)
+    requires { is_err(res) == true }
+    effects { pure }
+}
+
+contract unwrap_or {
+    input(res: Result<Int, String>, default: Int)
+    output(result: Int)
+    effects { pure }
+}
+
+contract result_map {
+    input(res: Result<Int, String>, f: Int -> Int)
+    output(result: Result<Int, String>)
+    effects { pure }
+}
+
+contract result_map_err {
+    input(res: Result<Int, String>, f: String -> String)
+    output(result: Result<Int, String>)
+    effects { pure }
+}

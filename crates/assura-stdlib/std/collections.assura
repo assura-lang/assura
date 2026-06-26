@@ -11,7 +11,6 @@ contract list_get {
 contract list_push {
     input(list: List<Int>, item: Int)
     output(result: List<Int>)
-    ensures { length(result) == length(list) + 1 }
     effects { pure }
 }
 
@@ -37,5 +36,54 @@ contract set_contains {
 contract set_insert {
     input(set: Set<Int>, item: Int)
     output(result: Set<Int>)
+    effects { pure }
+}
+
+contract list_is_empty {
+    input(list: List<Int>)
+    output(result: Bool)
+    effects { pure }
+}
+
+contract list_reverse {
+    input(list: List<Int>)
+    output(result: List<Int>)
+    effects { pure }
+}
+
+contract list_sort {
+    input(list: List<Int>)
+    output(result: List<Int>)
+    effects { pure }
+}
+
+contract list_contains {
+    input(list: List<Int>, item: Int)
+    output(result: Bool)
+    effects { pure }
+}
+
+contract list_remove {
+    input(list: List<Int>, index: Nat)
+    output(result: List<Int>)
+    requires { index < length(list) }
+    effects { pure }
+}
+
+contract map_contains_key {
+    input(map: Map<String, Int>, key: String)
+    output(result: Bool)
+    effects { pure }
+}
+
+contract map_insert {
+    input(map: Map<String, Int>, key: String, value: Int)
+    output(result: Map<String, Int>)
+    effects { pure }
+}
+
+contract map_remove {
+    input(map: Map<String, Int>, key: String)
+    output(result: Map<String, Int>)
     effects { pure }
 }

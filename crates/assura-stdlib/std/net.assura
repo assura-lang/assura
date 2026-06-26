@@ -1,0 +1,37 @@
+// Standard library: network contracts
+module std.net
+
+contract connect {
+    input(host: String, port: Nat)
+    output(result: Int)
+    requires { port > 0 }
+    requires { host.length() > 0 }
+    effects { net }
+}
+
+contract listen {
+    input(port: Nat)
+    output(result: Int)
+    requires { port > 0 }
+    effects { net }
+}
+
+contract send {
+    input(handle: Int, data: Bytes)
+    output(result: Nat)
+    requires { data.length() > 0 }
+    effects { net }
+}
+
+contract recv {
+    input(handle: Int, max_bytes: Nat)
+    output(result: Bytes)
+    requires { max_bytes > 0 }
+    effects { net }
+}
+
+contract close_connection {
+    input(handle: Int)
+    output(result: Bool)
+    effects { net }
+}

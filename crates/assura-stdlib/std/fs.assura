@@ -1,0 +1,46 @@
+// Standard library: filesystem contracts
+module std.fs
+
+contract read_file {
+    input(path: String)
+    output(result: Bytes)
+    requires { path.length() > 0 }
+    ensures { result.length() >= 0 }
+    effects { fs }
+}
+
+contract write_file {
+    input(path: String, data: Bytes)
+    output(result: Bool)
+    requires { path.length() > 0 }
+    effects { fs }
+}
+
+contract file_exists {
+    input(path: String)
+    output(result: Bool)
+    requires { path.length() > 0 }
+    effects { fs }
+}
+
+contract create_dir {
+    input(path: String)
+    output(result: Bool)
+    requires { path.length() > 0 }
+    effects { fs }
+}
+
+contract remove {
+    input(path: String)
+    output(result: Bool)
+    requires { path.length() > 0 }
+    effects { fs }
+}
+
+contract file_size {
+    input(path: String)
+    output(result: Nat)
+    requires { path.length() > 0 }
+    ensures { result >= 0 }
+    effects { fs }
+}

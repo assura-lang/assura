@@ -1,0 +1,28 @@
+// Standard library: I/O contracts
+module std.io
+
+contract read_bytes {
+    input(handle: Int, count: Nat)
+    output(result: Bytes)
+    requires { count > 0 }
+    effects { io }
+}
+
+contract write_bytes {
+    input(handle: Int, data: Bytes)
+    output(result: Nat)
+    requires { data.length() > 0 }
+    effects { io }
+}
+
+contract flush {
+    input(handle: Int)
+    output(result: Bool)
+    effects { io }
+}
+
+contract close {
+    input(handle: Int)
+    output(result: Bool)
+    effects { io }
+}

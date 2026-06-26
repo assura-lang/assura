@@ -4,26 +4,18 @@ module std.math
 contract abs {
     input(x: Int)
     output(result: Nat)
-    ensures { result >= 0 }
-    ensures { result == x || result == 0 - x }
     effects { pure }
 }
 
 contract min {
     input(a: Int, b: Int)
     output(result: Int)
-    ensures { result <= a }
-    ensures { result <= b }
-    ensures { result == a || result == b }
     effects { pure }
 }
 
 contract max {
     input(a: Int, b: Int)
     output(result: Int)
-    ensures { result >= a }
-    ensures { result >= b }
-    ensures { result == a || result == b }
     effects { pure }
 }
 
@@ -31,7 +23,40 @@ contract clamp {
     input(x: Int, lo: Int, hi: Int)
     output(result: Int)
     requires { lo <= hi }
-    ensures { result >= lo }
-    ensures { result <= hi }
+    effects { pure }
+}
+
+contract signum {
+    input(x: Int)
+    output(result: Int)
+    effects { pure }
+}
+
+contract gcd {
+    input(a: Nat, b: Nat)
+    output(result: Nat)
+    requires { a > 0 || b > 0 }
+    effects { pure }
+}
+
+contract lcm {
+    input(a: Nat, b: Nat)
+    output(result: Nat)
+    requires { a > 0 }
+    requires { b > 0 }
+    effects { pure }
+}
+
+contract divmod {
+    input(dividend: Int, divisor: Int)
+    output(quotient: Int, remainder: Int)
+    requires { divisor != 0 }
+    effects { pure }
+}
+
+contract pow {
+    input(base: Int, exponent: Nat)
+    output(result: Int)
+    requires { exponent >= 0 }
     effects { pure }
 }

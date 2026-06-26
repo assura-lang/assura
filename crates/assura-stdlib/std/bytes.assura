@@ -1,0 +1,49 @@
+// Standard library: byte buffer contracts
+module std.bytes
+
+contract from_string {
+    input(s: String)
+    output(result: Bytes)
+    ensures { result.length() >= 0 }
+    effects { pure }
+}
+
+contract to_string {
+    input(data: Bytes)
+    output(result: String)
+    effects { pure }
+}
+
+contract bytes_length {
+    input(data: Bytes)
+    output(result: Nat)
+    ensures { result >= 0 }
+    effects { pure }
+}
+
+contract slice {
+    input(data: Bytes, start: Nat, end: Nat)
+    output(result: Bytes)
+    requires { start <= end }
+    requires { end <= data.length() }
+    effects { pure }
+}
+
+contract concat {
+    input(a: Bytes, b: Bytes)
+    output(result: Bytes)
+    effects { pure }
+}
+
+contract starts_with {
+    input(data: Bytes, prefix: Bytes)
+    output(result: Bool)
+    effects { pure }
+}
+
+contract byte_at {
+    input(data: Bytes, index: Nat)
+    output(result: Nat)
+    requires { index < data.length() }
+    effects { pure }
+}

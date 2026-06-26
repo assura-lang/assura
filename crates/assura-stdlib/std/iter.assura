@@ -1,0 +1,57 @@
+// Standard library: iterator contracts
+module std.iter
+
+contract fold {
+    input(list: List<Int>, init: Int, f: Int -> Int -> Int)
+    output(result: Int)
+    effects { pure }
+}
+
+contract sum {
+    input(list: List<Int>)
+    output(result: Int)
+    effects { pure }
+}
+
+contract count {
+    input(list: List<Int>)
+    output(result: Nat)
+    ensures { result >= 0 }
+    effects { pure }
+}
+
+contract any {
+    input(list: List<Int>, pred: Int -> Bool)
+    output(result: Bool)
+    effects { pure }
+}
+
+contract all {
+    input(list: List<Int>, pred: Int -> Bool)
+    output(result: Bool)
+    effects { pure }
+}
+
+contract find {
+    input(list: List<Int>, pred: Int -> Bool)
+    output(result: Option<Int>)
+    effects { pure }
+}
+
+contract zip {
+    input(a: List<Int>, b: List<Int>)
+    output(result: List<Int>)
+    effects { pure }
+}
+
+contract take {
+    input(list: List<Int>, n: Nat)
+    output(result: List<Int>)
+    effects { pure }
+}
+
+contract skip {
+    input(list: List<Int>, n: Nat)
+    output(result: List<Int>)
+    effects { pure }
+}

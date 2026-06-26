@@ -1,0 +1,21 @@
+// Standard library: time contracts
+module std.time
+
+contract now_millis {
+    output(result: Nat)
+    ensures { result >= 0 }
+    effects { time }
+}
+
+contract elapsed {
+    input(start: Nat, end: Nat)
+    output(result: Nat)
+    requires { end >= start }
+    effects { pure }
+}
+
+contract sleep_millis {
+    input(millis: Nat)
+    requires { millis > 0 }
+    effects { time }
+}
