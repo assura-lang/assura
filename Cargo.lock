@@ -142,7 +142,6 @@ dependencies = [
  "assura-parser",
  "assura-pipeline",
  "assura-resolve",
- "assura-smt",
  "assura-types",
  "criterion",
 ]

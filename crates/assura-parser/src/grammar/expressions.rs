@@ -36,7 +36,7 @@ fn expr_bp(p: &mut Parser, min_bp: u8) {
     // Limit the chain length to prevent stack overflow in downstream
     // recursive AST walkers (display, resolve, type-check, codegen)
     // which recurse on the left-leaning Expr::BinOp tree.
-    const MAX_BINOP_CHAIN: usize = 256;
+    const MAX_BINOP_CHAIN: usize = 128;
     let mut chain_count: usize = 0;
     while let Some((op_bp, _)) = infix_bp(p) {
         if op_bp < min_bp {
@@ -45,7 +45,7 @@ fn expr_bp(p: &mut Parser, min_bp: u8) {
 
         chain_count += 1;
         if chain_count > MAX_BINOP_CHAIN {
-            p.error_at_current("operator chain too long (limit: 256)".to_string());
+            p.error_at_current("operator chain too long (limit: 128)".to_string());
             break;
         }
 

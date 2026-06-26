@@ -1315,7 +1315,7 @@ The expression parser also handles quantifiers (`forall`, `exists`),
 `if/then/else`, `old()`, `result`, `match`, and `let` expressions.
 
 **Operator chain limit**: The Pratt parser enforces
-`MAX_BINOP_CHAIN = 256`. After 256 consecutive infix operators at the
+`MAX_BINOP_CHAIN = 128`. After 256 consecutive infix operators at the
 same precedence level, the parser emits an error and stops extending
 the chain. This prevents stack overflow in downstream recursive AST
 walkers (display, resolve, type-check, codegen) which recurse on the
