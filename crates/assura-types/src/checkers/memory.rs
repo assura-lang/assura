@@ -382,7 +382,6 @@ mod tests {
             rhs: Box::new(ident("y")),
         });
         let result = mc.check_bounds_in_requires("buf", &[&requires_expr], &span());
-        assert!(result.is_some());
         assert_eq!(result.unwrap().code.as_ref(), "A08101");
     }
 
@@ -438,7 +437,6 @@ mod tests {
             buffer: "b".into(),
         });
         let result = mc.check_region_containment("sub", "parent", &span());
-        assert!(result.is_some());
         assert_eq!(result.unwrap().code.as_ref(), "A08102");
     }
 

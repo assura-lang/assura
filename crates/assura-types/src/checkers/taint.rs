@@ -381,7 +381,7 @@ impl TaintChecker {
             if !matches!(&decl.node, Decl::FnDef(_) | Decl::Extern(_)) {
                 continue;
             }
-            let name = decl.node.name().unwrap();
+            let name = decl.node.name().expect("FnDef and Extern always have names");
             if let Some(TaintLabel::Validated) = decl
                 .node
                 .return_ty()

@@ -990,8 +990,8 @@ module safe_division {
         assert_eq!(func.params[1].slot, 1);
         assert_eq!(func.return_type, "Int");
         assert_eq!(func.effects, "pure");
-        assert!(func.pre.is_some());
-        assert!(func.post.is_some());
+        func.pre.as_ref().unwrap();
+        func.post.as_ref().unwrap();
         assert_eq!(func.body.len(), 2);
         // First instruction: $2 = arith div $0 $1 : Int
         assert_eq!(func.body[0].target, 2);

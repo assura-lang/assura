@@ -292,7 +292,6 @@ fn allocator_double_free() {
     checker.record_alloc("buf".into(), None, 0..4);
     assert!(checker.record_free("buf", 10..14).is_none());
     let err = checker.record_free("buf", 20..24);
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A22002");
 }
 
@@ -313,7 +312,6 @@ fn allocator_arena_use_after_drop() {
     checker.record_alloc("obj".into(), Some("arena1".into()), 0..4);
     checker.drop_arena("arena1", 10..14);
     let err = checker.check_arena_use("obj", &(20..24));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A22004");
 }
 
@@ -359,7 +357,6 @@ fn circ_buf_read_empty() {
     let mut checker = CircularBufferChecker::new();
     checker.declare("ring".into(), 8);
     let err = checker.check_read("ring", &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A23003");
 }
 
@@ -376,7 +373,6 @@ fn circ_buf_index_out_of_bounds() {
     let mut checker = CircularBufferChecker::new();
     checker.declare("ring".into(), 4);
     let err = checker.check_index("ring", 5, &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A23001");
 }
 
@@ -392,7 +388,6 @@ fn circ_buf_zero_capacity() {
     let mut checker = CircularBufferChecker::new();
     checker.declare("ring".into(), 0);
     let err = checker.check_physical_wrap("ring", 0, &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A23002");
 }
 
@@ -457,7 +452,6 @@ fn callback_register_in_context() {
     checker.mark_non_reentrant("handler".into(), 0..10);
     assert!(checker.enter_call("handler", &(0..1)).is_empty());
     let err = checker.check_register_callback("handler", &(5..6));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A24002");
 }
 
@@ -503,7 +497,6 @@ fn deadline_operation_exceeds() {
             .is_none()
     );
     let err = checker.check_operation("heavy_compute", &(5..6));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A25001");
 }
 
@@ -528,7 +521,6 @@ fn deadline_unbounded_operation() {
             .is_none()
     );
     let err = checker.check_operation("unknown_op", &(5..6));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A25003");
 }
 
@@ -541,7 +533,6 @@ fn deadline_nested_violation() {
             .is_none()
     );
     let err = checker.enter_deadline("inner".into(), 200, &(5..6));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A25002");
 }
 
@@ -796,7 +787,6 @@ fn bit_level_total_width_mismatch() {
         cross_byte_ok: false,
     });
     let err = checker.check_total_width(8);
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A27003");
 }
 
@@ -829,7 +819,6 @@ fn string_encoding_raw_bytes_error() {
     let mut checker = StringEncodingChecker::new();
     checker.declare("data".into(), StringEncoding::RawBytes);
     let err = checker.check_use_as_string("data", &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A28001");
 }
 
@@ -845,7 +834,6 @@ fn string_encoding_mismatch() {
     let mut checker = StringEncodingChecker::new();
     checker.declare("wide".into(), StringEncoding::Utf16Le);
     let err = checker.check_encoding_compat("wide", &StringEncoding::Utf8, &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A28002");
 }
 
@@ -866,7 +854,6 @@ fn string_encoding_truncation_utf16() {
     let mut checker = StringEncodingChecker::new();
     checker.declare("wide".into(), StringEncoding::Utf16Le);
     let err = checker.check_truncation("wide", 5, &(0..1)); // 5 bytes, not aligned to 2
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A28003");
 }
 
@@ -881,14 +868,13 @@ fn string_encoding_truncation_ok() {
 fn string_encoding_unknown_var() {
     let checker = StringEncodingChecker::new();
     let err = checker.check_use_as_string("unknown", &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A28001");
 }
 
 #[test]
 fn string_encoding_default() {
     let checker = StringEncodingChecker::default();
-    assert!(checker.check_use_as_string("x", &(0..1)).is_some());
+    checker.check_use_as_string("x", &(0..1)).unwrap();
 }
 
 // =======================================================================
@@ -900,7 +886,6 @@ fn checksum_use_before_verify() {
     let mut checker = ChecksumChecker::new();
     checker.declare_region("payload".into(), ChecksumAlgorithm::Crc32, 0, 100);
     let err = checker.check_use_before_verify("payload", &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A29001");
 }
 
@@ -921,7 +906,6 @@ fn checksum_algorithm_mismatch() {
     let mut checker = ChecksumChecker::new();
     checker.declare_region("data".into(), ChecksumAlgorithm::Sha256, 0, 100);
     let err = checker.check_algorithm_match("data", &ChecksumAlgorithm::Crc32, &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A29002");
 }
 
@@ -941,7 +925,6 @@ fn checksum_range_coverage() {
     let mut checker = ChecksumChecker::new();
     checker.declare_region("data".into(), ChecksumAlgorithm::Adler32, 10, 50);
     let err = checker.check_range_coverage("data", 0, 60, &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A29003");
 }
 
@@ -980,7 +963,6 @@ fn protocol_invalid_send() {
     let mut checker = ProtocolGrammarChecker::new("idle".into());
     checker.add_transition("idle".into(), "connected".into(), "CONNECT".into());
     let err = checker.check_send("DISCONNECT", &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A30002");
 }
 
@@ -989,7 +971,6 @@ fn protocol_invalid_transition() {
     let mut checker = ProtocolGrammarChecker::new("idle".into());
     checker.add_transition("idle".into(), "connected".into(), "CONNECT".into());
     let err = checker.transition("DATA", &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A30001");
 }
 
@@ -1111,7 +1092,6 @@ fn opaque_call_without_contract() {
     let mut checker = OpaqueFunctionChecker::new();
     checker.declare_opaque("secret_fn".into(), false, 0..1);
     let err = checker.check_call("secret_fn", &(5..6));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A32001");
 }
 
@@ -1127,7 +1107,6 @@ fn opaque_body_access_without_reveal() {
     let mut checker = OpaqueFunctionChecker::new();
     checker.declare_opaque("hidden".into(), true, 0..1);
     let err = checker.check_body_access("hidden", &(5..6));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A32002");
 }
 
@@ -1136,7 +1115,6 @@ fn opaque_reveal_outside_proof() {
     let mut checker = OpaqueFunctionChecker::new();
     checker.declare_opaque("hidden".into(), true, 0..1);
     let err = checker.reveal("hidden", &(5..6));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A32003");
 }
 
@@ -1322,7 +1300,6 @@ fn page_cache_evict_pinned() {
     pc.load_page(1);
     pc.pin(1);
     let err = pc.evict(1);
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A34001");
 }
 
@@ -1332,7 +1309,6 @@ fn page_cache_evict_dirty() {
     pc.load_page(1);
     pc.mark_dirty(1);
     let err = pc.evict(1);
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A34002");
 }
 
@@ -1412,7 +1388,6 @@ fn mvcc_snapshot_violation() {
     let t2 = mv.begin_txn();
     mv.write_version("key1".into(), t1);
     let err = mv.check_snapshot_read("key1", t2);
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A35002");
 }
 
@@ -1442,7 +1417,6 @@ fn mvcc_default() {
 fn rollback_unknown_savepoint() {
     let mut rb = RollbackChecker::new();
     let err = rb.rollback_to("sp1");
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A36001");
 }
 
@@ -1492,7 +1466,6 @@ fn monotonic_increasing_violation() {
     let mut mc = MonotonicStateChecker::new();
     mc.declare("seq".into(), MonotonicDirection::Increasing, 10, 0..1);
     let err = mc.update("seq", 5);
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A37001");
 }
 
@@ -1514,7 +1487,6 @@ fn monotonic_strictly_increasing() {
         0..1,
     );
     let err = mc.update("ts", 10); // equal not allowed
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A37001");
 }
 
@@ -1529,7 +1501,6 @@ fn monotonic_reset_declared() {
     let mut mc = MonotonicStateChecker::new();
     mc.declare("seq".into(), MonotonicDirection::Increasing, 0, 0..1);
     let err = mc.check_reset("seq");
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A37002");
 }
 
@@ -1537,7 +1508,6 @@ fn monotonic_reset_declared() {
 fn monotonic_undeclared_access() {
     let mc = MonotonicStateChecker::new();
     let err = mc.check_access("unknown");
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A37003");
 }
 
@@ -1553,7 +1523,7 @@ fn monotonic_current_value() {
 #[test]
 fn monotonic_default() {
     let mc = MonotonicStateChecker::default();
-    assert!(mc.check_access("x").is_some());
+    mc.check_access("x").unwrap();
 }
 
 // =======================================================================
@@ -1611,7 +1581,6 @@ fn num_precision_loss() {
     let mut np = NumericalPrecisionChecker::new();
     np.declare("x".into(), 64, 1e-15, 0..1);
     let err = np.check_precision_loss("x", 32);
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A42001");
 }
 
@@ -1627,7 +1596,6 @@ fn num_ulp_violation() {
     let mut np = NumericalPrecisionChecker::new();
     np.declare("x".into(), 64, 1e-15, 0..1);
     let err = np.check_ulp_bound("x", 1e-10);
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A42002");
 }
 
@@ -1636,7 +1604,6 @@ fn num_cancellation() {
     let mut np = NumericalPrecisionChecker::new();
     np.declare("x".into(), 64, 1e-15, 0..1);
     let err = np.check_cancellation("x", 0.9999);
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A42003");
 }
 
@@ -1720,7 +1687,6 @@ fn platform_direct_use() {
     let mut pa = PlatformAbstractionChecker::new();
     pa.add_platform("linux".into());
     let err = pa.check_direct_platform_use("linux");
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A44002");
 }
 
@@ -1775,7 +1741,6 @@ fn feature_flag_conflict() {
 fn feature_flag_undeclared() {
     let ff = FeatureFlagChecker::new();
     let err = ff.check_undeclared("unknown");
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A45003");
 }
 
@@ -1811,7 +1776,6 @@ fn resource_limit_ok() {
 fn resource_unbounded() {
     let rl = ResourceLimitChecker::new();
     let err = rl.check_unbounded("unknown");
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A46002");
 }
 
@@ -2106,7 +2070,6 @@ fn invariant_double_suspend() {
     si.declare_invariant("inv1".into());
     assert!(si.suspend("inv1").is_none());
     let err = si.suspend("inv1");
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A52001");
 }
 
@@ -2114,7 +2077,6 @@ fn invariant_double_suspend() {
 fn invariant_suspend_undeclared() {
     let mut si = ScopedInvariantChecker::new();
     let err = si.suspend("unknown");
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A52002");
 }
 
@@ -2123,7 +2085,6 @@ fn invariant_restore_not_suspended() {
     let mut si = ScopedInvariantChecker::new();
     si.declare_invariant("inv1".into());
     let err = si.restore("inv1");
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A52003");
 }
 
@@ -2183,10 +2144,10 @@ fn stdlib_default() {
 #[test]
 fn collection_has_standard_ops() {
     let cc = CollectionContracts::new();
-    assert!(cc.lookup("sort").is_some());
-    assert!(cc.lookup("filter").is_some());
-    assert!(cc.lookup("map").is_some());
-    assert!(cc.lookup("reverse").is_some());
+    cc.lookup("sort").unwrap();
+    cc.lookup("filter").unwrap();
+    cc.lookup("map").unwrap();
+    cc.lookup("reverse").unwrap();
 }
 
 #[test]
@@ -2206,7 +2167,7 @@ fn collection_filter_does_not_preserve_length() {
 #[test]
 fn collection_default() {
     let cc = CollectionContracts::default();
-    assert!(cc.lookup("sort").is_some());
+    cc.lookup("sort").unwrap();
 }
 
 // =======================================================================
@@ -2364,7 +2325,7 @@ fn protocol_current_state() {
     // From idle, GO is valid
     assert!(checker.check_send("GO", &(0..1)).is_none());
     // STOP is not valid from idle
-    assert!(checker.check_send("STOP", &(0..1)).is_some());
+    checker.check_send("STOP", &(0..1)).unwrap();
 }
 
 #[test]
@@ -2374,7 +2335,7 @@ fn protocol_transition_updates_state() {
     checker.add_transition("idle".into(), "connected".into(), "CONNECT".into());
     assert!(checker.transition("CONNECT", &(0..1)).is_none());
     // After transition, CONNECT should no longer be valid (we're in "connected")
-    assert!(checker.check_send("CONNECT", &(0..1)).is_some());
+    checker.check_send("CONNECT", &(0..1)).unwrap();
 }
 
 #[test]
@@ -2397,7 +2358,6 @@ fn protocol_send_after_transition() {
     assert!(checker.check_send("SETUP", &(0..1)).is_none());
     // But CONNECT is no longer valid from connected state
     let err = checker.check_send("CONNECT", &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A30002");
 }
 
@@ -2724,9 +2684,9 @@ fn typestate_self_loop_transition() {
     let states = vec!["Running".into()];
     let transitions = vec![("tick".into(), "Running".into(), "Running".into())];
     let mut checker = TypestateChecker::new(states, transitions, "Running".into(), 0..4);
-    assert!(checker.transition("tick", 0..1).is_ok());
+    checker.transition("tick", 0..1).unwrap();
     assert_eq!(checker.current_state(), "Running");
-    assert!(checker.transition("tick", 0..1).is_ok());
+    checker.transition("tick", 0..1).unwrap();
 }
 
 #[test]
@@ -2839,7 +2799,6 @@ fn info_flow_dc_upward_ok() {
 fn info_flow_dc_downward_a08001() {
     let checker = InfoFlowChecker::new();
     let err = checker.check_assignment(SecurityLabel::Public, SecurityLabel::Restricted, &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A08001");
 }
 
@@ -2864,7 +2823,6 @@ fn info_flow_dc_declassify_not_annotated_a08002() {
         false,
         &(0..1),
     );
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A08002");
 }
 
@@ -2873,7 +2831,6 @@ fn info_flow_dc_purpose_mismatch_a08003() {
     let mut checker = InfoFlowChecker::new();
     checker.declare_purpose("email".into(), "marketing".into());
     let err = checker.check_purpose_label("email", "billing", &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A08003");
 }
 
@@ -2882,7 +2839,6 @@ fn info_flow_dc_implicit_flow_a08004() {
     let checker = InfoFlowChecker::new();
     let err =
         checker.check_implicit_flow(SecurityLabel::Confidential, SecurityLabel::Public, &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A08004");
 }
 
@@ -2890,7 +2846,6 @@ fn info_flow_dc_implicit_flow_a08004() {
 fn info_flow_dc_covert_channel_a08005() {
     let checker = InfoFlowChecker::new();
     let err = checker.check_covert_channel(SecurityLabel::Confidential, "sleep", &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A08005");
 }
 
@@ -2962,7 +2917,6 @@ fn memory_checker_dc_region_containment_undefined_parent() {
         buffer: "buf".into(),
     });
     let result = checker.check_region_containment("sub", "missing_parent", &(0..1));
-    assert!(result.is_some());
     assert_eq!(result.unwrap().code, "A08102");
 }
 
@@ -2983,7 +2937,6 @@ fn memory_checker_dc_region_incomplete_bounds() {
         buffer: "buf".into(),
     });
     let result = checker.check_region_containment("empty_bounds", "parent", &(0..1));
-    assert!(result.is_some());
     assert_eq!(result.unwrap().code, "A08102");
 }
 

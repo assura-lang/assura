@@ -147,7 +147,6 @@ fn memory_checker_region_containment_different_buffers() {
 fn memory_checker_region_containment_undefined_sub() {
     let checker = MemoryChecker::new();
     let result = checker.check_region_containment("nonexistent", "parent", &(0..10));
-    assert!(result.is_some());
     assert_eq!(result.unwrap().code, "A08102");
 }
 
@@ -1577,7 +1576,6 @@ fn info_flow_invalid_downward_a08001() {
     // Confidential -> Public is a violation (A08001)
     let checker = InfoFlowChecker::new();
     let err = checker.check_assignment(SecurityLabel::Public, SecurityLabel::Confidential, &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A08001");
 }
 
@@ -1586,7 +1584,6 @@ fn info_flow_restricted_to_internal_a08001() {
     // Restricted -> Internal is a violation (A08001)
     let checker = InfoFlowChecker::new();
     let err = checker.check_assignment(SecurityLabel::Internal, SecurityLabel::Restricted, &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A08001");
 }
 
@@ -1613,7 +1610,6 @@ fn info_flow_declassify_without_annotation_a08002() {
         false,
         &(0..1),
     );
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A08002");
 }
 
@@ -1683,7 +1679,6 @@ fn info_flow_purpose_label_mismatch_a08003() {
     let mut checker = InfoFlowChecker::new();
     checker.declare_purpose("email".into(), "marketing".into());
     let err = checker.check_purpose_label("email", "billing", &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A08003");
 }
 
@@ -1710,7 +1705,6 @@ fn info_flow_implicit_flow_a08004() {
     let checker = InfoFlowChecker::new();
     let err =
         checker.check_implicit_flow(SecurityLabel::Confidential, SecurityLabel::Public, &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A08004");
 }
 
@@ -1728,7 +1722,6 @@ fn info_flow_covert_channel_a08005() {
     // High-security data controls a timing function -> A08005
     let checker = InfoFlowChecker::new();
     let err = checker.check_covert_channel(SecurityLabel::Confidential, "sleep", &(0..1));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A08005");
 }
 

@@ -33,7 +33,6 @@ fn page_cache_checker_dirty_evict() {
     checker.load_page(42);
     checker.mark_dirty(42);
     let err = checker.evict(42);
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A34002");
 }
 
@@ -44,7 +43,6 @@ fn page_cache_checker_pinned_evict() {
     checker.load_page(7);
     checker.pin(7);
     let err = checker.evict(7);
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A34001");
 }
 
@@ -85,7 +83,6 @@ fn mvcc_checker_snapshot_violation() {
     let tx2 = checker.begin_txn();
     checker.write_version("shared".into(), tx1);
     let err = checker.check_snapshot_read("shared", tx2);
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A35002");
 }
 
@@ -121,7 +118,6 @@ fn rollback_checker_unknown_savepoint() {
     use crate::domain::RollbackChecker;
     let mut checker = RollbackChecker::new();
     let err = checker.rollback_to("nonexistent");
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A36001");
 }
 
@@ -175,7 +171,6 @@ fn extract_kv_pair_from_eq() {
         rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("256".into())))),
     });
     let pair = extract_kv_pair(&expr);
-    assert!(pair.is_some());
     let (key, _val) = pair.unwrap();
     assert_eq!(key, "size");
 }
@@ -189,7 +184,6 @@ fn extract_call_works() {
         args: vec![Spanned::no_span(Expr::Literal(Literal::Int("42".into())))],
     });
     let result = extract_call(&expr);
-    assert!(result.is_some());
     let (name, args) = result.unwrap();
     assert_eq!(name, "load_page");
     assert_eq!(args.len(), 1);

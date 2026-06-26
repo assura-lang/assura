@@ -589,7 +589,6 @@ mod tests {
         let wasm_path = dir.path().join("output.wasm");
         fs::write(&wasm_path, b"fake wasm").unwrap();
         let result = find_wasm_artifact(dir.path());
-        assert!(result.is_some());
         assert_eq!(result.unwrap().extension().unwrap(), "wasm");
     }
 
@@ -609,7 +608,6 @@ mod tests {
         fs::write(dir.path().join("b.wasm"), b"w2").unwrap();
         fs::write(dir.path().join("c.txt"), b"not wasm").unwrap();
         let result = find_wasm_artifact(dir.path());
-        assert!(result.is_some());
         assert_eq!(result.unwrap().extension().unwrap(), "wasm");
     }
 

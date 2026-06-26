@@ -130,7 +130,7 @@ mod tests {
         let (parsed, errors) = assura_parser::parse(source);
         assert!(errors.is_empty(), "string.assura parse errors: {errors:?}");
         let file = parsed.expect("string.assura should parse");
-        assert!(file.module.is_some());
+        file.module.unwrap();
         assert!(!file.decls.is_empty());
     }
 
@@ -143,7 +143,7 @@ mod tests {
             "collections.assura parse errors: {errors:?}"
         );
         let file = parsed.expect("collections.assura should parse");
-        assert!(file.module.is_some());
+        file.module.unwrap();
         assert!(!file.decls.is_empty());
     }
 

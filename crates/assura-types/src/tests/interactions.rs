@@ -259,7 +259,6 @@ fn interaction_linear_typestate_must_be_linear() {
 
     // Not linear => A06002
     let err = checker.validate_linear(false);
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A06002");
 }
 
@@ -278,7 +277,7 @@ fn interaction_linear_typestate_linear_ok() {
     assert!(checker.validate_linear(true).is_none());
 
     // Typestate transitions work
-    assert!(checker.transition("unlock", 10..16).is_ok());
+    checker.transition("unlock", 10..16).unwrap();
     assert_eq!(checker.current_state(), "Unlocked");
 
     // Linear usage tracking: consumed exactly once
@@ -318,7 +317,7 @@ fn interaction_effect_typestate_transition_with_effects() {
     let mut ts_checker = TypestateChecker::new(states, transitions, "Disconnected".into(), 0..12);
 
     // Typestate: connect() in Disconnected => Connected (OK)
-    assert!(ts_checker.transition("connect", 20..27).is_ok());
+    ts_checker.transition("connect", 20..27).unwrap();
     assert_eq!(ts_checker.current_state(), "Connected");
 
     // Effect: function declares {io}, connect performs {io} (OK)
@@ -362,7 +361,7 @@ fn interaction_effect_typestate_correct_state_wrong_effects() {
     let mut ts_checker = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
 
     // Typestate: start() in Init => Running (OK)
-    assert!(ts_checker.transition("start", 5..10).is_ok());
+    ts_checker.transition("start", 5..10).unwrap();
 
     // Effect: function declares {mem} but start() does {io} => A07001
     let eff_checker = EffectChecker::new();
@@ -399,7 +398,6 @@ fn interaction_typestate_branch_divergence_a06004() {
 
     // Post-branch: Active vs Error => A06004
     let err = TypestateChecker::check_branch_consistency(&checker_a, &checker_b, 20..25);
-    assert!(err.is_some());
     let err = err.unwrap();
     assert_eq!(err.code, "A06004");
     assert!(err.message.contains("Active"));
@@ -442,7 +440,6 @@ fn interaction_typestate_branch_one_transitions_other_stays() {
     // checker_b: still Idle (no transition in this branch)
 
     let err = TypestateChecker::check_branch_consistency(&checker_a, &checker_b, 20..25);
-    assert!(err.is_some());
     let err = err.unwrap();
     assert_eq!(err.code, "A06004");
     assert!(err.message.contains("Active"));
@@ -492,7 +489,6 @@ fn interaction_typestate_branch_divergence_with_linear_context() {
     ts_b.transition("deactivate", 10..20).unwrap();
 
     let ts_err = TypestateChecker::check_branch_consistency(&ts_a, &ts_b, 0..25);
-    assert!(ts_err.is_some());
     assert_eq!(ts_err.unwrap().code, "A06004");
 }
 
@@ -676,8 +672,8 @@ fn interaction_three_way_typestate_effect_refinement_all_pass() {
     let mut ts = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
 
     // Typestate transitions
-    assert!(ts.transition("open", 10..14).is_ok());
-    assert!(ts.transition("close", 15..20).is_ok());
+    ts.transition("open", 10..14).unwrap();
+    ts.transition("close", 15..20).unwrap();
     assert_eq!(ts.current_state(), "Closed");
 
     // Typestate variable is linear
@@ -712,7 +708,7 @@ fn interaction_three_way_typestate_passes_effect_fails() {
     let mut ts = TypestateChecker::new(states, transitions, "Ready".into(), 0..5);
 
     // Typestate OK
-    assert!(ts.transition("execute", 10..17).is_ok());
+    ts.transition("execute", 10..17).unwrap();
 
     // Refinement OK (ghost predicate)
     let _ty = Type::Refined {
@@ -842,10 +838,10 @@ fn interaction_full_pipeline_linear_typestate_effect_pass() {
     ];
     let mut ts = TypestateChecker::new(states, transitions, "Disconnected".into(), 0..12);
 
-    assert!(ts.transition("connect", 10..17).is_ok());
-    assert!(ts.transition("begin_tx", 18..26).is_ok());
-    assert!(ts.transition("commit", 27..33).is_ok());
-    assert!(ts.transition("close", 34..39).is_ok());
+    ts.transition("connect", 10..17).unwrap();
+    ts.transition("begin_tx", 18..26).unwrap();
+    ts.transition("commit", 27..33).unwrap();
+    ts.transition("close", 34..39).unwrap();
     assert_eq!(ts.current_state(), "Closed");
     assert!(ts.validate_linear(true).is_none());
     assert!(ts.validate_transitions().is_empty());

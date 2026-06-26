@@ -167,7 +167,7 @@ mod tests {
         let ctx = LoadedIrContext::for_contract("T", None, Some(&env)).expect("type env");
         assert!(ctx.body().is_none());
         assert!(ctx.blocks().is_none());
-        assert!(ctx.type_env().is_some());
+        ctx.type_env().unwrap();
     }
 
     #[test]

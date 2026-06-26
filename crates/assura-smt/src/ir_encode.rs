@@ -223,7 +223,7 @@ module helper {
         let mut bodies = HashMap::new();
         bodies.insert("helper".into(), module.functions[0].clone());
         let ctx = IrEncodeContext::new(None, Some(&bodies), None);
-        assert!(ctx.callee_ir("helper").is_some());
+        ctx.callee_ir("helper").unwrap();
         assert!(ctx.callee_ir("missing").is_none());
     }
 }

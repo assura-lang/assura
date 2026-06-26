@@ -204,12 +204,12 @@ mod tests {
             .unwrap();
 
         // Child can see both local and parent symbols
-        assert!(table.lookup("local", child).is_some());
-        assert!(table.lookup("global", child).is_some());
+        table.lookup("local", child).unwrap();
+        table.lookup("global", child).unwrap();
 
         // Root cannot see child symbols
         assert!(table.lookup("local", root).is_none());
-        assert!(table.lookup("global", root).is_some());
+        table.lookup("global", root).unwrap();
     }
 
     #[test]

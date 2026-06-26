@@ -577,7 +577,7 @@ mod tests {
             assert_eq!(b.params.len(), 2);
             assert_eq!(b.params[0].name, "a");
             assert_eq!(b.params[1].name, "b");
-            assert!(b.return_ty.is_some());
+            b.return_ty.as_ref().unwrap();
             assert_eq!(
                 b.clauses.len(),
                 2,

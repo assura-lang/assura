@@ -1320,8 +1320,8 @@ contract Div {
         .position(|s| s.name == "Div")
         .expect("Div scope not found");
     // a, b, result should all be accessible from the contract scope
-    assert!(resolved.symbols.lookup("a", contract_scope).is_some());
-    assert!(resolved.symbols.lookup("b", contract_scope).is_some());
+    resolved.symbols.lookup("a", contract_scope).unwrap();
+    resolved.symbols.lookup("b", contract_scope).unwrap();
     // result is a built-in value name, not in the symbol table,
     // but won't produce a warning in clause body checks
 }
@@ -1502,7 +1502,6 @@ fn find_project_root_with_toml() {
     std::fs::write(&file, "").unwrap();
 
     let root = find_project_root(&file);
-    assert!(root.is_some());
     assert_eq!(root.unwrap(), dir);
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -1538,7 +1537,6 @@ fn resolve_module_path_existing() {
 
     let path = vec!["math".into(), "util".into()];
     let result = resolve_module_path(&dir, &path);
-    assert!(result.is_some());
     assert!(result.unwrap().ends_with("math/util.assura"));
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -1720,7 +1718,6 @@ fn multi_file_declared_module_name_used_as_key() {
     .unwrap();
 
     let result = discover_and_resolve_project(&dir);
-    assert!(result.is_ok());
     let (resolved, _) = result.unwrap();
     // Key should be "helpers" (declared), not "src.utils" (filesystem)
     assert!(

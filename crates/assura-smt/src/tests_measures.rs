@@ -222,7 +222,6 @@ fn trigger_infer_from_known_fn() {
     let mut mgr = TriggerManager::new();
     mgr.register_function("len".into());
     let trigger = mgr.infer_trigger("len(xs) >= 0");
-    assert!(trigger.is_some());
     assert!(!trigger.unwrap().is_user_provided);
 }
 
@@ -267,7 +266,6 @@ fn trigger_add_and_get() {
             is_user_provided: true,
         },
     );
-    assert!(mgr.get_triggers("forall_sorted").is_some());
     assert_eq!(mgr.get_triggers("forall_sorted").unwrap().len(), 1);
     assert!(mgr.get_triggers("other").is_none());
 }
@@ -598,7 +596,7 @@ fn ir_default() {
 fn session_cache_hit() {
     let mut cache = SessionCache::new();
     cache.insert("abc123".into(), "verified".into(), 1000);
-    assert!(cache.lookup("abc123").is_some());
+    cache.lookup("abc123").unwrap();
     assert_eq!(cache.hit_rate(), 1.0);
 }
 
@@ -649,7 +647,6 @@ fn fs_cache_put_and_get() {
     let results = vec![VerificationResult::verified("test.ensures")];
     cache.put("test", &clauses, None, &results);
     let cached = cache.get("test", &clauses, None);
-    assert!(cached.is_some());
     assert_eq!(cached.unwrap().len(), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }

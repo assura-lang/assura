@@ -239,8 +239,8 @@ mod tests {
     fn empty_source_has_stdlib_types() {
         let env = env_from_source("");
         // Stdlib types like Pos, NonNeg, Email should be injected
-        assert!(env.lookup("Pos").is_some());
-        assert!(env.lookup("NonNeg").is_some());
+        env.lookup("Pos").unwrap();
+        env.lookup("NonNeg").unwrap();
     }
 
     #[test]
@@ -284,7 +284,7 @@ mod tests {
     fn bind_params_enriched() {
         let env = env_from_source("bind \"std::collections::HashMap\" as bd {\n  input(n: Int)\n}");
         assert_eq!(env.lookup("n"), Some(&Type::Int));
-        assert!(env.lookup("bd").is_some());
+        env.lookup("bd").unwrap();
     }
 
     #[test]
@@ -324,7 +324,7 @@ mod tests {
     fn contract_input_params_registered() {
         let env = env_from_source("contract C { input(n: Nat) ensures { n > 0 } }");
         // The contract name should be registered
-        assert!(env.lookup("C").is_some());
+        env.lookup("C").unwrap();
     }
 
     #[test]
@@ -346,9 +346,9 @@ mod tests {
              fn f(x: Int) -> Bool { ensures { true } }\n\
              type T { val: Nat }",
         );
-        assert!(env.lookup("A").is_some());
-        assert!(env.lookup("f").is_some());
-        assert!(env.lookup("T").is_some());
+        env.lookup("A").unwrap();
+        env.lookup("f").unwrap();
+        env.lookup("T").unwrap();
         assert_eq!(env.lookup("x"), Some(&Type::Int));
     }
 }

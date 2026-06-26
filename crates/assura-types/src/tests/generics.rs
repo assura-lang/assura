@@ -26,7 +26,7 @@ fn spanned_decl(decl: Decl) -> assura_parser::ast::Spanned<Decl> {
 fn generic_list_one_arg_ok() {
     let src = source_with_decls(vec![]);
     let result = check_generic_instantiation("List", &[Type::Int], &(0..1), &src);
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
@@ -53,7 +53,7 @@ fn generic_list_two_args_a03002() {
 fn generic_map_two_args_ok() {
     let src = source_with_decls(vec![]);
     let result = check_generic_instantiation("Map", &[Type::String, Type::Int], &(0..1), &src);
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
@@ -70,21 +70,21 @@ fn generic_map_one_arg_a03002() {
 fn generic_set_one_arg_ok() {
     let src = source_with_decls(vec![]);
     let result = check_generic_instantiation("Set", &[Type::Int], &(0..1), &src);
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
 fn generic_option_one_arg_ok() {
     let src = source_with_decls(vec![]);
     let result = check_generic_instantiation("Option", &[Type::Bool], &(0..1), &src);
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
 fn generic_result_two_args_ok() {
     let src = source_with_decls(vec![]);
     let result = check_generic_instantiation("Result", &[Type::Int, Type::String], &(0..1), &src);
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn generic_result_three_args_a03002() {
 fn generic_sequence_one_arg_ok() {
     let src = source_with_decls(vec![]);
     let result = check_generic_instantiation("Sequence", &[Type::Nat], &(0..1), &src);
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
@@ -118,7 +118,7 @@ fn generic_user_defined_type_correct_arity() {
     }))];
     let src = source_with_decls(decls);
     let result = check_generic_instantiation("Pair", &[Type::Int, Type::Bool], &(0..1), &src);
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn generic_user_defined_enum_correct_arity() {
     }))];
     let src = source_with_decls(decls);
     let result = check_generic_instantiation("Maybe", &[Type::Int], &(0..1), &src);
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
@@ -176,7 +176,7 @@ fn generic_user_defined_contract_correct_arity() {
     ))];
     let src = source_with_decls(decls);
     let result = check_generic_instantiation("Container", &[Type::Int], &(0..1), &src);
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
@@ -188,7 +188,7 @@ fn generic_user_defined_non_generic_type_zero_args_ok() {
     }))];
     let src = source_with_decls(decls);
     let result = check_generic_instantiation("Foo", &[], &(0..1), &src);
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
@@ -210,7 +210,7 @@ fn generic_unknown_type_is_lenient() {
     let src = source_with_decls(vec![]);
     // Unknown type name; not our problem (name resolution handles it)
     let result = check_generic_instantiation("UnknownType", &[Type::Int], &(0..1), &src);
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 // -- substitute() tests --

@@ -256,7 +256,6 @@ mod tests {
             7..8,
             ";",
         );
-        assert!(d.suggestion.is_some());
         let s = d.suggestion.unwrap();
         assert_eq!(s.replacement, ";");
     }
@@ -388,7 +387,6 @@ mod tests {
     #[test]
     fn test_explain_known_code() {
         let info = explain("A01001");
-        assert!(info.is_some());
         let info = info.unwrap();
         assert_eq!(info.code, "A01001");
         assert_eq!(info.name, "Unexpected character");
@@ -565,7 +563,7 @@ mod tests {
             .with_suggestion("use Int", 10..20, "Int");
         assert_eq!(d.file, "test.assura");
         assert_eq!(d.secondary.len(), 1);
-        assert!(d.suggestion.is_some());
+        d.suggestion.unwrap();
     }
 
     #[test]

@@ -183,7 +183,7 @@ mod tests {
     fn parse_full_returns_token_count() {
         let src = "contract Foo { requires x > 0 }";
         let result = parse_full(src);
-        assert!(result.file.is_some());
+        result.file.unwrap();
         assert!(result.lex_errors.is_empty());
         assert!(result.token_count > 0);
     }
@@ -203,8 +203,6 @@ mod tests {
         let (file_old, errs_old) = parse(src);
         let result = parse_full(src);
         // Both should produce a valid file with the same number of declarations
-        assert!(file_old.is_some());
-        assert!(result.file.is_some());
         assert_eq!(errs_old.len(), result.parse_errors.len());
         assert_eq!(
             file_old.unwrap().decls.len(),

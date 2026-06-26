@@ -271,11 +271,11 @@ mod tests {
     fn valid_transition_sequence() {
         let mut tc = sample_checker();
         assert_eq!(tc.current_state(), "Closed");
-        assert!(tc.transition("open", span()).is_ok());
+        tc.transition("open", span()).unwrap();
         assert_eq!(tc.current_state(), "Open");
-        assert!(tc.transition("read", span()).is_ok());
+        tc.transition("read", span()).unwrap();
         assert_eq!(tc.current_state(), "Reading");
-        assert!(tc.transition("close", span()).is_ok());
+        tc.transition("close", span()).unwrap();
         assert_eq!(tc.current_state(), "Closed");
     }
 
@@ -304,7 +304,6 @@ mod tests {
     fn validate_linear_false_a06002() {
         let tc = sample_checker();
         let err = tc.validate_linear(false);
-        assert!(err.is_some());
         assert_eq!(err.unwrap().code.as_ref(), "A06002");
     }
 
@@ -351,7 +350,6 @@ mod tests {
         let b = sample_checker(); // stays Closed
         a.transition("open", span()).unwrap(); // moves to Open
         let err = TypestateChecker::check_branch_consistency(&a, &b, span());
-        assert!(err.is_some());
         assert_eq!(err.unwrap().code.as_ref(), "A06004");
     }
 }

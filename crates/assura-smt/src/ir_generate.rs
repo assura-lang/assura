@@ -383,7 +383,7 @@ fn length_pair_to_param_slot(
             && matches!(&receiver.as_ref().node, Expr::Ident(name) if name_to_slot.contains_key(name.as_str())) =>
         {
             name_to_slot
-                .get(receiver_as_ident(receiver).unwrap())
+                .get(receiver_as_ident(receiver).expect("match guard ensures ident is in map"))
                 .copied()
         }
         Expr::Ident(name) => name_to_slot.get(name.as_str()).copied(),

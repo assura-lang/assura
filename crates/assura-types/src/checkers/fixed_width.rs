@@ -401,7 +401,6 @@ mod tests {
     #[test]
     fn cast_safety_narrowing_a10102() {
         let err = FixedWidthChecker::check_cast_safety(&Type::U32, &Type::U8, &span());
-        assert!(err.is_some());
         assert_eq!(err.unwrap().code.as_ref(), "A10102");
     }
 
@@ -433,7 +432,6 @@ mod tests {
             &Type::U32,
             &span(),
         );
-        assert!(err.is_some());
         assert_eq!(err.unwrap().code.as_ref(), "A10103");
     }
 
@@ -452,7 +450,6 @@ mod tests {
     fn division_by_literal_zero_a10104() {
         let rhs = int_lit(0);
         let err = FixedWidthChecker::check_division_by_zero(&BinOp::Div, &rhs, &Type::I32, &span());
-        assert!(err.is_some());
         assert_eq!(err.unwrap().code.as_ref(), "A10104");
     }
 

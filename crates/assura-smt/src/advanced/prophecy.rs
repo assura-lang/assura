@@ -130,7 +130,7 @@ mod tests {
     fn prophecy_resolve_succeeds() {
         let mut pm = ProphecyManager::new();
         pm.declare("p".into());
-        assert!(pm.resolve("p", "42".into()).is_ok());
+        pm.resolve("p", "42".into()).unwrap();
     }
 
     #[test]

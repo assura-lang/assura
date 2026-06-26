@@ -93,7 +93,6 @@ fn circ_buf_index_exceeds_capacity() {
     let mut cb = CircularBufferChecker::new();
     cb.declare("ring".into(), 16);
     let err = cb.check_index("ring", 20, &(10..20));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A23001");
 }
 
@@ -102,7 +101,6 @@ fn circ_buf_empty_read() {
     let mut cb = CircularBufferChecker::new();
     cb.declare("ring".into(), 16);
     let err = cb.check_read("ring", &(10..20));
-    assert!(err.is_some());
     assert_eq!(err.unwrap().code, "A23003");
 }
 

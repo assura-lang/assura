@@ -477,7 +477,10 @@ impl Feature {
 
     /// Return metadata for this feature.
     pub fn info(&self) -> &'static FeatureInfo {
-        FEATURES.iter().find(|f| f.id == *self).unwrap()
+        FEATURES
+            .iter()
+            .find(|f| f.id == *self)
+            .expect("FeatureId must have a matching entry in FEATURES registry")
     }
 
     /// All 50 features in registry order.

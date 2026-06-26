@@ -30,7 +30,7 @@ fn domain_circular_buffer_checker_no_annotation_passes() {
 fn domain_circular_buffer_checker_direct_api() {
     let mut checker = CircularBufferChecker::new();
     checker.declare("ring".into(), 8);
-    assert!(checker.check_read("ring", &(0..1)).is_some());
+    checker.check_read("ring", &(0..1)).unwrap();
     assert_eq!(
         checker
             .check_read("ring", &(0..1))
@@ -71,8 +71,7 @@ fn domain_temporal_deadline_direct_api() {
     checker.register_bound("slow_op".into(), 200);
     assert!(checker.enter_deadline("d1".into(), 100, &(0..1)).is_none());
     let err = checker.check_operation("slow_op", &(0..1));
-    assert!(err.is_some());
-    assert_eq!(err.as_ref().map(|e| e.code.as_str()), Some("A25001"));
+    assert_eq!(err.unwrap().code.as_str(), "A25001");
 }
 
 #[test]
@@ -116,8 +115,7 @@ fn domain_string_encoding_direct_api() {
     let mut checker = StringEncodingChecker::new();
     checker.declare("raw_data".into(), StringEncoding::RawBytes);
     let err = checker.check_use_as_string("raw_data", &(0..1));
-    assert!(err.is_some());
-    assert_eq!(err.as_ref().map(|e| e.code.as_str()), Some("A28001"));
+    assert_eq!(err.unwrap().code.as_str(), "A28001");
 }
 
 #[test]
@@ -132,8 +130,7 @@ fn domain_checksum_direct_api() {
     let mut checker = ChecksumChecker::new();
     checker.declare_region("data".into(), ChecksumAlgorithm::Crc32, 0, 100);
     let err = checker.check_use_before_verify("data", &(0..1));
-    assert!(err.is_some());
-    assert_eq!(err.as_ref().map(|e| e.code.as_str()), Some("A29001"));
+    assert_eq!(err.unwrap().code.as_str(), "A29001");
 }
 
 #[test]
@@ -155,8 +152,7 @@ fn domain_opaque_function_direct_api() {
     let mut checker = OpaqueFunctionChecker::new();
     checker.declare_opaque("secret_fn".into(), false, 0..1);
     let err = checker.check_call("secret_fn", &(0..1));
-    assert!(err.is_some());
-    assert_eq!(err.as_ref().map(|e| e.code.as_str()), Some("A32001"));
+    assert_eq!(err.unwrap().code.as_str(), "A32001");
 }
 
 #[test]
@@ -189,8 +185,7 @@ fn domain_page_cache_direct_api() {
     checker.load_page(1);
     checker.pin(1);
     let err = checker.evict(1);
-    assert!(err.is_some());
-    assert_eq!(err.as_ref().map(|e| e.code.as_str()), Some("A34001"));
+    assert_eq!(err.unwrap().code.as_str(), "A34001");
 }
 
 #[test]
@@ -223,8 +218,7 @@ fn domain_rollback_no_annotation_passes() {
 fn domain_rollback_direct_api() {
     let mut checker = RollbackChecker::new();
     let err = checker.rollback_to("nonexistent");
-    assert!(err.is_some());
-    assert_eq!(err.as_ref().map(|e| e.code.as_str()), Some("A36001"));
+    assert_eq!(err.unwrap().code.as_str(), "A36001");
 }
 
 #[test]
@@ -244,8 +238,7 @@ fn domain_monotonic_state_direct_api() {
         0..1,
     );
     let err = checker.update("counter", 0);
-    assert!(err.is_some());
-    assert_eq!(err.as_ref().map(|e| e.code.as_str()), Some("A37001"));
+    assert_eq!(err.unwrap().code.as_str(), "A37001");
 }
 
 #[test]
@@ -276,8 +269,7 @@ fn domain_numerical_precision_direct_api() {
     let mut checker = NumericalPrecisionChecker::new();
     checker.declare("x".into(), 64, 1e-15, 0..1);
     let err = checker.check_precision_loss("x", 32);
-    assert!(err.is_some());
-    assert_eq!(err.as_ref().map(|e| e.code.as_str()), Some("A42001"));
+    assert_eq!(err.unwrap().code.as_str(), "A42001");
 }
 
 #[test]

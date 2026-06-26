@@ -221,7 +221,7 @@ mod tests {
             _ => panic!("expected Unknown"),
         }
         assert!(unmodelable_precheck_if("d", false, &[]).is_none());
-        assert!(unmodelable_precheck_if("d", true, &[]).is_some());
+        unmodelable_precheck_if("d", true, &[]).unwrap();
     }
 
     #[test]

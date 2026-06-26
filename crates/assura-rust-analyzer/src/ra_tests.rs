@@ -141,7 +141,7 @@ dividend / divisor
             assert_eq!(name, "safe_divide");
             assert_eq!(params.len(), 2);
             assert_eq!(params[0].name, "dividend");
-            assert!(return_type.is_some());
+            return_type.as_ref().unwrap();
         }
         _ => panic!("expected Function"),
     }

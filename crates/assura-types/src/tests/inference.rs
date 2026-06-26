@@ -253,7 +253,7 @@ fn infer_if_nat_int_branches_compatible() {
         else_branch: Some(Box::new(Spanned::no_span(AstExpr::Ident("y".into())))),
     });
     // Should succeed (Nat and Int are compatible)
-    assert!(infer_expr(&expr, &env).is_ok());
+    infer_expr(&expr, &env).unwrap();
 }
 
 #[test]

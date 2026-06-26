@@ -939,7 +939,6 @@ mod tests {
         let checker = InfoFlowChecker::new();
         let err =
             checker.check_assignment(SecurityLabel::Public, SecurityLabel::Confidential, &span());
-        assert!(err.is_some());
         assert_eq!(err.unwrap().code.as_ref(), "A08001");
     }
 
@@ -952,7 +951,6 @@ mod tests {
             false,
             &span(),
         );
-        assert!(err.is_some());
         assert_eq!(err.unwrap().code.as_ref(), "A08002");
     }
 
@@ -973,7 +971,6 @@ mod tests {
         let mut checker = InfoFlowChecker::new();
         checker.declare_purpose("email".into(), "billing".into());
         let err = checker.check_purpose_label("email", "marketing", &span());
-        assert!(err.is_some());
         assert_eq!(err.unwrap().code.as_ref(), "A08003");
     }
 
@@ -990,7 +987,6 @@ mod tests {
         let checker = InfoFlowChecker::new();
         let err =
             checker.check_implicit_flow(SecurityLabel::Restricted, SecurityLabel::Public, &span());
-        assert!(err.is_some());
         assert_eq!(err.unwrap().code.as_ref(), "A08004");
     }
 
@@ -998,7 +994,6 @@ mod tests {
     fn ifc_covert_channel_sleep() {
         let checker = InfoFlowChecker::new();
         let err = checker.check_covert_channel(SecurityLabel::Confidential, "sleep", &span());
-        assert!(err.is_some());
         assert_eq!(err.unwrap().code.as_ref(), "A08005");
     }
 

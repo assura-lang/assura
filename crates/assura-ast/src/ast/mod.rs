@@ -1421,7 +1421,7 @@ mod tests {
         assert_eq!(params.len(), 2);
         assert_eq!(params[0].name, "a");
         // Refined type parses as Named("{ x : Int | x < 10 }") fallback
-        assert!(params[0].ty.is_some());
+        params[0].ty.as_ref().unwrap();
         assert_eq!(params[1].name, "b");
         assert_eq!(params[1].ty, Some(TypeExpr::Named("Bool".into())));
     }
@@ -1438,7 +1438,7 @@ mod tests {
         assert_eq!(params.len(), 1);
         assert_eq!(params[0].name, "val");
         // Tuple-like tokens parse as Named("( Int , Bool )") fallback
-        assert!(params[0].ty.is_some());
+        params[0].ty.as_ref().unwrap();
     }
 
     #[test]

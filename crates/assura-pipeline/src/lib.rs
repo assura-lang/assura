@@ -1021,7 +1021,7 @@ mod tests {
     fn run_serializes_to_json() {
         let result = run("contract T {\n  requires { true }\n}");
         let json = serde_json::to_string(&result);
-        assert!(json.is_ok());
+        json.unwrap();
     }
 
     // Tests for compile() function
@@ -1033,8 +1033,8 @@ mod tests {
             "test.assura",
             &config,
         );
-        assert!(output.file.is_some());
-        assert!(output.resolved.is_some());
+        output.file.unwrap();
+        output.resolved.unwrap();
         assert!(
             output.typed.is_some(),
             "typed was None; diagnostics: {:?}",
@@ -1059,7 +1059,7 @@ mod tests {
     fn compile_empty_source() {
         let config = CompilerConfig::default();
         let output = compile("", "empty.assura", &config);
-        assert!(output.file.is_some());
+        output.file.unwrap();
         assert!(!output.has_errors);
     }
 

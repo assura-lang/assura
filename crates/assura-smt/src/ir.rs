@@ -1362,7 +1362,7 @@ mod tests {
         assert!(text.contains("$result = load $0"));
         assert!(text.contains("pre: true"));
         assert!(text.contains("1 requires, 1 ensures"));
-        assert!(parse_ir_module(&text).is_ok());
+        parse_ir_module(&text).unwrap();
     }
 
     #[test]
@@ -1462,8 +1462,8 @@ module check {
   }
 }";
         let m = parse_ir_module(src).unwrap();
-        assert!(m.functions[0].pre.is_some());
-        assert!(m.functions[0].post.is_some());
+        m.functions[0].pre.as_ref().unwrap();
+        m.functions[0].post.as_ref().unwrap();
     }
 
     #[test]

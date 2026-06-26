@@ -484,7 +484,6 @@ mod tests {
         let _ = std::fs::create_dir_all(&tmp);
         std::fs::write(tmp.join("assura.toml"), "").unwrap();
         let result = find_project_root(&tmp);
-        assert!(result.is_some());
         assert_eq!(result.unwrap(), tmp);
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -496,7 +495,6 @@ mod tests {
         let _ = std::fs::create_dir_all(&sub);
         std::fs::write(tmp.join("assura.toml"), "").unwrap();
         let result = find_project_root(&sub);
-        assert!(result.is_some());
         assert_eq!(result.unwrap(), tmp);
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -509,7 +507,6 @@ mod tests {
         let file = tmp.join("main.assura");
         std::fs::write(&file, "").unwrap();
         let result = find_project_root(&file);
-        assert!(result.is_some());
         assert_eq!(result.unwrap(), tmp);
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -528,7 +525,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&tmp);
         std::fs::write(tmp.join("math.assura"), "").unwrap();
         let result = resolve_module_path(&tmp, &["math".into()]);
-        assert!(result.is_some());
+        result.unwrap();
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

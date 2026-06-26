@@ -359,7 +359,7 @@ mod tests {
     #[test]
     fn check_generic_correct_arity_ok() {
         let src = empty_source();
-        assert!(check_generic_instantiation("List", &[Type::Int], &(0..1), &src).is_ok());
+        check_generic_instantiation("List", &[Type::Int], &(0..1), &src).unwrap();
         assert!(
             check_generic_instantiation("Map", &[Type::String, Type::Int], &(0..1), &src).is_ok()
         );
@@ -381,6 +381,6 @@ mod tests {
         // Unknown type names pass through (name resolution handles them)
         let result =
             check_generic_instantiation("UnknownType", &[Type::Int, Type::Bool], &(0..1), &src);
-        assert!(result.is_ok());
+        result.unwrap();
     }
 }

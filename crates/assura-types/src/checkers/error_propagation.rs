@@ -450,7 +450,6 @@ mod tests {
             },
         );
         let err = checker.validate_catch("E_IO", ErrorAction::Swallow, span());
-        assert!(err.is_some());
         assert_eq!(err.unwrap().code.as_ref(), "A12001");
     }
 
@@ -483,7 +482,6 @@ mod tests {
             ErrorAction::TranslateTo("E_GENERIC".into()),
             span(),
         );
-        assert!(err.is_some());
         assert_eq!(err.unwrap().code.as_ref(), "A12002");
     }
 
@@ -517,7 +515,6 @@ mod tests {
             },
         );
         let err = checker.validate_unchecked_call("dangerous_fn", span());
-        assert!(err.is_some());
         assert_eq!(err.unwrap().code.as_ref(), "A12003");
     }
 

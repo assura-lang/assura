@@ -629,11 +629,6 @@ impl StdlibTypes {
         self.types.values().collect()
     }
 
-    /// Look up a stdlib type by name.
-    #[allow(dead_code)]
-    pub fn lookup(&self, name: &str) -> Option<&StdlibTypeDef> {
-        self.types.get(name)
-    }
 }
 
 impl Default for StdlibTypes {

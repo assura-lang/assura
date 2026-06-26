@@ -12,9 +12,9 @@ fn typestate_valid_sequence_passes() {
     ];
     let mut checker = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
 
-    assert!(checker.transition("open", 5..9).is_ok());
+    checker.transition("open", 5..9).unwrap();
     assert_eq!(checker.current_state(), "Open");
-    assert!(checker.transition("close", 10..15).is_ok());
+    checker.transition("close", 10..15).unwrap();
     assert_eq!(checker.current_state(), "Closed");
 }
 
@@ -46,7 +46,6 @@ fn typestate_not_linear_a06002() {
     let checker = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
 
     let err = checker.validate_linear(false);
-    assert!(err.is_some());
     let err = err.unwrap();
     assert_eq!(err.code, "A06002");
     assert!(err.message.contains("linear"));
@@ -115,7 +114,6 @@ fn typestate_ambiguous_after_branches_a06004() {
     };
 
     let err = TypestateChecker::check_branch_consistency(&checker_a, &checker_b, 0..4);
-    assert!(err.is_some());
     let err = err.unwrap();
     assert_eq!(err.code, "A06004");
     assert!(err.message.contains("Open"));
@@ -163,11 +161,11 @@ fn typestate_multiple_transitions_sequence() {
     ];
     let mut checker = TypestateChecker::new(states, transitions, "Init".into(), 0..4);
 
-    assert!(checker.transition("connect", 5..12).is_ok());
+    checker.transition("connect", 5..12).unwrap();
     assert_eq!(checker.current_state(), "Connecting");
-    assert!(checker.transition("established", 13..24).is_ok());
+    checker.transition("established", 13..24).unwrap();
     assert_eq!(checker.current_state(), "Connected");
-    assert!(checker.transition("disconnect", 25..35).is_ok());
+    checker.transition("disconnect", 25..35).unwrap();
     assert_eq!(checker.current_state(), "Closed");
 }
 
