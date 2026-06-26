@@ -24,6 +24,7 @@ Use these patterns when the Rust code has:
 
 For code using `Mutex`, `RwLock`, or atomics:
 
+<!-- STATUS: speculative (shared keyword, Mutex type, is_locked() not in parser) -->
 ```assura
 contract SharedCounter {
     input(counter: shared Mutex<Nat>)
@@ -40,6 +41,7 @@ contract SharedCounter {
 
 For event handlers or recursive callbacks:
 
+<!-- STATUS: speculative (is_reentrant() not implemented) -->
 ```assura
 contract EventHandler {
     input(handler: Fn(Event) -> Unit, events: List<Event>)
@@ -57,6 +59,7 @@ contract EventHandler {
 For functions that must produce the same result regardless of
 scheduling:
 
+<!-- STATUS: partially-implemented (parser handles syntax; deterministic() not a built-in) -->
 ```assura
 contract DeterministicMerge {
     input(left: List<Int>, right: List<Int>)
@@ -73,6 +76,7 @@ contract DeterministicMerge {
 
 For code that acquires multiple locks:
 
+<!-- STATUS: speculative (shared keyword, lock ordering checker is partial) -->
 ```assura
 contract TransferFunds {
     input(
@@ -95,6 +99,7 @@ contract TransferFunds {
 
 For operations with time bounds:
 
+<!-- STATUS: speculative (elapsed_ms() not a built-in) -->
 ```assura
 contract TimedFetch {
     input(url: String, timeout_ms: Nat)
@@ -110,6 +115,7 @@ contract TimedFetch {
 
 For code using atomic operations:
 
+<!-- STATUS: speculative (shared keyword, Atomic type, Ordering not in parser) -->
 ```assura
 contract AtomicPublish {
     input(data: linear Buffer, flag: shared Atomic<Bool>)
@@ -128,6 +134,7 @@ contract AtomicPublish {
 
 For producer-consumer patterns:
 
+<!-- STATUS: speculative (Sender/Receiver types, is_closed(), buffer not implemented) -->
 ```assura
 contract ChannelSend {
     input(tx: Sender<Message>, msg: Message)
@@ -151,6 +158,7 @@ contract ChannelReceive {
 
 For async functions:
 
+<!-- STATUS: fully-implemented (standard contract syntax with net/time effects) -->
 ```assura
 contract AsyncFetch {
     input(urls: List<String>)

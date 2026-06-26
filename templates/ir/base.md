@@ -15,6 +15,7 @@ failure it returns a **counterexample** — revise the IR and resubmit.
 
 ## Module skeleton (always use this shape)
 
+<!-- STATUS: fully-implemented (IR parser, executor, and Z3/CVC5 verification all handle this) -->
 ```
 module {module_name} {
   fn #0 : ({param_slots}) -> {return_type} ! pure

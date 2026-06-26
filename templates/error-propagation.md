@@ -22,6 +22,7 @@ Use these patterns when the Rust code has:
 
 ### Basic Result function
 
+<!-- STATUS: fully-implemented (bind declarations with Result output parsed and codegen'd) -->
 ```assura
 bind "mylib::parse_config" as parse_config_checked {
     input(raw: String)

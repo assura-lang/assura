@@ -24,6 +24,8 @@ Generate an Assura `bind` contract. Use these rules:
 - `&T`, `&mut T` -> `T` (reference erasure)
 
 ## Contract Structure
+
+<!-- STATUS: fully-implemented -->
 ```
 bind "{module_path}::{name}" as {name}_checked {{
     input({params_with_assura_types})

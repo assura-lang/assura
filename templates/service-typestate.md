@@ -20,6 +20,7 @@ Use a `service` when the Rust code has:
 
 ## Service Structure
 
+<!-- STATUS: fully-implemented (service declarations parsed, type-checked, and codegen'd) -->
 ```assura
 service {ServiceName} {
     states { State1, State2, State3 }
@@ -47,6 +48,7 @@ service {ServiceName} {
 Each transition method needs a `contract` or `bind` with state-aware
 clauses:
 
+<!-- STATUS: fully-implemented -->
 ```assura
 contract Connect {
     input(host: String, port: Nat)
@@ -83,6 +85,7 @@ contract Close {
 
 Use `linear` to ensure the resource is consumed exactly once:
 
+<!-- STATUS: fully-implemented (linear types parsed and type-checked) -->
 ```assura
 input(handle: linear FileHandle)
 ensures { consumed(handle) }

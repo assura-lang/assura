@@ -22,6 +22,7 @@ See `templates/single-function.md` for the complete Rust-to-Assura type table.
 ## Output Format
 Generate one `bind` declaration per function, grouped by logical concern:
 
+<!-- STATUS: fully-implemented -->
 ```
 // Buffer safety contracts
 bind "module::read_at" as read_at_checked { ... }
