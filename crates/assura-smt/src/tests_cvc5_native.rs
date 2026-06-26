@@ -4669,7 +4669,11 @@ mod dedicated_theory_parity {
             ClauseKind::Requires,
             binop_expr(ident_expr("new_state"), BinOp::Gte, ident_expr("old_state")),
         );
-        let body = sp(binop_expr(ident_expr("new_state"), BinOp::Gte, ident_expr("old_state")));
+        let body = sp(binop_expr(
+            ident_expr("new_state"),
+            BinOp::Gte,
+            ident_expr("old_state"),
+        ));
         let clauses = vec![requires1, requires2];
 
         let results = verify_monotonic_state_cvc5("MonoTest", &body, &clauses);
@@ -4687,7 +4691,11 @@ mod dedicated_theory_parity {
             ClauseKind::Requires,
             binop_expr(ident_expr("old_state"), BinOp::Gte, int_lit_expr(0)),
         );
-        let body = sp(binop_expr(ident_expr("new_state"), BinOp::Gte, ident_expr("old_state")));
+        let body = sp(binop_expr(
+            ident_expr("new_state"),
+            BinOp::Gte,
+            ident_expr("old_state"),
+        ));
         let clauses = vec![requires];
 
         let results = verify_monotonic_state_cvc5("MonoTest", &body, &clauses);
@@ -4713,7 +4721,11 @@ mod dedicated_theory_parity {
             ClauseKind::Requires,
             binop_expr(ident_expr("lock_b"), BinOp::Lt, ident_expr("lock_c")),
         );
-        let body = sp(binop_expr(ident_expr("lock_a"), BinOp::Lt, ident_expr("lock_c")));
+        let body = sp(binop_expr(
+            ident_expr("lock_a"),
+            BinOp::Lt,
+            ident_expr("lock_c"),
+        ));
         let clauses = vec![req1, req2];
 
         let results = verify_lock_ordering_cvc5("LockTest", &body, &clauses);
@@ -4735,7 +4747,11 @@ mod dedicated_theory_parity {
             ClauseKind::Requires,
             binop_expr(ident_expr("lock_b"), BinOp::Lt, ident_expr("lock_a")),
         );
-        let body = sp(binop_expr(ident_expr("lock_a"), BinOp::Lt, ident_expr("lock_b")));
+        let body = sp(binop_expr(
+            ident_expr("lock_a"),
+            BinOp::Lt,
+            ident_expr("lock_b"),
+        ));
         let clauses = vec![req1, req2];
 
         let results = verify_lock_ordering_cvc5("LockTest", &body, &clauses);
@@ -4803,9 +4819,17 @@ mod dedicated_theory_parity {
         );
         let ens = make_clause(
             ClauseKind::Ensures,
-            binop_expr(ident_expr("bytes_erased"), BinOp::Eq, ident_expr("buf_size")),
+            binop_expr(
+                ident_expr("bytes_erased"),
+                BinOp::Eq,
+                ident_expr("buf_size"),
+            ),
         );
-        let body = sp(binop_expr(ident_expr("bytes_erased"), BinOp::Eq, ident_expr("buf_size")));
+        let body = sp(binop_expr(
+            ident_expr("bytes_erased"),
+            BinOp::Eq,
+            ident_expr("buf_size"),
+        ));
         let clauses = vec![req, ens];
 
         let results = verify_secure_erasure_cvc5("EraseTest", &body, &clauses);
@@ -4823,7 +4847,11 @@ mod dedicated_theory_parity {
             ClauseKind::Requires,
             binop_expr(ident_expr("buf_size"), BinOp::Gt, int_lit_expr(0)),
         );
-        let body = sp(binop_expr(ident_expr("bytes_erased"), BinOp::Eq, ident_expr("buf_size")));
+        let body = sp(binop_expr(
+            ident_expr("bytes_erased"),
+            BinOp::Eq,
+            ident_expr("buf_size"),
+        ));
         let clauses = vec![req];
 
         let results = verify_secure_erasure_cvc5("EraseTest", &body, &clauses);
@@ -4853,7 +4881,11 @@ mod dedicated_theory_parity {
             ClauseKind::Ensures,
             binop_expr(ident_expr("recovered"), BinOp::Eq, int_lit_expr(1)),
         );
-        let body = sp(binop_expr(ident_expr("recovered"), BinOp::Eq, int_lit_expr(1)));
+        let body = sp(binop_expr(
+            ident_expr("recovered"),
+            BinOp::Eq,
+            int_lit_expr(1),
+        ));
         let clauses = vec![req1, req2, ens];
 
         let results = verify_crash_recovery_cvc5("CrashTest", &body, &clauses);
@@ -4871,7 +4903,11 @@ mod dedicated_theory_parity {
             ClauseKind::Requires,
             binop_expr(ident_expr("data_size"), BinOp::Gt, int_lit_expr(0)),
         );
-        let body = sp(binop_expr(ident_expr("recovered"), BinOp::Eq, int_lit_expr(1)));
+        let body = sp(binop_expr(
+            ident_expr("recovered"),
+            BinOp::Eq,
+            int_lit_expr(1),
+        ));
         let clauses = vec![req];
 
         let results = verify_crash_recovery_cvc5("CrashTest", &body, &clauses);
@@ -4899,9 +4935,17 @@ mod dedicated_theory_parity {
         );
         let req3 = make_clause(
             ClauseKind::Requires,
-            binop_expr(ident_expr("other_commit_ts"), BinOp::Lt, ident_expr("start_ts")),
+            binop_expr(
+                ident_expr("other_commit_ts"),
+                BinOp::Lt,
+                ident_expr("start_ts"),
+            ),
         );
-        let body = sp(binop_expr(ident_expr("other_commit_ts"), BinOp::Lt, ident_expr("start_ts")));
+        let body = sp(binop_expr(
+            ident_expr("other_commit_ts"),
+            BinOp::Lt,
+            ident_expr("start_ts"),
+        ));
         let clauses = vec![req1, req2, req3];
 
         let results = verify_mvcc_isolation_cvc5("MvccTest", &body, &clauses);
@@ -4919,7 +4963,11 @@ mod dedicated_theory_parity {
             ClauseKind::Requires,
             binop_expr(ident_expr("start_ts"), BinOp::Gte, int_lit_expr(0)),
         );
-        let body = sp(binop_expr(ident_expr("other_commit_ts"), BinOp::Lt, ident_expr("start_ts")));
+        let body = sp(binop_expr(
+            ident_expr("other_commit_ts"),
+            BinOp::Lt,
+            ident_expr("start_ts"),
+        ));
         let clauses = vec![req];
 
         let results = verify_mvcc_isolation_cvc5("MvccTest", &body, &clauses);
@@ -4941,7 +4989,11 @@ mod dedicated_theory_parity {
             ClauseKind::Requires,
             binop_expr(ident_expr("key_size"), BinOp::Eq, int_lit_expr(32)),
         );
-        let body = sp(binop_expr(ident_expr("key_size"), BinOp::Gte, int_lit_expr(16)));
+        let body = sp(binop_expr(
+            ident_expr("key_size"),
+            BinOp::Gte,
+            int_lit_expr(16),
+        ));
         let clauses = vec![req];
 
         let results = verify_crypto_conformance_cvc5("CryptoTest", &body, &clauses);
@@ -4959,7 +5011,11 @@ mod dedicated_theory_parity {
             ClauseKind::Requires,
             binop_expr(ident_expr("nonce_counter"), BinOp::Gte, int_lit_expr(0)),
         );
-        let body = sp(binop_expr(ident_expr("nonce_counter"), BinOp::Gt, ident_expr("prev_nonce")));
+        let body = sp(binop_expr(
+            ident_expr("nonce_counter"),
+            BinOp::Gt,
+            ident_expr("prev_nonce"),
+        ));
         let clauses = vec![req];
 
         let results = verify_crypto_conformance_cvc5("CryptoTest", &body, &clauses);
