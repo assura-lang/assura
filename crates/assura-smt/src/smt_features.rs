@@ -34,8 +34,12 @@ use z3::Solver;
 // -----------------------------------------------------------------------
 
 /// Returns true if the expression is likely a boolean predicate suitable
-/// for validity checking. Returns false for function bodies, blocks,
-/// let-bindings, and other non-predicate shapes.
+/// for validity checking. Returns false for function bodies, blocks
+/// whose last expression is non-boolean, and other non-predicate shapes.
+///
+/// Recurses into `If` (both branches), `Block` (last expression), `Match`
+/// (all arm bodies), and `Old` to handle compound boolean expressions that
+/// the top-level match alone would miss.
 pub(crate) fn is_likely_boolean_predicate(expr: &SpExpr) -> bool {
     use assura_ast::Expr;
     match &expr.node {
@@ -61,7 +65,33 @@ pub(crate) fn is_likely_boolean_predicate(expr: &SpExpr) -> bool {
                 || method == "contains"
                 || method == "valid"
         }
-        // Blocks, lets, function bodies, calls, etc. are NOT boolean predicates
+        // If/then/else: boolean if both branches are boolean
+        Expr::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            is_likely_boolean_predicate(then_branch)
+                && else_branch
+                    .as_ref()
+                    .is_some_and(|e| is_likely_boolean_predicate(e))
+        }
+        // Block: boolean if the last expression is boolean (not empty blocks)
+        Expr::Block(exprs) => exprs.last().is_some_and(is_likely_boolean_predicate),
+        // Match: boolean if all arm bodies are boolean
+        Expr::Match { arms, .. } => {
+            !arms.is_empty()
+                && arms
+                    .iter()
+                    .all(|arm| is_likely_boolean_predicate(&arm.body))
+        }
+        // Function calls: could return bool but we can't tell syntactically
+        // Allow all function calls since the SMT encoder handles non-boolean
+        // results gracefully (unconstrained Z3 variable still produces a
+        // result, just potentially a trivial counterexample which is correct)
+        Expr::Call { .. } => true,
+        // Everything else: raw tokens, let-bindings (without boolean tail),
+        // list literals, casts, ghost blocks, etc.
         _ => false,
     }
 }
@@ -917,6 +947,109 @@ mod tests {
     fn spb(e: Expr) -> Box<SpExpr> {
         Box::new(sp(e))
     }
+
+    // -- is_likely_boolean_predicate tests --
+
+    #[test]
+    fn predicate_comparison_is_boolean() {
+        use assura_ast::BinOp;
+        let expr = sp(Expr::BinOp {
+            lhs: spb(Expr::Ident("x".into())),
+            op: BinOp::Gt,
+            rhs: spb(Expr::Literal(assura_ast::Literal::Int("0".into()))),
+        });
+        assert!(is_likely_boolean_predicate(&expr));
+    }
+
+    #[test]
+    fn predicate_if_both_branches_boolean() {
+        use assura_ast::{BinOp, Literal};
+        let expr = sp(Expr::If {
+            cond: spb(Expr::BinOp {
+                lhs: spb(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+            }),
+            then_branch: spb(Expr::BinOp {
+                lhs: spb(Expr::Ident("y".into())),
+                op: BinOp::Gt,
+                rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+            }),
+            else_branch: Some(spb(Expr::Literal(Literal::Bool(true)))),
+        });
+        assert!(is_likely_boolean_predicate(&expr));
+    }
+
+    #[test]
+    fn predicate_if_no_else_not_boolean() {
+        use assura_ast::{BinOp, Literal};
+        let expr = sp(Expr::If {
+            cond: spb(Expr::BinOp {
+                lhs: spb(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+            }),
+            then_branch: spb(Expr::Literal(Literal::Bool(true))),
+            else_branch: None,
+        });
+        assert!(!is_likely_boolean_predicate(&expr));
+    }
+
+    #[test]
+    fn predicate_block_last_expr_boolean() {
+        use assura_ast::{BinOp, Literal};
+        let expr = sp(Expr::Block(vec![
+            sp(Expr::Ident("setup".into())),
+            sp(Expr::BinOp {
+                lhs: spb(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+            }),
+        ]));
+        assert!(is_likely_boolean_predicate(&expr));
+    }
+
+    #[test]
+    fn predicate_empty_block_not_boolean() {
+        let expr = sp(Expr::Block(vec![]));
+        assert!(!is_likely_boolean_predicate(&expr));
+    }
+
+    #[test]
+    fn predicate_call_is_boolean() {
+        let expr = sp(Expr::Call {
+            func: spb(Expr::Ident("validate".into())),
+            args: vec![sp(Expr::Ident("x".into()))],
+        });
+        assert!(is_likely_boolean_predicate(&expr));
+    }
+
+    #[test]
+    fn predicate_match_all_boolean_arms() {
+        use assura_ast::{Literal, MatchArm, Pattern};
+        let expr = sp(Expr::Match {
+            scrutinee: spb(Expr::Ident("x".into())),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Literal(Literal::Int("0".into())),
+                    body: sp(Expr::Literal(Literal::Bool(true))),
+                },
+                MatchArm {
+                    pattern: Pattern::Wildcard,
+                    body: sp(Expr::Literal(Literal::Bool(false))),
+                },
+            ],
+        });
+        assert!(is_likely_boolean_predicate(&expr));
+    }
+
+    #[test]
+    fn predicate_uppercase_ident_not_boolean() {
+        let expr = sp(Expr::Ident("MyType".into()));
+        assert!(!is_likely_boolean_predicate(&expr));
+    }
+
+    // -- opaque / feature dispatch tests --
 
     #[test]
     fn opaque_with_ensures_verifies() {

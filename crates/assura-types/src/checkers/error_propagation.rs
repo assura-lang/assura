@@ -253,6 +253,10 @@ impl FrameChecker {
     /// The heuristic: if a variable `x` appears both as `old(x)` and as
     /// bare `x` in an ensures clause, the contract implies `x` changes.
     /// If `x` is not in the modifies set, that violates the frame contract.
+    ///
+    /// **Frame assertion exclusion**: Patterns like `x == old(x)` or
+    /// `old(x) == x` are frame assertions (asserting `x` did NOT change),
+    /// not modifications. These are excluded from A14002 detection.
     pub fn check_ensures_modifications(
         &self,
         ensures_body: &SpExpr,
@@ -264,11 +268,17 @@ impl FrameChecker {
         let mut errors = Vec::new();
         let old_refs = collect_old_references(ensures_body);
         let ident_refs = collect_ident_references(ensures_body);
+        let frame_eq_vars = collect_frame_equality_vars(ensures_body);
 
         // Variables that appear both in old() and as bare idents imply
-        // modification (e.g., `ensures { x > old(x) }`).
+        // modification (e.g., `ensures { x > old(x) }`), UNLESS the
+        // co-occurrence is exclusively in a frame equality pattern
+        // (`x == old(x)` or `old(x) == x`).
         for name in &old_refs {
-            if ident_refs.contains(name) && !self.is_modified_or_under_modified(name) {
+            if ident_refs.contains(name)
+                && !self.is_modified_or_under_modified(name)
+                && !frame_eq_vars.contains(name)
+            {
                 errors.push(TypeError {
                     code: "A14002".into(),
                     message: format!(
@@ -518,7 +528,93 @@ mod tests {
         assert!(err.is_none());
     }
 
-    // -- FrameChecker --
+    // -- FrameChecker (A14002) --
+
+    #[test]
+    fn a14002_frame_assertion_excluded() {
+        use assura_parser::ast::Spanned;
+        // modifies { x }, ensures { y == old(y) }
+        // y == old(y) is a frame assertion => no A14002
+        let modifies_body = Spanned::no_span(Expr::Ident("x".into()));
+        let fc = FrameChecker::new(&[&modifies_body]);
+        let ensures_body = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("y".into()))),
+            op: BinOp::Eq,
+            rhs: Box::new(Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(
+                Expr::Ident("y".into()),
+            ))))),
+        });
+        let errors = fc.check_ensures_modifications(&ensures_body, &span());
+        assert!(
+            errors.is_empty(),
+            "y == old(y) is a frame assertion, not A14002: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn a14002_modification_detected() {
+        use assura_parser::ast::Spanned;
+        // modifies { x }, ensures { y > old(y) }
+        // y > old(y) implies y changed => A14002 (y not in modifies)
+        let modifies_body = Spanned::no_span(Expr::Ident("x".into()));
+        let fc = FrameChecker::new(&[&modifies_body]);
+        let ensures_body = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("y".into()))),
+            op: BinOp::Gt,
+            rhs: Box::new(Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(
+                Expr::Ident("y".into()),
+            ))))),
+        });
+        let errors = fc.check_ensures_modifications(&ensures_body, &span());
+        assert!(
+            errors.iter().any(|e| e.code.as_ref() == "A14002"),
+            "y > old(y) with modifies {{ x }} should produce A14002: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn a14002_modified_var_no_error() {
+        use assura_parser::ast::Spanned;
+        // modifies { x }, ensures { x > old(x) }
+        // x IS in modifies => no A14002
+        let modifies_body = Spanned::no_span(Expr::Ident("x".into()));
+        let fc = FrameChecker::new(&[&modifies_body]);
+        let ensures_body = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            op: BinOp::Gt,
+            rhs: Box::new(Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(
+                Expr::Ident("x".into()),
+            ))))),
+        });
+        let errors = fc.check_ensures_modifications(&ensures_body, &span());
+        assert!(
+            errors.is_empty(),
+            "x > old(x) with modifies {{ x }} should not be A14002: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn a14002_old_eq_x_reversed() {
+        use assura_parser::ast::Spanned;
+        // modifies { x }, ensures { old(y) == y }
+        // old(y) == y is a frame assertion => no A14002
+        let modifies_body = Spanned::no_span(Expr::Ident("x".into()));
+        let fc = FrameChecker::new(&[&modifies_body]);
+        let ensures_body = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(
+                Expr::Ident("y".into()),
+            ))))),
+            op: BinOp::Eq,
+            rhs: Box::new(Spanned::no_span(Expr::Ident("y".into()))),
+        });
+        let errors = fc.check_ensures_modifications(&ensures_body, &span());
+        assert!(
+            errors.is_empty(),
+            "old(y) == y is a frame assertion: {errors:?}"
+        );
+    }
+
+    // -- FrameChecker (basic) --
 
     #[test]
     fn frame_checker_empty_has_no_modifies() {
