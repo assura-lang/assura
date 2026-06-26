@@ -151,6 +151,18 @@ jobs:
           echo "CPATH=/usr/include" >> "$GITHUB_ENV"
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
 
+      - name: Reclaim disk (self-hosted)
+        if: ${{ vars.RUNNER }}
+        run: |
+          # Remove other jobs' target dirs to free space on shared runner.
+          # Each job uses its own CARGO_TARGET_DIR; stale sibling dirs accumulate.
+          for d in target/ci-*; do
+            [ -d "$d" ] && [ "$d" != "$CARGO_TARGET_DIR" ] || continue
+            echo "Removing $d ($(du -sh "$d" | cut -f1))"
+            rm -rf "$d"
+          done
+          echo "Disk after cleanup: $(df -h / | awk 'NR==2{print $4}') free"
+
       - name: Check disk space
         run: |
           avail=$(df -k / | awk 'NR==2{print $4}')
@@ -222,6 +234,16 @@ jobs:
           echo "CPATH=/usr/include" >> "$GITHUB_ENV"
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
 
+      - name: Reclaim disk (self-hosted)
+        if: ${{ vars.RUNNER }}
+        run: |
+          for d in target/ci-*; do
+            [ -d "$d" ] && [ "$d" != "$CARGO_TARGET_DIR" ] || continue
+            echo "Removing $d ($(du -sh "$d" | cut -f1))"
+            rm -rf "$d"
+          done
+          echo "Disk after cleanup: $(df -h / | awk 'NR==2{print $4}') free"
+
       - name: Check disk space
         run: |
           avail=$(df -k / | awk 'NR==2{print $4}')
@@ -290,6 +312,16 @@ jobs:
           echo "Z3_SYS_Z3_HEADER=/usr/include/z3.h" >> "$GITHUB_ENV"
           echo "CPATH=/usr/include" >> "$GITHUB_ENV"
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+
+      - name: Reclaim disk (self-hosted)
+        if: ${{ vars.RUNNER }}
+        run: |
+          for d in target/ci-*; do
+            [ -d "$d" ] && [ "$d" != "$CARGO_TARGET_DIR" ] || continue
+            echo "Removing $d ($(du -sh "$d" | cut -f1))"
+            rm -rf "$d"
+          done
+          echo "Disk after cleanup: $(df -h / | awk 'NR==2{print $4}') free"
 
       - name: Check disk space
         run: |
@@ -362,6 +394,16 @@ jobs:
           echo "Z3_SYS_Z3_HEADER=/usr/include/z3.h" >> "$GITHUB_ENV"
           echo "CPATH=/usr/include" >> "$GITHUB_ENV"
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+
+      - name: Reclaim disk (self-hosted)
+        if: ${{ vars.RUNNER }}
+        run: |
+          for d in target/ci-*; do
+            [ -d "$d" ] && [ "$d" != "$CARGO_TARGET_DIR" ] || continue
+            echo "Removing $d ($(du -sh "$d" | cut -f1))"
+            rm -rf "$d"
+          done
+          echo "Disk after cleanup: $(df -h / | awk 'NR==2{print $4}') free"
 
       - name: Check disk space
         run: |
@@ -481,6 +523,16 @@ jobs:
             echo "CVC5_LIB_DIR=/tmp/cvc5-install/cvc5-Linux-x86_64-static/lib" >> "$GITHUB_ENV"
             echo "CVC5_INCLUDE_DIR=/tmp/cvc5-install/cvc5-Linux-x86_64-static/include" >> "$GITHUB_ENV"
           fi
+
+      - name: Reclaim disk (self-hosted)
+        if: ${{ vars.RUNNER }}
+        run: |
+          for d in target/ci-*; do
+            [ -d "$d" ] && [ "$d" != "$CARGO_TARGET_DIR" ] || continue
+            echo "Removing $d ($(du -sh "$d" | cut -f1))"
+            rm -rf "$d"
+          done
+          echo "Disk after cleanup: $(df -h / | awk 'NR==2{print $4}') free"
 
       - name: Check disk space
         run: |
