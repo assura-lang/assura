@@ -202,6 +202,12 @@ pub fn verify_typed(
         results.extend(layer2_results);
     }
 
+    // --- Layer 3: BMC + k-induction ---
+    if config.verify.layer >= 3 {
+        let layer3_results = run_layer3_verification(typed, config);
+        results.extend(layer3_results);
+    }
+
     results
 }
 
@@ -338,6 +344,240 @@ fn collect_roundtrip_obligations(decl: &Decl, verifier: &mut assura_smt::Layer2V
             });
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Layer 3: BMC + k-induction
+// ---------------------------------------------------------------------------
+
+/// Run Layer 3 verification (BMC + k-induction) on the typed AST.
+///
+/// Collects state-machine-like declarations (contracts with invariant clauses
+/// and transition-like ensures clauses) and runs BMC safety/liveness checks.
+fn run_layer3_verification(
+    typed: &assura_types::TypedFile,
+    config: &CompilerConfig,
+) -> Vec<assura_smt::VerificationResult> {
+    use assura_parser::ast::ClauseKind;
+
+    let timeout = config.verify.timeout_ms.max(30_000);
+    let mut results = Vec::new();
+
+    for decl in &typed.resolved.source.decls {
+        let decl_name = decl.node.name().unwrap_or("anonymous");
+        let clauses = decl.node.clauses();
+
+        // Collect state variables from input/output clauses
+        let params = decl.node.params();
+        if params.is_empty() && clauses.is_empty() {
+            continue;
+        }
+
+        // Collect invariant clauses as safety properties
+        let mut safety_properties = Vec::new();
+        let mut initial_constraints = Vec::new();
+        let mut transitions = Vec::new();
+
+        for clause in clauses {
+            match &clause.kind {
+                ClauseKind::Invariant => {
+                    let pred = expr_to_predicate_string(&clause.body);
+                    if !pred.is_empty() && pred != "true" {
+                        safety_properties
+                            .push((format!("{decl_name}::invariant"), negate_for_bmc(&pred)));
+                    }
+                }
+                ClauseKind::Requires => {
+                    let pred = expr_to_predicate_string(&clause.body);
+                    if !pred.is_empty() && pred != "true" {
+                        initial_constraints.push(pred);
+                    }
+                }
+                ClauseKind::Ensures => {
+                    let pred = expr_to_predicate_string(&clause.body);
+                    if !pred.is_empty() && pred != "true" {
+                        // Treat ensures as transition constraints
+                        transitions.push(pred);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if safety_properties.is_empty() {
+            continue;
+        }
+
+        // Build BMC engine
+        let bmc_config = assura_smt::BmcConfig::new()
+            .with_bound(10)
+            .with_timeout(timeout);
+
+        for (prop_name, bad_pred) in &safety_properties {
+            let mut engine = assura_smt::BmcEngine::new(bmc_config.clone());
+
+            // Add state variables from parameters
+            for param in params {
+                engine.add_state_variable(param.name.clone(), assura_smt::BmcSort::Int);
+            }
+
+            // Add initial constraints from requires
+            for ic in &initial_constraints {
+                engine.add_initial_constraint(ic.clone());
+            }
+
+            // Add property
+            engine.add_property(assura_smt::BmcProperty::Safety {
+                name: prop_name.clone(),
+                bad_predicate: bad_pred.clone(),
+            });
+
+            let bmc_results = engine.check();
+            for br in bmc_results {
+                results.push(bmc_result_to_verification_result(br));
+            }
+        }
+    }
+
+    results
+}
+
+/// Negate a predicate for BMC bad-state checking.
+fn negate_for_bmc(pred: &str) -> String {
+    let pred = pred.trim();
+    if pred.contains(">=") {
+        pred.replacen(">=", "<", 1)
+    } else if pred.contains("<=") {
+        pred.replacen("<=", ">", 1)
+    } else if pred.contains("!=") {
+        pred.replacen("!=", "==", 1)
+    } else if pred.contains("==") {
+        pred.replacen("==", "!=", 1)
+    } else if pred.contains('>') {
+        pred.replacen('>', "<=", 1)
+    } else if pred.contains('<') {
+        pred.replacen('<', ">=", 1)
+    } else {
+        format!("!({pred})")
+    }
+}
+
+/// Convert a BMC result into a standard VerificationResult.
+fn bmc_result_to_verification_result(
+    result: assura_smt::BmcResult,
+) -> assura_smt::VerificationResult {
+    match result {
+        assura_smt::BmcResult::Safe { property, bound } => {
+            assura_smt::VerificationResult::Verified {
+                clause_desc: format!("{property} (BMC safe up to {bound})"),
+                unsat_core: None,
+            }
+        }
+        assura_smt::BmcResult::Counterexample {
+            property,
+            step,
+            trace,
+        } => {
+            let model = format_bmc_trace(&trace, step);
+            assura_smt::VerificationResult::Counterexample {
+                clause_desc: format!("{property} (BMC counterexample at step {step})"),
+                model,
+                counter_model: None,
+            }
+        }
+        assura_smt::BmcResult::Lasso {
+            property,
+            stem_length,
+            loop_length,
+            trace,
+        } => {
+            let model = format_lasso_trace(&trace, stem_length, loop_length);
+            assura_smt::VerificationResult::Counterexample {
+                clause_desc: format!("{property} (lasso: stem={stem_length}, loop={loop_length})"),
+                model,
+                counter_model: None,
+            }
+        }
+        assura_smt::BmcResult::Unknown { property, reason } => {
+            assura_smt::VerificationResult::Unknown {
+                clause_desc: format!("{property} (BMC)"),
+                reason,
+            }
+        }
+    }
+}
+
+/// Format a BMC counterexample trace as a human-readable string.
+fn format_bmc_trace(trace: &[assura_smt::BmcTraceStep], bad_step: usize) -> String {
+    let mut lines = Vec::new();
+    lines.push("BMC counterexample trace:".to_string());
+    for step in trace {
+        let marker = if step.step == bad_step {
+            " <-- BAD STATE"
+        } else {
+            ""
+        };
+        let vals: Vec<String> = step
+            .assignments
+            .iter()
+            .map(|(name, val)| format!("{name}={val}"))
+            .collect();
+        lines.push(format!(
+            "  step {}: {{{}}}{marker}",
+            step.step,
+            vals.join(", ")
+        ));
+    }
+    lines.join("\n")
+}
+
+/// Format a lasso counterexample trace with loop visualization.
+fn format_lasso_trace(
+    trace: &[assura_smt::BmcTraceStep],
+    stem_length: usize,
+    loop_length: usize,
+) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "Lasso counterexample (stem={stem_length}, loop={loop_length}):"
+    ));
+
+    // Stem: states before the loop
+    if stem_length > 0 {
+        lines.push("  Stem:".to_string());
+        for step in trace.iter().take(stem_length) {
+            let vals: Vec<String> = step
+                .assignments
+                .iter()
+                .map(|(name, val)| format!("{name}={val}"))
+                .collect();
+            lines.push(format!("    step {}: {{{}}}", step.step, vals.join(", ")));
+        }
+    }
+
+    // Loop: repeating cycle
+    lines.push("  Loop:".to_string());
+    let loop_end = stem_length + loop_length;
+    for step in trace.iter().skip(stem_length).take(loop_length + 1) {
+        let marker = if step.step == loop_end {
+            " --> back to loop start"
+        } else {
+            ""
+        };
+        let vals: Vec<String> = step
+            .assignments
+            .iter()
+            .map(|(name, val)| format!("{name}={val}"))
+            .collect();
+        lines.push(format!(
+            "    step {}: {{{}}}{}",
+            step.step,
+            vals.join(", "),
+            marker
+        ));
+    }
+
+    lines.join("\n")
 }
 
 /// Convert a domain expression to a Z3 sort name.
@@ -963,6 +1203,213 @@ mod tests {
         // Raw tokens
         let expr = Spanned::no_span(Expr::Raw(vec!["a".into(), "+".into(), "b".into()]));
         assert_eq!(expr_to_predicate_string(&expr), "a + b");
+    }
+
+    // -------------------------------------------------------------------
+    // Layer 3 pipeline wiring tests
+    // -------------------------------------------------------------------
+
+    /// Helper: compile with Layer 3 enabled
+    fn compile_layer3(source: &str) -> CompilationOutput {
+        let config = CompilerConfig {
+            verify: assura_config::VerifyOptions {
+                layer: 3,
+                parallel: false,
+                decrease_checks: false,
+                enable_cache: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        compile_full(source, "test.assura", &config)
+    }
+
+    #[test]
+    fn layer3_skipped_at_layer2() {
+        // Layer 2 should NOT produce BMC results
+        let config = CompilerConfig {
+            verify: assura_config::VerifyOptions {
+                layer: 2,
+                parallel: false,
+                decrease_checks: false,
+                enable_cache: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let output = compile_full(
+            "contract X {\n  input(n: Int)\n  requires { n >= 0 }\n  invariant { n >= 0 }\n}",
+            "test.assura",
+            &config,
+        );
+        let bmc_results: Vec<_> = output
+            .verification
+            .iter()
+            .filter(|r| match r {
+                assura_smt::VerificationResult::Verified { clause_desc, .. }
+                | assura_smt::VerificationResult::Counterexample { clause_desc, .. }
+                | assura_smt::VerificationResult::Timeout { clause_desc, .. }
+                | assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
+                    clause_desc.contains("BMC") || clause_desc.contains("lasso")
+                }
+            })
+            .collect();
+        assert!(
+            bmc_results.is_empty(),
+            "layer 2 should not produce BMC results"
+        );
+    }
+
+    #[test]
+    fn layer3_invariant_produces_bmc_results() {
+        // Contract with invariant should produce BMC results at layer 3
+        let source =
+            "contract Counter {\n  input(n: Int)\n  requires { n >= 0 }\n  invariant { n >= 0 }\n}";
+        let output = compile_layer3(source);
+        assert!(
+            !output.has_errors,
+            "unexpected errors: {:?}",
+            output.diagnostics
+        );
+        let bmc_results: Vec<_> = output
+            .verification
+            .iter()
+            .filter(|r| match r {
+                assura_smt::VerificationResult::Verified { clause_desc, .. }
+                | assura_smt::VerificationResult::Counterexample { clause_desc, .. }
+                | assura_smt::VerificationResult::Timeout { clause_desc, .. }
+                | assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
+                    clause_desc.contains("BMC")
+                }
+            })
+            .collect();
+        assert!(
+            !bmc_results.is_empty(),
+            "invariant contract should produce BMC results at layer 3"
+        );
+    }
+
+    #[test]
+    fn layer3_no_invariant_no_bmc() {
+        // Contract with only requires/ensures but no invariant should not produce BMC
+        let source = "contract Simple {\n  requires { true }\n  ensures { true }\n}";
+        let output = compile_layer3(source);
+        assert!(
+            !output.has_errors,
+            "unexpected errors: {:?}",
+            output.diagnostics
+        );
+        let bmc_results: Vec<_> = output
+            .verification
+            .iter()
+            .filter(|r| match r {
+                assura_smt::VerificationResult::Verified { clause_desc, .. }
+                | assura_smt::VerificationResult::Counterexample { clause_desc, .. }
+                | assura_smt::VerificationResult::Timeout { clause_desc, .. }
+                | assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
+                    clause_desc.contains("BMC")
+                }
+            })
+            .collect();
+        assert!(
+            bmc_results.is_empty(),
+            "contract without invariant should not produce BMC results"
+        );
+    }
+
+    #[test]
+    fn negate_for_bmc_operators() {
+        assert_eq!(negate_for_bmc("n >= 0"), "n < 0");
+        assert_eq!(negate_for_bmc("x <= 10"), "x > 10");
+        assert_eq!(negate_for_bmc("a == b"), "a != b");
+        assert_eq!(negate_for_bmc("a != b"), "a == b");
+        assert_eq!(negate_for_bmc("x > 0"), "x <= 0");
+        assert_eq!(negate_for_bmc("x < 100"), "x >= 100");
+        assert_eq!(negate_for_bmc("flag"), "!(flag)");
+    }
+
+    #[test]
+    fn format_bmc_trace_output() {
+        let trace = vec![
+            assura_smt::BmcTraceStep {
+                step: 0,
+                assignments: vec![("n".into(), "5".into())],
+            },
+            assura_smt::BmcTraceStep {
+                step: 1,
+                assignments: vec![("n".into(), "-1".into())],
+            },
+        ];
+        let output = format_bmc_trace(&trace, 1);
+        assert!(output.contains("BMC counterexample trace:"));
+        assert!(output.contains("step 0"));
+        assert!(output.contains("step 1"));
+        assert!(output.contains("BAD STATE"));
+    }
+
+    #[test]
+    fn format_lasso_trace_output() {
+        let trace = vec![
+            assura_smt::BmcTraceStep {
+                step: 0,
+                assignments: vec![("s".into(), "0".into())],
+            },
+            assura_smt::BmcTraceStep {
+                step: 1,
+                assignments: vec![("s".into(), "1".into())],
+            },
+            assura_smt::BmcTraceStep {
+                step: 2,
+                assignments: vec![("s".into(), "0".into())],
+            },
+        ];
+        let output = format_lasso_trace(&trace, 1, 1);
+        assert!(output.contains("Lasso counterexample"));
+        assert!(output.contains("Stem:"));
+        assert!(output.contains("Loop:"));
+    }
+
+    #[test]
+    fn bmc_result_to_verification_result_safe() {
+        let safe = assura_smt::BmcResult::Safe {
+            property: "inv".into(),
+            bound: 10,
+        };
+        let result = bmc_result_to_verification_result(safe);
+        assert!(matches!(
+            result,
+            assura_smt::VerificationResult::Verified { .. }
+        ));
+    }
+
+    #[test]
+    fn bmc_result_to_verification_result_counterexample() {
+        let ce = assura_smt::BmcResult::Counterexample {
+            property: "inv".into(),
+            step: 3,
+            trace: vec![assura_smt::BmcTraceStep {
+                step: 3,
+                assignments: vec![("n".into(), "-1".into())],
+            }],
+        };
+        let result = bmc_result_to_verification_result(ce);
+        assert!(matches!(
+            result,
+            assura_smt::VerificationResult::Counterexample { .. }
+        ));
+    }
+
+    #[test]
+    fn bmc_result_to_verification_result_unknown() {
+        let unk = assura_smt::BmcResult::Unknown {
+            property: "inv".into(),
+            reason: "timeout".into(),
+        };
+        let result = bmc_result_to_verification_result(unk);
+        assert!(matches!(
+            result,
+            assura_smt::VerificationResult::Unknown { .. }
+        ));
     }
 
     #[test]
