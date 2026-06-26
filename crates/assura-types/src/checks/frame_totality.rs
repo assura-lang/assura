@@ -47,6 +47,17 @@ pub(crate) fn run_frame_checks(
                 secondary: None,
             });
         }
+        // A14002: Check ensures clauses for implicit modifications to
+        // variables not in the modifies set. Frame equality patterns
+        // (x == old(x), old(x) == x) are excluded as frame assertions.
+        let ensures_bodies: Vec<&SpExpr> = clauses
+            .iter()
+            .filter(|c| c.kind == ClauseKind::Ensures)
+            .map(|c| &c.body)
+            .collect();
+        for ensures_body in &ensures_bodies {
+            errors.extend(checker.check_ensures_modifications(ensures_body, &decl.span));
+        }
     }
     errors
 }
@@ -138,6 +149,48 @@ mod tests {
         let env = TypeEnv::new();
         let r = assura_resolve::resolve(&sf).unwrap();
         assert!(run_frame_checks(&r.source, &env, &r.symbols).is_empty());
+    }
+
+    // --- A14002: ensures modification detection ---
+
+    #[test]
+    fn frame_a14002_frame_assertion_no_error() {
+        // ensures { y == old(y) } with modifies { x } is a frame assertion, NOT A14002
+        let sf = parse_source("contract C {\n    modifies { x }\n    ensures { y == old(y) }\n}");
+        let env = TypeEnv::new();
+        let r = assura_resolve::resolve(&sf).unwrap();
+        let errs = run_frame_checks(&r.source, &env, &r.symbols);
+        assert!(
+            !errs.iter().any(|e| e.code.as_ref() == "A14002"),
+            "frame assertion y == old(y) should not trigger A14002: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn frame_a14002_modification_detected() {
+        // ensures { y > old(y) } with modifies { x } implies y is modified
+        // but y is not in modifies set => A14002
+        let sf = parse_source("contract C {\n    modifies { x }\n    ensures { y > old(y) }\n}");
+        let env = TypeEnv::new();
+        let r = assura_resolve::resolve(&sf).unwrap();
+        let errs = run_frame_checks(&r.source, &env, &r.symbols);
+        assert!(
+            errs.iter().any(|e| e.code.as_ref() == "A14002"),
+            "y > old(y) with modifies {{ x }} should trigger A14002: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn frame_a14002_modified_var_no_error() {
+        // ensures { x > old(x) } with modifies { x } is fine: x IS modified
+        let sf = parse_source("contract C {\n    modifies { x }\n    ensures { x > old(x) }\n}");
+        let env = TypeEnv::new();
+        let r = assura_resolve::resolve(&sf).unwrap();
+        let errs = run_frame_checks(&r.source, &env, &r.symbols);
+        assert!(
+            !errs.iter().any(|e| e.code.as_ref() == "A14002"),
+            "x > old(x) with modifies {{ x }} should not trigger A14002: {errs:?}"
+        );
     }
 
     // --- Totality checks ---

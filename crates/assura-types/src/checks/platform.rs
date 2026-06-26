@@ -240,23 +240,53 @@ pub(crate) fn run_resource_limit_checks(source: &assura_parser::ast::SourceFile)
         };
         for clause in clauses {
             if let ClauseKind::Other(ref k) = clause.kind {
-                if (k == "use_resource" || k == "consume")
-                    && let Some((name, args)) = extract_call(&clause.body)
-                {
-                    let amount = args
-                        .first()
-                        .and_then(extract_int_literal)
-                        .unwrap_or(DEFAULT_PARAM_ONE) as u64;
-                    checker.record_usage(name, amount);
+                if k == "use_resource" || k == "consume" {
+                    if let Some((name, args)) = extract_call(&clause.body) {
+                        let amount =
+                            args.first()
+                                .and_then(extract_int_literal)
+                                .unwrap_or(DEFAULT_PARAM_ONE) as u64;
+                        checker.record_usage(name, amount);
+                    } else if let Expr::Ident(name) = &clause.body.node {
+                        checker.record_usage(name, 1);
+                    } else {
+                        let kvs = extract_kv_pairs(&clause.body);
+                        let name = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "name" || *k == "resource")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("unnamed");
+                        let amount =
+                            kvs.iter()
+                                .find(|(k, _)| *k == "amount" || *k == "count")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(DEFAULT_PARAM_ONE) as u64;
+                        checker.record_usage(name, amount);
+                    }
                 }
-                if (k == "release_resource" || k == "free_resource")
-                    && let Some((name, args)) = extract_call(&clause.body)
-                {
-                    let amount = args
-                        .first()
-                        .and_then(extract_int_literal)
-                        .unwrap_or(DEFAULT_PARAM_ONE) as u64;
-                    checker.release_usage(name, amount);
+                if k == "release_resource" || k == "free_resource" {
+                    if let Some((name, args)) = extract_call(&clause.body) {
+                        let amount =
+                            args.first()
+                                .and_then(extract_int_literal)
+                                .unwrap_or(DEFAULT_PARAM_ONE) as u64;
+                        checker.release_usage(name, amount);
+                    } else if let Expr::Ident(name) = &clause.body.node {
+                        checker.release_usage(name, 1);
+                    } else {
+                        let kvs = extract_kv_pairs(&clause.body);
+                        let name = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "name" || *k == "resource")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("unnamed");
+                        let amount =
+                            kvs.iter()
+                                .find(|(k, _)| *k == "amount" || *k == "count")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(DEFAULT_PARAM_ONE) as u64;
+                        checker.release_usage(name, amount);
+                    }
                 }
             }
             // Check for unbounded resource references in clause bodies

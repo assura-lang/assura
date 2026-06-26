@@ -226,8 +226,8 @@ fn multi_pass_refinement_broken_chain() {
 fn incremental_contract_version_continuity() {
     use crate::domain::IncrementalContractChecker;
     let mut checker = IncrementalContractChecker::new();
-    checker.add_version("Foo".into(), 1, 2, 1);
-    checker.add_version("Foo".into(), 2, 3, 2);
+    checker.add_version("Foo".into(), 1, 2, 1, 0..1);
+    checker.add_version("Foo".into(), 2, 3, 2, 0..1);
     let errors = checker.check_version_continuity();
     assert!(errors.is_empty(), "sequential versions should pass");
 }
@@ -236,8 +236,8 @@ fn incremental_contract_version_continuity() {
 fn incremental_contract_precondition_weakening() {
     use crate::domain::IncrementalContractChecker;
     let mut checker = IncrementalContractChecker::new();
-    checker.add_version("Bar".into(), 1, 3, 1);
-    checker.add_version("Bar".into(), 2, 2, 1);
+    checker.add_version("Bar".into(), 1, 3, 1, 0..1);
+    checker.add_version("Bar".into(), 2, 2, 1, 0..1);
     let errors = checker.check_precondition_weakening();
     // Fewer requires in v2 is allowed (weakening); more would be an error
     assert!(errors.is_empty());

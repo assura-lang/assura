@@ -123,6 +123,8 @@ jobs:
         if: ${{ vars.RUNNER }}
         run: |
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export SCCACHE_CACHE_SIZE="5G"
+          echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
           sccache --stop-server 2>/dev/null || true
           sccache --start-server 2>/dev/null || true
 
@@ -176,6 +178,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: cargo clippy --workspace -- -D warnings
 
+      - name: Cleanup target (self-hosted)
+        if: ${{ always() && vars.RUNNER }}
+        run: rm -rf "$CARGO_TARGET_DIR"
+
   # ── Tests (runner 2, parallel with clippy) ───────────────────────────────
   test:
     needs: changes
@@ -196,6 +202,8 @@ jobs:
         if: ${{ vars.RUNNER }}
         run: |
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export SCCACHE_CACHE_SIZE="5G"
+          echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
           sccache --stop-server 2>/dev/null || true
           sccache --start-server 2>/dev/null || true
 
@@ -242,6 +250,10 @@ jobs:
       - name: Test (nextest)
         run: cargo nextest run --workspace
 
+      - name: Cleanup target (self-hosted)
+        if: ${{ always() && vars.RUNNER }}
+        run: rm -rf "$CARGO_TARGET_DIR"
+
   # ── Pipeline benchmarks (compile + smoke run; no timing thresholds) ─────
   benchmark:
     name: Pipeline benchmarks
@@ -265,6 +277,8 @@ jobs:
         if: ${{ vars.RUNNER }}
         run: |
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export SCCACHE_CACHE_SIZE="5G"
+          echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
           sccache --stop-server 2>/dev/null || true
           sccache --start-server 2>/dev/null || true
 
@@ -316,6 +330,10 @@ jobs:
           path: target/ci-bench/criterion/**
           if-no-files-found: ignore
 
+      - name: Cleanup target (self-hosted)
+        if: ${{ always() && vars.RUNNER }}
+        run: rm -rf "$CARGO_TARGET_DIR"
+
   # ── Generated code compiles (runner 3, parallel with clippy + test) ─────
   codegen-validation:
     name: Generated code compiles
@@ -337,6 +355,8 @@ jobs:
         if: ${{ vars.RUNNER }}
         run: |
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export SCCACHE_CACHE_SIZE="5G"
+          echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
           sccache --stop-server 2>/dev/null || true
           sccache --start-server 2>/dev/null || true
 
@@ -396,6 +416,10 @@ jobs:
             rm -rf generated
           done
 
+      - name: Cleanup target (self-hosted)
+        if: ${{ always() && vars.RUNNER }}
+        run: rm -rf "$CARGO_TARGET_DIR"
+
   # ── No-Z3 fallback check (~30s on ubuntu) ───────────────────────────────
   no-z3:
     needs: changes
@@ -441,6 +465,8 @@ jobs:
         if: ${{ vars.RUNNER }}
         run: |
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export SCCACHE_CACHE_SIZE="5G"
+          echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
           sccache --stop-server 2>/dev/null || true
           sccache --start-server 2>/dev/null || true
 
@@ -506,6 +532,10 @@ jobs:
         run: |
           cargo build --bin assura --features cvc5-verify
           cargo run --bin assura --features cvc5-verify -- check --solver cvc5 demos/libwebp-huffman.assura
+
+      - name: Cleanup target (self-hosted)
+        if: ${{ always() && vars.RUNNER }}
+        run: rm -rf "$CARGO_TARGET_DIR"
 
   # ── Tree-sitter grammar tests ───────────────────────────────────────────
   tree-sitter:

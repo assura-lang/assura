@@ -104,6 +104,42 @@ pub(crate) fn collect_old_references(expr: &SpExpr) -> Vec<String> {
     c.0
 }
 
+/// Collect variable names that appear in frame-equality patterns:
+/// `x == old(x)` or `old(x) == x`.
+///
+/// These patterns assert that a variable did NOT change (frame assertion),
+/// not that it was modified. Used by `check_ensures_modifications` to
+/// exclude frame assertions from A14002 violations.
+pub(crate) fn collect_frame_equality_vars(expr: &SpExpr) -> std::collections::HashSet<String> {
+    struct FrameEqCollector(std::collections::HashSet<String>);
+    impl ExprVisitor for FrameEqCollector {
+        fn visit_binop(&mut self, lhs: &SpExpr, op: &BinOp, rhs: &SpExpr) {
+            if *op == BinOp::Eq {
+                // Pattern: x == old(x)
+                if let (Expr::Ident(name), Expr::Old(inner)) = (&lhs.node, &rhs.node)
+                    && let Expr::Ident(old_name) = &inner.node
+                    && name == old_name
+                {
+                    self.0.insert(name.clone());
+                }
+                // Pattern: old(x) == x
+                if let (Expr::Old(inner), Expr::Ident(name)) = (&lhs.node, &rhs.node)
+                    && let Expr::Ident(old_name) = &inner.node
+                    && name == old_name
+                {
+                    self.0.insert(name.clone());
+                }
+            }
+            // Continue walking into sub-expressions
+            self.visit_expr(lhs);
+            self.visit_expr(rhs);
+        }
+    }
+    let mut c = FrameEqCollector(std::collections::HashSet::new());
+    c.visit_expr(expr);
+    c.0
+}
+
 /// Collect all identifier names referenced in an expression (non-recursive
 /// into old()).
 ///
@@ -112,6 +148,10 @@ pub(crate) fn collect_old_references(expr: &SpExpr) -> Vec<String> {
 pub(crate) fn collect_ident_references(expr: &SpExpr) -> Vec<String> {
     struct IdentRefCollector(Vec<String>);
     impl ExprVisitor for IdentRefCollector {
+        fn visit_old(&mut self, _inner: &SpExpr) {
+            // Do NOT recurse into old() -- those references are collected
+            // separately by collect_old_references.
+        }
         fn visit_ident(&mut self, name: &str) {
             if name != "true" && name != "false" && name != "result" && name != "self" {
                 self.0.push(name.to_string());
@@ -177,6 +217,79 @@ mod tests {
         let expr = Spanned::no_span(Expr::Old(Box::new(inner)));
         let refs = collect_old_references(&expr);
         assert!(refs.contains(&"obj.val".to_string()));
+    }
+
+    #[test]
+    fn collect_frame_equality_vars_eq_old() {
+        // x == old(x) => frame equality on x
+        let expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(ident("x")),
+            op: BinOp::Eq,
+            rhs: Box::new(Spanned::no_span(Expr::Old(Box::new(ident("x"))))),
+        });
+        let vars = collect_frame_equality_vars(&expr);
+        assert!(vars.contains("x"), "x == old(x) should be detected");
+    }
+
+    #[test]
+    fn collect_frame_equality_vars_old_eq() {
+        // old(y) == y => frame equality on y
+        let expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Old(Box::new(ident("y"))))),
+            op: BinOp::Eq,
+            rhs: Box::new(ident("y")),
+        });
+        let vars = collect_frame_equality_vars(&expr);
+        assert!(vars.contains("y"), "old(y) == y should be detected");
+    }
+
+    #[test]
+    fn collect_frame_equality_vars_gt_not_frame() {
+        // x > old(x) => NOT a frame equality
+        let expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(ident("x")),
+            op: BinOp::Gt,
+            rhs: Box::new(Spanned::no_span(Expr::Old(Box::new(ident("x"))))),
+        });
+        let vars = collect_frame_equality_vars(&expr);
+        assert!(vars.is_empty(), "x > old(x) is not a frame equality");
+    }
+
+    #[test]
+    fn collect_frame_equality_vars_mismatched_names() {
+        // x == old(y) => NOT a frame equality (different names)
+        let expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(ident("x")),
+            op: BinOp::Eq,
+            rhs: Box::new(Spanned::no_span(Expr::Old(Box::new(ident("y"))))),
+        });
+        let vars = collect_frame_equality_vars(&expr);
+        assert!(vars.is_empty(), "x == old(y) is not a frame equality");
+    }
+
+    #[test]
+    fn collect_frame_equality_nested_in_and() {
+        // x == old(x) && z > 0 => frame equality on x
+        let eq_expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(ident("x")),
+            op: BinOp::Eq,
+            rhs: Box::new(Spanned::no_span(Expr::Old(Box::new(ident("x"))))),
+        });
+        let gt_expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(ident("z")),
+            op: BinOp::Gt,
+            rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+        });
+        let expr = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(eq_expr),
+            op: BinOp::And,
+            rhs: Box::new(gt_expr),
+        });
+        let vars = collect_frame_equality_vars(&expr);
+        assert!(
+            vars.contains("x"),
+            "x == old(x) inside && should be detected"
+        );
     }
 
     #[test]

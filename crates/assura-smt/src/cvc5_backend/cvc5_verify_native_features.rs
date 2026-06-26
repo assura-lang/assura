@@ -345,9 +345,11 @@ pub(crate) fn verify_feature_body_cvc5(
 ) -> VerificationResult {
     let desc = crate::verify_labels::feature_clause_desc(parent_name, feature_label);
 
-    // Skip declarative feature clauses (bare uppercase ident)
-    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
-    {
+    // Skip feature clauses whose body is not a boolean predicate.
+    // Feature annotations like `must_be deterministic` attach to function
+    // definitions where the body is the function body (Block, Let, etc.),
+    // not a boolean assertion.
+    if !crate::smt_features::is_likely_boolean_predicate(body) {
         return VerificationResult::unknown_not_encoded(desc, feature_label);
     }
 

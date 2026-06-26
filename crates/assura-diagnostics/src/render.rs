@@ -28,6 +28,20 @@ pub fn render_diagnostic(diag: &Diagnostic, filename: &str, source: &str) {
                 .with_color(Color::Blue),
         );
     }
+    // Render suggestion as a help note when present.
+    if let Some(ref suggestion) = diag.suggestion {
+        builder = builder.with_help(format!(
+            "{}: `{}`",
+            suggestion.message, suggestion.replacement
+        ));
+    }
+    // Add an explain hint for errors so users know how to get more detail.
+    if diag.severity == Severity::Error {
+        builder = builder.with_note(format!(
+            "for more information, run `assura explain {}`",
+            diag.code
+        ));
+    }
     builder
         .finish()
         .eprint((filename, Source::from(source)))

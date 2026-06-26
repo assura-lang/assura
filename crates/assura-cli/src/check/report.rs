@@ -108,7 +108,9 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                 diagnostics.push(
                     assura_diagnostics::Diagnostic::error(
                         "A05100",
-                        format!("verification timeout for {clause_desc}"),
+                        format!(
+                            "verification timeout for {clause_desc} (consider increasing --timeout)"
+                        ),
                         span.clone(),
                     )
                     .with_file(filename),
@@ -174,16 +176,51 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                     for name in &contract_names {
                         eprintln!("  {name}:  (no verifiable clauses)");
                     }
+                    eprintln!();
+                    eprintln!(
+                        "  hint: add `requires`, `ensures`, or `invariant` clauses to enable verification"
+                    );
                 }
             }
 
+            let error_count = diagnostics
+                .iter()
+                .filter(|d| d.severity == assura_diagnostics::Severity::Error)
+                .count();
+            let warning_count = diagnostics
+                .iter()
+                .filter(|d| d.severity == assura_diagnostics::Severity::Warning)
+                .count();
             if !*has_errors {
-                eprintln!("{filename}: check passed (no errors)");
+                if warning_count > 0 {
+                    eprintln!(
+                        "{filename}: check passed ({warning_count} warning{})",
+                        if warning_count == 1 { "" } else { "s" }
+                    );
+                } else {
+                    eprintln!("{filename}: check passed (no errors)");
+                }
+            } else if warning_count > 0 {
+                eprintln!(
+                    "{filename}: {error_count} error{}, {warning_count} warning{}",
+                    if error_count == 1 { "" } else { "s" },
+                    if warning_count == 1 { "" } else { "s" }
+                );
             } else {
-                eprintln!("{filename}: {} error(s) found", diagnostics.len());
+                eprintln!(
+                    "{filename}: {error_count} error{}",
+                    if error_count == 1 { "" } else { "s" }
+                );
             }
         } else if *has_errors {
-            eprintln!("{filename}: {} error(s) found", diagnostics.len());
+            let error_count = diagnostics
+                .iter()
+                .filter(|d| d.severity == assura_diagnostics::Severity::Error)
+                .count();
+            eprintln!(
+                "{filename}: {error_count} error{}",
+                if error_count == 1 { "" } else { "s" }
+            );
         }
     }
 

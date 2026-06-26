@@ -24,6 +24,79 @@ use z3::Solver;
 //  Z3 validity checking of boolean predicate bodies.)
 
 // -----------------------------------------------------------------------
+// Boolean predicate guard
+//
+// Feature annotations like `must_be deterministic` attach to function
+// definitions where the clause body is the function body (Block, Let,
+// Call chain), not a boolean assertion. Sending those to Z3 produces
+// trivial counterexamples because the expression evaluates to an integer
+// or other non-boolean type that becomes an unconstrained Z3 variable.
+// -----------------------------------------------------------------------
+
+/// Returns true if the expression is likely a boolean predicate suitable
+/// for validity checking. Returns false for function bodies, blocks
+/// whose last expression is non-boolean, and other non-predicate shapes.
+///
+/// Recurses into `If` (both branches), `Block` (last expression), `Match`
+/// (all arm bodies), and `Old` to handle compound boolean expressions that
+/// the top-level match alone would miss.
+pub(crate) fn is_likely_boolean_predicate(expr: &SpExpr) -> bool {
+    use assura_ast::Expr;
+    match &expr.node {
+        // Boolean comparisons and logical operators are predicates
+        Expr::BinOp { op, .. } => op.is_comparison() || op.is_logical(),
+        // Unary not is boolean
+        Expr::UnaryOp {
+            op: assura_ast::UnaryOp::Not,
+            ..
+        } => true,
+        // Boolean literals
+        Expr::Literal(assura_ast::Literal::Bool(_)) => true,
+        // Quantifiers produce boolean
+        Expr::Forall { .. } | Expr::Exists { .. } => true,
+        // old(predicate), e.g. old(x > 0)
+        Expr::Old(inner) => is_likely_boolean_predicate(inner),
+        // Bare lowercase identifier could be a boolean variable
+        Expr::Ident(name) => !name.chars().next().is_some_and(|c| c.is_uppercase()),
+        // Method calls that look boolean (is_*, has_*, contains, etc.)
+        Expr::MethodCall { method, .. } => {
+            method.starts_with("is_")
+                || method.starts_with("has_")
+                || method == "contains"
+                || method == "valid"
+        }
+        // If/then/else: boolean if both branches are boolean
+        Expr::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            is_likely_boolean_predicate(then_branch)
+                && else_branch
+                    .as_ref()
+                    .is_some_and(|e| is_likely_boolean_predicate(e))
+        }
+        // Block: boolean if the last expression is boolean (not empty blocks)
+        Expr::Block(exprs) => exprs.last().is_some_and(is_likely_boolean_predicate),
+        // Match: boolean if all arm bodies are boolean
+        Expr::Match { arms, .. } => {
+            !arms.is_empty()
+                && arms
+                    .iter()
+                    .all(|arm| is_likely_boolean_predicate(&arm.body))
+        }
+        // Function calls: could return bool but we can't tell syntactically
+        // Allow all function calls since the SMT encoder handles non-boolean
+        // results gracefully (unconstrained Z3 variable still produces a
+        // result, just potentially a trivial counterexample which is correct)
+        Expr::Call { .. } => true,
+        // Everything else: raw tokens, let-bindings (without boolean tail),
+        // list literals, casts, ghost blocks, etc.
+        _ => false,
+    }
+}
+
+// -----------------------------------------------------------------------
 // Generic Z3 body verifier for feature clauses
 //
 // Most feature clauses have boolean predicate bodies that can be verified
@@ -79,12 +152,14 @@ fn verify_feature_body(
         );
     }
 
-    // Skip declarative feature clauses whose body is a bare identifier
-    // (e.g., `incremental InflateDecoder`). These are type/declaration
-    // references, not boolean predicates. Sending them to Z3 creates an
-    // unconstrained variable that trivially produces counterexamples.
-    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
-    {
+    // Skip declarative feature clauses whose body is not a boolean predicate.
+    // Feature annotations like `must_be deterministic` attach to function
+    // definitions where the body is the function body (Block, Let, Call, etc.),
+    // not a boolean assertion. Also skip bare uppercase identifiers which are
+    // type/declaration references (e.g., `incremental InflateDecoder`).
+    // Sending non-boolean expressions to Z3 creates unconstrained variables
+    // that trivially produce counterexamples.
+    if !is_likely_boolean_predicate(body) {
         return VerificationResult::unknown_not_encoded(desc, feature_label);
     }
 
@@ -763,22 +838,101 @@ pub fn verify_feature_clause(
             body,
             sibling_clauses,
         )],
-        // Features without SMT verification (type-level or compile-time only)
-        Feature::GhostErasure
-        | Feature::LemmaErasure
-        | Feature::FrameConditions
-        | Feature::AxiomaticDefinitions
-        | Feature::TriggerPatterns
-        | Feature::ProphecyVariables
-        | Feature::Liveness
-        | Feature::RegionAnnotations
-        | Feature::FixedWidth
-        | Feature::TaintTracking
-        | Feature::DependentTypes
-        | Feature::Determinism
-        | Feature::Deadline
-        | Feature::WeakMemoryOrdering
-        | Feature::CodecRegistry => vec![],
+        // CORE: features with boolean predicate bodies verified via Z3
+        Feature::GhostErasure => vec![verify_feature_body(
+            parent_name,
+            "ghost_erasure",
+            body,
+            sibling_clauses,
+        )],
+        Feature::LemmaErasure => vec![verify_feature_body(
+            parent_name,
+            "lemma_erasure",
+            body,
+            sibling_clauses,
+        )],
+        Feature::FrameConditions => vec![verify_feature_body(
+            parent_name,
+            "frame_conditions",
+            body,
+            sibling_clauses,
+        )],
+        Feature::AxiomaticDefinitions => vec![verify_feature_body(
+            parent_name,
+            "axiomatic_definitions",
+            body,
+            sibling_clauses,
+        )],
+        Feature::TriggerPatterns => vec![verify_feature_body(
+            parent_name,
+            "trigger_patterns",
+            body,
+            sibling_clauses,
+        )],
+        Feature::ProphecyVariables => vec![verify_feature_body(
+            parent_name,
+            "prophecy_variables",
+            body,
+            sibling_clauses,
+        )],
+        Feature::Liveness => vec![verify_feature_body(
+            parent_name,
+            "liveness",
+            body,
+            sibling_clauses,
+        )],
+        // MEM
+        Feature::RegionAnnotations => vec![verify_feature_body(
+            parent_name,
+            "region_annotations",
+            body,
+            sibling_clauses,
+        )],
+        Feature::FixedWidth => vec![verify_feature_body(
+            parent_name,
+            "fixed_width",
+            body,
+            sibling_clauses,
+        )],
+        // SEC
+        Feature::TaintTracking => vec![verify_feature_body(
+            parent_name,
+            "taint_tracking",
+            body,
+            sibling_clauses,
+        )],
+        Feature::DependentTypes => vec![verify_feature_body(
+            parent_name,
+            "dependent_types",
+            body,
+            sibling_clauses,
+        )],
+        // CONC
+        Feature::Determinism => vec![verify_feature_body(
+            parent_name,
+            "determinism",
+            body,
+            sibling_clauses,
+        )],
+        Feature::Deadline => vec![verify_feature_body(
+            parent_name,
+            "deadline",
+            body,
+            sibling_clauses,
+        )],
+        Feature::WeakMemoryOrdering => vec![verify_feature_body(
+            parent_name,
+            "weak_memory_ordering",
+            body,
+            sibling_clauses,
+        )],
+        // FMT
+        Feature::CodecRegistry => vec![verify_feature_body(
+            parent_name,
+            "codec_registry",
+            body,
+            sibling_clauses,
+        )],
     }
 }
 
@@ -793,6 +947,109 @@ mod tests {
     fn spb(e: Expr) -> Box<SpExpr> {
         Box::new(sp(e))
     }
+
+    // -- is_likely_boolean_predicate tests --
+
+    #[test]
+    fn predicate_comparison_is_boolean() {
+        use assura_ast::BinOp;
+        let expr = sp(Expr::BinOp {
+            lhs: spb(Expr::Ident("x".into())),
+            op: BinOp::Gt,
+            rhs: spb(Expr::Literal(assura_ast::Literal::Int("0".into()))),
+        });
+        assert!(is_likely_boolean_predicate(&expr));
+    }
+
+    #[test]
+    fn predicate_if_both_branches_boolean() {
+        use assura_ast::{BinOp, Literal};
+        let expr = sp(Expr::If {
+            cond: spb(Expr::BinOp {
+                lhs: spb(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+            }),
+            then_branch: spb(Expr::BinOp {
+                lhs: spb(Expr::Ident("y".into())),
+                op: BinOp::Gt,
+                rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+            }),
+            else_branch: Some(spb(Expr::Literal(Literal::Bool(true)))),
+        });
+        assert!(is_likely_boolean_predicate(&expr));
+    }
+
+    #[test]
+    fn predicate_if_no_else_not_boolean() {
+        use assura_ast::{BinOp, Literal};
+        let expr = sp(Expr::If {
+            cond: spb(Expr::BinOp {
+                lhs: spb(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+            }),
+            then_branch: spb(Expr::Literal(Literal::Bool(true))),
+            else_branch: None,
+        });
+        assert!(!is_likely_boolean_predicate(&expr));
+    }
+
+    #[test]
+    fn predicate_block_last_expr_boolean() {
+        use assura_ast::{BinOp, Literal};
+        let expr = sp(Expr::Block(vec![
+            sp(Expr::Ident("setup".into())),
+            sp(Expr::BinOp {
+                lhs: spb(Expr::Ident("x".into())),
+                op: BinOp::Gt,
+                rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+            }),
+        ]));
+        assert!(is_likely_boolean_predicate(&expr));
+    }
+
+    #[test]
+    fn predicate_empty_block_not_boolean() {
+        let expr = sp(Expr::Block(vec![]));
+        assert!(!is_likely_boolean_predicate(&expr));
+    }
+
+    #[test]
+    fn predicate_call_is_boolean() {
+        let expr = sp(Expr::Call {
+            func: spb(Expr::Ident("validate".into())),
+            args: vec![sp(Expr::Ident("x".into()))],
+        });
+        assert!(is_likely_boolean_predicate(&expr));
+    }
+
+    #[test]
+    fn predicate_match_all_boolean_arms() {
+        use assura_ast::{Literal, MatchArm, Pattern};
+        let expr = sp(Expr::Match {
+            scrutinee: spb(Expr::Ident("x".into())),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Literal(Literal::Int("0".into())),
+                    body: sp(Expr::Literal(Literal::Bool(true))),
+                },
+                MatchArm {
+                    pattern: Pattern::Wildcard,
+                    body: sp(Expr::Literal(Literal::Bool(false))),
+                },
+            ],
+        });
+        assert!(is_likely_boolean_predicate(&expr));
+    }
+
+    #[test]
+    fn predicate_uppercase_ident_not_boolean() {
+        let expr = sp(Expr::Ident("MyType".into()));
+        assert!(!is_likely_boolean_predicate(&expr));
+    }
+
+    // -- opaque / feature dispatch tests --
 
     #[test]
     fn opaque_with_ensures_verifies() {
