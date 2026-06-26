@@ -125,6 +125,16 @@ fn atom(p: &mut Parser) -> Option<CompletedMarker> {
         // Identifier or function call: name or name(args)
         SyntaxKind::IDENT => Some(ident_or_call(p)),
 
+        // Keywords that are also valid variable/parameter names in expressions.
+        // The lexer emits these as keywords, but when they appear in expression
+        // context (e.g. `ensures { max_precision >= precision }`), they should
+        // be treated as identifiers.
+        SyntaxKind::PRECISION_KW => {
+            let m = p.open();
+            p.bump();
+            Some(m.complete(p, SyntaxKind::IDENT_EXPR))
+        }
+
         _ => {
             // Don't consume; let caller handle the error
             None
