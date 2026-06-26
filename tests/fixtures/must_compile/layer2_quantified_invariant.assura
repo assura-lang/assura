@@ -1,0 +1,9 @@
+// MUST COMPILE
+// Layer 2: Contract with quantified invariant for forall verification.
+contract NonNegativeSum {
+    input(a: Int, b: Int)
+    requires { a >= 0 }
+    requires { b >= 0 }
+    invariant { forall x in Int: x >= 0 or x < 0 }
+    ensures { a + b >= a }
+}

@@ -1,0 +1,13 @@
+// MUST COMPILE
+// Layer 2: Codec registry with roundtrip verification candidates.
+codec_registry ImageCodecs {
+    output: ImageOutput
+    codec png {
+        magic: [0x89, 0x50, 0x4E, 0x47]
+        decoder: decode_png
+    }
+    codec jpeg {
+        magic: [0xFF, 0xD8, 0xFF]
+        decoder: decode_jpeg
+    }
+}

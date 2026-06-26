@@ -1,0 +1,11 @@
+// MUST COMPILE
+// Layer 2: Multiple invariant and decreases clauses.
+contract BoundedQueue {
+    input(capacity: Nat, size: Nat)
+    requires { capacity > 0 }
+    requires { size >= 0 }
+    requires { size <= capacity }
+    invariant { size <= capacity }
+    invariant { capacity > 0 }
+    ensures { capacity > 0 }
+}

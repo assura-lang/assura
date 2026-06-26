@@ -1,0 +1,7 @@
+// MUST COMPILE
+// Layer 2: Function with decreases clause for termination proof.
+fn gcd(a: Nat, b: Nat) -> Nat
+    requires { a >= 0 }
+    requires { b >= 0 }
+    decreases a + b
+    ensures { result >= 0 }

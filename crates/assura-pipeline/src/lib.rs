@@ -280,13 +280,9 @@ fn collect_invariant_obligations(decl: &Decl, verifier: &mut assura_smt::Layer2V
                 });
             }
             _ => {
-                // Non-quantified invariant: encode as a ground assertion
-                verifier.add_invariant(assura_smt::QuantifiedInvariant {
-                    name: format!("{decl_name}::invariant"),
-                    bound_vars: vec![("__ground".into(), "Int".into())],
-                    body: expr_to_predicate_string(&clause.body),
-                    triggers: vec![],
-                });
+                // Non-quantified invariants are verified at Layer 1.
+                // Layer 2 only adds value for quantified invariants
+                // (forall/exists) that need AUFLIA theory.
             }
         }
     }
@@ -358,7 +354,13 @@ fn expr_to_predicate_string(expr: &assura_parser::ast::SpExpr) -> String {
         Expr::BinOp { op, lhs, rhs } => {
             let l = expr_to_predicate_string(lhs);
             let r = expr_to_predicate_string(rhs);
-            format!("{l} {} {r}", op.as_str())
+            // Use Rust-style operators for the Layer 2 predicate parser
+            let op_str = match op {
+                assura_parser::ast::BinOp::And => "&&",
+                assura_parser::ast::BinOp::Or => "||",
+                _ => op.as_str(),
+            };
+            format!("{l} {op_str} {r}")
         }
         Expr::UnaryOp { op, expr } => {
             let o = expr_to_predicate_string(expr);
