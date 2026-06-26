@@ -272,6 +272,8 @@ mod tests_tier_a;
 
 /// Advanced verification: prophecy variables, triggers, quantifier strategies.
 pub mod advanced;
+/// Bounded model checking (Layer 3): state unrolling + lasso detection.
+pub mod bmc;
 /// Verification result caching (content-addressed by clause hash).
 pub mod cache;
 /// Incremental verification: skip re-checking unchanged clauses.
@@ -287,6 +289,7 @@ pub use advanced::{
     MemoryAccess, MemoryOrdering, ProphecyError, ProphecyManager, ProphecyVariable, TriggerManager,
     TriggerPattern, WeakMemoryChecker,
 };
+pub use bmc::{BmcConfig, BmcEngine, BmcProperty, BmcResult, BmcSort, BmcTraceStep, StateVariable};
 pub use cache::{SessionCache, SessionCacheEntry, VerificationCache};
 pub use incremental::{IncrementalCompiler, ModuleState};
 pub use layer2::{
