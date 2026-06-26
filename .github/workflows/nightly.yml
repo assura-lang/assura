@@ -18,6 +18,7 @@ jobs:
       CARGO_TARGET_DIR: target/ci-nightly
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '6'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -27,8 +28,21 @@ jobs:
         if: ${{ vars.RUNNER }}
         run: |
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          sccache --stop-server 2>/dev/null || true
+          export SCCACHE_CACHE_SIZE="5G"
+          echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
           sccache --start-server 2>/dev/null || true
+
+      - name: Check disk space
+        run: |
+          avail=$(df -k / | awk 'NR==2{print $4}')
+          echo "Available disk: $(df -h / | awk 'NR==2{print $4}')"
+          if [ "$avail" -lt 20971520 ]; then
+            echo "::warning::Less than 20GB free disk space. Compilation may fail with SIGKILL."
+          fi
+          if [ "$avail" -lt 5242880 ]; then
+            echo "::error::Less than 5GB free disk space. Aborting to prevent SIGKILL during compilation."
+            exit 1
+          fi
 
       - name: Setup Rust toolchain
         if: ${{ !vars.RUNNER }}
@@ -95,6 +109,10 @@ jobs:
             (cd generated && cargo check)
             rm -rf generated
           done
+
+      - name: Cleanup target (self-hosted)
+        if: ${{ always() && vars.RUNNER }}
+        run: rm -rf "$CARGO_TARGET_DIR"
 
   no-z3-fallback:
     name: No-Z3 fallback

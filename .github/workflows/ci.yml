@@ -125,7 +125,6 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           export SCCACHE_CACHE_SIZE="5G"
           echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
-          sccache --stop-server 2>/dev/null || true
           sccache --start-server 2>/dev/null || true
 
       - name: Setup Rust toolchain
@@ -204,7 +203,6 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           export SCCACHE_CACHE_SIZE="5G"
           echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
-          sccache --stop-server 2>/dev/null || true
           sccache --start-server 2>/dev/null || true
 
       - name: Setup Rust toolchain
@@ -279,7 +277,6 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           export SCCACHE_CACHE_SIZE="5G"
           echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
-          sccache --stop-server 2>/dev/null || true
           sccache --start-server 2>/dev/null || true
 
       - name: Setup Rust toolchain
@@ -357,7 +354,6 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           export SCCACHE_CACHE_SIZE="5G"
           echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
-          sccache --stop-server 2>/dev/null || true
           sccache --start-server 2>/dev/null || true
 
       - name: Setup Rust toolchain
@@ -467,7 +463,6 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           export SCCACHE_CACHE_SIZE="5G"
           echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
-          sccache --stop-server 2>/dev/null || true
           sccache --start-server 2>/dev/null || true
 
       - name: Setup Rust toolchain
