@@ -479,6 +479,7 @@ contract CraneliftTest {
         opt_level: 0,
         debug_info: true,
         target: assura_codegen::CompileTarget::Native,
+        ..Default::default()
     };
     let project = assura_codegen::codegen_with_config(&typed, &config);
     assert!(
