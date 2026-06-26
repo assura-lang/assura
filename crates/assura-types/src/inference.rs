@@ -348,34 +348,84 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
             match &recv_ty {
                 Type::List(elem) | Type::Sequence(elem) => match method.as_str() {
                     "len" | "length" | "size" | "count" => return Ok(Type::Nat),
-                    "get" | "first" | "last" => {
+                    "get" | "first" | "last" | "index" => {
                         return Ok(Type::Option(elem.clone()));
                     }
+                    "pop" => return Ok(Type::Option(elem.clone())),
+                    "set" | "push" | "append" | "remove" | "clear" | "insert_at" | "remove_at" => {
+                        return Ok(Type::Unit);
+                    }
                     "contains" | "is_empty" | "any" | "all" => return Ok(Type::Bool),
-                    "push" | "append" | "remove" | "clear" => return Ok(Type::Unit),
-                    "map" | "filter" | "take" | "skip" | "reverse" | "sort" => {
+                    "map" | "filter" | "take" | "skip" | "reverse" | "sort" | "slice" | "dedup"
+                    | "flatten" => {
                         return Ok(recv_ty);
                     }
+                    "fold" | "reduce" => {
+                        // fold/reduce: return type from accumulator (first arg or elem)
+                        let acc_ty = if let Some(first_arg) = args.first() {
+                            infer_expr_spanned(first_arg, env, first_arg.span.clone())
+                                .unwrap_or(*elem.clone())
+                        } else {
+                            *elem.clone()
+                        };
+                        return Ok(acc_ty);
+                    }
+                    "zip" => {
+                        // zip(other_list) -> List<(T, U)>
+                        let other_elem = if let Some(first_arg) = args.first() {
+                            let arg_ty = infer_expr_spanned(first_arg, env, first_arg.span.clone())
+                                .unwrap_or(Type::Unknown);
+                            if let Type::List(inner) | Type::Sequence(inner) = arg_ty {
+                                *inner
+                            } else {
+                                arg_ty
+                            }
+                        } else {
+                            Type::Unknown
+                        };
+                        return Ok(Type::List(Box::new(Type::Tuple(vec![
+                            *elem.clone(),
+                            other_elem,
+                        ]))));
+                    }
+                    "enumerate" => {
+                        return Ok(Type::List(Box::new(Type::Tuple(vec![
+                            Type::Nat,
+                            *elem.clone(),
+                        ]))));
+                    }
+                    "find" => return Ok(Type::Option(elem.clone())),
+                    "position" | "index_of" => return Ok(Type::Option(Box::new(Type::Nat))),
+                    "iter" => return Ok(recv_ty),
                     _ => {}
                 },
                 Type::Map(key, val) => match method.as_str() {
-                    "get" => return Ok(Type::Option(val.clone())),
-                    "contains_key" | "is_empty" => return Ok(Type::Bool),
+                    "get" | "get_or_default" => return Ok(Type::Option(val.clone())),
+                    "contains_key" | "contains_value" | "is_empty" => return Ok(Type::Bool),
                     "len" | "size" => return Ok(Type::Nat),
                     "keys" => return Ok(Type::Set(key.clone())),
                     "values" => return Ok(Type::List(val.clone())),
-                    "insert" | "remove" | "clear" => return Ok(Type::Unit),
+                    "entries" => {
+                        return Ok(Type::List(Box::new(Type::Tuple(vec![
+                            *key.clone(),
+                            *val.clone(),
+                        ]))));
+                    }
+                    "insert" | "remove" | "clear" | "update" => return Ok(Type::Unit),
+                    "merge" => return Ok(recv_ty),
+                    "map_values" => return Ok(recv_ty),
                     _ => {}
                 },
-                Type::Set(_) => match method.as_str() {
+                Type::Set(elem) => match method.as_str() {
                     "contains" | "is_empty" | "is_subset" | "is_superset" | "is_disjoint" => {
                         return Ok(Type::Bool);
                     }
                     "len" | "size" => return Ok(Type::Nat),
-                    "insert" | "remove" | "clear" => return Ok(Type::Unit),
+                    "insert" | "add" | "remove" | "clear" => return Ok(Type::Unit),
                     "union" | "intersection" | "difference" | "symmetric_difference" => {
                         return Ok(recv_ty);
                     }
+                    "to_list" | "iter" => return Ok(Type::List(elem.clone())),
                     _ => {}
                 },
                 Type::String => match method.as_str() {
@@ -1304,5 +1354,113 @@ mod tests {
             args: vec![],
         });
         assert_eq!(infer_expr(&expr, &TypeEnv::new()).unwrap(), Type::Unknown);
+    }
+
+    #[test]
+    fn method_call_pop_on_list() {
+        let mut env = TypeEnv::new();
+        env.insert("xs".into(), Type::List(Box::new(Type::Int)));
+        let expr = Spanned::no_span(Expr::MethodCall {
+            receiver: Box::new(mk_ident("xs")),
+            method: "pop".into(),
+            args: vec![],
+        });
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::Option(Box::new(Type::Int))
+        );
+    }
+
+    #[test]
+    fn method_call_fold_on_list() {
+        let mut env = TypeEnv::new();
+        env.insert("xs".into(), Type::List(Box::new(Type::Int)));
+        let expr = Spanned::no_span(Expr::MethodCall {
+            receiver: Box::new(mk_ident("xs")),
+            method: "fold".into(),
+            args: vec![mk_int("0")],
+        });
+        // fold with int accumulator returns Int
+        assert_eq!(infer_expr(&expr, &env).unwrap(), Type::Int);
+    }
+
+    #[test]
+    fn method_call_find_on_list() {
+        let mut env = TypeEnv::new();
+        env.insert("xs".into(), Type::List(Box::new(Type::String)));
+        let expr = Spanned::no_span(Expr::MethodCall {
+            receiver: Box::new(mk_ident("xs")),
+            method: "find".into(),
+            args: vec![],
+        });
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::Option(Box::new(Type::String))
+        );
+    }
+
+    #[test]
+    fn method_call_enumerate_on_list() {
+        let mut env = TypeEnv::new();
+        env.insert("xs".into(), Type::List(Box::new(Type::Int)));
+        let expr = Spanned::no_span(Expr::MethodCall {
+            receiver: Box::new(mk_ident("xs")),
+            method: "enumerate".into(),
+            args: vec![],
+        });
+        let result = infer_expr(&expr, &env).unwrap();
+        assert!(
+            matches!(&result, Type::List(inner) if matches!(inner.as_ref(), Type::Tuple(elems) if elems.len() == 2)),
+            "expected List<(Nat, Int)>, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn method_call_entries_on_map() {
+        let mut env = TypeEnv::new();
+        env.insert(
+            "m".into(),
+            Type::Map(Box::new(Type::String), Box::new(Type::Int)),
+        );
+        let expr = Spanned::no_span(Expr::MethodCall {
+            receiver: Box::new(mk_ident("m")),
+            method: "entries".into(),
+            args: vec![],
+        });
+        let result = infer_expr(&expr, &env).unwrap();
+        assert!(
+            matches!(&result, Type::List(inner) if matches!(inner.as_ref(), Type::Tuple(elems) if elems.len() == 2)),
+            "expected List<(String, Int)>, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn method_call_to_list_on_set() {
+        let mut env = TypeEnv::new();
+        env.insert("s".into(), Type::Set(Box::new(Type::Int)));
+        let expr = Spanned::no_span(Expr::MethodCall {
+            receiver: Box::new(mk_ident("s")),
+            method: "to_list".into(),
+            args: vec![],
+        });
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::List(Box::new(Type::Int))
+        );
+    }
+
+    #[test]
+    fn method_call_position_on_list() {
+        let mut env = TypeEnv::new();
+        env.insert("xs".into(), Type::List(Box::new(Type::Int)));
+        let expr = Spanned::no_span(Expr::MethodCall {
+            receiver: Box::new(mk_ident("xs")),
+            method: "position".into(),
+            args: vec![],
+        });
+        assert_eq!(
+            infer_expr(&expr, &env).unwrap(),
+            Type::Option(Box::new(Type::Nat))
+        );
     }
 }

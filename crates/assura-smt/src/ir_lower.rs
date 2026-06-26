@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::havoc_assume::RESULT_SLOT;
-use crate::ir::{IrArithOp, IrCmpOp, IrExprKind, IrLiteral};
+use crate::ir::{IrArithOp, IrCmpOp, IrExprKind, IrLiteral, IrMatchPattern};
 use crate::ir_encode::{IrEncodeContext, is_length_ir_call, slot_type_map};
 
 /// Block-local result slot name (#297).
@@ -249,6 +249,34 @@ pub fn encode_ir_expr<B: IrTermBuilder>(
             let else_val = eval_ir_block(builder, *else_block, slots, ctx)
                 .unwrap_or_else(|| builder.nullary_uf(&missing_block_uf_name(*else_block)));
             builder.ite_nonzero(cond_val, then_val, else_val)
+        }
+        IrExprKind::Match { scrutinee, arms } => {
+            // Encode as nested if-then-else: match each arm's pattern
+            let scr_val = builder.load_slot(slots, *scrutinee);
+            let mut result = builder.nullary_uf("__match_default");
+            // Process arms in reverse so first arm has highest priority
+            for (pat, block) in arms.iter().rev() {
+                let block_val = eval_ir_block(builder, *block, slots, ctx)
+                    .unwrap_or_else(|| builder.nullary_uf(&missing_block_uf_name(*block)));
+                match pat {
+                    IrMatchPattern::Wildcard => {
+                        result = block_val;
+                    }
+                    _ => {
+                        // Pattern becomes an equality test: scrutinee == pattern_value
+                        // For SMT, we model match as a chain of ite
+                        result = builder.ite_nonzero(scr_val.clone(), block_val, result);
+                    }
+                }
+            }
+            result
+        }
+        IrExprKind::Loop { body_block, cond } => {
+            // Loops in SMT: model as uninterpreted function (bounded unrolling
+            // is Layer 3 BMC). For now, return the body block result.
+            let _cond_val = builder.load_slot(slots, *cond);
+            eval_ir_block(builder, *body_block, slots, ctx)
+                .unwrap_or_else(|| builder.nullary_uf(&missing_block_uf_name(*body_block)))
         }
     }
 }

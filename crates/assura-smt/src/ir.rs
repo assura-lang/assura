@@ -207,6 +207,26 @@ pub enum IrExprKind {
     },
     /// `transition $N to StateId`
     Transition { slot: usize, state: String },
+    /// `match $N { 0 => #B0, 1 => #B1, _ => #Bdef }`
+    Match {
+        scrutinee: usize,
+        arms: Vec<(IrMatchPattern, usize)>,
+    },
+    /// `loop #body_block $cond`
+    Loop { body_block: usize, cond: usize },
+}
+
+/// Pattern in an IR match arm.
+#[derive(Debug, Clone, PartialEq)]
+pub enum IrMatchPattern {
+    /// Integer literal
+    Int(i64),
+    /// Boolean literal
+    Bool(bool),
+    /// String literal
+    Str(String),
+    /// Wildcard `_`
+    Wildcard,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -639,6 +659,49 @@ fn parse_ir_expr(s: &str) -> Result<IrExprKind, String> {
         return Err(format!("malformed transition: {s}"));
     }
 
+    if let Some(rest) = s.strip_prefix("match ") {
+        // match $N { 0 => #B0, 1 => #B1, _ => #Bdef }
+        let rest = rest.trim();
+        if let Some(brace_start) = rest.find('{') {
+            let scrutinee = parse_slot(rest[..brace_start].trim())?;
+            let brace_end = rest.rfind('}').unwrap_or(rest.len());
+            let arms_str = &rest[brace_start + 1..brace_end];
+            let mut arms = Vec::new();
+            for arm in arms_str.split(',') {
+                let arm = arm.trim();
+                if arm.is_empty() {
+                    continue;
+                }
+                if let Some(arrow) = arm.find("=>") {
+                    let pat_str = arm[..arrow].trim();
+                    let target_str = arm[arrow + 2..].trim();
+                    let pat = parse_match_pattern(pat_str)?;
+                    let block = target_str
+                        .trim_start_matches('#')
+                        .parse::<usize>()
+                        .map_err(|_| format!("bad block id in match arm: {target_str}"))?;
+                    arms.push((pat, block));
+                }
+            }
+            return Ok(IrExprKind::Match { scrutinee, arms });
+        }
+        return Err(format!("malformed match: {s}"));
+    }
+
+    if let Some(rest) = s.strip_prefix("loop ") {
+        // loop #body_block $cond
+        let parts: Vec<&str> = rest.split_whitespace().collect();
+        if parts.len() >= 2 {
+            let body_block = parts[0]
+                .trim_start_matches('#')
+                .parse::<usize>()
+                .map_err(|_| format!("bad block id in loop: {}", parts[0]))?;
+            let cond = parse_slot(parts[1])?;
+            return Ok(IrExprKind::Loop { body_block, cond });
+        }
+        return Err(format!("malformed loop: {s}"));
+    }
+
     Err(format!("unknown IR expression: {s}"))
 }
 
@@ -890,6 +953,26 @@ pub fn validate_ir_against_contract(
     }
 }
 
+fn parse_match_pattern(s: &str) -> Result<IrMatchPattern, String> {
+    let s = s.trim();
+    if s == "_" {
+        return Ok(IrMatchPattern::Wildcard);
+    }
+    if s == "true" {
+        return Ok(IrMatchPattern::Bool(true));
+    }
+    if s == "false" {
+        return Ok(IrMatchPattern::Bool(false));
+    }
+    if s.starts_with('"') && s.ends_with('"') {
+        return Ok(IrMatchPattern::Str(s[1..s.len() - 1].to_string()));
+    }
+    if let Ok(n) = s.parse::<i64>() {
+        return Ok(IrMatchPattern::Int(n));
+    }
+    Err(format!("cannot parse match pattern: {s}"))
+}
+
 fn referenced_slots(expr: &IrExprKind) -> Vec<usize> {
     match expr {
         IrExprKind::Const(_) => vec![],
@@ -902,6 +985,8 @@ fn referenced_slots(expr: &IrExprKind) -> Vec<usize> {
         IrExprKind::Cast { slot, .. } => vec![*slot],
         IrExprKind::If { cond, .. } => vec![*cond],
         IrExprKind::Transition { slot, .. } => vec![*slot],
+        IrExprKind::Match { scrutinee, .. } => vec![*scrutinee],
+        IrExprKind::Loop { cond, .. } => vec![*cond],
     }
 }
 
@@ -1186,6 +1271,24 @@ fn ir_expr_to_rust(expr: &IrExprKind) -> String {
         }
         IrExprKind::Transition { slot, state } => {
             format!("slot_{slot}.transition_to_{state}()")
+        }
+        IrExprKind::Match { scrutinee, arms } => {
+            let arm_strs: Vec<String> = arms
+                .iter()
+                .map(|(pat, block)| {
+                    let pat_str = match pat {
+                        IrMatchPattern::Int(n) => format!("{n}"),
+                        IrMatchPattern::Bool(b) => format!("{b}"),
+                        IrMatchPattern::Str(s) => format!("\"{s}\""),
+                        IrMatchPattern::Wildcard => "_".to_string(),
+                    };
+                    format!("{pat_str} => block_{block}()")
+                })
+                .collect();
+            format!("match slot_{scrutinee} {{ {} }}", arm_strs.join(", "))
+        }
+        IrExprKind::Loop { body_block, cond } => {
+            format!("loop {{ block_{body_block}(); if !slot_{cond} {{ break; }} }}")
         }
     }
 }
@@ -1799,5 +1902,98 @@ module check {
         );
         let body = &map["AddOne"];
         assert!(body.contains("slot_0 + slot_0"), "body: {body}");
+    }
+
+    // -------------------------------------------------------------------
+    // Match and Loop IR instruction tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_parse_ir_match_instruction() {
+        let src = "\
+module matcher {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $1 = match $0 { 0 => #0, 1 => #1, _ => #2 } : Int
+    $result = load $1 : Int
+  }
+}";
+        let m = parse_ir_module(src).unwrap();
+        assert_eq!(m.functions.len(), 1);
+        assert_eq!(m.functions[0].body.len(), 2);
+        match &m.functions[0].body[0].expr {
+            IrExprKind::Match { scrutinee, arms } => {
+                assert_eq!(*scrutinee, 0);
+                assert_eq!(arms.len(), 3);
+                assert_eq!(arms[0], (IrMatchPattern::Int(0), 0));
+                assert_eq!(arms[1], (IrMatchPattern::Int(1), 1));
+                assert_eq!(arms[2], (IrMatchPattern::Wildcard, 2));
+            }
+            other => panic!("expected Match, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_ir_loop_instruction() {
+        let src = "\
+module looper {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $1 = const 0 : Int
+    $2 = loop #0 $0 : Int
+    $result = load $1 : Int
+  }
+}";
+        let m = parse_ir_module(src).unwrap();
+        assert_eq!(m.functions.len(), 1);
+        match &m.functions[0].body[1].expr {
+            IrExprKind::Loop { body_block, cond } => {
+                assert_eq!(*body_block, 0);
+                assert_eq!(*cond, 0);
+            }
+            other => panic!("expected Loop, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_ir_match_to_rust() {
+        let expr = IrExprKind::Match {
+            scrutinee: 0,
+            arms: vec![(IrMatchPattern::Int(1), 0), (IrMatchPattern::Wildcard, 1)],
+        };
+        let rust = ir_expr_to_rust(&expr);
+        assert!(rust.contains("match slot_0"), "got: {rust}");
+        assert!(rust.contains("1 => block_0()"), "got: {rust}");
+        assert!(rust.contains("_ => block_1()"), "got: {rust}");
+    }
+
+    #[test]
+    fn test_ir_loop_to_rust() {
+        let expr = IrExprKind::Loop {
+            body_block: 0,
+            cond: 1,
+        };
+        let rust = ir_expr_to_rust(&expr);
+        assert!(rust.contains("loop"), "got: {rust}");
+        assert!(rust.contains("block_0()"), "got: {rust}");
+        assert!(rust.contains("slot_1"), "got: {rust}");
+    }
+
+    #[test]
+    fn test_match_referenced_slots() {
+        let expr = IrExprKind::Match {
+            scrutinee: 3,
+            arms: vec![(IrMatchPattern::Wildcard, 0)],
+        };
+        assert_eq!(referenced_slots(&expr), vec![3]);
+    }
+
+    #[test]
+    fn test_loop_referenced_slots() {
+        let expr = IrExprKind::Loop {
+            body_block: 0,
+            cond: 5,
+        };
+        assert_eq!(referenced_slots(&expr), vec![5]);
     }
 }
