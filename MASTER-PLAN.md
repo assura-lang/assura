@@ -1638,7 +1638,7 @@ Within the independent tasks, recommended order by impact:
   - #178: Generated Rust produces compiler warnings
   - #179: Error code semantics mismatch
 - **Stack overflow fix**: 500+ chained binary operators caused stack
-  overflow. Fixed with 3-layer defense: (1) MAX_BINOP_CHAIN=256 counter
+  overflow. Fixed with 3-layer defense: (1) MAX_BINOP_CHAIN=128 counter
   in Pratt parser, (2) iterative lower_bin_expr in CST lowering,
   (3) iterative expr_to_string in display. Regression test added.
 - **Multi-perspective rotation (cycle 1)**: 11 iterations completed
