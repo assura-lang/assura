@@ -8,6 +8,8 @@
 //! codegen (T021), project generation (T022), and struct/enum codegen
 //! (T023) extend this foundation.
 
+use std::fmt::Write;
+
 /// Typed Rust HIR for structured code generation.
 pub mod hir;
 /// Assura-to-Rust type mapping (Int -> i64, Nat -> u64, etc.).
@@ -461,15 +463,19 @@ fn generate_undefined_type_stubs(
                     .iter()
                     .map(|p| format!("std::marker::PhantomData<{p}>"))
                     .collect();
-                code.push_str(&format!(
-                    "#[derive(Debug, Clone, PartialEq)]\npub struct {name}<{}>({});\n",
+                writeln!(
+                    code,
+                    "#[derive(Debug, Clone, PartialEq)]\npub struct {name}<{}>({});",
                     params.join(", "),
                     phantoms.join(", ")
-                ));
+                )
+                .unwrap();
             } else {
-                code.push_str(&format!(
-                    "#[derive(Debug, Clone, PartialEq)]\npub struct {name};\n"
-                ));
+                writeln!(
+                    code,
+                    "#[derive(Debug, Clone, PartialEq)]\npub struct {name};"
+                )
+                .unwrap();
             }
         }
         code.push('\n');
@@ -556,12 +562,15 @@ struct ModDeclVisitor<'a> {
 impl DeclVisitor for ModDeclVisitor<'_> {
     fn visit_contract(&mut self, c: &ContractDecl) {
         let mod_name = c.name.to_lowercase();
-        self.code
-            .push_str(&format!("pub mod contract_{mod_name};\n"));
+        self.code.push_str("pub mod contract_");
+        self.code.push_str(&mod_name);
+        self.code.push_str(";\n");
     }
     fn visit_service(&mut self, s: &ServiceDecl) {
         let mod_name = s.name.to_lowercase();
-        self.code.push_str(&format!("pub mod {mod_name};\n"));
+        self.code.push_str("pub mod ");
+        self.code.push_str(&mod_name);
+        self.code.push_str(";\n");
     }
     // All others: default no-op
 }
@@ -616,10 +625,10 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             // Will be emitted as a struct stub in Phase 4b.
             // Also emit a const with _VALUE suffix for any value-position uses.
             let value = find_feature_max_value(source, name);
-            code.push_str(&format!("pub const {name}_VALUE: {ty} = {value};\n"));
+            writeln!(code, "pub const {name}_VALUE: {ty} = {value};").unwrap();
         } else {
             let value = find_feature_max_value(source, name);
-            code.push_str(&format!("pub const {name}: {ty} = {value};\n"));
+            writeln!(code, "pub const {name}: {ty} = {value};").unwrap();
         }
     }
     if !feature_max_consts.is_empty() {
@@ -640,9 +649,11 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
     for name in &const_as_types {
         // Emit as a marker type (unit struct) rather than a const,
         // since the generic parameter positions use type params.
-        code.push_str(&format!(
-            "#[derive(Debug, Clone, PartialEq)]\npub struct {name}; // size param from another module\n"
-        ));
+        writeln!(
+            code,
+            "#[derive(Debug, Clone, PartialEq)]\npub struct {name}; // size param from another module"
+        )
+        .unwrap();
     }
     if !const_as_types.is_empty() {
         code.push('\n');

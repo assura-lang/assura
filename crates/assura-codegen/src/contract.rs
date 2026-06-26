@@ -1,5 +1,7 @@
 //! Contract, enum, proptest, and error type code generation.
 
+use std::fmt::Write;
+
 use super::*;
 
 // ---------------------------------------------------------------------------
@@ -453,19 +455,21 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
 
     let mut test_body = String::new();
     for req in &unrefined_requires {
-        test_body.push_str(&format!("            prop_assume!({req});\n"));
+        writeln!(test_body, "            prop_assume!({req});").unwrap();
     }
 
     let call_args: Vec<&str> = input_params.iter().map(|(n, _)| n.as_str()).collect();
-    test_body.push_str(&format!(
-        "            let result = {check_call_path}({});\n",
+    writeln!(
+        test_body,
+        "            let result = {check_call_path}({});",
         call_args.join(", ")
-    ));
+    )
+    .unwrap();
     if let Some(ref name) = output_name {
-        test_body.push_str(&format!("            let {name} = result.clone();\n"));
+        writeln!(test_body, "            let {name} = result.clone();").unwrap();
     }
     for ens in &ensures_exprs {
-        test_body.push_str(&format!("            prop_assert!({ens});\n"));
+        writeln!(test_body, "            prop_assert!({ens});").unwrap();
     }
 
     // Emit as a RustMod with #[cfg(test)] + raw proptest! macro inside
@@ -481,7 +485,9 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
         params = param_strs.join(", "),
     );
 
-    code.push_str(&render_item_raw(&RustItem::Raw("#[cfg(test)]\n".to_string())));
+    code.push_str(&render_item_raw(&RustItem::Raw(
+        "#[cfg(test)]\n".to_string(),
+    )));
     code.push_str(&render_item_raw(&RustItem::Mod(RustMod {
         name: format!("proptest_{fn_name}"),
         items: vec![RustItem::Raw(inner_raw)],

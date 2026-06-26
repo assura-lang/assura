@@ -32,7 +32,9 @@ edition = "2024"
     // Add profile configuration based on BackendConfig
     if config.opt_level != 2 || config.debug_info {
         toml.push_str("\n[profile.release]\n");
-        toml.push_str(&format!("opt-level = {}\n", config.opt_level));
+        toml.push_str("opt-level = ");
+        toml.push_str(&config.opt_level.to_string());
+        toml.push('\n');
         if config.debug_info {
             toml.push_str("debug = true\n");
         }

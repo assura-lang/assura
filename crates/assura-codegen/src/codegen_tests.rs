@@ -4139,8 +4139,7 @@ fn cargo_toml_custom_opt_level() {
 
 #[test]
 fn feature_ghost_erasure_compile_time() {
-    let mut code = String::new();
-    crate::features::compile_time_ghost_erasure("test_fn", &mut code);
+    let code = crate::features::compile_time_ghost_erasure("test_fn");
     assert!(
         code.contains("ghost"),
         "ghost erasure should mention ghost: {code}"
@@ -4149,8 +4148,7 @@ fn feature_ghost_erasure_compile_time() {
 
 #[test]
 fn feature_constant_time_annotation() {
-    let mut code = String::new();
-    crate::features::generate_constant_time_annotation("crypto_op", &mut code);
+    let code = crate::features::generate_constant_time_annotation("crypto_op");
     assert!(
         code.contains("constant_time"),
         "should mention constant_time: {code}"
@@ -4159,8 +4157,7 @@ fn feature_constant_time_annotation() {
 
 #[test]
 fn feature_callback_reentrancy_guard() {
-    let mut code = String::new();
-    crate::features::generate_callback_reentrancy_guard("on_event", &mut code);
+    let code = crate::features::generate_callback_reentrancy_guard("on_event");
     assert!(
         code.contains("__REENTRANT_ON_EVENT"),
         "should generate reentrancy guard: {code}"
@@ -4173,15 +4170,13 @@ fn feature_callback_reentrancy_guard() {
 
 #[test]
 fn feature_opaque_function() {
-    let mut code = String::new();
-    crate::features::generate_opaque_function("internal", &mut code);
+    let code = crate::features::generate_opaque_function("internal");
     assert!(code.contains("opaque"), "should mark as opaque: {code}");
 }
 
 #[test]
 fn feature_deterministic_annotation() {
-    let mut code = String::new();
-    crate::features::generate_deterministic_annotation("pure_fn", &mut code);
+    let code = crate::features::generate_deterministic_annotation("pure_fn");
     assert!(
         code.contains("deterministic"),
         "should mention deterministic: {code}"

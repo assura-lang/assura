@@ -21,9 +21,9 @@ use assura_ast::{Clause, ClauseKind};
 /// Rust, emit a comment and a debug_assert with a descriptive message.
 macro_rules! runtime_assert_fn {
     ($fn_name:ident, $label:expr, $msg:expr) => {
-        pub fn $fn_name(clause: &Clause, code: &mut String) {
+        pub fn $fn_name(clause: &Clause) -> String {
             let expr = expr_to_rust(&clause.body);
-            code.push_str(&format!(
+            format!(
                 concat!(
                     "    // ",
                     $label,
@@ -32,7 +32,7 @@ macro_rules! runtime_assert_fn {
                     "\");\n"
                 ),
                 expr = expr
-            ));
+            )
         }
     };
 }
@@ -40,8 +40,8 @@ macro_rules! runtime_assert_fn {
 /// Generate a compile-time comment stub (no `name` parameter).
 macro_rules! compiletime_comment_fn {
     ($fn_name:ident, $comment:expr) => {
-        pub fn $fn_name(code: &mut String) {
-            code.push_str(concat!("    // ", $comment, "\n"));
+        pub fn $fn_name() -> String {
+            concat!("    // ", $comment, "\n").to_string()
         }
     };
 }
@@ -49,11 +49,11 @@ macro_rules! compiletime_comment_fn {
 /// Generate a compile-time comment stub with a `name` parameter.
 macro_rules! compiletime_name_fn {
     ($fn_name:ident, $prefix:expr, $suffix:expr) => {
-        pub fn $fn_name(name: &str, code: &mut String) {
-            code.push_str(&format!(
+        pub fn $fn_name(name: &str) -> String {
+            format!(
                 concat!("    // ", $prefix, ": `{name}` ", $suffix, "\n"),
                 name = name
-            ));
+            )
         }
     };
 }
@@ -70,12 +70,12 @@ runtime_assert_fn!(
 );
 
 /// CORE.1: Generate compile-time ghost erasure check.
-pub fn generate_ghost_compile_check(name: &str, code: &mut String) {
-    code.push_str(&format!(
+pub fn generate_ghost_compile_check(name: &str) -> String {
+    format!(
         "    // ghost compile-time: `{name}` is erased in release builds\n    \
          #[cfg(not(debug_assertions))]\n    \
          {{ /* ghost code erased at compile time */ }}\n"
-    ));
+    )
 }
 
 // CORE.6: Generate opaque function wrapper.
@@ -86,12 +86,12 @@ compiletime_name_fn!(
 );
 
 /// CORE.8: Generate liveness contract check.
-pub fn generate_liveness_check(clause: &Clause, code: &mut String) {
+pub fn generate_liveness_check(clause: &Clause) -> String {
     let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
+    format!(
         "    // liveness: eventually {{ {expr} }}\n    \
          debug_assert!({expr}, \"liveness violation: property must eventually hold\");\n"
-    ));
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -134,11 +134,11 @@ runtime_assert_fn!(
 // ---------------------------------------------------------------------------
 
 /// SEC.3: Generate constant-time execution annotation.
-pub fn generate_constant_time_annotation(name: &str, code: &mut String) {
-    code.push_str(&format!(
+pub fn generate_constant_time_annotation(name: &str) -> String {
+    format!(
         "    // constant_time: `{name}` must execute in constant time\n    \
          // WARNING: compiler may optimize away constant-time guarantees\n"
-    ));
+    )
 }
 
 runtime_assert_fn!(
@@ -152,8 +152,8 @@ runtime_assert_fn!(
 // ---------------------------------------------------------------------------
 
 /// CONC.2: Generate callback re-entrancy guard (custom, not a simple assert).
-pub fn generate_callback_reentrancy_guard(name: &str, code: &mut String) {
-    code.push_str(&format!(
+pub fn generate_callback_reentrancy_guard(name: &str) -> String {
+    format!(
         "    // callback reentrancy guard for `{name}`\n    \
          // A reentrant call to this function will panic in debug builds\n    \
          thread_local! {{ static __REENTRANT_{upper}: std::cell::Cell<bool> = \
@@ -163,7 +163,7 @@ pub fn generate_callback_reentrancy_guard(name: &str, code: &mut String) {
          f.set(true);\n    \
          }});\n",
         upper = name.to_uppercase()
-    ));
+    )
 }
 
 compiletime_name_fn!(
@@ -173,21 +173,21 @@ compiletime_name_fn!(
 );
 
 /// CONC.4: Lock ordering annotation.
-pub fn generate_lock_order_annotation(clause: &Clause, code: &mut String) {
+pub fn generate_lock_order_annotation(clause: &Clause) -> String {
     let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
+    format!(
         "    // lock_order: {expr}\n    \
          // Locks must be acquired in the declared order to prevent deadlocks\n"
-    ));
+    )
 }
 
 /// CONC.5: Temporal deadline annotation.
-pub fn generate_deadline_check(clause: &Clause, code: &mut String) {
+pub fn generate_deadline_check(clause: &Clause) -> String {
     let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
+    format!(
         "    // deadline: {expr}\n    \
          // Operation must complete within the specified time bound\n"
-    ));
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -275,21 +275,21 @@ runtime_assert_fn!(
 // ---------------------------------------------------------------------------
 
 /// PLAT.1: Platform abstraction annotation.
-pub fn generate_platform_abstraction(clause: &Clause, code: &mut String) {
+pub fn generate_platform_abstraction(clause: &Clause) -> String {
     let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
+    format!(
         "    // platform_abstraction: {expr}\n    \
          // Platform-specific code must implement this contract on each target\n"
-    ));
+    )
 }
 
 /// PLAT.2: Feature flag annotation.
-pub fn generate_feature_flag(clause: &Clause, code: &mut String) {
+pub fn generate_feature_flag(clause: &Clause) -> String {
     let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
+    format!(
         "    // feature_flag: {expr}\n    \
          // This code is only available when the feature flag is enabled\n"
-    ));
+    )
 }
 
 runtime_assert_fn!(
@@ -303,21 +303,21 @@ runtime_assert_fn!(
 // ---------------------------------------------------------------------------
 
 /// PERF.1: Unsafe escape annotation.
-pub fn generate_unsafe_escape(clause: &Clause, code: &mut String) {
+pub fn generate_unsafe_escape(clause: &Clause) -> String {
     let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
+    format!(
         "    // unsafe_escape: {expr}\n    \
          // SAFETY: manually verified for performance; see contract above\n"
-    ));
+    )
 }
 
 /// PERF.2: Complexity bound annotation.
-pub fn generate_complexity_bound(clause: &Clause, code: &mut String) {
+pub fn generate_complexity_bound(clause: &Clause) -> String {
     let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
+    format!(
         "    // complexity_bound: {expr}\n    \
          // Algorithm complexity must not exceed the declared bound\n"
-    ));
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -503,18 +503,17 @@ compiletime_name_fn!(
 /// Emits a compile-time assertion that the trigger pattern expression
 /// is non-empty. Empty triggers cause Z3 to enumerate all terms, which
 /// is almost always a performance bug.
-pub fn compile_time_trigger_pattern(clause: &Clause, code: &mut String) {
+pub fn compile_time_trigger_pattern(clause: &Clause) -> String {
     let body = expr_to_rust(&clause.body);
     if body.trim().is_empty() || body.trim() == "()" {
-        code.push_str(
-            "    compile_error!(\"CORE.5: trigger pattern must not be empty; \
-             empty triggers cause unbounded Z3 term enumeration\");\n",
-        );
+        "    compile_error!(\"CORE.5: trigger pattern must not be empty; \
+             empty triggers cause unbounded Z3 term enumeration\");\n"
+            .to_string()
     } else {
-        code.push_str(&format!(
+        format!(
             "    // compile_time_trigger_pattern: pattern `{body}` validated\n    \
              const _: () = {{ /* trigger pattern `{body}` is syntactically present */ }};\n"
-        ));
+        )
     }
 }
 
@@ -522,118 +521,118 @@ pub fn compile_time_trigger_pattern(clause: &Clause, code: &mut String) {
 ///
 /// Generates a newtype wrapper struct for each label and a
 /// `compile_error!` if a secret value flows to a public context.
-pub fn compile_time_dependent_types(clause: &Clause, code: &mut String) {
+pub fn compile_time_dependent_types(clause: &Clause) -> String {
     let body = expr_to_rust(&clause.body);
     // The clause body names the label (e.g., "secret", "public", "confidential").
     let label = body.trim();
     if label.is_empty() {
-        code.push_str("    compile_error!(\"SEC.5: dependent type label must not be empty\");\n");
+        "    compile_error!(\"SEC.5: dependent type label must not be empty\");\n".to_string()
     } else {
         // Generate a newtype wrapper that prevents implicit conversion.
         // In real code this would create Secret<T>(T) / Public<T>(T).
-        code.push_str(&format!(
+        format!(
             "    /// SEC.5 info-flow label: `{label}`\n    \
              #[derive(Debug, Clone)]\n    \
              struct Label_{label}<T>(T);\n    \
              impl<T> Label_{label}<T> {{\n        \
                  fn into_inner(self) -> T {{ self.0 }}\n    \
              }}\n"
-        ));
+        )
     }
 }
 
 // -- Functions with unique logic (compile_error!, cfg gates, multi-line) --
 
 /// CORE.1: Ghost code erasure.
-pub fn compile_time_ghost_erasure(name: &str, code: &mut String) {
-    code.push_str(&format!(
+pub fn compile_time_ghost_erasure(name: &str) -> String {
+    format!(
         "    // compile_time_ghost: ensure `{name}` is erased in release\n    \
          const _: () = {{ /* ghost compile-time gate */ }};\n"
-    ));
+    )
 }
 
 /// SEC.1: Taint tracking compile_error!.
-pub fn compile_time_taint(name: &str, code: &mut String) {
-    code.push_str(&format!(
+pub fn compile_time_taint(name: &str) -> String {
+    format!(
         "    // compile_time_taint: `{name}` must be sanitized before use\n    \
          // In production: compile_error! if tainted value reaches trusted sink\n    \
          #[cfg(assura_strict_taint)]\n    \
          compile_error!(\"SEC.1: tainted value `{name}` flows to trusted sink \
          without sanitization\");\n"
-    ));
+    )
 }
 
 /// SEC.3: Constant-time compile_error!.
-pub fn compile_time_constant_time(name: &str, code: &mut String) {
-    code.push_str(&format!(
+pub fn compile_time_constant_time(name: &str) -> String {
+    format!(
         "    // compile_time_constant_time: `{name}` must not branch on secrets\n    \
          #[cfg(assura_strict_ct)]\n    \
          compile_error!(\"SEC.3: data-dependent branch detected in constant_time \
          function `{name}`\");\n"
-    ));
+    )
 }
 
 /// SEC.4: Secure erasure compile_error!.
-pub fn compile_time_zeroize(name: &str, code: &mut String) {
-    code.push_str(&format!(
+pub fn compile_time_zeroize(name: &str) -> String {
+    format!(
         "    // compile_time_zeroize: `{name}` must implement Zeroize or be erased\n    \
          #[cfg(assura_strict_zeroize)]\n    \
          compile_error!(\"SEC.4: type `{name}` in secure_erase scope does not \
          implement Zeroize\");\n"
-    ));
+    )
 }
 
 /// SEC.5: Crypto conformance compile_error!.
-pub fn compile_time_crypto(name: &str, code: &mut String) {
-    code.push_str(&format!(
+pub fn compile_time_crypto(name: &str) -> String {
+    format!(
         "    // compile_time_crypto: `{name}` must conform to approved algorithm\n    \
          #[cfg(assura_strict_crypto)]\n    \
          compile_error!(\"SEC.5: algorithm `{name}` is not in the approved list\");\n"
-    ));
+    )
 }
 
 /// CORE.2: Lemma erasure compile_error!.
-pub fn compile_time_lemma(name: &str, code: &mut String) {
-    code.push_str(&format!(
+pub fn compile_time_lemma(name: &str) -> String {
+    format!(
         "    // compile_time_lemma: `{name}` is erased (proof-only)\n    \
          #[cfg(not(debug_assertions))]\n    \
          compile_error!(\"CORE.2: lemma `{name}` leaked to runtime code path\");\n"
-    ));
+    )
 }
 
 /// CORE.4: Axiomatic definition compile_error!.
-pub fn compile_time_axiom(name: &str, code: &mut String) {
-    code.push_str(&format!(
+pub fn compile_time_axiom(name: &str) -> String {
+    format!(
         "    // compile_time_axiom: `{name}` is assumed without proof\n    \
          #[cfg(not(assura_allow_axioms))]\n    \
          compile_error!(\"CORE.4: axiom `{name}` used without --allow-axioms flag\");\n"
-    ));
+    )
 }
 
 /// CONC.3: Determinism compile_error!.
-pub fn compile_time_determinism(name: &str, code: &mut String) {
-    code.push_str(&format!(
+pub fn compile_time_determinism(name: &str) -> String {
+    format!(
         "    // compile_time_determinism: `{name}` must be a pure function\n    \
          #[cfg(assura_strict_determinism)]\n    \
          compile_error!(\"CONC.3: deterministic function `{name}` calls \
          non-pure effect\");\n"
-    ));
+    )
 }
 
 /// FMT.3: String encoding compile_error!.
-pub fn compile_time_string_encoding(name: &str, code: &mut String) {
-    code.push_str(&format!(
+pub fn compile_time_string_encoding(name: &str) -> String {
+    format!(
         "    // compile_time_string_encoding: `{name}` must be a known encoding\n    \
          #[cfg(assura_strict_encoding)]\n    \
          compile_error!(\"FMT.3: encoding `{name}` is not in the known set\");\n"
-    ));
+    )
 }
 
 /// CORE.3: Frame conditions.
 ///
 /// Extracts field names from the modifies clause and generates
 /// `debug_assert_eq!` checks that non-modified fields are unchanged.
-pub fn compile_time_frame(clause: &Clause, name: &str, code: &mut String) {
+pub fn compile_time_frame(clause: &Clause, name: &str) -> String {
     let body = expr_to_rust(&clause.body);
     let fields: Vec<&str> = body
         .split([',', '{', '}'])
@@ -641,86 +640,86 @@ pub fn compile_time_frame(clause: &Clause, name: &str, code: &mut String) {
         .filter(|s| !s.is_empty())
         .collect();
 
+    use std::fmt::Write;
+    let mut out = String::new();
     if fields.is_empty() {
-        code.push_str(&format!(
+        writeln!(
+            out,
             "    compile_error!(\"CORE.3: frame condition for `{name}` has no fields; \
-             modifies clause must list at least one field\");\n"
-        ));
+             modifies clause must list at least one field\");"
+        )
+        .unwrap();
     } else {
-        code.push_str(&format!(
-            "    // compile_time_frame: `{name}` may only modify: {}\n",
+        writeln!(
+            out,
+            "    // compile_time_frame: `{name}` may only modify: {}",
             fields.join(", ")
-        ));
-        // For each declared modifies field, generate a save-and-check pattern.
-        // In real generated Rust, the pre-state save would appear before the
-        // function body and the assert after. Here we emit the assert pattern.
+        )
+        .unwrap();
         for field in &fields {
             let safe_name = field.replace('.', "_");
-            code.push_str(&format!(
-                "    debug_assert_eq!({field}, {old_prefix}{safe_name}, \
-                 \"CORE.3: frame violation in `{name}`: `{field}` was not listed in modifies\");\n",
-                old_prefix = OLD_VAR_PREFIX
-            ));
+            writeln!(
+                out,
+                "    debug_assert_eq!({field}, {}{safe_name}, \
+                 \"CORE.3: frame violation in `{name}`: `{field}` was not listed in modifies\");",
+                OLD_VAR_PREFIX
+            )
+            .unwrap();
         }
     }
+    out
 }
 
 /// PLAT.1: Platform abstraction cfg gate.
-pub fn compile_time_platform(name: &str, code: &mut String) {
-    code.push_str(&format!(
+pub fn compile_time_platform(name: &str) -> String {
+    format!(
         "    // compile_time_platform: `{name}` requires cfg(target_os) gate\n    \
          // #[cfg(not(any(target_os = \"linux\", target_os = \"macos\", \
          target_os = \"windows\")))]\n    \
          // compile_error!(\"unsupported platform for `{name}`\");\n"
-    ));
+    )
 }
 
 /// MEM.4: Circular buffer power-of-two const assert.
-pub fn compile_time_circular(code: &mut String) {
-    code.push_str(
-        "    // compile_time_circular: const assert capacity is power of two\n    \
-         // const _: () = assert!(CAP.is_power_of_two());\n",
-    );
+pub fn compile_time_circular() -> String {
+    "    // compile_time_circular: const assert capacity is power of two\n    \
+         // const _: () = assert!(CAP.is_power_of_two());\n"
+        .to_string()
 }
 
 /// FMT.2: Bit-level width sum const assert.
-pub fn compile_time_bit_level(code: &mut String) {
-    code.push_str(
-        "    // compile_time_bit_level: const assert bit field widths sum correctly\n    \
-         // const _: () = assert!(F1_BITS + F2_BITS <= 64);\n",
-    );
+pub fn compile_time_bit_level() -> String {
+    "    // compile_time_bit_level: const assert bit field widths sum correctly\n    \
+         // const _: () = assert!(F1_BITS + F2_BITS <= 64);\n"
+        .to_string()
 }
 
 /// STOR.2: Page cache alignment const assert.
-pub fn compile_time_page_cache(code: &mut String) {
-    code.push_str(
-        "    // compile_time_page_cache: const assert page size alignment\n    \
-         // const _: () = assert!(PAGE_SIZE % 4096 == 0);\n",
-    );
+pub fn compile_time_page_cache() -> String {
+    "    // compile_time_page_cache: const assert page size alignment\n    \
+         // const _: () = assert!(PAGE_SIZE % 4096 == 0);\n"
+        .to_string()
 }
 
 /// STOR.4: Rollback #[must_use] handle.
-pub fn compile_time_rollback(code: &mut String) {
-    code.push_str(
-        "    // compile_time_rollback: #[must_use] Savepoint handle\n    \
-         // Dropping without commit or rollback is a compile warning\n",
-    );
+pub fn compile_time_rollback() -> String {
+    "    // compile_time_rollback: #[must_use] Savepoint handle\n    \
+         // Dropping without commit or rollback is a compile warning\n"
+        .to_string()
 }
 
 /// STOR.5: Monotonic wrapper type.
-pub fn compile_time_monotonic(code: &mut String) {
-    code.push_str(
-        "    // compile_time_monotonic: monotonic wrapper prevents non-monotonic updates\n    \
-         // pub struct Monotonic<T: Ord>(T); // only advance(), no set()\n",
-    );
+pub fn compile_time_monotonic() -> String {
+    "    // compile_time_monotonic: monotonic wrapper prevents non-monotonic updates\n    \
+         // pub struct Monotonic<T: Ord>(T); // only advance(), no set()\n"
+        .to_string()
 }
 
 /// STOR.6: Storage failure #[must_use].
-pub fn compile_time_storage_failure(code: &mut String) {
-    code.push_str(
-        "    // compile_time_storage_failure: #[must_use] on error results\n    \
-         // Unhandled storage failures are compile warnings\n",
-    );
+pub fn compile_time_storage_failure() -> String {
+    "    // compile_time_storage_failure: #[must_use] on error results\n    \
+         // Unhandled storage failures are compile warnings\n"
+        .to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -728,21 +727,21 @@ pub fn compile_time_storage_failure(code: &mut String) {
 // ---------------------------------------------------------------------------
 
 /// TEST.2: Generate behavioral_equivalence test skeleton.
-pub fn generate_behavioral_equiv_test(name: &str, clause: &Clause, code: &mut String) {
+pub fn generate_behavioral_equiv_test(name: &str, clause: &Clause) -> String {
     let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
+    format!(
         "    // behavioral_equiv: {name} ~ {expr}\n    \
          // Both implementations must produce identical results\n"
-    ));
+    )
 }
 
 /// TEST.3: Generate multi_pass_refinement check.
-pub fn generate_multi_pass_refinement(clause: &Clause, code: &mut String) {
+pub fn generate_multi_pass_refinement(clause: &Clause) -> String {
     let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
+    format!(
         "    // multi_pass_refinement: {expr}\n    \
          debug_assert!({expr}, \"refinement pass invariant violated\");\n"
-    ));
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -750,21 +749,21 @@ pub fn generate_multi_pass_refinement(clause: &Clause, code: &mut String) {
 // ---------------------------------------------------------------------------
 
 /// MISC.1: Generate incremental_contract version annotation.
-pub fn generate_incremental_contract(clause: &Clause, code: &mut String) {
+pub fn generate_incremental_contract(clause: &Clause) -> String {
     let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
+    format!(
         "    // incremental_contract version: {expr}\n    \
          // Contract evolution: backward-compatible changes only\n"
-    ));
+    )
 }
 
 /// MISC.2: Generate scoped_invariant suspension marker.
-pub fn generate_scoped_invariant(clause: &Clause, code: &mut String) {
+pub fn generate_scoped_invariant(clause: &Clause) -> String {
     let expr = expr_to_rust(&clause.body);
-    code.push_str(&format!(
+    format!(
         "    // scoped_invariant suspended: {expr}\n    \
          // Invariant checking is suspended within this scope\n"
-    ));
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -788,202 +787,202 @@ pub fn generate_feature_clause(clause: &Clause, fn_name: &str, code: &mut String
     match feature {
         // CORE
         Feature::GhostErasure => {
-            generate_ghost_compile_check(fn_name, code);
-            compile_time_ghost_erasure(fn_name, code);
+            code.push_str(&generate_ghost_compile_check(fn_name));
+            code.push_str(&compile_time_ghost_erasure(fn_name));
         }
         Feature::LemmaErasure => {
-            generate_axiomatic_definition(clause, code);
-            compile_time_axiom(fn_name, code);
+            code.push_str(&generate_axiomatic_definition(clause));
+            code.push_str(&compile_time_axiom(fn_name));
         }
         Feature::FrameConditions => {
-            compile_time_frame(clause, fn_name, code);
+            code.push_str(&compile_time_frame(clause, fn_name));
         }
         Feature::AxiomaticDefinitions => {
-            compile_time_trigger(fn_name, code);
+            code.push_str(&compile_time_trigger(fn_name));
         }
         Feature::TriggerPatterns => {
-            compile_time_trigger_pattern(clause, code);
+            code.push_str(&compile_time_trigger_pattern(clause));
         }
         Feature::OpaqueFunctions => {
-            generate_opaque_function(fn_name, code);
-            compile_time_opaque(fn_name, code);
+            code.push_str(&generate_opaque_function(fn_name));
+            code.push_str(&compile_time_opaque(fn_name));
         }
         Feature::ProphecyVariables => {
-            compile_time_prophecy(fn_name, code);
+            code.push_str(&compile_time_prophecy(fn_name));
         }
         Feature::Liveness => {
-            generate_liveness_check(clause, code);
-            compile_time_liveness(fn_name, code);
+            code.push_str(&generate_liveness_check(clause));
+            code.push_str(&compile_time_liveness(fn_name));
         }
         // MEM
         Feature::RegionAnnotations => {
-            generate_region_annotation(clause, code);
-            compile_time_region(fn_name, code);
+            code.push_str(&generate_region_annotation(clause));
+            code.push_str(&compile_time_region(fn_name));
         }
         Feature::FixedWidth => {
-            compile_time_fixed_width(code);
+            code.push_str(&compile_time_fixed_width());
         }
         Feature::AllocatorContracts => {
-            generate_allocator_check(clause, code);
-            compile_time_allocator(fn_name, code);
+            code.push_str(&generate_allocator_check(clause));
+            code.push_str(&compile_time_allocator(fn_name));
         }
         Feature::CircularBuffer => {
-            generate_circular_buffer_check(clause, code);
-            compile_time_circular(code);
+            code.push_str(&generate_circular_buffer_check(clause));
+            code.push_str(&compile_time_circular());
         }
         // TYPE
         Feature::InterfaceConformance => {
-            compile_time_interface(fn_name, code);
+            code.push_str(&compile_time_interface(fn_name));
         }
         Feature::StructuralInvariants => {
-            generate_structural_invariant(clause, code);
-            compile_time_structural(fn_name, code);
+            code.push_str(&generate_structural_invariant(clause));
+            code.push_str(&compile_time_structural(fn_name));
         }
         Feature::ErrorPropagation => {
-            generate_error_propagation_check(clause, code);
-            compile_time_error_propagation(code);
+            code.push_str(&generate_error_propagation_check(clause));
+            code.push_str(&compile_time_error_propagation());
         }
         // SEC
         Feature::TaintTracking => {
-            compile_time_taint(fn_name, code);
+            code.push_str(&compile_time_taint(fn_name));
         }
         Feature::ConstantTime => {
-            generate_constant_time_annotation(fn_name, code);
-            compile_time_constant_time(fn_name, code);
+            code.push_str(&generate_constant_time_annotation(fn_name));
+            code.push_str(&compile_time_constant_time(fn_name));
         }
         Feature::SecureErasure => {
-            compile_time_zeroize(fn_name, code);
+            code.push_str(&compile_time_zeroize(fn_name));
         }
         Feature::CryptoConformance => {
-            generate_crypto_conformance_check(clause, code);
-            compile_time_crypto(fn_name, code);
+            code.push_str(&generate_crypto_conformance_check(clause));
+            code.push_str(&compile_time_crypto(fn_name));
         }
         Feature::DependentTypes => {
-            compile_time_dependent_types(clause, code);
+            code.push_str(&compile_time_dependent_types(clause));
         }
         // CONC
         Feature::SharedMemory => {
-            compile_time_shared_memory(fn_name, code);
+            code.push_str(&compile_time_shared_memory(fn_name));
         }
         Feature::CallbackReentrancy => {
-            generate_callback_reentrancy_guard(fn_name, code);
-            compile_time_reentrancy(fn_name, code);
+            code.push_str(&generate_callback_reentrancy_guard(fn_name));
+            code.push_str(&compile_time_reentrancy(fn_name));
         }
         Feature::Determinism => {
-            generate_deterministic_annotation(fn_name, code);
-            compile_time_determinism(fn_name, code);
+            code.push_str(&generate_deterministic_annotation(fn_name));
+            code.push_str(&compile_time_determinism(fn_name));
         }
         Feature::LockOrdering => {
-            generate_lock_order_annotation(clause, code);
-            compile_time_lock_order(fn_name, code);
+            code.push_str(&generate_lock_order_annotation(clause));
+            code.push_str(&compile_time_lock_order(fn_name));
         }
         Feature::Deadline => {
-            generate_deadline_check(clause, code);
-            compile_time_deadline(fn_name, code);
+            code.push_str(&generate_deadline_check(clause));
+            code.push_str(&compile_time_deadline(fn_name));
         }
         Feature::WeakMemoryOrdering => {
-            compile_time_weak_memory(code);
+            code.push_str(&compile_time_weak_memory());
         }
         // STOR
         Feature::CrashRecovery => {
-            generate_crash_recovery_check(clause, code);
-            compile_time_crash_recovery(fn_name, code);
+            code.push_str(&generate_crash_recovery_check(clause));
+            code.push_str(&compile_time_crash_recovery(fn_name));
         }
         Feature::PageCache => {
-            generate_page_cache_check(clause, code);
-            compile_time_page_cache(code);
+            code.push_str(&generate_page_cache_check(clause));
+            code.push_str(&compile_time_page_cache());
         }
         Feature::MvccIsolation => {
-            generate_mvcc_check(clause, code);
-            compile_time_mvcc(code);
+            code.push_str(&generate_mvcc_check(clause));
+            code.push_str(&compile_time_mvcc());
         }
         Feature::RollbackSavepoint => {
-            generate_rollback_check(clause, code);
-            compile_time_rollback(code);
+            code.push_str(&generate_rollback_check(clause));
+            code.push_str(&compile_time_rollback());
         }
         Feature::MonotonicState => {
-            generate_monotonic_check(clause, code);
-            compile_time_monotonic(code);
+            code.push_str(&generate_monotonic_check(clause));
+            code.push_str(&compile_time_monotonic());
         }
         Feature::StorageFailure => {
-            generate_storage_failure_check(clause, code);
-            compile_time_storage_failure(code);
+            code.push_str(&generate_storage_failure_check(clause));
+            code.push_str(&compile_time_storage_failure());
         }
         // FMT
         Feature::BinaryFormat => {
-            generate_binary_format_check(clause, code);
-            compile_time_binary_format(code);
+            code.push_str(&generate_binary_format_check(clause));
+            code.push_str(&compile_time_binary_format());
         }
         Feature::BitLevel => {
-            generate_bit_level_check(clause, code);
-            compile_time_bit_level(code);
+            code.push_str(&generate_bit_level_check(clause));
+            code.push_str(&compile_time_bit_level());
         }
         Feature::StringEncoding => {
-            generate_string_encoding_check(clause, code);
-            compile_time_string_encoding(fn_name, code);
+            code.push_str(&generate_string_encoding_check(clause));
+            code.push_str(&compile_time_string_encoding(fn_name));
         }
         Feature::CodecRegistry => {
-            compile_time_codec_registry(fn_name, code);
+            code.push_str(&compile_time_codec_registry(fn_name));
         }
         Feature::Checksum => {
-            generate_checksum_check(clause, code);
-            compile_time_checksum(fn_name, code);
+            code.push_str(&generate_checksum_check(clause));
+            code.push_str(&compile_time_checksum(fn_name));
         }
         Feature::ProtocolGrammar => {
-            generate_protocol_grammar_check(clause, code);
-            compile_time_protocol_grammar(fn_name, code);
+            code.push_str(&generate_protocol_grammar_check(clause));
+            code.push_str(&compile_time_protocol_grammar(fn_name));
         }
         // NUM
         Feature::NumericalPrecision => {
-            generate_numerical_precision_check(clause, code);
-            compile_time_numerical_precision(code);
+            code.push_str(&generate_numerical_precision_check(clause));
+            code.push_str(&compile_time_numerical_precision());
         }
         Feature::PrecomputedTable => {
-            generate_precomputed_table_check(clause, code);
-            compile_time_precomputed_table(fn_name, code);
+            code.push_str(&generate_precomputed_table_check(clause));
+            code.push_str(&compile_time_precomputed_table(fn_name));
         }
         // PLAT
         Feature::PlatformAbstraction => {
-            generate_platform_abstraction(clause, code);
-            compile_time_platform(fn_name, code);
+            code.push_str(&generate_platform_abstraction(clause));
+            code.push_str(&compile_time_platform(fn_name));
         }
         Feature::FeatureFlag => {
-            generate_feature_flag(clause, code);
-            compile_time_feature_flag(fn_name, code);
+            code.push_str(&generate_feature_flag(clause));
+            code.push_str(&compile_time_feature_flag(fn_name));
         }
         Feature::ResourceLimit => {
-            generate_resource_limit_check(clause, code);
-            compile_time_resource_limit(code);
+            code.push_str(&generate_resource_limit_check(clause));
+            code.push_str(&compile_time_resource_limit());
         }
         // PERF
         Feature::UnsafeEscape => {
-            generate_unsafe_escape(clause, code);
-            compile_time_unsafe_escape(fn_name, code);
+            code.push_str(&generate_unsafe_escape(clause));
+            code.push_str(&compile_time_unsafe_escape(fn_name));
         }
         Feature::ComplexityBound => {
-            generate_complexity_bound(clause, code);
-            compile_time_complexity_bound(fn_name, code);
+            code.push_str(&generate_complexity_bound(clause));
+            code.push_str(&compile_time_complexity_bound(fn_name));
         }
         // TEST
         Feature::TestGenCoverage => {
-            compile_time_test_gen(fn_name, code);
+            code.push_str(&compile_time_test_gen(fn_name));
         }
         Feature::BehavioralEquiv => {
-            generate_behavioral_equiv_test(fn_name, clause, code);
-            compile_time_behavioral_equiv(fn_name, code);
+            code.push_str(&generate_behavioral_equiv_test(fn_name, clause));
+            code.push_str(&compile_time_behavioral_equiv(fn_name));
         }
         Feature::MultiPassRefinement => {
-            generate_multi_pass_refinement(clause, code);
-            compile_time_multi_pass(fn_name, code);
+            code.push_str(&generate_multi_pass_refinement(clause));
+            code.push_str(&compile_time_multi_pass(fn_name));
         }
         // MISC
         Feature::IncrementalContract => {
-            generate_incremental_contract(clause, code);
-            compile_time_incremental(fn_name, code);
+            code.push_str(&generate_incremental_contract(clause));
+            code.push_str(&compile_time_incremental(fn_name));
         }
         Feature::ScopedInvariant => {
-            generate_scoped_invariant(clause, code);
-            compile_time_scoped_invariant(fn_name, code);
+            code.push_str(&generate_scoped_invariant(clause));
+            code.push_str(&compile_time_scoped_invariant(fn_name));
         }
     }
     true

@@ -1,6 +1,5 @@
 use super::*;
 use assura_ast::*;
-use assura_ast::*;
 
 fn mk_clause(kind: ClauseKind, body: SpExpr) -> Clause {
     Clause {

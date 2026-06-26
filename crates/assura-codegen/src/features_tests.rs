@@ -1,5 +1,4 @@
 use super::*;
-use assura_ast::*;
 use assura_ast::{Expr, Literal, SpExpr, Spanned};
 
 fn mk_clause(kind: ClauseKind, body: SpExpr) -> Clause {
@@ -29,16 +28,14 @@ fn mk_other_ident(kind: &str, ident: &str) -> Clause {
 #[test]
 fn axiomatic_definition() {
     let clause = mk_other("axiom");
-    let mut code = String::new();
-    generate_axiomatic_definition(&clause, &mut code);
+    let code = generate_axiomatic_definition(&clause);
     assert!(code.contains("Axiomatic definition"));
     assert!(code.contains("debug_assert!(true"));
 }
 
 #[test]
 fn ghost_compile_check() {
-    let mut code = String::new();
-    generate_ghost_compile_check("my_ghost", &mut code);
+    let code = generate_ghost_compile_check("my_ghost");
     assert!(code.contains("ghost compile-time"));
     assert!(code.contains("my_ghost"));
     assert!(code.contains("cfg(not(debug_assertions))"));
@@ -46,8 +43,7 @@ fn ghost_compile_check() {
 
 #[test]
 fn opaque_function() {
-    let mut code = String::new();
-    generate_opaque_function("secret_fn", &mut code);
+    let code = generate_opaque_function("secret_fn");
     assert!(code.contains("opaque"));
     assert!(code.contains("secret_fn"));
 }
@@ -55,8 +51,7 @@ fn opaque_function() {
 #[test]
 fn liveness_check() {
     let clause = mk_other_ident("liveness", "progress");
-    let mut code = String::new();
-    generate_liveness_check(&clause, &mut code);
+    let code = generate_liveness_check(&clause);
     assert!(code.contains("liveness"));
     assert!(code.contains("debug_assert!(progress"));
 }
@@ -66,8 +61,7 @@ fn liveness_check() {
 #[test]
 fn region_annotation() {
     let clause = mk_other_ident("region", "heap");
-    let mut code = String::new();
-    generate_region_annotation(&clause, &mut code);
+    let code = generate_region_annotation(&clause);
     assert!(code.contains("region constraint"));
     assert!(code.contains("debug_assert!"));
 }
@@ -75,16 +69,14 @@ fn region_annotation() {
 #[test]
 fn allocator_check() {
     let clause = mk_other("allocator");
-    let mut code = String::new();
-    generate_allocator_check(&clause, &mut code);
+    let code = generate_allocator_check(&clause);
     assert!(code.contains("allocator invariant"));
 }
 
 #[test]
 fn circular_buffer_check() {
     let clause = mk_other("circular_buffer");
-    let mut code = String::new();
-    generate_circular_buffer_check(&clause, &mut code);
+    let code = generate_circular_buffer_check(&clause);
     assert!(code.contains("circular buffer invariant"));
 }
 
@@ -93,8 +85,7 @@ fn circular_buffer_check() {
 #[test]
 fn structural_invariant() {
     let clause = mk_other_ident("structural_invariant", "sorted");
-    let mut code = String::new();
-    generate_structural_invariant(&clause, &mut code);
+    let code = generate_structural_invariant(&clause);
     assert!(code.contains("structural_invariant"));
     assert!(code.contains("debug_assert!(sorted"));
 }
@@ -102,8 +93,7 @@ fn structural_invariant() {
 #[test]
 fn error_propagation_check() {
     let clause = mk_other("must_propagate");
-    let mut code = String::new();
-    generate_error_propagation_check(&clause, &mut code);
+    let code = generate_error_propagation_check(&clause);
     assert!(code.contains("error_propagation"));
 }
 
@@ -111,8 +101,7 @@ fn error_propagation_check() {
 
 #[test]
 fn constant_time_annotation() {
-    let mut code = String::new();
-    generate_constant_time_annotation("compare_digest", &mut code);
+    let code = generate_constant_time_annotation("compare_digest");
     assert!(code.contains("constant_time"));
     assert!(code.contains("compare_digest"));
 }
@@ -120,8 +109,7 @@ fn constant_time_annotation() {
 #[test]
 fn crypto_conformance() {
     let clause = mk_other_ident("conforms", "AES256");
-    let mut code = String::new();
-    generate_crypto_conformance_check(&clause, &mut code);
+    let code = generate_crypto_conformance_check(&clause);
     assert!(code.contains("crypto conformance"));
     assert!(code.contains("AES256"));
 }
@@ -130,8 +118,7 @@ fn crypto_conformance() {
 
 #[test]
 fn callback_reentrancy_guard() {
-    let mut code = String::new();
-    generate_callback_reentrancy_guard("on_event", &mut code);
+    let code = generate_callback_reentrancy_guard("on_event");
     assert!(code.contains("callback reentrancy guard"));
     assert!(code.contains("ON_EVENT"));
     assert!(code.contains("thread_local!"));
@@ -139,8 +126,7 @@ fn callback_reentrancy_guard() {
 
 #[test]
 fn deterministic_annotation() {
-    let mut code = String::new();
-    generate_deterministic_annotation("hash_fn", &mut code);
+    let code = generate_deterministic_annotation("hash_fn");
     assert!(code.contains("deterministic"));
     assert!(code.contains("hash_fn"));
 }
@@ -148,16 +134,14 @@ fn deterministic_annotation() {
 #[test]
 fn lock_order_annotation() {
     let clause = mk_other_ident("lock_order", "mutex_a");
-    let mut code = String::new();
-    generate_lock_order_annotation(&clause, &mut code);
+    let code = generate_lock_order_annotation(&clause);
     assert!(code.contains("lock_order"));
 }
 
 #[test]
 fn deadline_check() {
     let clause = mk_other_ident("deadline", "timeout_ms");
-    let mut code = String::new();
-    generate_deadline_check(&clause, &mut code);
+    let code = generate_deadline_check(&clause);
     assert!(code.contains("deadline"));
 }
 
@@ -166,48 +150,42 @@ fn deadline_check() {
 #[test]
 fn crash_recovery() {
     let clause = mk_other("crash_recovery");
-    let mut code = String::new();
-    generate_crash_recovery_check(&clause, &mut code);
+    let code = generate_crash_recovery_check(&clause);
     assert!(code.contains("crash_recovery"));
 }
 
 #[test]
 fn page_cache() {
     let clause = mk_other("page_cache");
-    let mut code = String::new();
-    generate_page_cache_check(&clause, &mut code);
+    let code = generate_page_cache_check(&clause);
     assert!(code.contains("page_cache"));
 }
 
 #[test]
 fn mvcc_check() {
     let clause = mk_other("mvcc");
-    let mut code = String::new();
-    generate_mvcc_check(&clause, &mut code);
+    let code = generate_mvcc_check(&clause);
     assert!(code.contains("mvcc snapshot isolation"));
 }
 
 #[test]
 fn rollback_check() {
     let clause = mk_other("rollback");
-    let mut code = String::new();
-    generate_rollback_check(&clause, &mut code);
+    let code = generate_rollback_check(&clause);
     assert!(code.contains("rollback savepoint"));
 }
 
 #[test]
 fn monotonic_check() {
     let clause = mk_other_ident("monotonic", "counter");
-    let mut code = String::new();
-    generate_monotonic_check(&clause, &mut code);
+    let code = generate_monotonic_check(&clause);
     assert!(code.contains("monotonic state"));
 }
 
 #[test]
 fn storage_failure() {
     let clause = mk_other("storage_failure");
-    let mut code = String::new();
-    generate_storage_failure_check(&clause, &mut code);
+    let code = generate_storage_failure_check(&clause);
     assert!(code.contains("storage_failure"));
 }
 
@@ -216,40 +194,35 @@ fn storage_failure() {
 #[test]
 fn binary_format() {
     let clause = mk_other("binary_format");
-    let mut code = String::new();
-    generate_binary_format_check(&clause, &mut code);
+    let code = generate_binary_format_check(&clause);
     assert!(code.contains("binary_format"));
 }
 
 #[test]
 fn bit_level() {
     let clause = mk_other("bit_level");
-    let mut code = String::new();
-    generate_bit_level_check(&clause, &mut code);
+    let code = generate_bit_level_check(&clause);
     assert!(code.contains("bit_level"));
 }
 
 #[test]
 fn string_encoding() {
     let clause = mk_other("string_encoding");
-    let mut code = String::new();
-    generate_string_encoding_check(&clause, &mut code);
+    let code = generate_string_encoding_check(&clause);
     assert!(code.contains("string_encoding"));
 }
 
 #[test]
 fn checksum() {
     let clause = mk_other("checksum");
-    let mut code = String::new();
-    generate_checksum_check(&clause, &mut code);
+    let code = generate_checksum_check(&clause);
     assert!(code.contains("checksum integrity"));
 }
 
 #[test]
 fn protocol_grammar() {
     let clause = mk_other("protocol_grammar");
-    let mut code = String::new();
-    generate_protocol_grammar_check(&clause, &mut code);
+    let code = generate_protocol_grammar_check(&clause);
     assert!(code.contains("protocol_grammar"));
 }
 
@@ -258,16 +231,14 @@ fn protocol_grammar() {
 #[test]
 fn numerical_precision() {
     let clause = mk_other("precision");
-    let mut code = String::new();
-    generate_numerical_precision_check(&clause, &mut code);
+    let code = generate_numerical_precision_check(&clause);
     assert!(code.contains("numerical_precision"));
 }
 
 #[test]
 fn precomputed_table() {
     let clause = mk_other("precomputed_table");
-    let mut code = String::new();
-    generate_precomputed_table_check(&clause, &mut code);
+    let code = generate_precomputed_table_check(&clause);
     assert!(code.contains("precomputed_table"));
 }
 
@@ -276,24 +247,21 @@ fn precomputed_table() {
 #[test]
 fn platform_abstraction() {
     let clause = mk_other("platform");
-    let mut code = String::new();
-    generate_platform_abstraction(&clause, &mut code);
+    let code = generate_platform_abstraction(&clause);
     assert!(code.contains("platform_abstraction"));
 }
 
 #[test]
 fn feature_flag() {
     let clause = mk_other("feature_flag");
-    let mut code = String::new();
-    generate_feature_flag(&clause, &mut code);
+    let code = generate_feature_flag(&clause);
     assert!(code.contains("feature_flag"));
 }
 
 #[test]
 fn resource_limit() {
     let clause = mk_other("resource_limit");
-    let mut code = String::new();
-    generate_resource_limit_check(&clause, &mut code);
+    let code = generate_resource_limit_check(&clause);
     assert!(code.contains("resource_limit"));
 }
 
@@ -302,16 +270,14 @@ fn resource_limit() {
 #[test]
 fn unsafe_escape() {
     let clause = mk_other("unsafe_escape");
-    let mut code = String::new();
-    generate_unsafe_escape(&clause, &mut code);
+    let code = generate_unsafe_escape(&clause);
     assert!(code.contains("unsafe_escape"));
 }
 
 #[test]
 fn complexity_bound() {
     let clause = mk_other("complexity");
-    let mut code = String::new();
-    generate_complexity_bound(&clause, &mut code);
+    let code = generate_complexity_bound(&clause);
     assert!(code.contains("complexity_bound"));
 }
 
@@ -320,8 +286,7 @@ fn complexity_bound() {
 #[test]
 fn behavioral_equiv() {
     let clause = mk_other_ident("behavioral_equiv", "reference_impl");
-    let mut code = String::new();
-    generate_behavioral_equiv_test("my_fn", &clause, &mut code);
+    let code = generate_behavioral_equiv_test("my_fn", &clause);
     assert!(code.contains("behavioral_equiv"));
     assert!(code.contains("my_fn"));
 }
@@ -329,8 +294,7 @@ fn behavioral_equiv() {
 #[test]
 fn multi_pass_refinement() {
     let clause = mk_other("multi_pass");
-    let mut code = String::new();
-    generate_multi_pass_refinement(&clause, &mut code);
+    let code = generate_multi_pass_refinement(&clause);
     assert!(code.contains("multi_pass_refinement"));
 }
 
@@ -339,16 +303,14 @@ fn multi_pass_refinement() {
 #[test]
 fn incremental_contract() {
     let clause = mk_other("incremental");
-    let mut code = String::new();
-    generate_incremental_contract(&clause, &mut code);
+    let code = generate_incremental_contract(&clause);
     assert!(code.contains("incremental_contract"));
 }
 
 #[test]
 fn scoped_invariant() {
     let clause = mk_other("scoped_invariant");
-    let mut code = String::new();
-    generate_scoped_invariant(&clause, &mut code);
+    let code = generate_scoped_invariant(&clause);
     assert!(code.contains("scoped_invariant"));
 }
 
@@ -356,106 +318,91 @@ fn scoped_invariant() {
 
 #[test]
 fn compile_time_ghost_erasure_fn() {
-    let mut code = String::new();
-    compile_time_ghost_erasure("g", &mut code);
+    let code = compile_time_ghost_erasure("g");
     assert!(code.contains("compile_time_ghost"));
 }
 
 #[test]
 fn compile_time_taint_fn() {
-    let mut code = String::new();
-    compile_time_taint("x", &mut code);
+    let code = compile_time_taint("x");
     assert!(code.contains("compile_time_taint"));
 }
 
 #[test]
 fn compile_time_constant_time_fn() {
-    let mut code = String::new();
-    compile_time_constant_time("ct", &mut code);
+    let code = compile_time_constant_time("ct");
     assert!(code.contains("compile_time_constant_time"));
 }
 
 #[test]
 fn compile_time_zeroize_fn() {
-    let mut code = String::new();
-    compile_time_zeroize("key", &mut code);
+    let code = compile_time_zeroize("key");
     assert!(code.contains("compile_time_zeroize"));
 }
 
 #[test]
 fn compile_time_shared_memory_fn() {
-    let mut code = String::new();
-    compile_time_shared_memory("buf", &mut code);
+    let code = compile_time_shared_memory("buf");
     assert!(code.contains("compile_time_shared_memory"));
 }
 
 #[test]
 fn compile_time_weak_memory_fn() {
-    let mut code = String::new();
-    compile_time_weak_memory(&mut code);
+    let code = compile_time_weak_memory();
     assert!(code.contains("compile_time_ordering"));
 }
 
 #[test]
 fn compile_time_fixed_width_fn() {
-    let mut code = String::new();
-    compile_time_fixed_width(&mut code);
+    let code = compile_time_fixed_width();
     assert!(code.contains("compile_time_fixed_width"));
 }
 
 #[test]
 fn compile_time_interface_fn() {
-    let mut code = String::new();
-    compile_time_interface("Trait", &mut code);
+    let code = compile_time_interface("Trait");
     assert!(code.contains("compile_time_interface"));
 }
 
 #[test]
 fn compile_time_error_propagation_fn() {
-    let mut code = String::new();
-    compile_time_error_propagation(&mut code);
+    let code = compile_time_error_propagation();
     assert!(code.contains("compile_time_error_propagation"));
 }
 
 #[test]
 fn compile_time_feature_flag_fn() {
-    let mut code = String::new();
-    compile_time_feature_flag("opt", &mut code);
+    let code = compile_time_feature_flag("opt");
     assert!(code.contains("compile_time_feature_flag"));
 }
 
 #[test]
 fn compile_time_unsafe_escape_fn() {
-    let mut code = String::new();
-    compile_time_unsafe_escape("raw", &mut code);
+    let code = compile_time_unsafe_escape("raw");
     assert!(code.contains("compile_time_unsafe_escape"));
 }
 
 #[test]
 fn compile_time_numerical_precision_fn() {
-    let mut code = String::new();
-    compile_time_numerical_precision(&mut code);
+    let code = compile_time_numerical_precision();
     assert!(code.contains("compile_time_numerical_precision"));
 }
 
 #[test]
 fn compile_time_resource_limit_fn() {
-    let mut code = String::new();
-    compile_time_resource_limit(&mut code);
+    let code = compile_time_resource_limit();
     assert!(code.contains("compile_time_resource_limit"));
 }
 
 #[test]
 fn compile_time_binary_format_fn() {
-    let mut code = String::new();
-    compile_time_binary_format(&mut code);
+    let code = compile_time_binary_format();
     assert!(code.contains("compile_time_binary_format"));
 }
 
 #[test]
 fn compile_time_monotonic_fn() {
-    let mut code = String::new();
-    compile_time_monotonic(&mut code);
+    let code = compile_time_monotonic();
     assert!(code.contains("compile_time_monotonic"));
 }
 
@@ -678,8 +625,7 @@ fn all_features_empty_clauses() {
 #[test]
 fn frame_conditions_generates_debug_assert() {
     let clause = mk_other_ident("frame", "table");
-    let mut code = String::new();
-    compile_time_frame(&clause, "update_fn", &mut code);
+    let code = compile_time_frame(&clause, "update_fn");
     assert!(
         code.contains("debug_assert_eq!"),
         "frame conditions should generate debug_assert_eq!, got: {code}"
@@ -696,8 +642,7 @@ fn frame_conditions_empty_emits_compile_error() {
         ClauseKind::Other("frame".into()),
         Spanned::no_span(Expr::Raw(vec![])),
     );
-    let mut code = String::new();
-    compile_time_frame(&clause, "bad_fn", &mut code);
+    let code = compile_time_frame(&clause, "bad_fn");
     assert!(
         code.contains("compile_error!"),
         "empty frame should generate compile_error!, got: {code}"
@@ -707,8 +652,7 @@ fn frame_conditions_empty_emits_compile_error() {
 #[test]
 fn trigger_pattern_validates_non_empty() {
     let clause = mk_other_ident("trigger_pattern", "f(x)");
-    let mut code = String::new();
-    compile_time_trigger_pattern(&clause, &mut code);
+    let code = compile_time_trigger_pattern(&clause);
     assert!(
         code.contains("compile_time_trigger_pattern"),
         "should contain feature identifier, got: {code}"
@@ -725,8 +669,7 @@ fn trigger_pattern_empty_emits_compile_error() {
         ClauseKind::Other("trigger_pattern".into()),
         Spanned::no_span(Expr::Raw(vec![])),
     );
-    let mut code = String::new();
-    compile_time_trigger_pattern(&clause, &mut code);
+    let code = compile_time_trigger_pattern(&clause);
     assert!(
         code.contains("compile_error!"),
         "empty trigger should generate compile_error!, got: {code}"
@@ -736,8 +679,7 @@ fn trigger_pattern_empty_emits_compile_error() {
 #[test]
 fn dependent_types_generates_newtype() {
     let clause = mk_other_ident("dependent", "secret");
-    let mut code = String::new();
-    compile_time_dependent_types(&clause, &mut code);
+    let code = compile_time_dependent_types(&clause);
     assert!(
         code.contains("struct Label_secret"),
         "should generate newtype wrapper, got: {code}"
@@ -754,8 +696,7 @@ fn dependent_types_empty_emits_compile_error() {
         ClauseKind::Other("dependent".into()),
         Spanned::no_span(Expr::Raw(vec![])),
     );
-    let mut code = String::new();
-    compile_time_dependent_types(&clause, &mut code);
+    let code = compile_time_dependent_types(&clause);
     assert!(
         code.contains("compile_error!"),
         "empty label should generate compile_error!, got: {code}"
@@ -773,8 +714,7 @@ fn frame_conditions_multi_field() {
             "ctx.shared_secret".into(),
         ])),
     );
-    let mut code = String::new();
-    compile_time_frame(&clause, "ecdh_parse", &mut code);
+    let code = compile_time_frame(&clause, "ecdh_parse");
     assert!(
         code.contains("debug_assert_eq!(ctx.peer_point"),
         "should generate assert for first field, got: {code}"
