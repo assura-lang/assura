@@ -47,6 +47,10 @@ impl Z3Value {
         }
     }
 
+    #[allow(
+        dead_code,
+        reason = "BV not yet routed through EncodeTerm::apply_binop (#602)"
+    )]
     pub(crate) fn as_bv(&self, width: u32) -> ast::BV {
         match self {
             Z3Value::Bv(b) => b.clone(),

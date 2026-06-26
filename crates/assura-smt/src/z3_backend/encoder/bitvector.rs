@@ -64,14 +64,26 @@ impl BitvectorEncoder {
         ast::BV::new_const(name, width)
     }
 
+    #[allow(
+        dead_code,
+        reason = "BV not yet routed through EncodeTerm::apply_binop (#602)"
+    )]
     pub(crate) fn bvadd(a: &ast::BV, b: &ast::BV) -> ast::BV {
         a.bvadd(b)
     }
 
+    #[allow(
+        dead_code,
+        reason = "BV not yet routed through EncodeTerm::apply_binop (#602)"
+    )]
     pub(crate) fn bvsub(a: &ast::BV, b: &ast::BV) -> ast::BV {
         a.bvsub(b)
     }
 
+    #[allow(
+        dead_code,
+        reason = "BV not yet routed through EncodeTerm::apply_binop (#602)"
+    )]
     pub(crate) fn bvmul(a: &ast::BV, b: &ast::BV) -> ast::BV {
         a.bvmul(b)
     }
@@ -84,6 +96,10 @@ impl BitvectorEncoder {
         a.bvsle(b)
     }
 
+    #[allow(
+        dead_code,
+        reason = "BV not yet routed through EncodeTerm::apply_binop (#602)"
+    )]
     pub(crate) fn bvult(a: &ast::BV, b: &ast::BV) -> ast::Bool {
         a.bvult(b)
     }

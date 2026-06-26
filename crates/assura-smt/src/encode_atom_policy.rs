@@ -204,6 +204,10 @@ pub(crate) fn tuple_fresh_name(counter: impl std::fmt::Display) -> String {
 }
 
 /// Fresh array/object constant (`__arr_{n}`) used by Z3 index/array encode.
+#[cfg_attr(
+    not(any(test, feature = "cvc5-verify")),
+    allow(dead_code, reason = "BV/index encode convergence WIP (#602)")
+)]
 pub(crate) fn arr_fresh_name(counter: impl std::fmt::Display) -> String {
     format!("__arr_{counter}")
 }
@@ -277,6 +281,10 @@ pub(crate) const INDEX_UF_NAME: &str = "__index";
 ///
 /// Distinct from [`LEN_UF_NAME`] (`"len"`, collection/string method alias) and
 /// [`FIELD_LEN_UF_NAME`] (`__field_len`, field/method length accessor).
+#[cfg_attr(
+    not(any(test, feature = "cvc5-verify")),
+    allow(dead_code, reason = "used by cvc5_index_access (#602)")
+)]
 pub(crate) const INDEX_BOUNDS_LEN_UF_NAME: &str = "__len";
 
 /// Placeholder for multi-arg trigger patterns when an arg is not the quantified var.

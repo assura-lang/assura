@@ -89,6 +89,11 @@ pub(crate) fn apply_havoc_assume_cvc5<'a>(
 
 /// Encode an AST expression as a CVC5 Term using the native API.
 ///
+/// Delegates to [`encode_expr_shared`] which handles AST dispatch via
+/// the [`EncodeTerm`] trait. All expression encoding goes through the
+/// shared path; backend-specific term construction is in
+/// `cvc5_encode_term_impl.rs`.
+///
 /// `state` collects background axioms and tracks string constants
 /// so that `check_clause_cvc5_native` can assert them before check_sat.
 #[cfg(feature = "cvc5-verify")]
@@ -98,154 +103,7 @@ pub(crate) fn encode_expr_cvc5<'a>(
     vars: &mut HashMap<String, cvc5::Term<'a>>,
     state: &mut Cvc5EncoderState<'a>,
 ) -> Option<cvc5::Term<'a>> {
-    match &expr.node {
-        Expr::Literal(lit) => encode_literal_cvc5(tm, lit, state),
-        Expr::Ident(name) => Some(encode_ident_cvc5(tm, name, vars)),
-        Expr::BinOp { op, lhs, rhs } => {
-            // Comparison chaining: a < b < c  =>  (a < b) && (b < c)
-            // Parity with Z3 encode_binop (uses shared is_comparison_ast_binop).
-            if crate::encode_binop_policy::is_comparison_ast_binop(op)
-                && let Expr::BinOp {
-                    lhs: inner_lhs,
-                    op: inner_op,
-                    rhs: inner_rhs,
-                } = &lhs.node
-                && crate::encode_binop_policy::is_comparison_ast_binop(inner_op)
-            {
-                let il = encode_expr_cvc5(tm, inner_lhs, &mut *vars, &mut *state)?;
-                let mid = encode_expr_cvc5(tm, inner_rhs, &mut *vars, &mut *state)?;
-                let r_val = encode_expr_cvc5(tm, rhs, &mut *vars, &mut *state)?;
-                // Re-encode middle for right comparison (terms are ref-counted).
-                let mid2 = encode_expr_cvc5(tm, inner_rhs, &mut *vars, &mut *state)?;
-                let left_cmp = encode_ast_binop_cvc5(tm, inner_op, il, mid, state)?;
-                let right_cmp = encode_ast_binop_cvc5(tm, op, mid2, r_val, state)?;
-                return Some(tm.mk_term(cvc5::Kind::And, &[left_cmp, right_cmp]));
-            }
-            let l = encode_expr_cvc5(tm, lhs, &mut *vars, &mut *state)?;
-            let r = encode_expr_cvc5(tm, rhs, &mut *vars, &mut *state)?;
-            encode_ast_binop_cvc5(tm, op, l, r, state)
-        }
-        Expr::UnaryOp { op, expr: inner } => {
-            let e = encode_expr_cvc5(tm, inner, &mut *vars, &mut *state)?;
-            Some(encode_ast_unary_cvc5(tm, op, e))
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            let c = encode_expr_cvc5(tm, cond, &mut *vars, &mut *state)?;
-            let t = encode_expr_cvc5(tm, then_branch, &mut *vars, &mut *state)?;
-            let e = else_branch
-                .as_ref()
-                .and_then(|eb| encode_expr_cvc5(tm, eb, &mut *vars, &mut *state));
-            Some(encode_if_cvc5(tm, c, t, e))
-        }
-        Expr::Forall { var, domain, body } => {
-            let mut qctx = Cvc5QuantifierEncodeCtx { tm, vars, state };
-            encode_ast_quantifier_cvc5(&mut qctx, true, var, domain, body, |e, ctx| {
-                encode_expr_cvc5(ctx.tm, e, ctx.vars, ctx.state)
-            })
-        }
-        Expr::Exists { var, domain, body } => {
-            let mut qctx = Cvc5QuantifierEncodeCtx { tm, vars, state };
-            encode_ast_quantifier_cvc5(&mut qctx, false, var, domain, body, |e, ctx| {
-                encode_expr_cvc5(ctx.tm, e, ctx.vars, ctx.state)
-            })
-        }
-        Expr::Call { func, args } => {
-            if let Expr::Ident(name) = &func.as_ref().node {
-                state.trigger_manager.register_function(name.clone());
-            }
-            encode_call_cvc5(tm, func, args, vars, state, |e, v, s| {
-                encode_expr_cvc5(tm, e, v, s)
-            })
-        }
-        // old(expr): add __old suffix for Ident, recurse for Field/MethodCall
-        Expr::Old(inner) => encode_old_cvc5(tm, inner.as_ref(), vars, state, |e, v, s| {
-            encode_expr_cvc5(tm, e, v, s)
-        }),
-        Expr::Ghost(inner) => {
-            encode_wrapper_cvc5(inner, vars, state, |e, v, s| encode_expr_cvc5(tm, e, v, s))
-        }
-        Expr::Cast { expr: inner, .. } => {
-            encode_wrapper_cvc5(inner, vars, state, |e, v, s| encode_expr_cvc5(tm, e, v, s))
-        }
-        Expr::Let {
-            name, value, body, ..
-        } => encode_let_cvc5(tm, name, value, body, vars, state, |e, v, s| {
-            encode_expr_cvc5(tm, e, v, s)
-        }),
-        Expr::Match {
-            scrutinee, arms, ..
-        } => encode_match_cvc5(tm, scrutinee, arms, vars, state, |e, v, s| {
-            encode_expr_cvc5(tm, e, v, s)
-        }),
-        Expr::Field(obj, field) => encode_field_cvc5(tm, obj, field, vars, state, |e, v, s| {
-            encode_expr_cvc5(tm, e, v, s)
-        }),
-        // Index: UF __index(collection, index) with bounds axioms
-        Expr::Index { expr: coll, index } => {
-            let coll_val = encode_expr_cvc5(tm, coll, &mut *vars, &mut *state)?;
-            let idx_val = encode_expr_cvc5(tm, index, &mut *vars, &mut *state)?;
-            Some(encode_index_access_cvc5(
-                tm,
-                coll_val,
-                idx_val,
-                &mut state.axioms,
-            ))
-        }
-        Expr::Block(body) => encode_block_cvc5(tm, body, vars, state, |e, v, s| {
-            encode_expr_cvc5(tm, e, v, s)
-        }),
-        // Raw tokens: basic parsing (single token bools/ints/idents)
-        Expr::Raw(tokens) => encode_raw_expr_cvc5(tm, tokens, vars, state),
-        // Tuple: fresh Int with element-access axioms
-        Expr::Tuple(elems) => {
-            let elem_vals: Option<Vec<_>> = elems
-                .iter()
-                .map(|elem| encode_expr_cvc5(tm, elem, vars, state))
-                .collect();
-            let elem_vals = elem_vals?;
-            Some(encode_tuple_cvc5(
-                tm,
-                &elem_vals,
-                &mut state.axioms,
-                &mut state.fresh_counter,
-            ))
-        }
-        // MethodCall: prepend receiver, call UF
-        Expr::MethodCall {
-            receiver,
-            method,
-            args,
-        } => {
-            state.trigger_manager.register_function(method.clone());
-            encode_method_call_cvc5(tm, receiver, method, args, vars, state, |e, v, s| {
-                encode_expr_cvc5(tm, e, v, s)
-            })
-        }
-        // List: fresh Int with element-access and length axioms
-        Expr::List(elems) => {
-            let elem_vals: Option<Vec<_>> = elems
-                .iter()
-                .map(|elem| encode_expr_cvc5(tm, elem, vars, state))
-                .collect();
-            let elem_vals = elem_vals?;
-            let len_func = field_len_fn_cvc5(tm, state);
-            Some(encode_list_cvc5(
-                tm,
-                &elem_vals,
-                &mut state.axioms,
-                &mut state.fresh_counter,
-                &len_func,
-            ))
-        }
-        // Apply: encode args for side effects, return named bool
-        Expr::Apply { lemma_name, args } => {
-            encode_apply_cvc5(tm, lemma_name, args, vars, state, |e, v, s| {
-                encode_expr_cvc5(tm, e, v, s)
-            })
-        }
-    }
+    use crate::cvc5_backend::cvc5_encode_term_impl::Cvc5TermBuilder;
+    let mut builder = Cvc5TermBuilder { tm, vars, state };
+    crate::encode_term::encode_expr_shared(&mut builder, expr)
 }

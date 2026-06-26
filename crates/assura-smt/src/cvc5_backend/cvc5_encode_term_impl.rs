@@ -304,8 +304,8 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         args: &[SpExpr],
         _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term<'a>>,
     ) -> Option<cvc5::Term<'a>> {
-        // Delegate to existing CVC5 call encoder. The encode_sub callback is
-        // not used because the CVC5 call encoder calls its own recursive encoder.
+        // Delegate to existing CVC5 call encoder. Internal recursion in the
+        // call encoder goes through encode_expr_cvc5 -> encode_expr_shared.
         use crate::cvc5_call_encode::encode_call_cvc5;
         use crate::cvc5_native_encoder::encode_expr_cvc5;
         encode_call_cvc5(self.tm, func, args, self.vars, self.state, |e, v, s| {

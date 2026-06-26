@@ -411,6 +411,9 @@ impl EncodeTerm for Encoder {
         body: Z3Value,
         is_forall: bool,
     ) -> Z3Value {
+        // Delegate to the concrete Encoder method which handles domain
+        // guard construction. Its internal encode_expr calls now route
+        // through encode_expr_shared via Encoder::encode_expr.
         let bound_int = bound.as_int(&mut self.fresh_counter);
         let body_bool = body.as_bool();
         Z3Value::Bool(Encoder::guard_quantifier_body(
@@ -513,12 +516,11 @@ impl EncodeTerm for Encoder {
         &mut self,
         func: &SpExpr,
         args: &[SpExpr],
-        encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<Z3Value>,
+        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<Z3Value>,
     ) -> Option<Z3Value> {
-        // Delegate to the existing encode_call which handles all call
-        // classification. The encode_sub callback is not used here because
-        // Encoder::encode_call calls self.encode_expr internally.
-        let _ = encode_sub;
+        // Delegate to Encoder::encode_call which handles all call
+        // classification. Internal recursion in calls.rs goes through
+        // self.encode_expr -> encode_expr_shared automatically.
         let func_name = match &func.node {
             assura_ast::Expr::Ident(name) => name.clone(),
             assura_ast::Expr::Field(_, field) => field.clone(),
@@ -532,9 +534,8 @@ impl EncodeTerm for Encoder {
         receiver: &SpExpr,
         method: &str,
         args: &[SpExpr],
-        encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<Z3Value>,
+        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<Z3Value>,
     ) -> Option<Z3Value> {
-        let _ = encode_sub;
         let mut all_args: Vec<SpExpr> = vec![receiver.clone()];
         all_args.extend(args.iter().cloned());
         Some(Encoder::encode_call(self, method, &all_args))
@@ -544,9 +545,8 @@ impl EncodeTerm for Encoder {
         &mut self,
         obj: &SpExpr,
         field: &str,
-        encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<Z3Value>,
+        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<Z3Value>,
     ) -> Option<Z3Value> {
-        let _ = encode_sub;
         Some(self.encode_field_access(obj, field))
     }
 
@@ -555,10 +555,74 @@ impl EncodeTerm for Encoder {
         inner: &SpExpr,
         encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<Z3Value>,
     ) -> Option<Z3Value> {
-        let _ = encode_sub;
-        // Delegate to Encoder::encode_expr which handles Old internally
-        let wrapped = assura_ast::Spanned::no_span(assura_ast::Expr::Old(Box::new(inner.clone())));
-        Some(self.encode_expr(&wrapped))
+        // Inline the Old encoding logic using encode_sub for sub-expression
+        // recursion, matching the logic from Encoder::encode_expr Old arm.
+        match crate::encode_old_policy::plan_old_access(inner) {
+            crate::encode_old_policy::OldAccessPlan::Ident(name) => {
+                let old_name = crate::encode_atom_policy::old_snapshot_name(&name);
+                let v = self.get_or_create_int(&old_name);
+                Some(Z3Value::Int(v))
+            }
+            crate::encode_old_policy::OldAccessPlan::FlatField(flat) => {
+                use crate::encode_field_policy::{
+                    FieldValueKind, classify_field_value_kind, flat_leaf_field,
+                };
+                let old_name = crate::encode_atom_policy::old_snapshot_name(&flat);
+                Some(match classify_field_value_kind(flat_leaf_field(&flat)) {
+                    FieldValueKind::Bool => Z3Value::Bool(ast::Bool::new_const(old_name.as_str())),
+                    FieldValueKind::SizeNonNeg => {
+                        let v = self.get_or_create_int(&old_name);
+                        let zero = ast::Int::from_i64(0);
+                        self.background_axioms.push(v.ge(&zero));
+                        Z3Value::Int(v)
+                    }
+                    FieldValueKind::Int => {
+                        let v = self.get_or_create_int(&old_name);
+                        Z3Value::Int(v)
+                    }
+                })
+            }
+            crate::encode_old_policy::OldAccessPlan::ShallowField { obj, field } => {
+                use crate::encode_field_policy::{FieldValueKind, classify_field_value_kind};
+                let old_inner = assura_ast::Spanned::no_span(assura_ast::Expr::Old(obj));
+                let old_obj = encode_sub(self, &old_inner)?;
+                let old_obj_int = old_obj.as_int(&mut self.fresh_counter);
+                let func_name = crate::encode_field_policy::field_uf_smtlib_name(&field);
+                Some(match classify_field_value_kind(&field) {
+                    FieldValueKind::Bool => {
+                        let bool_sort = z3::Sort::bool();
+                        let int_sort = z3::Sort::int();
+                        let decl = z3::FuncDecl::new(func_name.as_str(), &[&int_sort], &bool_sort);
+                        let result = decl.apply(&[&old_obj_int as &dyn z3::ast::Ast]);
+                        Z3Value::Bool(result.as_bool().unwrap_or_else(|| self.fresh_bool()))
+                    }
+                    FieldValueKind::SizeNonNeg => {
+                        let decl = self.make_func(&func_name, 1);
+                        let result = decl.apply(&[&old_obj_int as &dyn z3::ast::Ast]);
+                        let len_val = result.as_int().unwrap_or_else(|| Encoder::fresh_int(self));
+                        let zero = ast::Int::from_i64(0);
+                        self.background_axioms.push(len_val.ge(&zero));
+                        Z3Value::Int(len_val)
+                    }
+                    FieldValueKind::Int => {
+                        let decl = self.make_func(&func_name, 1);
+                        let result = decl.apply(&[&old_obj_int as &dyn z3::ast::Ast]);
+                        Z3Value::Int(result.as_int().unwrap_or_else(|| Encoder::fresh_int(self)))
+                    }
+                })
+            }
+            crate::encode_old_policy::OldAccessPlan::MethodCall { receiver, method } => {
+                let old_inner = assura_ast::Spanned::no_span(assura_ast::Expr::Old(receiver));
+                let old_recv = encode_sub(self, &old_inner)?;
+                let old_int = old_recv.as_int(&mut self.fresh_counter);
+                let decl = self.make_func(&method, 1);
+                let result = decl.apply(&[&old_int as &dyn z3::ast::Ast]);
+                Some(Z3Value::Int(
+                    result.as_int().unwrap_or_else(|| Encoder::fresh_int(self)),
+                ))
+            }
+            crate::encode_old_policy::OldAccessPlan::Other => encode_sub(self, inner),
+        }
     }
 
     fn encode_match(
@@ -567,13 +631,74 @@ impl EncodeTerm for Encoder {
         arms: &[MatchArm],
         encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<Z3Value>,
     ) -> Option<Z3Value> {
-        let _ = encode_sub;
-        // Build the same Match expr and delegate to encode_expr
-        let expr = assura_ast::Spanned::no_span(assura_ast::Expr::Match {
-            scrutinee: Box::new(scrutinee.clone()),
-            arms: arms.to_vec(),
-        });
-        Some(self.encode_expr(&expr))
+        use crate::encode_match_policy::{MatchArmKind, classify_match_arm};
+
+        let scrut = encode_sub(self, scrutinee)?;
+        let match_adt = self.register_match_adt_from_arms(arms);
+        let default = Z3Value::Int(Encoder::fresh_int(self));
+        Some(arms.iter().rev().fold(default, |else_val, arm| {
+            let kind = classify_match_arm(arm);
+            self.bind_pattern_vars(&arm.pattern, &scrut, match_adt.as_deref());
+            let body = encode_sub(self, &arm.body)
+                .unwrap_or_else(|| Z3Value::Int(Encoder::fresh_int(self)));
+            match kind {
+                MatchArmKind::Wildcard | MatchArmKind::BindIdent | MatchArmKind::Tuple => {
+                    return body;
+                }
+                MatchArmKind::CtorTagIdent | MatchArmKind::Literal | MatchArmKind::Constructor => {}
+            }
+            let cond = match kind {
+                MatchArmKind::CtorTagIdent => {
+                    let assura_ast::Pattern::Ident(name) = &arm.pattern else {
+                        unreachable!("CtorTagIdent requires Ident");
+                    };
+                    let pat_val = Z3Value::Int(ast::Int::from_i64(self.pattern_hash(name)));
+                    match (&scrut, &pat_val) {
+                        (Z3Value::Int(a), Z3Value::Int(b)) => a.eq(b),
+                        _ => ast::Bool::from_bool(true),
+                    }
+                }
+                MatchArmKind::Literal => {
+                    let assura_ast::Pattern::Literal(lit) = &arm.pattern else {
+                        unreachable!("Literal kind requires Literal");
+                    };
+                    let lit_val = self.encode_literal(lit);
+                    match (&scrut, &lit_val) {
+                        (Z3Value::Int(a), Z3Value::Int(b)) => a.eq(b),
+                        (Z3Value::Bool(a), Z3Value::Bool(b)) => a.eq(b),
+                        (Z3Value::Real(a), Z3Value::Real(b)) => a.eq(b),
+                        (Z3Value::Int(a), Z3Value::Real(b)) => ast::Real::from_int(a).eq(b),
+                        (Z3Value::Real(a), Z3Value::Int(b)) => a.eq(ast::Real::from_int(b)),
+                        _ => ast::Bool::from_bool(true),
+                    }
+                }
+                MatchArmKind::Constructor => {
+                    let assura_ast::Pattern::Constructor { name, .. } = &arm.pattern else {
+                        unreachable!("Constructor kind requires Constructor");
+                    };
+                    if let (Some(adt_name), Z3Value::Int(s)) = (match_adt.as_deref(), &scrut) {
+                        self.adt_is_constructor(adt_name, name, s)
+                    } else {
+                        ast::Bool::from_bool(true)
+                    }
+                }
+                MatchArmKind::Wildcard | MatchArmKind::BindIdent | MatchArmKind::Tuple => {
+                    ast::Bool::from_bool(true)
+                }
+            };
+            match (&body, &else_val) {
+                (Z3Value::Bool(b), Z3Value::Bool(e)) => Z3Value::Bool(cond.ite(b, e)),
+                (Z3Value::Int(b), Z3Value::Int(e)) => Z3Value::Int(cond.ite(b, e)),
+                (Z3Value::Real(b), Z3Value::Real(e)) => Z3Value::Real(cond.ite(b, e)),
+                (Z3Value::Int(b), Z3Value::Real(e)) => {
+                    Z3Value::Real(cond.ite(&ast::Real::from_int(b), e))
+                }
+                (Z3Value::Real(b), Z3Value::Int(e)) => {
+                    Z3Value::Real(cond.ite(b, &ast::Real::from_int(e)))
+                }
+                _ => body,
+            }
+        }))
     }
 
     fn encode_let(
@@ -583,10 +708,9 @@ impl EncodeTerm for Encoder {
         body: &SpExpr,
         encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<Z3Value>,
     ) -> Option<Z3Value> {
-        let _ = encode_sub;
-        let val = self.encode_expr(value);
+        let val = encode_sub(self, value)?;
         self.vars.insert(name.to_string(), val);
-        Some(self.encode_expr(body))
+        encode_sub(self, body)
     }
 
     fn encode_block(
@@ -594,14 +718,14 @@ impl EncodeTerm for Encoder {
         body: &[SpExpr],
         encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<Z3Value>,
     ) -> Option<Z3Value> {
-        let _ = encode_sub;
         use crate::encode_let_policy::{BlockReducePlan, classify_block};
         match classify_block(body) {
             BlockReducePlan::Empty => Some(Z3Value::Bool(ast::Bool::from_bool(true))),
             BlockReducePlan::LastExpr => {
                 let mut result = Z3Value::Int(Encoder::fresh_int(self));
                 for expr in body {
-                    result = self.encode_expr(expr);
+                    result = encode_sub(self, expr)
+                        .unwrap_or_else(|| Z3Value::Int(Encoder::fresh_int(self)));
                 }
                 Some(result)
             }
