@@ -20,7 +20,7 @@ pub mod features;
 mod service;
 mod types_gen;
 
-pub use types_gen::expr_to_rust_static;
+pub use expr::expr_to_rust_static;
 
 use block::*;
 use contract::*;
