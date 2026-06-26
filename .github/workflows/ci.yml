@@ -123,6 +123,8 @@ jobs:
         if: ${{ vars.RUNNER }}
         run: |
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export SCCACHE_CACHE_SIZE="5G"
+          echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
           sccache --stop-server 2>/dev/null || true
           sccache --start-server 2>/dev/null || true
 
@@ -151,18 +153,6 @@ jobs:
           echo "CPATH=/usr/include" >> "$GITHUB_ENV"
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
 
-      - name: Reclaim disk (self-hosted)
-        if: ${{ vars.RUNNER }}
-        run: |
-          # Remove other jobs' target dirs to free space on shared runner.
-          # Each job uses its own CARGO_TARGET_DIR; stale sibling dirs accumulate.
-          for d in target/ci-*; do
-            [ -d "$d" ] && [ "$d" != "$CARGO_TARGET_DIR" ] || continue
-            echo "Removing $d ($(du -sh "$d" | cut -f1))"
-            rm -rf "$d"
-          done
-          echo "Disk after cleanup: $(df -h / | awk 'NR==2{print $4}') free"
-
       - name: Check disk space
         run: |
           avail=$(df -k / | awk 'NR==2{print $4}')
@@ -188,6 +178,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: cargo clippy --workspace -- -D warnings
 
+      - name: Cleanup target (self-hosted)
+        if: ${{ always() && vars.RUNNER }}
+        run: rm -rf "$CARGO_TARGET_DIR"
+
   # ── Tests (runner 2, parallel with clippy) ───────────────────────────────
   test:
     needs: changes
@@ -208,6 +202,8 @@ jobs:
         if: ${{ vars.RUNNER }}
         run: |
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export SCCACHE_CACHE_SIZE="5G"
+          echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
           sccache --stop-server 2>/dev/null || true
           sccache --start-server 2>/dev/null || true
 
@@ -234,16 +230,6 @@ jobs:
           echo "CPATH=/usr/include" >> "$GITHUB_ENV"
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
 
-      - name: Reclaim disk (self-hosted)
-        if: ${{ vars.RUNNER }}
-        run: |
-          for d in target/ci-*; do
-            [ -d "$d" ] && [ "$d" != "$CARGO_TARGET_DIR" ] || continue
-            echo "Removing $d ($(du -sh "$d" | cut -f1))"
-            rm -rf "$d"
-          done
-          echo "Disk after cleanup: $(df -h / | awk 'NR==2{print $4}') free"
-
       - name: Check disk space
         run: |
           avail=$(df -k / | awk 'NR==2{print $4}')
@@ -263,6 +249,10 @@ jobs:
 
       - name: Test (nextest)
         run: cargo nextest run --workspace
+
+      - name: Cleanup target (self-hosted)
+        if: ${{ always() && vars.RUNNER }}
+        run: rm -rf "$CARGO_TARGET_DIR"
 
   # ── Pipeline benchmarks (compile + smoke run; no timing thresholds) ─────
   benchmark:
@@ -287,6 +277,8 @@ jobs:
         if: ${{ vars.RUNNER }}
         run: |
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export SCCACHE_CACHE_SIZE="5G"
+          echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
           sccache --stop-server 2>/dev/null || true
           sccache --start-server 2>/dev/null || true
 
@@ -313,16 +305,6 @@ jobs:
           echo "CPATH=/usr/include" >> "$GITHUB_ENV"
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
 
-      - name: Reclaim disk (self-hosted)
-        if: ${{ vars.RUNNER }}
-        run: |
-          for d in target/ci-*; do
-            [ -d "$d" ] && [ "$d" != "$CARGO_TARGET_DIR" ] || continue
-            echo "Removing $d ($(du -sh "$d" | cut -f1))"
-            rm -rf "$d"
-          done
-          echo "Disk after cleanup: $(df -h / | awk 'NR==2{print $4}') free"
-
       - name: Check disk space
         run: |
           avail=$(df -k / | awk 'NR==2{print $4}')
@@ -348,6 +330,10 @@ jobs:
           path: target/ci-bench/criterion/**
           if-no-files-found: ignore
 
+      - name: Cleanup target (self-hosted)
+        if: ${{ always() && vars.RUNNER }}
+        run: rm -rf "$CARGO_TARGET_DIR"
+
   # ── Generated code compiles (runner 3, parallel with clippy + test) ─────
   codegen-validation:
     name: Generated code compiles
@@ -369,6 +355,8 @@ jobs:
         if: ${{ vars.RUNNER }}
         run: |
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export SCCACHE_CACHE_SIZE="5G"
+          echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
           sccache --stop-server 2>/dev/null || true
           sccache --start-server 2>/dev/null || true
 
@@ -394,16 +382,6 @@ jobs:
           echo "Z3_SYS_Z3_HEADER=/usr/include/z3.h" >> "$GITHUB_ENV"
           echo "CPATH=/usr/include" >> "$GITHUB_ENV"
           echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
-
-      - name: Reclaim disk (self-hosted)
-        if: ${{ vars.RUNNER }}
-        run: |
-          for d in target/ci-*; do
-            [ -d "$d" ] && [ "$d" != "$CARGO_TARGET_DIR" ] || continue
-            echo "Removing $d ($(du -sh "$d" | cut -f1))"
-            rm -rf "$d"
-          done
-          echo "Disk after cleanup: $(df -h / | awk 'NR==2{print $4}') free"
 
       - name: Check disk space
         run: |
@@ -437,6 +415,10 @@ jobs:
             (cd generated && cargo check)
             rm -rf generated
           done
+
+      - name: Cleanup target (self-hosted)
+        if: ${{ always() && vars.RUNNER }}
+        run: rm -rf "$CARGO_TARGET_DIR"
 
   # ── No-Z3 fallback check (~30s on ubuntu) ───────────────────────────────
   no-z3:
@@ -483,6 +465,8 @@ jobs:
         if: ${{ vars.RUNNER }}
         run: |
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export SCCACHE_CACHE_SIZE="5G"
+          echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
           sccache --stop-server 2>/dev/null || true
           sccache --start-server 2>/dev/null || true
 
@@ -524,16 +508,6 @@ jobs:
             echo "CVC5_INCLUDE_DIR=/tmp/cvc5-install/cvc5-Linux-x86_64-static/include" >> "$GITHUB_ENV"
           fi
 
-      - name: Reclaim disk (self-hosted)
-        if: ${{ vars.RUNNER }}
-        run: |
-          for d in target/ci-*; do
-            [ -d "$d" ] && [ "$d" != "$CARGO_TARGET_DIR" ] || continue
-            echo "Removing $d ($(du -sh "$d" | cut -f1))"
-            rm -rf "$d"
-          done
-          echo "Disk after cleanup: $(df -h / | awk 'NR==2{print $4}') free"
-
       - name: Check disk space
         run: |
           avail=$(df -k / | awk 'NR==2{print $4}')
@@ -558,6 +532,10 @@ jobs:
         run: |
           cargo build --bin assura --features cvc5-verify
           cargo run --bin assura --features cvc5-verify -- check --solver cvc5 demos/libwebp-huffman.assura
+
+      - name: Cleanup target (self-hosted)
+        if: ${{ always() && vars.RUNNER }}
+        run: rm -rf "$CARGO_TARGET_DIR"
 
   # ── Tree-sitter grammar tests ───────────────────────────────────────────
   tree-sitter:
