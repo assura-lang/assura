@@ -6,7 +6,7 @@
 use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, SpExpr};
 use std::collections::HashMap;
 
-use crate::ir::stub_ir_sidecar_text;
+use crate::ir_codegen::stub_ir_sidecar_text;
 
 /// Shared context for IR body planners (contract params → slots).
 #[derive(Debug, Clone)]

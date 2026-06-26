@@ -305,14 +305,19 @@ pub mod havoc_assume;
 
 /// Implementation IR (Section 4): parser, codegen, and `assura ir` CLI command.
 pub mod ir;
+pub mod ir_codegen;
 pub use ir::{
     IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrInstr, IrLiteral, IrMatchPattern, IrModule,
-    IrNode, IrParser, IrPred, IrPredArg, IrSlotDecl, IrValidation, ir_function_body_to_rust,
-    ir_module_to_body_map, ir_to_rust, parse_ir_module, stub_ir_sidecar_text,
+    IrNode, IrParser, IrPred, IrPredArg, IrSlotDecl, IrValidation, parse_ir_module,
     validate_ir_against_contract,
 };
 #[cfg(test)]
-pub(crate) use ir::{ir_type_to_rust, parse_arith_op, parse_cmp_op, parse_ir_pred_str};
+pub(crate) use ir::{parse_arith_op, parse_cmp_op, parse_ir_pred_str};
+#[cfg(test)]
+pub(crate) use ir_codegen::ir_type_to_rust;
+pub use ir_codegen::{
+    ir_function_body_to_rust, ir_module_to_body_map, ir_to_rust, stub_ir_sidecar_text,
+};
 
 #[cfg(test)]
 #[path = "tests_measures.rs"]

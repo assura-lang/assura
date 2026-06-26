@@ -26,12 +26,66 @@ impl StdlibSources {
         include_str!("../std/collections.assura")
     }
 
+    /// Return the option module source.
+    pub fn option() -> &'static str {
+        include_str!("../std/option.assura")
+    }
+
+    /// Return the result module source.
+    pub fn results() -> &'static str {
+        include_str!("../std/result.assura")
+    }
+
+    /// Return the io module source.
+    pub fn io() -> &'static str {
+        include_str!("../std/io.assura")
+    }
+
+    /// Return the fs module source.
+    pub fn fs() -> &'static str {
+        include_str!("../std/fs.assura")
+    }
+
+    /// Return the net module source.
+    pub fn net() -> &'static str {
+        include_str!("../std/net.assura")
+    }
+
+    /// Return the crypto module source.
+    pub fn crypto() -> &'static str {
+        include_str!("../std/crypto.assura")
+    }
+
+    /// Return the iter module source.
+    pub fn iter() -> &'static str {
+        include_str!("../std/iter.assura")
+    }
+
+    /// Return the bytes module source.
+    pub fn bytes() -> &'static str {
+        include_str!("../std/bytes.assura")
+    }
+
+    /// Return the time module source.
+    pub fn time() -> &'static str {
+        include_str!("../std/time.assura")
+    }
+
     /// Return all standard library sources with their module names.
     pub fn all() -> Vec<(&'static str, &'static str)> {
         vec![
             ("std.math", Self::math()),
             ("std.string", Self::string()),
             ("std.collections", Self::collections()),
+            ("std.option", Self::option()),
+            ("std.results", Self::results()),
+            ("std.io", Self::io()),
+            ("std.fs", Self::fs()),
+            ("std.net", Self::net()),
+            ("std.crypto", Self::crypto()),
+            ("std.iter", Self::iter()),
+            ("std.bytes", Self::bytes()),
+            ("std.time", Self::time()),
         ]
     }
 }
@@ -189,11 +243,20 @@ mod tests {
     #[test]
     fn parse_stdlib_returns_all_modules() {
         let modules = parse_stdlib();
-        assert_eq!(modules.len(), 3, "should have 3 stdlib modules");
+        assert_eq!(modules.len(), 12, "should have 12 stdlib modules");
         let names: Vec<&str> = modules.iter().map(|(n, _)| n.as_str()).collect();
         assert!(names.contains(&"std.math"));
         assert!(names.contains(&"std.string"));
         assert!(names.contains(&"std.collections"));
+        assert!(names.contains(&"std.option"));
+        assert!(names.contains(&"std.results"));
+        assert!(names.contains(&"std.io"));
+        assert!(names.contains(&"std.fs"));
+        assert!(names.contains(&"std.net"));
+        assert!(names.contains(&"std.crypto"));
+        assert!(names.contains(&"std.iter"));
+        assert!(names.contains(&"std.bytes"));
+        assert!(names.contains(&"std.time"));
     }
 
     #[test]
@@ -216,9 +279,9 @@ mod tests {
     }
 
     #[test]
-    fn all_sources_returns_three_modules() {
+    fn all_sources_returns_twelve_modules() {
         let all = StdlibSources::all();
-        assert_eq!(all.len(), 3);
+        assert_eq!(all.len(), 12);
     }
 
     #[test]
@@ -230,10 +293,7 @@ mod tests {
             .iter()
             .filter(|d| matches!(&d.node, Decl::Contract(_)))
             .count();
-        assert_eq!(
-            count, 4,
-            "math should have 4 contracts (abs, min, max, clamp)"
-        );
+        assert_eq!(count, 9, "math should have 9 contracts");
     }
 
     #[test]
@@ -245,10 +305,7 @@ mod tests {
             .iter()
             .filter(|d| matches!(&d.node, Decl::Contract(_)))
             .count();
-        assert_eq!(
-            count, 3,
-            "string should have 3 contracts (string_length, substring, contains)"
-        );
+        assert_eq!(count, 12, "string should have 12 contracts");
     }
 
     #[test]
@@ -260,6 +317,6 @@ mod tests {
             .iter()
             .filter(|d| matches!(&d.node, Decl::Contract(_)))
             .count();
-        assert_eq!(count, 6, "collections should have 6 contracts");
+        assert_eq!(count, 14, "collections should have 14 contracts");
     }
 }
