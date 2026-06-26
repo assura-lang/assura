@@ -527,7 +527,8 @@ fn cargo_check_project(project: &assura_codegen::GeneratedProject, label: &str) 
     let _ = std::fs::remove_dir_all(&tmp);
     assert!(
         output.status.success(),
-        "{label}: generated Rust failed cargo check:\n{}",
+        "{label}: generated Rust failed cargo check (temp: {}):\n{}",
+        tmp.display(),
         String::from_utf8_lossy(&output.stderr)
     );
 }

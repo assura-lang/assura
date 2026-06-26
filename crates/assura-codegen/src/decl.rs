@@ -12,15 +12,19 @@ use super::*;
 /// The generated code calls the real function and wraps it with
 /// `debug_assert!` checks for `requires` and `ensures` clauses.
 pub(crate) fn generate_bind(b: &BindDecl, code: &mut String) {
-    let params_s: String = b
+    use crate::hir::*;
+
+    let params: Vec<RustParam> = b
         .params
         .iter()
         .map(|p| {
             let ty_tokens = p.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
-            format!("{}: {}", p.name, map_type_tokens(&ty_tokens))
+            RustParam {
+                name: p.name.clone(),
+                ty: RustType::Raw(map_type_tokens(&ty_tokens)),
+            }
         })
-        .collect::<Vec<_>>()
-        .join(", ");
+        .collect();
 
     let ret = match &b.return_ty {
         None => "()".to_string(),
@@ -36,45 +40,56 @@ pub(crate) fn generate_bind(b: &BindDecl, code: &mut String) {
 
     let rust_path = &b.target_path;
 
-    code.push_str(&format!(
-        "/// Bind: {} -> {rust_path}\npub fn {}({params_s}) -> {ret} {{\n",
-        b.name, b.name
-    ));
+    let mut body: Vec<RustStmt> = Vec::new();
 
     // Collect old() expressions from ensures clauses and save pre-state values
     let mut ensures_exprs: Vec<String> = Vec::new();
     for clause in &b.clauses {
         if clause.kind == ClauseKind::Ensures {
             for (var, rust_expr) in collect_old_exprs(&clause.body) {
-                code.push_str(&format!(
-                    "    let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();\n"
-                ));
+                body.push(RustStmt::Raw(format!(
+                    "let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();"
+                )));
             }
             ensures_exprs.push(expr_to_rust(&clause.body));
         }
     }
 
-    // Generate requires assertions at function entry
+    // Requires assertions
     for clause in &b.clauses {
         if clause.kind == ClauseKind::Requires {
             let expr = expr_to_rust(&clause.body);
-            generate_debug_assert(code, &expr, "requires");
+            body.push(RustStmt::Assert {
+                cond: expr,
+                label: "requires".into(),
+            });
         }
     }
 
     // Call the actual Rust function
-    code.push_str(&format!(
-        "    let {result_var}: {ret} = {rust_path}({args_s});\n",
-        result_var = RESULT_VAR
-    ));
+    body.push(RustStmt::Raw(format!(
+        "let {RESULT_VAR}: {ret} = {rust_path}({args_s});"
+    )));
 
-    // Generate ensures assertions on the result
+    // Ensures assertions
     for ens in &ensures_exprs {
-        generate_debug_assert(code, ens, "ensures");
+        body.push(RustStmt::Assert {
+            cond: ens.clone(),
+            label: "ensures".into(),
+        });
     }
 
-    code.push_str(&format!("    {RESULT_VAR}\n"));
-    code.push_str("}\n\n");
+    body.push(RustStmt::Expr(RustExpr::Ident(RESULT_VAR.into())));
+
+    let item = RustItem::Fn(RustFn {
+        name: b.name.clone(),
+        params,
+        ret: Some(RustType::Raw(ret)),
+        body,
+        doc: vec![format!("Bind: {} -> {rust_path}", b.name)],
+        ..RustFn::default()
+    });
+    code.push_str(&render_item_raw(&item));
 }
 
 // ---------------------------------------------------------------------------
@@ -82,15 +97,19 @@ pub(crate) fn generate_bind(b: &BindDecl, code: &mut String) {
 // ---------------------------------------------------------------------------
 
 pub(crate) fn generate_extern(ex: &ExternDecl, code: &mut String) {
-    let params_s: String = ex
+    use crate::hir::*;
+
+    let params: Vec<RustParam> = ex
         .params
         .iter()
         .map(|p| {
             let ty_tokens = p.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
-            format!("{}: {}", p.name, map_type_tokens(&ty_tokens))
+            RustParam {
+                name: p.name.clone(),
+                ty: RustType::Raw(map_type_tokens(&ty_tokens)),
+            }
         })
-        .collect::<Vec<_>>()
-        .join(", ");
+        .collect();
 
     let ret = match &ex.return_ty {
         None => "()".to_string(),
@@ -114,27 +133,15 @@ pub(crate) fn generate_extern(ex: &ExternDecl, code: &mut String) {
         .iter()
         .any(|c| c.kind == ClauseKind::Requires || c.kind == ClauseKind::Ensures);
 
-    // SEC.2 compile-time: extern functions generate `unsafe fn` so Rust's
-    // type system enforces that callers must use an unsafe block, providing
-    // compile-time visibility of FFI boundary crossings.
-    let unsafe_kw = if trust_level.is_some() { "unsafe " } else { "" };
-
-    // Generate as a function with contract assertions
-    code.push_str(&format!(
-        "/// Extern: {} [ffi_boundary: {}]\npub {unsafe_kw}fn {}({params_s}) -> {ret} {{\n",
-        ex.name,
-        trust_level.as_deref().unwrap_or("none"),
-        ex.name
-    ));
+    let mut body: Vec<RustStmt> = Vec::new();
 
     // SEC.2 compile-time: untrusted externs without contracts emit compile_error!
-    // so the generated Rust will not compile until contracts are added.
     if is_untrusted && !has_contract {
-        code.push_str(&format!(
-            "    compile_error!(\"FFI boundary violation: untrusted extern `{}` \
-             has no contract; add requires/ensures\");\n",
+        body.push(RustStmt::Raw(format!(
+            "compile_error!(\"FFI boundary violation: untrusted extern `{}` \
+             has no contract; add requires/ensures\");",
             ex.name
-        ));
+        )));
     }
 
     // Collect old() expressions from ensures clauses and save pre-state values
@@ -142,35 +149,56 @@ pub(crate) fn generate_extern(ex: &ExternDecl, code: &mut String) {
     for clause in &ex.clauses {
         if clause.kind == ClauseKind::Ensures {
             for (var, rust_expr) in collect_old_exprs(&clause.body) {
-                code.push_str(&format!(
-                    "    let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();\n"
-                ));
+                body.push(RustStmt::Raw(format!(
+                    "let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();"
+                )));
             }
             ensures_exprs.push(expr_to_rust(&clause.body));
         }
     }
 
-    // Generate requires assertions at function entry
+    // Requires assertions
     for clause in &ex.clauses {
         if clause.kind == ClauseKind::Requires {
             let expr = expr_to_rust(&clause.body);
-            generate_debug_assert(code, &expr, "requires");
+            body.push(RustStmt::Assert {
+                cond: expr,
+                label: "requires".into(),
+            });
         }
     }
 
     if ensures_exprs.is_empty() && (has_contract || !is_untrusted) {
-        code.push_str("    todo!(\"extern function: implementation required\")\n");
+        body.push(RustStmt::Expr(RustExpr::Todo(
+            "extern function: implementation required".into(),
+        )));
     } else if !ensures_exprs.is_empty() {
-        code.push_str(&format!(
-            "    let {result_var}: {ret} = todo!(\"extern function: implementation required\");\n",
-            result_var = RESULT_VAR
-        ));
+        body.push(RustStmt::Raw(format!(
+            "let {RESULT_VAR}: {ret} = todo!(\"extern function: implementation required\");"
+        )));
         for ens in &ensures_exprs {
-            generate_debug_assert(code, ens, "ensures");
+            body.push(RustStmt::Assert {
+                cond: ens.clone(),
+                label: "ensures".into(),
+            });
         }
-        code.push_str(&format!("    {RESULT_VAR}\n"));
+        body.push(RustStmt::Expr(RustExpr::Ident(RESULT_VAR.into())));
     }
-    code.push_str("}\n\n");
+
+    let item = RustItem::Fn(RustFn {
+        name: ex.name.clone(),
+        params,
+        ret: Some(RustType::Raw(ret)),
+        body,
+        is_unsafe: trust_level.is_some(),
+        doc: vec![format!(
+            "Extern: {} [ffi_boundary: {}]",
+            ex.name,
+            trust_level.as_deref().unwrap_or("none")
+        )],
+        ..RustFn::default()
+    });
+    code.push_str(&render_item_raw(&item));
 }
 
 // ---------------------------------------------------------------------------
@@ -182,29 +210,35 @@ pub(crate) fn generate_fn_def(
     code: &mut String,
     ir_bodies: Option<&std::collections::HashMap<String, String>>,
 ) {
-    let params_s: String = f
+    use crate::hir::*;
+
+    // Generate error enum if errors clause is present
+    let error_variants = collect_error_variants(&f.clauses);
+    if !error_variants.is_empty() {
+        let err_item = build_error_enum(&f.name, &error_variants);
+        code.push_str(&render_item_raw(&err_item));
+    }
+    let error_enum_name = if !error_variants.is_empty() {
+        Some(format!("{}Error", f.name))
+    } else {
+        None
+    };
+
+    let params: Vec<RustParam> = f
         .params
         .iter()
         .map(|p| {
             let ty_tokens = p.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
-            format!("{}: {}", p.name, map_type_tokens(&ty_tokens))
+            RustParam {
+                name: p.name.clone(),
+                ty: RustType::Raw(map_type_tokens(&ty_tokens)),
+            }
         })
-        .collect::<Vec<_>>()
-        .join(", ");
+        .collect();
 
     let ret_ty = match &f.return_ty {
         None => "()".to_string(),
         Some(te) => map_type_tokens(&te.to_tokens()),
-    };
-
-    // Generate error enum if errors clause is present
-    let error_variants = collect_error_variants(&f.clauses);
-    let error_enum_name = if !error_variants.is_empty() {
-        let name = format!("{}Error", f.name);
-        generate_error_enum(&f.name, &error_variants, code);
-        Some(name)
-    } else {
-        None
     };
 
     let return_type = if let Some(ref err_name) = error_enum_name {
@@ -213,32 +247,35 @@ pub(crate) fn generate_fn_def(
         ret_ty.clone()
     };
 
-    let ret_sig = if f.return_ty.is_none() && error_enum_name.is_none() {
-        String::new()
+    let ret = if f.return_ty.is_none() && error_enum_name.is_none() {
+        None
     } else {
-        format!(" -> {return_type}")
+        Some(RustType::Raw(return_type))
     };
 
-    code.push_str(&format!("pub fn {}({params_s}){ret_sig} {{\n", f.name));
+    let mut body: Vec<RustStmt> = Vec::new();
 
     // Collect old() expressions from ensures clauses and save pre-state values
     let mut ensures_exprs: Vec<String> = Vec::new();
     for clause in &f.clauses {
         if clause.kind == ClauseKind::Ensures {
             for (var, rust_expr) in collect_old_exprs(&clause.body) {
-                code.push_str(&format!(
-                    "    let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();\n"
-                ));
+                body.push(RustStmt::Raw(format!(
+                    "let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();"
+                )));
             }
             ensures_exprs.push(expr_to_rust(&clause.body));
         }
     }
 
-    // Generate requires assertions at function entry
+    // Requires assertions
     for clause in &f.clauses {
         if clause.kind == ClauseKind::Requires {
             let expr = expr_to_rust(&clause.body);
-            generate_debug_assert(code, &expr, "requires");
+            body.push(RustStmt::Assert {
+                cond: expr,
+                label: "requires".into(),
+            });
         }
     }
 
@@ -247,35 +284,49 @@ pub(crate) fn generate_fn_def(
         let mut feature_code = String::new();
         crate::features::generate_all_feature_clauses(&f.clauses, &f.name, &mut feature_code);
         if !feature_code.is_empty() {
-            code.push_str(&feature_code);
+            body.push(RustStmt::Raw(feature_code));
         }
     }
 
     let ir_body = ir_bodies.and_then(|m| m.get(&f.name));
 
     if ensures_exprs.is_empty() {
-        if let Some(body) = ir_body {
-            code.push_str(body);
+        if let Some(ir) = ir_body {
+            body.push(RustStmt::Raw(ir.clone()));
         } else {
-            code.push_str("    todo!(\"implementation provided by AI agent\")\n");
+            body.push(RustStmt::Expr(RustExpr::Todo(
+                "implementation provided by AI agent".into(),
+            )));
         }
-    } else if let Some(body) = ir_body {
-        code.push_str(body);
+    } else if let Some(ir) = ir_body {
+        body.push(RustStmt::Raw(ir.clone()));
     } else {
-        code.push_str(&format!(
-            "    let {result_var}: {ret_ty} = todo!(\"implementation provided by AI agent\");\n",
-            result_var = RESULT_VAR
-        ));
+        body.push(RustStmt::Raw(format!(
+            "let {RESULT_VAR}: {ret_ty} = todo!(\"implementation provided by AI agent\");"
+        )));
         for ens in &ensures_exprs {
-            generate_debug_assert(code, ens, "ensures");
+            body.push(RustStmt::Assert {
+                cond: ens.clone(),
+                label: "ensures".into(),
+            });
         }
         if error_enum_name.is_some() {
-            code.push_str(&format!("    Ok({RESULT_VAR})\n"));
+            body.push(RustStmt::Expr(RustExpr::Ok(Box::new(RustExpr::Ident(
+                RESULT_VAR.into(),
+            )))));
         } else {
-            code.push_str(&format!("    {RESULT_VAR}\n"));
+            body.push(RustStmt::Expr(RustExpr::Ident(RESULT_VAR.into())));
         }
     }
-    code.push_str("}\n\n");
+
+    let item = RustItem::Fn(RustFn {
+        name: f.name.clone(),
+        params,
+        ret,
+        body,
+        ..RustFn::default()
+    });
+    code.push_str(&render_item_raw(&item));
 }
 
 // ---------------------------------------------------------------------------

@@ -204,44 +204,9 @@ pub(crate) fn smart_join_type_tokens(tokens: &[&str]) -> String {
 // ---------------------------------------------------------------------------
 
 pub(crate) fn generate_type_def(t: &TypeDef, code: &mut String) {
-    let tps = if t.type_params.is_empty() {
-        String::new()
-    } else {
-        format!("<{}>", t.type_params.join(", "))
-    };
-
-    match &t.body {
-        TypeBody::Struct(fields) => {
-            code.push_str(&format!(
-                "#[derive(Debug, Clone, PartialEq)]\npub struct {}{tps} {{\n",
-                t.name
-            ));
-            for f in fields {
-                let vis = if f.is_pub { "pub " } else { "" };
-                let ty_tokens = f.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
-                let ty = map_type_tokens(&ty_tokens);
-                code.push_str(&format!("    {vis}{}: {ty},\n", f.name));
-            }
-            code.push_str("}\n\n");
-        }
-        TypeBody::Alias(tokens) => {
-            let ty = map_type_tokens(tokens);
-            code.push_str(&format!("pub type {}{tps} = {ty};\n\n", t.name));
-        }
-        TypeBody::Refined(tokens) => {
-            let base_ty = extract_base_type_from_refined(tokens);
-            code.push_str(&format!(
-                "/// Refined type: {}\n#[derive(Debug, Clone, PartialEq)]\npub struct {}{tps}(pub {base_ty});\n\n",
-                tokens.join(" "),
-                t.name
-            ));
-        }
-        TypeBody::Empty => {
-            code.push_str(&format!(
-                "#[derive(Debug, Clone, PartialEq)]\npub struct {}{tps};\n\n",
-                t.name
-            ));
-        }
+    let items = crate::hir::build_type_def(t);
+    for item in &items {
+        code.push_str(&crate::hir::render_item_raw(item));
     }
 }
 

@@ -64,6 +64,8 @@ pub struct RustFn {
     pub doc: Vec<String>,
     /// Attributes (e.g., `#[allow(dead_code)]`).
     pub attrs: Vec<String>,
+    /// Whether this is an abstract method declaration (no body, e.g., trait methods).
+    pub is_abstract: bool,
 }
 
 impl Default for RustFn {
@@ -78,6 +80,7 @@ impl Default for RustFn {
             is_unsafe: false,
             doc: Vec::new(),
             attrs: Vec::new(),
+            is_abstract: false,
         }
     }
 }
@@ -373,16 +376,23 @@ fn render_fn(f: &RustFn, out: &mut String) {
         None => String::new(),
     };
 
-    out.push_str(&format!(
-        "{vis}{unsafe_kw}fn {}{tps}({params_s}){ret} {{\n",
-        f.name
-    ));
+    if f.is_abstract {
+        out.push_str(&format!(
+            "{vis}{unsafe_kw}fn {}{tps}({params_s}){ret};\n\n",
+            f.name
+        ));
+    } else {
+        out.push_str(&format!(
+            "{vis}{unsafe_kw}fn {}{tps}({params_s}){ret} {{\n",
+            f.name
+        ));
 
-    for stmt in &f.body {
-        render_stmt(stmt, out, 1);
+        for stmt in &f.body {
+            render_stmt(stmt, out, 1);
+        }
+
+        out.push_str("}\n\n");
     }
-
-    out.push_str("}\n\n");
 }
 
 fn render_struct(s: &RustStruct, out: &mut String) {
@@ -553,13 +563,18 @@ fn render_stmt(stmt: &RustStmt, out: &mut String, indent: usize) {
             out.push_str(&format!("{pad}let {name}{ty_s} = {};\n", render_expr(init)));
         }
         RustStmt::Assert { cond, label } => {
-            let escaped_cond = cond.replace('"', "\\\"");
-            if cond.contains('\n') {
+            // If expression references deep field chains (e.g., state.head.extra),
+            // emit as a comment since stub types don't have these fields.
+            // Matches the guard in generate_debug_assert (expr.rs).
+            if crate::has_deep_field_access(cond) {
+                out.push_str(&format!("{pad}// {label}: {}\n", cond.replace('"', "\\\"")));
+            } else if cond.contains('\n') {
                 let msg = cond.replace('\n', " ").replace('"', "\\\"");
                 out.push_str(&format!(
                     "{pad}debug_assert!({{ {cond} }}, \"{label}: {msg}\");\n"
                 ));
             } else {
+                let escaped_cond = cond.replace('"', "\\\"");
                 out.push_str(&format!(
                     "{pad}debug_assert!({cond}, \"{label}: {escaped_cond}\");\n"
                 ));
@@ -749,6 +764,81 @@ pub fn render_item_raw(item: &RustItem) -> String {
     let mut out = String::new();
     render_item(item, &mut out);
     out
+}
+
+// ---------------------------------------------------------------------------
+// Builders: AST -> HIR
+// ---------------------------------------------------------------------------
+
+/// Build HIR items for an Assura `TypeDef`.
+///
+/// Returns a `Vec<RustItem>` because some type bodies produce multiple items
+/// (e.g., a refined type produces a newtype struct).
+pub fn build_type_def(t: &assura_ast::TypeDef) -> Vec<RustItem> {
+    use assura_ast::TypeBody;
+    let tps = t.type_params.clone();
+
+    match &t.body {
+        TypeBody::Struct(fields) => {
+            let rust_fields: Vec<RustField> = fields
+                .iter()
+                .map(|f| {
+                    let ty_tokens = f.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+                    RustField {
+                        name: f.name.clone(),
+                        ty: RustType::Raw(crate::map_type_tokens(&ty_tokens)),
+                        is_pub: f.is_pub,
+                    }
+                })
+                .collect();
+            vec![RustItem::Struct(RustStruct {
+                name: t.name.clone(),
+                type_params: tps,
+                fields: rust_fields,
+                derives: vec!["Debug".into(), "Clone".into(), "PartialEq".into()],
+                ..RustStruct::default()
+            })]
+        }
+        TypeBody::Alias(tokens) => {
+            let rust_ty = crate::map_type_tokens(tokens);
+            vec![RustItem::Raw(format!("pub type {} = {rust_ty};\n", t.name))]
+        }
+        TypeBody::Refined(tokens) => {
+            let base = crate::extract_base_type_from_refined(tokens);
+            let tps_str = if tps.is_empty() {
+                String::new()
+            } else {
+                format!("<{}>", tps.join(", "))
+            };
+            vec![RustItem::Raw(format!(
+                "#[derive(Debug, Clone, PartialEq)]\npub struct {}{tps_str}(pub {base});\n",
+                t.name
+            ))]
+        }
+        TypeBody::Empty => {
+            let tps_str = if tps.is_empty() {
+                String::new()
+            } else {
+                format!("<{}>", tps.join(", "))
+            };
+            if tps.is_empty() {
+                vec![RustItem::Raw(format!(
+                    "#[derive(Debug, Clone, PartialEq)]\npub struct {}{};\n",
+                    t.name, tps_str
+                ))]
+            } else {
+                let phantoms: Vec<String> = tps
+                    .iter()
+                    .map(|p| format!("std::marker::PhantomData<{p}>"))
+                    .collect();
+                vec![RustItem::Raw(format!(
+                    "#[derive(Debug, Clone, PartialEq)]\npub struct {}{tps_str}({});\n",
+                    t.name,
+                    phantoms.join(", ")
+                ))]
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
