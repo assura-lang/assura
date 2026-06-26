@@ -7,93 +7,9 @@ use super::*;
 // ---------------------------------------------------------------------------
 
 pub(crate) fn generate_enum_def(e: &EnumDef, code: &mut String) {
-    let tps = if e.type_params.is_empty() {
-        String::new()
-    } else {
-        format!("<{}>", e.type_params.join(", "))
-    };
-
-    code.push_str(&format!(
-        "#[derive(Debug, Clone, PartialEq)]\npub enum {}{tps} {{\n",
-        e.name
-    ));
-    for v in &e.variants {
-        if v.fields.is_empty() {
-            code.push_str(&format!("    {},\n", v.name));
-        } else {
-            let fields: Vec<String> = v
-                .fields
-                .iter()
-                .map(|f| map_type_token(f).to_string())
-                .collect();
-            code.push_str(&format!("    {}({}),\n", v.name, fields.join(", ")));
-        }
-    }
-    code.push_str("}\n\n");
-
-    // Generate Display implementation for non-generic enums
-    if e.type_params.is_empty() {
-        code.push_str(&format!("impl std::fmt::Display for {} {{\n", e.name));
-        code.push_str("    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n");
-        code.push_str("        match self {\n");
-        for v in &e.variants {
-            if v.fields.is_empty() {
-                code.push_str(&format!(
-                    "            {}::{} => write!(f, \"{}\"),\n",
-                    e.name, v.name, v.name
-                ));
-            } else {
-                let underscores: Vec<&str> = (0..v.fields.len()).map(|_| "_").collect();
-                code.push_str(&format!(
-                    "            {}::{}({}) => write!(f, \"{}(...)\"),\n",
-                    e.name,
-                    v.name,
-                    underscores.join(", "),
-                    v.name
-                ));
-            }
-        }
-        code.push_str("        }\n");
-        code.push_str("    }\n");
-        code.push_str("}\n\n");
-    }
-
-    // Generate exhaustiveness check: a match with no wildcard arm.
-    // Rust's compiler will error if a variant is added but not covered,
-    // catching missing cases at compile time rather than runtime.
-    if !e.variants.is_empty() && e.type_params.is_empty() {
-        code.push_str(&format!(
-            "/// Compile-time exhaustiveness check for `{}`.\n",
-            e.name
-        ));
-        code.push_str(
-            "/// Adding a variant without updating all match sites causes a build error.\n",
-        );
-        code.push_str(&format!(
-            "#[allow(dead_code)]\nfn __exhaustive_check_{}(v: &{}) -> &'static str {{\n",
-            e.name.to_lowercase(),
-            e.name
-        ));
-        code.push_str("    match v {\n");
-        for v in &e.variants {
-            if v.fields.is_empty() {
-                code.push_str(&format!(
-                    "        {}::{} => \"{}\",\n",
-                    e.name, v.name, v.name
-                ));
-            } else {
-                let underscores: Vec<&str> = (0..v.fields.len()).map(|_| "_").collect();
-                code.push_str(&format!(
-                    "        {}::{}({}) => \"{}\",\n",
-                    e.name,
-                    v.name,
-                    underscores.join(", "),
-                    v.name
-                ));
-            }
-        }
-        code.push_str("    }\n");
-        code.push_str("}\n\n");
+    let items = crate::hir::build_enum_def(e);
+    for item in &items {
+        code.push_str(&crate::hir::render_item_raw(item));
     }
 }
 
@@ -819,13 +735,8 @@ pub(crate) fn collect_error_variants(clauses: &[Clause]) -> Vec<String> {
 
 /// Generate a `#[derive(Debug, thiserror::Error)]` enum for contract errors.
 pub(crate) fn generate_error_enum(contract_name: &str, variants: &[String], code: &mut String) {
-    let enum_name = format!("{contract_name}Error");
-    code.push_str("#[derive(Debug, thiserror::Error)]\n");
-    code.push_str(&format!("pub enum {enum_name} {{\n"));
-    for variant in variants {
-        code.push_str(&format!("    #[error(\"{variant}\")]\n    {variant},\n"));
-    }
-    code.push_str("}\n\n");
+    let item = crate::hir::build_error_enum(contract_name, variants);
+    code.push_str(&crate::hir::render_item_raw(&item));
 }
 #[cfg(test)]
 #[path = "contract_tests.rs"]
