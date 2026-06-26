@@ -24,6 +24,49 @@ use z3::Solver;
 //  Z3 validity checking of boolean predicate bodies.)
 
 // -----------------------------------------------------------------------
+// Boolean predicate guard
+//
+// Feature annotations like `must_be deterministic` attach to function
+// definitions where the clause body is the function body (Block, Let,
+// Call chain), not a boolean assertion. Sending those to Z3 produces
+// trivial counterexamples because the expression evaluates to an integer
+// or other non-boolean type that becomes an unconstrained Z3 variable.
+// -----------------------------------------------------------------------
+
+/// Returns true if the expression is likely a boolean predicate suitable
+/// for validity checking. Returns false for function bodies, blocks,
+/// let-bindings, and other non-predicate shapes.
+pub(crate) fn is_likely_boolean_predicate(expr: &SpExpr) -> bool {
+    use assura_ast::Expr;
+    match &expr.node {
+        // Boolean comparisons and logical operators are predicates
+        Expr::BinOp { op, .. } => op.is_comparison() || op.is_logical(),
+        // Unary not is boolean
+        Expr::UnaryOp {
+            op: assura_ast::UnaryOp::Not,
+            ..
+        } => true,
+        // Boolean literals
+        Expr::Literal(assura_ast::Literal::Bool(_)) => true,
+        // Quantifiers produce boolean
+        Expr::Forall { .. } | Expr::Exists { .. } => true,
+        // old(predicate), e.g. old(x > 0)
+        Expr::Old(inner) => is_likely_boolean_predicate(inner),
+        // Bare lowercase identifier could be a boolean variable
+        Expr::Ident(name) => !name.chars().next().is_some_and(|c| c.is_uppercase()),
+        // Method calls that look boolean (is_*, has_*, contains, etc.)
+        Expr::MethodCall { method, .. } => {
+            method.starts_with("is_")
+                || method.starts_with("has_")
+                || method == "contains"
+                || method == "valid"
+        }
+        // Blocks, lets, function bodies, calls, etc. are NOT boolean predicates
+        _ => false,
+    }
+}
+
+// -----------------------------------------------------------------------
 // Generic Z3 body verifier for feature clauses
 //
 // Most feature clauses have boolean predicate bodies that can be verified
@@ -79,12 +122,14 @@ fn verify_feature_body(
         );
     }
 
-    // Skip declarative feature clauses whose body is a bare identifier
-    // (e.g., `incremental InflateDecoder`). These are type/declaration
-    // references, not boolean predicates. Sending them to Z3 creates an
-    // unconstrained variable that trivially produces counterexamples.
-    if matches!(&body.node, Expr::Ident(name) if name.chars().next().is_some_and(|c| c.is_uppercase()))
-    {
+    // Skip declarative feature clauses whose body is not a boolean predicate.
+    // Feature annotations like `must_be deterministic` attach to function
+    // definitions where the body is the function body (Block, Let, Call, etc.),
+    // not a boolean assertion. Also skip bare uppercase identifiers which are
+    // type/declaration references (e.g., `incremental InflateDecoder`).
+    // Sending non-boolean expressions to Z3 creates unconstrained variables
+    // that trivially produce counterexamples.
+    if !is_likely_boolean_predicate(body) {
         return VerificationResult::unknown_not_encoded(desc, feature_label);
     }
 
