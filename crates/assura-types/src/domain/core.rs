@@ -628,7 +628,6 @@ impl StdlibTypes {
     pub fn all_types(&self) -> Vec<&StdlibTypeDef> {
         self.types.values().collect()
     }
-
 }
 
 impl Default for StdlibTypes {
