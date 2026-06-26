@@ -396,8 +396,9 @@ fn run_layer3_verification(
                 ClauseKind::Invariant => {
                     let pred = expr_to_predicate_string(&clause.body);
                     if !pred.is_empty() && pred != "true" {
-                        safety_properties
-                            .push((format!("{decl_name}::invariant"), negate_for_bmc(&pred)));
+                        let negated = assura_parser::ast::negate_expr(&clause.body);
+                        let neg_pred = expr_to_predicate_string(&negated);
+                        safety_properties.push((format!("{decl_name}::invariant"), neg_pred));
                     }
                 }
                 ClauseKind::Requires => {
@@ -556,25 +557,9 @@ fn run_liveness_reduction(
     results
 }
 
-/// Negate a predicate for BMC bad-state checking.
-fn negate_for_bmc(pred: &str) -> String {
-    let pred = pred.trim();
-    if pred.contains(">=") {
-        pred.replacen(">=", "<", 1)
-    } else if pred.contains("<=") {
-        pred.replacen("<=", ">", 1)
-    } else if pred.contains("!=") {
-        pred.replacen("!=", "==", 1)
-    } else if pred.contains("==") {
-        pred.replacen("==", "!=", 1)
-    } else if pred.contains('>') {
-        pred.replacen('>', "<=", 1)
-    } else if pred.contains('<') {
-        pred.replacen('<', ">=", 1)
-    } else {
-        format!("!({pred})")
-    }
-}
+// `negate_for_bmc` removed: negation is now done at the AST level
+// via `assura_parser::ast::negate_expr` before converting to string.
+// See issue #608.
 
 /// Convert a BMC result into a standard VerificationResult.
 fn bmc_result_to_verification_result(
@@ -1524,14 +1509,128 @@ mod tests {
     }
 
     #[test]
-    fn negate_for_bmc_operators() {
-        assert_eq!(negate_for_bmc("n >= 0"), "n < 0");
-        assert_eq!(negate_for_bmc("x <= 10"), "x > 10");
-        assert_eq!(negate_for_bmc("a == b"), "a != b");
-        assert_eq!(negate_for_bmc("a != b"), "a == b");
-        assert_eq!(negate_for_bmc("x > 0"), "x <= 0");
-        assert_eq!(negate_for_bmc("x < 100"), "x >= 100");
-        assert_eq!(negate_for_bmc("flag"), "!(flag)");
+    fn negate_expr_comparisons() {
+        use assura_parser::ast::{
+            BinOp, Expr, Literal, Spanned, UnaryOp, expr_to_string, negate_expr,
+        };
+
+        fn sp(e: Expr) -> Spanned<Expr> {
+            Spanned::no_span(e)
+        }
+        fn ident(s: &str) -> Spanned<Expr> {
+            sp(Expr::Ident(s.into()))
+        }
+        fn binop(l: Spanned<Expr>, op: BinOp, r: Spanned<Expr>) -> Spanned<Expr> {
+            sp(Expr::BinOp {
+                lhs: Box::new(l),
+                op,
+                rhs: Box::new(r),
+            })
+        }
+
+        // n >= 0 => n < 0
+        let e = binop(
+            ident("n"),
+            BinOp::Gte,
+            sp(Expr::Literal(Literal::Int("0".into()))),
+        );
+        assert_eq!(expr_to_string(&negate_expr(&e)), "n < 0");
+
+        // x <= 10 => x > 10
+        let e = binop(
+            ident("x"),
+            BinOp::Lte,
+            sp(Expr::Literal(Literal::Int("10".into()))),
+        );
+        assert_eq!(expr_to_string(&negate_expr(&e)), "x > 10");
+
+        // a == b => a != b
+        let e = binop(ident("a"), BinOp::Eq, ident("b"));
+        assert_eq!(expr_to_string(&negate_expr(&e)), "a != b");
+
+        // a != b => a == b
+        let e = binop(ident("a"), BinOp::Neq, ident("b"));
+        assert_eq!(expr_to_string(&negate_expr(&e)), "a == b");
+
+        // x > 0 => x <= 0
+        let e = binop(
+            ident("x"),
+            BinOp::Gt,
+            sp(Expr::Literal(Literal::Int("0".into()))),
+        );
+        assert_eq!(expr_to_string(&negate_expr(&e)), "x <= 0");
+
+        // x < 100 => x >= 100
+        let e = binop(
+            ident("x"),
+            BinOp::Lt,
+            sp(Expr::Literal(Literal::Int("100".into()))),
+        );
+        assert_eq!(expr_to_string(&negate_expr(&e)), "x >= 100");
+
+        // flag => not flag
+        let e = ident("flag");
+        assert_eq!(expr_to_string(&negate_expr(&e)), "not flag");
+
+        // true => false
+        let e = sp(Expr::Literal(Literal::Bool(true)));
+        assert_eq!(expr_to_string(&negate_expr(&e)), "false");
+
+        // not x => x (double negation elimination)
+        let inner = ident("x");
+        let e = sp(Expr::UnaryOp {
+            op: UnaryOp::Not,
+            expr: Box::new(inner),
+        });
+        assert_eq!(expr_to_string(&negate_expr(&e)), "x");
+    }
+
+    #[test]
+    fn negate_expr_de_morgan() {
+        use assura_parser::ast::{BinOp, Expr, Spanned, expr_to_string, negate_expr};
+
+        fn sp(e: Expr) -> Spanned<Expr> {
+            Spanned::no_span(e)
+        }
+        fn ident(s: &str) -> Spanned<Expr> {
+            sp(Expr::Ident(s.into()))
+        }
+
+        // a and b => (not a) or (not b)
+        let e = sp(Expr::BinOp {
+            lhs: Box::new(ident("a")),
+            op: BinOp::And,
+            rhs: Box::new(ident("b")),
+        });
+        assert_eq!(expr_to_string(&negate_expr(&e)), "not a or not b");
+
+        // a or b => (not a) and (not b)
+        let e = sp(Expr::BinOp {
+            lhs: Box::new(ident("a")),
+            op: BinOp::Or,
+            rhs: Box::new(ident("b")),
+        });
+        assert_eq!(expr_to_string(&negate_expr(&e)), "not a and not b");
+
+        // x >= 0 and y < 10 => x < 0 or y >= 10
+        let e = sp(Expr::BinOp {
+            lhs: Box::new(sp(Expr::BinOp {
+                lhs: Box::new(ident("x")),
+                op: BinOp::Gte,
+                rhs: Box::new(sp(Expr::Literal(assura_parser::ast::Literal::Int(
+                    "0".into(),
+                )))),
+            })),
+            op: BinOp::And,
+            rhs: Box::new(sp(Expr::BinOp {
+                lhs: Box::new(ident("y")),
+                op: BinOp::Lt,
+                rhs: Box::new(sp(Expr::Literal(assura_parser::ast::Literal::Int(
+                    "10".into(),
+                )))),
+            })),
+        });
+        assert_eq!(expr_to_string(&negate_expr(&e)), "x < 0 or y >= 10");
     }
 
     #[test]

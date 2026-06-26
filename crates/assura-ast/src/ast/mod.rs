@@ -1473,6 +1473,142 @@ mod tests {
             ))
         );
     }
+
+    #[test]
+    fn negate_expr_inverts_comparisons() {
+        let sp = |e| Spanned::no_span(e);
+
+        // Eq => Neq
+        let e = sp(Expr::BinOp {
+            lhs: Box::new(sp(Expr::Ident("a".into()))),
+            op: BinOp::Eq,
+            rhs: Box::new(sp(Expr::Ident("b".into()))),
+        });
+        match &negate_expr(&e).node {
+            Expr::BinOp { op: BinOp::Neq, .. } => {}
+            other => panic!("expected Neq, got {other:?}"),
+        }
+
+        // Lt => Gte
+        let e = sp(Expr::BinOp {
+            lhs: Box::new(sp(Expr::Ident("x".into()))),
+            op: BinOp::Lt,
+            rhs: Box::new(sp(Expr::Literal(Literal::Int("0".into())))),
+        });
+        match &negate_expr(&e).node {
+            Expr::BinOp { op: BinOp::Gte, .. } => {}
+            other => panic!("expected Gte, got {other:?}"),
+        }
+
+        // In => NotIn
+        let e = sp(Expr::BinOp {
+            lhs: Box::new(sp(Expr::Ident("x".into()))),
+            op: BinOp::In,
+            rhs: Box::new(sp(Expr::Ident("s".into()))),
+        });
+        match &negate_expr(&e).node {
+            Expr::BinOp {
+                op: BinOp::NotIn, ..
+            } => {}
+            other => panic!("expected NotIn, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn negate_expr_de_morgan_laws() {
+        let sp = |e| Spanned::no_span(e);
+
+        // And => Or with negated operands
+        let e = sp(Expr::BinOp {
+            lhs: Box::new(sp(Expr::Ident("a".into()))),
+            op: BinOp::And,
+            rhs: Box::new(sp(Expr::Ident("b".into()))),
+        });
+        match &negate_expr(&e).node {
+            Expr::BinOp {
+                lhs,
+                op: BinOp::Or,
+                rhs,
+            } => {
+                assert!(matches!(
+                    &lhs.node,
+                    Expr::UnaryOp {
+                        op: UnaryOp::Not,
+                        ..
+                    }
+                ));
+                assert!(matches!(
+                    &rhs.node,
+                    Expr::UnaryOp {
+                        op: UnaryOp::Not,
+                        ..
+                    }
+                ));
+            }
+            other => panic!("expected Or, got {other:?}"),
+        }
+
+        // Or => And with negated operands
+        let e = sp(Expr::BinOp {
+            lhs: Box::new(sp(Expr::Ident("a".into()))),
+            op: BinOp::Or,
+            rhs: Box::new(sp(Expr::Ident("b".into()))),
+        });
+        match &negate_expr(&e).node {
+            Expr::BinOp {
+                lhs,
+                op: BinOp::And,
+                rhs,
+            } => {
+                assert!(matches!(
+                    &lhs.node,
+                    Expr::UnaryOp {
+                        op: UnaryOp::Not,
+                        ..
+                    }
+                ));
+                assert!(matches!(
+                    &rhs.node,
+                    Expr::UnaryOp {
+                        op: UnaryOp::Not,
+                        ..
+                    }
+                ));
+            }
+            other => panic!("expected And, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn negate_expr_double_negation_elimination() {
+        let sp = |e| Spanned::no_span(e);
+
+        let e = sp(Expr::UnaryOp {
+            op: UnaryOp::Not,
+            expr: Box::new(sp(Expr::Ident("x".into()))),
+        });
+        match &negate_expr(&e).node {
+            Expr::Ident(name) => assert_eq!(name, "x"),
+            other => panic!("expected Ident, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn negate_expr_bool_literal() {
+        let sp = |e| Spanned::no_span(e);
+
+        let e = sp(Expr::Literal(Literal::Bool(true)));
+        match &negate_expr(&e).node {
+            Expr::Literal(Literal::Bool(false)) => {}
+            other => panic!("expected false, got {other:?}"),
+        }
+
+        let e = sp(Expr::Literal(Literal::Bool(false)));
+        match &negate_expr(&e).node {
+            Expr::Literal(Literal::Bool(true)) => {}
+            other => panic!("expected true, got {other:?}"),
+        }
+    }
 }
 
 /// Convert an `Expr` to a human-readable string representation.
@@ -1642,6 +1778,85 @@ fn pattern_to_display(pat: &Pattern) -> String {
         }
     }
 }
+/// Negate an expression at the AST level.
+///
+/// Applies De Morgan's laws and comparison inversion where possible,
+/// avoiding the fragile string-based replacement used previously by
+/// `negate_for_bmc`. Falls back to wrapping in `UnaryOp::Not` for
+/// expressions that don't match a known pattern.
+pub fn negate_expr(expr: &SpExpr) -> SpExpr {
+    let span = expr.span.clone();
+    let negated = match &expr.node {
+        // De Morgan: not (a and b) => (not a) or (not b)
+        Expr::BinOp {
+            lhs,
+            op: BinOp::And,
+            rhs,
+        } => Expr::BinOp {
+            lhs: Box::new(negate_expr(lhs)),
+            op: BinOp::Or,
+            rhs: Box::new(negate_expr(rhs)),
+        },
+        // De Morgan: not (a or b) => (not a) and (not b)
+        Expr::BinOp {
+            lhs,
+            op: BinOp::Or,
+            rhs,
+        } => Expr::BinOp {
+            lhs: Box::new(negate_expr(lhs)),
+            op: BinOp::And,
+            rhs: Box::new(negate_expr(rhs)),
+        },
+        // Comparison inversion
+        Expr::BinOp { lhs, op, rhs } => {
+            if let Some(neg_op) = negate_comparison(op) {
+                Expr::BinOp {
+                    lhs: lhs.clone(),
+                    op: neg_op,
+                    rhs: rhs.clone(),
+                }
+            } else {
+                // Non-invertible binop (Add, Mul, etc.): wrap in Not
+                Expr::UnaryOp {
+                    op: UnaryOp::Not,
+                    expr: Box::new(expr.clone()),
+                }
+            }
+        }
+        // Double negation elimination: not (not e) => e
+        Expr::UnaryOp {
+            op: UnaryOp::Not,
+            expr: inner,
+        } => return inner.as_ref().clone(),
+        // Boolean literal inversion
+        Expr::Literal(Literal::Bool(b)) => Expr::Literal(Literal::Bool(!b)),
+        // Everything else: wrap in Not
+        _ => Expr::UnaryOp {
+            op: UnaryOp::Not,
+            expr: Box::new(expr.clone()),
+        },
+    };
+    Spanned {
+        node: negated,
+        span,
+    }
+}
+
+/// Return the negated comparison operator, if the operator is a comparison.
+fn negate_comparison(op: &BinOp) -> Option<BinOp> {
+    match op {
+        BinOp::Eq => Some(BinOp::Neq),
+        BinOp::Neq => Some(BinOp::Eq),
+        BinOp::Lt => Some(BinOp::Gte),
+        BinOp::Lte => Some(BinOp::Gt),
+        BinOp::Gt => Some(BinOp::Lte),
+        BinOp::Gte => Some(BinOp::Lt),
+        BinOp::In => Some(BinOp::NotIn),
+        BinOp::NotIn => Some(BinOp::In),
+        _ => None,
+    }
+}
+
 /// Truncate a string to `max` characters, appending `...` if truncated.
 pub fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() > max {
