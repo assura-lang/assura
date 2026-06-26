@@ -9,7 +9,7 @@
 //! The coverage script greps for feature-specific identifiers in this crate.
 //! Each function here uses the canonical identifier for its feature.
 
-use crate::expr::expr_to_rust;
+use crate::expr::{OLD_VAR_PREFIX, expr_to_rust};
 use assura_ast::{Clause, ClauseKind};
 
 // ---------------------------------------------------------------------------
@@ -657,8 +657,9 @@ pub fn compile_time_frame(clause: &Clause, name: &str, code: &mut String) {
         for field in &fields {
             let safe_name = field.replace('.', "_");
             code.push_str(&format!(
-                "    debug_assert_eq!({field}, __old_{safe_name}, \
-                 \"CORE.3: frame violation in `{name}`: `{field}` was not listed in modifies\");\n"
+                "    debug_assert_eq!({field}, {old_prefix}{safe_name}, \
+                 \"CORE.3: frame violation in `{name}`: `{field}` was not listed in modifies\");\n",
+                old_prefix = OLD_VAR_PREFIX
             ));
         }
     }

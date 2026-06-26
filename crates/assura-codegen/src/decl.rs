@@ -46,7 +46,9 @@ pub(crate) fn generate_bind(b: &BindDecl, code: &mut String) {
     for clause in &b.clauses {
         if clause.kind == ClauseKind::Ensures {
             for (var, rust_expr) in collect_old_exprs(&clause.body) {
-                code.push_str(&format!("    let __old_{var} = {rust_expr}.clone();\n"));
+                code.push_str(&format!(
+                    "    let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();\n"
+                ));
             }
             ensures_exprs.push(expr_to_rust(&clause.body));
         }
@@ -62,7 +64,8 @@ pub(crate) fn generate_bind(b: &BindDecl, code: &mut String) {
 
     // Call the actual Rust function
     code.push_str(&format!(
-        "    let __result: {ret} = {rust_path}({args_s});\n"
+        "    let {result_var}: {ret} = {rust_path}({args_s});\n",
+        result_var = RESULT_VAR
     ));
 
     // Generate ensures assertions on the result
@@ -70,7 +73,7 @@ pub(crate) fn generate_bind(b: &BindDecl, code: &mut String) {
         generate_debug_assert(code, ens, "ensures");
     }
 
-    code.push_str("    __result\n");
+    code.push_str(&format!("    {RESULT_VAR}\n"));
     code.push_str("}\n\n");
 }
 
@@ -139,7 +142,9 @@ pub(crate) fn generate_extern(ex: &ExternDecl, code: &mut String) {
     for clause in &ex.clauses {
         if clause.kind == ClauseKind::Ensures {
             for (var, rust_expr) in collect_old_exprs(&clause.body) {
-                code.push_str(&format!("    let __old_{var} = {rust_expr}.clone();\n"));
+                code.push_str(&format!(
+                    "    let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();\n"
+                ));
             }
             ensures_exprs.push(expr_to_rust(&clause.body));
         }
@@ -157,12 +162,13 @@ pub(crate) fn generate_extern(ex: &ExternDecl, code: &mut String) {
         code.push_str("    todo!(\"extern function: implementation required\")\n");
     } else if !ensures_exprs.is_empty() {
         code.push_str(&format!(
-            "    let __result: {ret} = todo!(\"extern function: implementation required\");\n"
+            "    let {result_var}: {ret} = todo!(\"extern function: implementation required\");\n",
+            result_var = RESULT_VAR
         ));
         for ens in &ensures_exprs {
             generate_debug_assert(code, ens, "ensures");
         }
-        code.push_str("    __result\n");
+        code.push_str(&format!("    {RESULT_VAR}\n"));
     }
     code.push_str("}\n\n");
 }
@@ -220,7 +226,9 @@ pub(crate) fn generate_fn_def(
     for clause in &f.clauses {
         if clause.kind == ClauseKind::Ensures {
             for (var, rust_expr) in collect_old_exprs(&clause.body) {
-                code.push_str(&format!("    let __old_{var} = {rust_expr}.clone();\n"));
+                code.push_str(&format!(
+                    "    let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();\n"
+                ));
             }
             ensures_exprs.push(expr_to_rust(&clause.body));
         }
@@ -255,15 +263,16 @@ pub(crate) fn generate_fn_def(
         code.push_str(body);
     } else {
         code.push_str(&format!(
-            "    let __result: {ret_ty} = todo!(\"implementation provided by AI agent\");\n"
+            "    let {result_var}: {ret_ty} = todo!(\"implementation provided by AI agent\");\n",
+            result_var = RESULT_VAR
         ));
         for ens in &ensures_exprs {
             generate_debug_assert(code, ens, "ensures");
         }
         if error_enum_name.is_some() {
-            code.push_str("    Ok(__result)\n");
+            code.push_str(&format!("    Ok({RESULT_VAR})\n"));
         } else {
-            code.push_str("    __result\n");
+            code.push_str(&format!("    {RESULT_VAR}\n"));
         }
     }
     code.push_str("}\n\n");
@@ -306,7 +315,7 @@ mod tests {
         generate_bind(&b, &mut code);
         assert!(code.contains("pub fn my_fn(path: String) -> Vec<u8>"));
         assert!(code.contains("std::fs::read(path)"));
-        assert!(code.contains("__result"));
+        assert!(code.contains(RESULT_VAR));
     }
 
     #[test]
@@ -349,7 +358,7 @@ mod tests {
         let mut code = String::new();
         generate_bind(&b, &mut code);
         assert!(code.contains("ensures"), "should have ensures assertion");
-        assert!(code.contains("__result"), "should use __result");
+        assert!(code.contains(RESULT_VAR), "should use result var");
     }
 
     #[test]
@@ -494,7 +503,7 @@ mod tests {
         let mut code = String::new();
         generate_fn_def(&f, &mut code, None);
         assert!(code.contains("debug_assert!((b != 0)"), "requires b != 0");
-        assert!(code.contains("__result"), "result variable");
+        assert!(code.contains(RESULT_VAR), "result variable");
         assert!(code.contains("ensures"), "ensures assertion");
     }
 
@@ -524,7 +533,7 @@ mod tests {
         let mut code = String::new();
         generate_fn_def(&f, &mut code, None);
         assert!(
-            code.contains("let __old_x = x.clone()"),
+            code.contains(&format!("let {OLD_VAR_PREFIX}x = x.clone()")),
             "should save old(x)"
         );
     }

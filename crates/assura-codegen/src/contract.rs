@@ -213,7 +213,9 @@ pub(crate) fn generate_contract_contents(
     for clause in &c.clauses {
         if clause.kind == ClauseKind::Ensures {
             for (var, rust_expr) in collect_old_exprs(&clause.body) {
-                code.push_str(&format!("    let __old_{var} = {rust_expr}.clone();\n"));
+                code.push_str(&format!(
+                    "    let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();\n"
+                ));
             }
         }
     }
@@ -241,12 +243,13 @@ pub(crate) fn generate_contract_contents(
             code.push_str(body);
         } else {
             code.push_str(&format!(
-                "    let __result: {output_type} = todo!(\"implementation provided by AI agent\");\n"
+                "    let {result_var}: {output_type} = todo!(\"implementation provided by AI agent\");\n",
+                result_var = RESULT_VAR
             ));
         }
         // Bind the output variable name so ensures clauses can reference it
         if let Some(ref name) = output_name {
-            code.push_str(&format!("    let {name} = __result.clone();\n"));
+            code.push_str(&format!("    let {name} = {RESULT_VAR}.clone();\n"));
         }
         for ens in &ensures_exprs {
             generate_debug_assert(code, ens, "ensures");
@@ -255,9 +258,9 @@ pub(crate) fn generate_contract_contents(
             generate_debug_assert(code, inv, "invariant");
         }
         if error_enum_name.is_some() {
-            code.push_str("    Ok(__result)\n");
+            code.push_str(&format!("    Ok({RESULT_VAR})\n"));
         } else {
-            code.push_str("    __result\n");
+            code.push_str(&format!("    {RESULT_VAR}\n"));
         }
     }
     code.push_str("}\n");
@@ -715,7 +718,7 @@ pub(crate) fn extract_output_type(body: &SpExpr) -> String {
 ///
 /// Given `output(value: Nat)`, the AST has a `Call { args: [Cast { expr: Ident("value"), .. }] }`.
 /// Returns `Some("value")` if a name is found and it differs from `result`, which is already
-/// aliased to `__result` by the codegen. Returns `None` if the output clause has no named
+/// aliased to the compiler-generated result variable by codegen. Returns `None` if the output clause has no named
 /// binding or uses `result`.
 pub(crate) fn extract_output_name(body: &SpExpr) -> Option<String> {
     match &body.node {
@@ -1246,7 +1249,7 @@ mod tests {
         generate_contract_contents(&c, &mut code, None);
         assert!(code.contains("pub fn check("));
         assert!(code.contains("debug_assert!"));
-        assert!(code.contains("__result"));
+        assert!(code.contains(RESULT_VAR));
     }
 
     #[test]
@@ -1323,7 +1326,7 @@ mod tests {
         let mut ir_bodies = std::collections::HashMap::new();
         ir_bodies.insert(
             "AddOne".to_string(),
-            "    let __result: i64 = (x + 1_i64);\n    __result\n".to_string(),
+            format!("    let {RESULT_VAR}: i64 = (x + 1_i64);\n    {RESULT_VAR}\n"),
         );
         let mut code_with_ir = String::new();
         generate_contract_contents(&c, &mut code_with_ir, Some(&ir_bodies));

@@ -198,13 +198,14 @@ pub(crate) fn generate_service_method(
             code.push_str(body);
         } else {
             code.push_str(&format!(
-                "            let __result: {output_type} = todo!(\"{} implementation\");\n",
-                kind_label.to_lowercase()
+                "            let {result_var}: {output_type} = todo!(\"{} implementation\");\n",
+                kind_label.to_lowercase(),
+                result_var = RESULT_VAR
             ));
         }
         // Bind the output variable name so ensures clauses can reference it
         if let Some(ref name) = output_name {
-            code.push_str(&format!("            let {name} = __result.clone();\n"));
+            code.push_str(&format!("            let {name} = {RESULT_VAR}.clone();\n"));
         }
         // Ensures assertions
         for ens in &ensures_exprs {
@@ -222,7 +223,7 @@ pub(crate) fn generate_service_method(
         if has_invariants {
             code.push_str("            self.check_invariant();\n");
         }
-        code.push_str("            __result\n");
+        code.push_str(&format!("            {RESULT_VAR}\n"));
     }
 
     code.push_str("        }\n\n");
@@ -390,18 +391,19 @@ pub(crate) fn generate_typestate_method(
             code.push_str(body);
         } else {
             code.push_str(&format!(
-                "    let __result: {output_type} = todo!(\"{} implementation\");\n",
-                kind_label.to_lowercase()
+                "    let {result_var}: {output_type} = todo!(\"{} implementation\");\n",
+                kind_label.to_lowercase(),
+                result_var = RESULT_VAR
             ));
         }
         // Bind the output variable name so ensures clauses can reference it
         if let Some(ref name) = output_name {
-            code.push_str(&format!("    let {name} = __result.clone();\n"));
+            code.push_str(&format!("    let {name} = {RESULT_VAR}.clone();\n"));
         }
         for ens in &ensures_exprs {
             generate_debug_assert_indented(code, ens, "ensures", 1);
         }
-        code.push_str("    __result\n");
+        code.push_str(&format!("    {RESULT_VAR}\n"));
     }
 
     code.push_str("}\n");

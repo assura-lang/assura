@@ -362,8 +362,8 @@ contract Foo {
     );
     let lib = &project.files[0].1;
     assert!(
-        lib.contains("__result"),
-        "contract should declare __result variable"
+        lib.contains(RESULT_VAR),
+        "contract should declare result variable"
     );
 }
 
@@ -381,8 +381,8 @@ fn fn_def_ensures_generates_debug_assert() {
         "fn should have debug_assert for both requires and ensures, got {assert_count}"
     );
     assert!(
-        lib.contains("__result"),
-        "fn should declare __result variable"
+        lib.contains(RESULT_VAR),
+        "fn should declare result variable"
     );
 }
 
@@ -391,8 +391,8 @@ fn fn_result_maps_to_dunder_result() {
     let project = codegen_ok("fn double(n: Int) -> Int\n    ensures { result == n + n }\n");
     let lib = &project.files[0].1;
     assert!(
-        lib.contains("__result"),
-        "result keyword in ensures should map to __result"
+        lib.contains(RESULT_VAR),
+        "result keyword in ensures should map to result var"
     );
 }
 
@@ -1285,8 +1285,8 @@ contract AllPositive {
         "forall in ensures should generate .iter().all(): {lib}"
     );
     assert!(
-        lib.contains("__result.iter().all("),
-        "result in forall ensures should map to __result: {lib}"
+        lib.contains(&format!("{RESULT_VAR}.iter().all(")),
+        "result in forall ensures should map to result var: {lib}"
     );
 }
 
@@ -1343,8 +1343,8 @@ fn raw_result_keyword_replaced() {
         .collect();
     let result = raw_tokens_to_rust(&tokens);
     assert!(
-        result.contains("__result"),
-        "result keyword in raw tokens should become __result: {result}"
+        result.contains(RESULT_VAR),
+        "result keyword in raw tokens should become result var: {result}"
     );
 }
 
@@ -1523,9 +1523,9 @@ contract SafeAccess {
 "#,
     );
     let lib = &project.files[0].1;
-    // The generated code must bind `value` from `__result` so ensures can reference it
+    // The generated code must bind `value` from result var so ensures can reference it
     assert!(
-        lib.contains("let value = __result.clone()"),
+        lib.contains(&format!("let value = {RESULT_VAR}.clone()")),
         "generated code must bind output variable name: {lib}"
     );
 }
@@ -2252,7 +2252,7 @@ contract Validator {
         "should reference error type: {lib}"
     );
     assert!(
-        lib.contains("Ok(__result)"),
+        lib.contains(&format!("Ok({RESULT_VAR})")),
         "should wrap result in Ok: {lib}"
     );
 }
@@ -2972,7 +2972,7 @@ fn expr_to_rust_bool_literal() {
 #[test]
 fn expr_to_rust_result_keyword() {
     let e = Spanned::no_span(Expr::Ident("result".into()));
-    assert_eq!(expr_to_rust(&e), "__result");
+    assert_eq!(expr_to_rust(&e), RESULT_VAR);
 }
 
 #[test]
@@ -3118,7 +3118,7 @@ fn expr_to_rust_old() {
     let e = Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(Expr::Ident(
         "x".into(),
     )))));
-    assert_eq!(expr_to_rust(&e), "__old_x");
+    assert_eq!(expr_to_rust(&e), format!("{OLD_VAR_PREFIX}x"));
 }
 
 #[test]
@@ -3374,12 +3374,12 @@ fn deep_field_access_nested_field() {
 
 #[test]
 fn deep_field_access_result_field() {
-    assert!(has_deep_field_access("__result.value"));
+    assert!(has_deep_field_access(&format!("{RESULT_VAR}.value")));
 }
 
 #[test]
 fn deep_field_access_result_method_ok() {
-    assert!(!has_deep_field_access("__result.len()"));
+    assert!(!has_deep_field_access(&format!("{RESULT_VAR}.len()")));
 }
 
 #[test]
@@ -3557,7 +3557,7 @@ fn raw_tokens_empty() {
 fn raw_tokens_result_replacement() {
     let tokens: Vec<String> = vec!["result".into(), ">".into(), "0".into()];
     let result = raw_tokens_to_rust(&tokens);
-    assert!(result.contains("__result"), "got: {result}");
+    assert!(result.contains(RESULT_VAR), "got: {result}");
 }
 
 #[test]

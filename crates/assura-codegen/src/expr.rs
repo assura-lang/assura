@@ -5,6 +5,15 @@
 use super::*;
 use assura_ast::{ExprFolder, fold_arg_list, fold_joined, literal_to_string};
 
+/// Hygienic variable name for the contract return value in generated Rust.
+///
+/// Uses a clearly compiler-generated prefix to avoid collision with
+/// user-defined variables.
+pub(crate) const RESULT_VAR: &str = "__assura_result";
+
+/// Prefix for `old(expr)` pre-state snapshot variables in generated Rust.
+pub(crate) const OLD_VAR_PREFIX: &str = "__assura_old_";
+
 /// Heuristic: returns true if the expression is likely a numeric value
 /// (variable, constant, literal, or arithmetic). Used to decide whether to
 /// emit `i128::from(...)` casts for cross-width comparisons.
@@ -64,7 +73,7 @@ pub(crate) fn expr_to_rust(expr: &SpExpr) -> String {
 /// Convert an Assura `Expr` to a Rust expression for use in const context.
 ///
 /// Compared to [`expr_to_rust`], this variant:
-/// - Does not rename `result` to `__result`
+/// - Does not rename `result` to the compiler-generated result variable
 /// - Does not emit `i128::from()` casts for numeric comparisons
 /// - Does not translate `Implies`/`In`/`NotIn`/`Concat` to Rust idioms
 /// - Emits quantifiers as `/* forall ... */ true` comments
@@ -96,7 +105,7 @@ impl ExprFolder for RustCodegenFolder {
 
     fn fold_ident(&mut self, name: &str) -> String {
         if !self.static_context && name == "result" {
-            "__result".to_string()
+            RESULT_VAR.to_string()
         } else {
             name.to_string()
         }
@@ -179,7 +188,7 @@ impl ExprFolder for RustCodegenFolder {
             // old() is verification-only; emit inner for static
             self.fold_expr(inner)
         } else {
-            format!("__old_{}", old_var_name(inner))
+            format!("{OLD_VAR_PREFIX}{}", old_var_name(inner))
         }
     }
 
@@ -409,12 +418,12 @@ pub(crate) fn raw_tokens_to_rust(tokens: &[String]) -> String {
         return format!("true /* typestate: {expr_s} @ {state_s} */");
     }
 
-    // Check for `result` keyword — replace with `__result`
+    // Check for `result` keyword — replace with result var
     let mapped: Vec<String> = tokens
         .iter()
         .map(|t| {
             if t == "result" {
-                "__result".to_string()
+                RESULT_VAR.to_string()
             } else {
                 map_type_token(t).to_string()
             }
@@ -429,7 +438,7 @@ pub(crate) fn raw_tokens_to_rust(tokens: &[String]) -> String {
 // ---------------------------------------------------------------------------
 
 /// Derive a variable name for an `old(expr)` snapshot from the expression.
-/// E.g., `old(x)` -> `__old_x`, `old(buf.len)` -> `__old_buf_len`.
+/// E.g., `old(x)` -> `__assura_old_x`, `old(buf.len)` -> `__assura_old_buf_len`.
 /// Generate a debug_assert! that handles multi-line expressions.
 ///
 /// If the expression contains newlines (e.g. a match block), wraps it in a
@@ -463,7 +472,7 @@ pub(crate) fn generate_debug_assert(code: &mut String, expr: &str, label: &str) 
 /// against placeholder stub types:
 /// - Any field access (a.b) since stub types have no fields
 /// - Method calls on unknown objects
-/// - References to `__result.field`
+/// - References to `{RESULT_VAR}.field`
 pub(crate) fn has_deep_field_access(expr: &str) -> bool {
     // Detect struct field access like `state.head.extra` that would fail on stub types.
     // Exclude method-call chains like `.iter().all()`, `.len()`, `.clone()` which are
@@ -522,10 +531,11 @@ pub(crate) fn has_deep_field_access(expr: &str) -> bool {
             }
         }
     }
-    // __result.field references (but not __result.iter(), etc.)
-    if expr.contains("__result.") {
-        // Check if all occurrences of __result. are followed by method calls
-        for chunk in expr.split("__result.") {
+    // Result var field references (but not .iter(), etc.)
+    let result_dot = format!("{RESULT_VAR}.");
+    if expr.contains(&result_dot) {
+        // Check if all occurrences are followed by method calls
+        for chunk in expr.split(&result_dot) {
             if chunk.is_empty() {
                 continue;
             }
@@ -879,7 +889,7 @@ mod tests {
     fn expr_to_rust_result_ident() {
         assert_eq!(
             expr_to_rust(&Spanned::no_span(Expr::Ident("result".into()))),
-            "__result"
+            RESULT_VAR
         );
     }
 
@@ -1025,7 +1035,7 @@ mod tests {
         let e = Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(Expr::Ident(
             "x".into(),
         )))));
-        assert_eq!(expr_to_rust(&e), "__old_x");
+        assert_eq!(expr_to_rust(&e), format!("{OLD_VAR_PREFIX}x"));
     }
 
     #[test]
@@ -1210,7 +1220,7 @@ mod tests {
     #[test]
     fn raw_tokens_result_replacement() {
         let tokens: Vec<String> = vec!["result"].into_iter().map(String::from).collect();
-        assert_eq!(raw_tokens_to_rust(&tokens), "__result");
+        assert_eq!(raw_tokens_to_rust(&tokens), RESULT_VAR);
     }
 
     // ---- has_deep_field_access ----
@@ -1232,12 +1242,12 @@ mod tests {
 
     #[test]
     fn has_deep_field_result() {
-        assert!(has_deep_field_access("__result.value"));
+        assert!(has_deep_field_access(&format!("{RESULT_VAR}.value")));
     }
 
     #[test]
     fn no_deep_field_result_method() {
-        assert!(!has_deep_field_access("__result.is_some()"));
+        assert!(!has_deep_field_access(&format!("{RESULT_VAR}.is_some()")));
     }
 
     // ---- generate_debug_assert ----
