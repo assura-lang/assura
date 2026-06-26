@@ -5,7 +5,11 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+use assura_parser::ast::{ClauseKind, Expr};
+
 use crate::TypeError;
+use crate::checkers::*;
+use crate::types::*;
 
 // ===========================================================================
 // T066: CONC.2 Callback re-entrancy prevention
@@ -107,6 +111,110 @@ impl CallbackReentrancyChecker {
     }
 }
 
+impl CallbackReentrancyChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = Self::new();
+        let mut found = false;
+        let mut max_depth_override: Option<usize> = None;
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "non_reentrant" || k == "callback")
+                {
+                    found = true;
+                    if let Expr::Ident(name) = &clause.body.node {
+                        checker.mark_non_reentrant(name.clone(), decl.span.clone());
+                    }
+                }
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "max_depth" || k == "callback_depth")
+                    && let Some(depth) = extract_int_literal(&clause.body)
+                {
+                    max_depth_override = Some(depth as usize);
+                }
+            }
+        }
+        if let Some(depth) = max_depth_override {
+            checker = checker.with_max_depth(depth);
+        }
+        if !found {
+            return Vec::new();
+        }
+        let mut errors = Vec::new();
+        for decl in &source.decls {
+            let Some((fn_name, clauses)) = crate::checks::fn_or_contract_name_clauses(&decl.node)
+            else {
+                continue;
+            };
+            let enter_errors = checker.enter_call(fn_name, &decl.span);
+            errors.extend(enter_errors);
+            for clause in clauses {
+                if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {
+                    let refs = collect_ident_references(&clause.body);
+                    for name in &refs {
+                        if let Some(err) = checker.check_register_callback(name, &decl.span) {
+                            errors.push(err);
+                        }
+                        let re_enter_errors = checker.enter_call(name, &decl.span);
+                        errors.extend(re_enter_errors);
+                        checker.exit_call();
+                    }
+                }
+            }
+            checker.exit_call();
+        }
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            let mut nr_targets: Vec<String> = Vec::new();
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && k == "non_reentrant"
+                    && let Expr::Ident(name) = &clause.body.node
+                {
+                    nr_targets.push(name.clone());
+                }
+            }
+            if nr_targets.is_empty() {
+                continue;
+            }
+            for clause in clauses {
+                if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {
+                    let refs = collect_ident_references(&clause.body);
+                    for name in &refs {
+                        if nr_targets.contains(name) {
+                            errors.push(TypeError {
+                                code: "A24001".into(),
+                                message: format!(
+                                    "re-entrant call to non-reentrant function `{name}`"
+                                ),
+                                span: decl.span.clone(),
+                                secondary: None,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        if !errors.is_empty() {
+            let depth = checker.current_depth();
+            if depth > 0 {
+                errors.push(TypeError {
+                    code: "A24003".into(),
+                    message: format!("callback stack depth is {depth} at end of analysis"),
+                    span: 0..1,
+                    secondary: None,
+                });
+            }
+        }
+        errors
+    }
+}
+
 impl Default for CallbackReentrancyChecker {
     fn default() -> Self {
         Self::new()
@@ -199,6 +307,108 @@ impl TemporalDeadlineChecker {
 
     pub fn current_deadline(&self) -> Option<(&str, u64)> {
         self.deadlines.last().map(|(n, d)| (n.as_str(), *d))
+    }
+}
+
+impl TemporalDeadlineChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = Self::new();
+        let mut found = false;
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "deadline" || k == "timeout" || k == "bounded_time")
+                {
+                    found = true;
+                    match &clause.body.node {
+                        Expr::Call { func, args } => {
+                            if let Expr::Ident(name) = &func.as_ref().node {
+                                let ms = args
+                                    .first()
+                                    .and_then(extract_int_literal)
+                                    .unwrap_or(DEFAULT_DEADLINE_MS)
+                                    as u64;
+                                if let Some(err) =
+                                    checker.enter_deadline(name.clone(), ms, &decl.span)
+                                {
+                                    return vec![err];
+                                }
+                            }
+                        }
+                        Expr::Ident(name) => {
+                            if let Some(err) =
+                                checker.enter_deadline(name.clone(), 1000, &decl.span)
+                            {
+                                return vec![err];
+                            }
+                        }
+                        _ => {
+                            let kvs = extract_kv_pairs(&clause.body);
+                            let name = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "name")
+                                .and_then(|(_, v)| extract_ident(v))
+                                .unwrap_or("unnamed");
+                            let ms = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "ms" || *k == "timeout")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(DEFAULT_DEADLINE_MS)
+                                as u64;
+                            if let Some(err) =
+                                checker.enter_deadline(name.to_string(), ms, &decl.span)
+                            {
+                                return vec![err];
+                            }
+                        }
+                    }
+                }
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "worst_case" || k == "bound")
+                    && let Some((op, args)) = extract_call(&clause.body)
+                {
+                    let ms = args
+                        .first()
+                        .and_then(extract_int_literal)
+                        .unwrap_or(DEFAULT_PARAM_ZERO) as u64;
+                    checker.register_bound(op.to_string(), ms);
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        let mut errors = Vec::new();
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {
+                    let refs = collect_ident_references(&clause.body);
+                    for name in &refs {
+                        if let Some(err) = checker.check_operation(name, &decl.span) {
+                            if let Some((dl_name, dl_ms)) = checker.current_deadline() {
+                                errors.push(err.with_context(&format!(
+                                    "active deadline: `{dl_name}` {dl_ms}ms"
+                                )));
+                            } else {
+                                errors.push(err);
+                            }
+                        }
+                    }
+                }
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "exit_deadline" || k == "end_deadline")
+                {
+                    checker.exit_deadline();
+                }
+            }
+        }
+        errors
     }
 }
 

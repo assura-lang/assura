@@ -452,6 +452,163 @@ fn check_expr_linearity_inner(expr: &SpExpr, ctx: &mut LinearContext, errors: &m
     }
 }
 
+// ---------------------------------------------------------------------------
+// Source-level linearity check (moved from checks/linear_typestate.rs)
+// ---------------------------------------------------------------------------
+
+/// Infer a usage grade from type annotation tokens.
+fn infer_usage_grade(ty_tokens: &[String]) -> UsageGrade {
+    for (i, t) in ty_tokens.iter().enumerate() {
+        match t.as_str() {
+            "linear" => return UsageGrade::Linear,
+            "ghost" | "erased" => return UsageGrade::Erased,
+            "exact" => {
+                if let Some(n_str) = ty_tokens.get(i + 1)
+                    && let Ok(n) = n_str.parse::<u32>()
+                {
+                    return UsageGrade::Exact(n);
+                }
+                return UsageGrade::Linear;
+            }
+            _ => {}
+        }
+    }
+    UsageGrade::Unlimited
+}
+
+/// Helper: declare linear parameters from an input clause expression.
+pub(crate) fn declare_linear_params_from_expr(
+    expr: &SpExpr,
+    tracker: &mut UsageTracker,
+    span: &std::ops::Range<usize>,
+) {
+    match &expr.node {
+        Expr::Raw(tokens) => {
+            declare_linear_params_from_raw(tokens, tracker, span);
+        }
+        Expr::Call { args, .. } => {
+            for arg in args {
+                declare_linear_single_param(arg, tracker, span);
+            }
+        }
+        Expr::Cast { expr: inner, ty } => {
+            if ty.contains("linear")
+                && let Expr::Ident(name) = &inner.as_ref().node
+            {
+                tracker.declare(name.clone(), UsageGrade::Linear, span.clone());
+            }
+        }
+        Expr::Ident(_) => {}
+        Expr::Tuple(items) | Expr::Block(items) => {
+            for item in items {
+                declare_linear_single_param(item, tracker, span);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn declare_linear_single_param(
+    expr: &SpExpr,
+    tracker: &mut UsageTracker,
+    span: &std::ops::Range<usize>,
+) {
+    match &expr.node {
+        Expr::Cast { expr: inner, ty } => {
+            if ty.contains("linear")
+                && let Expr::Ident(name) = &inner.as_ref().node
+            {
+                tracker.declare(name.clone(), UsageGrade::Linear, span.clone());
+            }
+        }
+        Expr::Raw(tokens) => {
+            declare_linear_params_from_raw(tokens, tracker, span);
+        }
+        _ => {}
+    }
+}
+
+fn declare_linear_params_from_raw(
+    tokens: &[String],
+    tracker: &mut UsageTracker,
+    span: &std::ops::Range<usize>,
+) {
+    let mut i = 0;
+    while i < tokens.len() {
+        let sep = tokens.get(i + 1).map(|s| s.as_str());
+        if i + 2 < tokens.len()
+            && matches!(sep, Some(":" | "as"))
+            && tokens[i + 2..]
+                .iter()
+                .take_while(|t| *t != ",")
+                .any(|t| t == "linear")
+        {
+            let name = &tokens[i];
+            tracker.declare(name.clone(), UsageGrade::Linear, span.clone());
+            while i < tokens.len() && tokens[i] != "," {
+                i += 1;
+            }
+        }
+        i += 1;
+    }
+}
+
+pub(crate) fn run_linearity_checks_source(
+    source: &assura_parser::ast::SourceFile,
+) -> Vec<TypeError> {
+    use assura_parser::ast::{ClauseKind, Decl, ServiceItem};
+
+    let mut errors = Vec::new();
+    for decl in &source.decls {
+        if let Decl::Contract(c) = &decl.node {
+            let mut tracker = UsageTracker::new();
+            for clause in &c.clauses {
+                if clause.kind == ClauseKind::Input {
+                    declare_linear_params_from_expr(&clause.body, &mut tracker, &decl.span);
+                }
+            }
+            let mut ctx = LinearContext::new(tracker);
+            for clause in &c.clauses {
+                if matches!(
+                    clause.kind,
+                    ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Invariant
+                ) {
+                    errors.extend(check_expr_linearity(&clause.body, &mut ctx));
+                }
+            }
+            errors.extend(ctx.check());
+        } else if matches!(&decl.node, Decl::FnDef(_) | Decl::Extern(_)) {
+            let tracker = UsageTracker::new();
+            let mut ctx = LinearContext::new(tracker);
+            for param in decl.node.params() {
+                let p_tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+                let grade = infer_usage_grade(&p_tokens);
+                if grade != UsageGrade::Unlimited {
+                    ctx.declare(param.name.clone(), grade, decl.span.clone());
+                }
+            }
+            for clause in decl.node.clauses() {
+                errors.extend(check_expr_linearity(&clause.body, &mut ctx));
+            }
+            errors.extend(ctx.check());
+        } else if let Decl::Service(s) = &decl.node {
+            for item in &s.items {
+                if let ServiceItem::Operation { clauses, .. } | ServiceItem::Query { clauses, .. } =
+                    item
+                {
+                    let tracker = UsageTracker::new();
+                    let mut ctx = LinearContext::new(tracker);
+                    for clause in clauses {
+                        errors.extend(check_expr_linearity(&clause.body, &mut ctx));
+                    }
+                    errors.extend(ctx.check());
+                }
+            }
+        }
+    }
+    errors
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

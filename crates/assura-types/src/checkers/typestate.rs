@@ -245,6 +245,130 @@ pub(crate) fn expr_usages(expr: &SpExpr, tracker: &mut UsageTracker) {
     v.visit_expr(expr);
 }
 
+// ---------------------------------------------------------------------------
+// Source-level typestate check (moved from checks/linear_typestate.rs)
+// ---------------------------------------------------------------------------
+
+pub(crate) fn run_typestate_checks_source(
+    source: &assura_parser::ast::SourceFile,
+) -> Vec<TypeError> {
+    use assura_parser::ast::{ClauseKind, Decl, Expr, ServiceItem};
+
+    let mut errors = Vec::new();
+    for decl in &source.decls {
+        if let Decl::Service(s) = &decl.node {
+            let states: Vec<String> = s
+                .items
+                .iter()
+                .filter_map(|item| {
+                    if let ServiceItem::States(s) = item {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
+                .collect();
+
+            if states.is_empty() {
+                continue;
+            }
+
+            let mut transitions = Vec::new();
+            for item in &s.items {
+                if let ServiceItem::Operation { name, clauses } = item {
+                    for clause in clauses {
+                        if let ClauseKind::Other(ref k) = clause.kind
+                            && (k == "transition" || k == "from_state" || k == "to_state")
+                            && let Expr::Raw(tokens) = &clause.body.node
+                            && tokens.len() >= 3
+                        {
+                            transitions.push((name.clone(), tokens[0].clone(), tokens[2].clone()));
+                        }
+                    }
+                }
+            }
+
+            if !transitions.is_empty() {
+                let initial = states.first().cloned().unwrap_or_default();
+                let mut checker =
+                    TypestateChecker::new(states, transitions, initial, decl.span.clone());
+                for tse in checker.validate_transitions() {
+                    errors.push(TypeError {
+                        code: tse.code,
+                        message: tse.message,
+                        span: tse.span,
+                        secondary: None,
+                    });
+                }
+
+                let has_linear_annotation = s.items.iter().any(|item| {
+                    if let ServiceItem::Operation { clauses, .. } = item {
+                        clauses
+                            .iter()
+                            .any(|c| matches!(&c.kind, ClauseKind::Other(k) if k == "linear"))
+                    } else {
+                        false
+                    }
+                });
+                if let Some(tse) = checker.validate_linear(has_linear_annotation) {
+                    errors.push(TypeError {
+                        code: tse.code,
+                        message: tse.message,
+                        span: tse.span,
+                        secondary: None,
+                    });
+                }
+
+                let mut branch_checkers: Vec<TypestateChecker> = Vec::new();
+                for item in &s.items {
+                    if let ServiceItem::Operation { name, clauses } = item {
+                        let pre_state = checker.current_state().to_string();
+                        if let Err(tse) = checker.transition(name, decl.span.clone()) {
+                            errors.push(TypeError {
+                                code: tse.code,
+                                message: tse.message,
+                                span: tse.span,
+                                secondary: None,
+                            });
+                        }
+
+                        let mut usage_tracker = UsageTracker::new();
+                        for clause in clauses {
+                            expr_usages(&clause.body, &mut usage_tracker);
+                        }
+
+                        if !pre_state.is_empty() {
+                            branch_checkers.push(TypestateChecker::new(
+                                checker.states.clone(),
+                                Vec::new(),
+                                checker.current_state().to_string(),
+                                decl.span.clone(),
+                            ));
+                        }
+                    }
+                }
+
+                for pair in branch_checkers.windows(2) {
+                    if let Some(tse) = TypestateChecker::check_branch_consistency(
+                        &pair[0],
+                        &pair[1],
+                        decl.span.clone(),
+                    ) {
+                        errors.push(TypeError {
+                            code: tse.code,
+                            message: tse.message,
+                            span: tse.span,
+                            secondary: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    errors
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

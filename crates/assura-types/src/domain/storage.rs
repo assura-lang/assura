@@ -3,7 +3,11 @@
 //! CrashRecoveryChecker, PageCacheChecker, MvccChecker,
 //! RollbackChecker, MonotonicStateChecker, StorageFailureChecker.
 
+use assura_parser::ast::{ClauseKind, Expr, SpExpr};
+
 use crate::TypeError;
+use crate::checkers::*;
+use crate::types::*;
 
 // ===========================================================================
 // T086: STOR.1 Crash recovery contracts
@@ -116,6 +120,52 @@ impl CrashRecoveryChecker {
         errs.extend(self.check_commit_durability());
         errs.extend(self.check_ordering());
         errs
+    }
+}
+
+impl CrashRecoveryChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = Self::new();
+        let mut found = false;
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn_block(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind {
+                    if k == "wal" || k == "crash_recovery" || k == "write_ahead" {
+                        found = true;
+                        if let Some(id) = extract_ident(&clause.body) {
+                            checker.begin_write(id.to_string());
+                        }
+                    }
+                    if (k == "write_data" || k == "data_write")
+                        && let Some(id) = extract_ident(&clause.body)
+                    {
+                        checker.write_data(id);
+                    }
+                    if (k == "write_wal" || k == "wal_write")
+                        && let Some(id) = extract_ident(&clause.body)
+                    {
+                        checker.write_wal(id);
+                    }
+                    if (k == "fsync" || k == "flush")
+                        && let Some(id) = extract_ident(&clause.body)
+                    {
+                        checker.fsync(id);
+                    }
+                    if k == "commit"
+                        && let Some(id) = extract_ident(&clause.body)
+                    {
+                        checker.commit(id);
+                    }
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        checker.check_all()
     }
 }
 
@@ -232,6 +282,78 @@ impl PageCacheChecker {
     }
 }
 
+impl PageCacheChecker {
+    /// Scan an expression for page cache operations.
+    fn scan_expr(expr: &SpExpr, checker: &mut PageCacheChecker) {
+        if let Some((name, args)) = extract_call(expr) {
+            let page_id = args
+                .first()
+                .and_then(extract_int_literal)
+                .unwrap_or(DEFAULT_PARAM_ZERO) as u64;
+            match name {
+                "load_page" | "load" | "fetch_page" => checker.load_page(page_id),
+                "pin" | "pin_page" => checker.pin(page_id),
+                "unpin" | "unpin_page" => checker.unpin(page_id),
+                "mark_dirty" | "dirty" => checker.mark_dirty(page_id),
+                "flush" | "flush_page" => checker.flush(page_id),
+                "evict" | "evict_page" => {
+                    checker.evict(page_id);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker: Option<PageCacheChecker> = None;
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn_block(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "page_cache" || k == "buffer_pool" || k == "cache_policy")
+                {
+                    let capacity = match &clause.body.node {
+                        Expr::Call { args, .. } => {
+                            args.first()
+                                .and_then(extract_int_literal)
+                                .unwrap_or(DEFAULT_PAGE_SIZE) as usize
+                        }
+                        Expr::Literal(assura_parser::ast::Literal::Int(s)) => {
+                            s.parse::<usize>().unwrap_or(DEFAULT_PAGE_SIZE as usize)
+                        }
+                        _ => {
+                            let kvs = extract_kv_pairs(&clause.body);
+                            kvs.iter()
+                                .find(|(k, _)| {
+                                    *k == "capacity" || *k == "size" || *k == "max_pages"
+                                })
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(DEFAULT_PAGE_SIZE) as usize
+                        }
+                    };
+                    if checker.is_none() {
+                        checker = Some(PageCacheChecker::new(capacity));
+                    }
+                }
+                if let Some(ch) = checker.as_mut()
+                    && matches!(
+                        clause.kind,
+                        ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Other(_)
+                    )
+                {
+                    Self::scan_expr(&clause.body, ch);
+                }
+            }
+        }
+        match checker {
+            Some(ch) => ch.check_capacity(),
+            None => Vec::new(),
+        }
+    }
+}
+
 impl Default for PageCacheChecker {
     fn default() -> Self {
         Self::new(1024)
@@ -343,6 +465,93 @@ impl MvccChecker {
     }
 }
 
+impl MvccChecker {
+    /// Scan an expression for MVCC operations.
+    fn scan_expr(expr: &SpExpr, checker: &mut MvccChecker) {
+        if let Some((name, args)) = extract_call(expr) {
+            match name {
+                "begin_txn" | "begin" | "start_transaction" => {
+                    checker.begin_txn();
+                }
+                "write" | "write_version" | "put" => {
+                    let key = args
+                        .first()
+                        .and_then(extract_ident)
+                        .unwrap_or("default")
+                        .to_string();
+                    let txn_id = args
+                        .get(1)
+                        .and_then(extract_int_literal)
+                        .unwrap_or(DEFAULT_PARAM_ONE) as u64;
+                    checker.write_version(key, txn_id);
+                }
+                "commit" | "commit_txn" => {
+                    let txn_id = args
+                        .first()
+                        .and_then(extract_int_literal)
+                        .unwrap_or(DEFAULT_PARAM_ONE) as u64;
+                    checker.commit_txn(txn_id);
+                }
+                _ => {}
+            }
+        }
+        match &expr.node {
+            Expr::Block(exprs) | Expr::List(exprs) => {
+                for e in exprs {
+                    Self::scan_expr(e, checker);
+                }
+            }
+            Expr::BinOp { lhs, rhs, .. } => {
+                Self::scan_expr(lhs, checker);
+                Self::scan_expr(rhs, checker);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = Self::new();
+        let mut found = false;
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn_block(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "mvcc" || k == "snapshot_isolation" || k == "serializable")
+                {
+                    found = true;
+                    Self::scan_expr(&clause.body, &mut checker);
+                }
+                if found && matches!(clause.kind, ClauseKind::Requires | ClauseKind::Ensures) {
+                    Self::scan_expr(&clause.body, &mut checker);
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        let mut errors = checker.check_write_conflicts();
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if clause.kind == ClauseKind::Ensures {
+                    let refs = collect_ident_references(&clause.body);
+                    for name in &refs {
+                        if let Some(err) = checker.check_snapshot_read(name, 1) {
+                            errors.push(err);
+                        }
+                    }
+                }
+            }
+        }
+        errors.extend(checker.check_phantom(1));
+        errors
+    }
+}
+
 impl Default for MvccChecker {
     fn default() -> Self {
         Self::new()
@@ -425,6 +634,95 @@ impl RollbackChecker {
                 });
             }
         }
+        errors
+    }
+}
+
+impl RollbackChecker {
+    /// Scan an expression for rollback operations.
+    fn scan_expr(expr: &SpExpr, checker: &mut RollbackChecker) -> Vec<TypeError> {
+        let mut scan_errors = Vec::new();
+        if let Some((name, args)) = extract_call(expr) {
+            match name {
+                "savepoint" | "create_savepoint" => {
+                    let sp_name = args
+                        .first()
+                        .and_then(extract_ident)
+                        .unwrap_or("default")
+                        .to_string();
+                    checker.create_savepoint(sp_name);
+                }
+                "acquire" | "acquire_resource" | "lock" => {
+                    let res_name = args
+                        .first()
+                        .and_then(extract_ident)
+                        .unwrap_or("resource")
+                        .to_string();
+                    checker.acquire_resource(res_name);
+                }
+                "release" | "release_resource" | "unlock" => {
+                    let res_name = args.first().and_then(extract_ident).unwrap_or("resource");
+                    checker.release_resource(res_name);
+                }
+                "rollback" | "rollback_to" => {
+                    let sp_name = args.first().and_then(extract_ident).unwrap_or("default");
+                    if let Some(err) = checker.rollback_to(sp_name) {
+                        scan_errors.push(err);
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Expr::Ident(name) = &expr.node {
+            checker.create_savepoint(name.clone());
+        }
+        match &expr.node {
+            Expr::Block(exprs) | Expr::List(exprs) => {
+                for e in exprs {
+                    scan_errors.extend(Self::scan_expr(e, checker));
+                }
+            }
+            Expr::BinOp { lhs, rhs, .. } => {
+                scan_errors.extend(Self::scan_expr(lhs, checker));
+                scan_errors.extend(Self::scan_expr(rhs, checker));
+            }
+            Expr::Call { func, args } => {
+                scan_errors.extend(Self::scan_expr(func, checker));
+                for a in args {
+                    scan_errors.extend(Self::scan_expr(a, checker));
+                }
+            }
+            _ => {}
+        }
+        scan_errors
+    }
+
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = Self::new();
+        let mut scan_errors = Vec::new();
+        let mut found = false;
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn_block(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "rollback" || k == "savepoint" || k == "transactional")
+                {
+                    found = true;
+                    scan_errors.extend(Self::scan_expr(&clause.body, &mut checker));
+                }
+                if found && matches!(clause.kind, ClauseKind::Requires | ClauseKind::Ensures) {
+                    scan_errors.extend(Self::scan_expr(&clause.body, &mut checker));
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        let mut errors = scan_errors;
+        errors.extend(checker.check_resource_leak());
+        errors.extend(checker.check_savepoint_nesting());
         errors
     }
 }
@@ -536,6 +834,97 @@ impl MonotonicStateChecker {
     }
 }
 
+impl MonotonicStateChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = Self::new();
+        let mut found = false;
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind {
+                    if k == "monotonic" || k == "monotone" || k == "increasing" {
+                        found = true;
+                        match &clause.body.node {
+                            Expr::Call { func, args } => {
+                                if let Expr::Ident(name) = &func.as_ref().node {
+                                    let direction = args
+                                        .first()
+                                        .and_then(extract_ident)
+                                        .map(|d| match d {
+                                            "strictly_increasing" => {
+                                                MonotonicDirection::StrictlyIncreasing
+                                            }
+                                            "decreasing" => MonotonicDirection::Decreasing,
+                                            _ => MonotonicDirection::Increasing,
+                                        })
+                                        .unwrap_or(MonotonicDirection::Increasing);
+                                    let initial = args
+                                        .get(1)
+                                        .and_then(extract_int_literal)
+                                        .unwrap_or(DEFAULT_PARAM_ZERO);
+                                    checker.declare(
+                                        name.clone(),
+                                        direction,
+                                        initial,
+                                        decl.span.clone(),
+                                    );
+                                }
+                            }
+                            Expr::Ident(name) => {
+                                checker.declare(
+                                    name.clone(),
+                                    MonotonicDirection::Increasing,
+                                    0,
+                                    decl.span.clone(),
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                    if (k == "update" || k == "assign" || k == "set")
+                        && let Some((name, args)) = extract_call(&clause.body)
+                        && let Some(val) = args.first().and_then(extract_int_literal)
+                        && let Some(err) = checker.update(name, val)
+                    {
+                        return vec![err];
+                    }
+                    if k == "reset"
+                        && let Some(name) = extract_ident(&clause.body)
+                        && let Some(err) = checker.check_reset(name)
+                    {
+                        return vec![err];
+                    }
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        let mut errors = Vec::new();
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if clause.kind == ClauseKind::Ensures {
+                    let refs = collect_ident_references(&clause.body);
+                    for name in &refs {
+                        if let Some(mut err) = checker.check_access(name) {
+                            if let Some(val) = checker.current_value(name) {
+                                err.message.push_str(&format!(" (current value: {val})"));
+                            }
+                            errors.push(err);
+                        }
+                    }
+                }
+            }
+        }
+        errors
+    }
+}
+
 impl Default for MonotonicStateChecker {
     fn default() -> Self {
         Self::new()
@@ -637,6 +1026,48 @@ impl StorageFailureChecker {
                 secondary: None,
             })
             .collect()
+    }
+}
+
+impl StorageFailureChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = Self::new();
+        let mut found = false;
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn_block(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind {
+                    if k == "failure_mode" || k == "storage_failure" {
+                        found = true;
+                        if let Expr::Ident(name) = &clause.body.node {
+                            let mode = match name.as_str() {
+                                "partial_write" => FailureMode::PartialWrite,
+                                "torn_page" => FailureMode::TornPage,
+                                "bit_rot" => FailureMode::BitRot,
+                                "disk_full" => FailureMode::DiskFull,
+                                "io_timeout" => FailureMode::IoTimeout,
+                                _ => continue,
+                            };
+                            checker.declare_failure_mode(mode);
+                        }
+                    }
+                    if (k == "handles" || k == "handles_failure")
+                        && let Expr::Ident(name) = &clause.body.node
+                    {
+                        checker.mark_handled(name);
+                    }
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        let mut errors = checker.check_unhandled();
+        errors.extend(checker.check_critical_coverage());
+        errors.extend(checker.check_spurious_handlers());
+        errors
     }
 }
 

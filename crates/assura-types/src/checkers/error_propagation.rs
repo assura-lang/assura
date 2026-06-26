@@ -429,6 +429,162 @@ pub(crate) enum ErrorAction {
     Handle,
 }
 
+// ---------------------------------------------------------------------------
+// Source-level error propagation check
+// ---------------------------------------------------------------------------
+
+/// Collect identifier-like tokens from a clause body.
+fn clause_body_tokens(body: &assura_parser::ast::Expr) -> Vec<String> {
+    use assura_parser::ast::Expr;
+    match body {
+        Expr::Raw(tokens) => tokens.clone(),
+        Expr::Ident(name) => vec![name.clone()],
+        _ => Vec::new(),
+    }
+}
+
+impl ErrorPropagationChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        use assura_parser::ast::{ClauseKind, Decl, Expr};
+
+        let mut checker = Self::new();
+        let mut errors = Vec::new();
+
+        // Pass 1: discover error policies from contracts
+        for decl in &source.decls {
+            if let Decl::Contract(c) = &decl.node {
+                let mut policy = ErrorPolicy::default();
+                for clause in &c.clauses {
+                    if let ClauseKind::Other(ref k) = clause.kind
+                        && k == "must_propagate"
+                    {
+                        let tokens = clause_body_tokens(&clause.body.node);
+                        policy.must_propagate.extend(tokens);
+                    }
+                    if let ClauseKind::Other(ref k) = clause.kind
+                        && k == "must_check"
+                    {
+                        let tokens = clause_body_tokens(&clause.body.node);
+                        policy.must_check.extend(tokens);
+                    }
+                    if let ClauseKind::Other(ref k) = clause.kind
+                        && k == "must_not_mask"
+                    {
+                        let tokens = clause_body_tokens(&clause.body.node);
+                        if tokens.len() >= 2 {
+                            policy
+                                .must_not_mask
+                                .push((tokens[0].clone(), tokens[1].clone()));
+                        }
+                    }
+                    if clause.kind == ClauseKind::MustNot {
+                        let tokens = clause_body_tokens(&clause.body.node);
+                        if tokens.len() >= 2 {
+                            policy
+                                .must_not_mask
+                                .push((tokens[0].clone(), tokens[1].clone()));
+                        }
+                    }
+                    if let ClauseKind::Other(ref k) = clause.kind
+                        && k == "must_preserve_detail"
+                    {
+                        let tokens = clause_body_tokens(&clause.body.node);
+                        policy.must_preserve_detail.extend(tokens);
+                    }
+                }
+                if !policy.must_propagate.is_empty()
+                    || !policy.must_check.is_empty()
+                    || !policy.must_not_mask.is_empty()
+                    || !policy.must_preserve_detail.is_empty()
+                {
+                    checker.register_policy(c.name.clone(), policy);
+                }
+            }
+        }
+
+        // Pass 2: check functions for propagation / masking violations
+        for decl in &source.decls {
+            if let Decl::FnDef(f) = &decl.node {
+                let rt_tokens = f
+                    .return_ty
+                    .as_ref()
+                    .map(|t| t.to_tokens())
+                    .unwrap_or_default();
+                let returns_error = rt_tokens.iter().any(|t| t == "Result" || t == "Error");
+
+                for clause in &f.clauses {
+                    if returns_error
+                        && clause.kind == ClauseKind::Errors
+                        && let Expr::Raw(tokens) = &clause.body.node
+                    {
+                        for error_code in tokens {
+                            if checker.is_must_propagate(error_code) {
+                                errors.push(TypeError {
+                                    code: "A64001".into(),
+                                    message: format!(
+                                        "error code `{error_code}` in function `{}` must be \
+                                         propagated, not caught",
+                                        f.name
+                                    ),
+                                    span: decl.span.clone(),
+                                    secondary: None,
+                                });
+                            }
+                        }
+                    }
+
+                    if let ClauseKind::Other(ref k) = clause.kind
+                        && k == "catch"
+                    {
+                        let tokens = clause_body_tokens(&clause.body.node);
+                        let error_code = tokens.first().cloned().unwrap_or_default();
+                        let action_kw = tokens.get(1).map(|s| s.as_str()).unwrap_or("");
+                        let action = match action_kw {
+                            "swallow" | "ignore" => ErrorAction::Swallow,
+                            "translate" | "translate_to" => {
+                                let target = tokens.get(2).cloned().unwrap_or_default();
+                                ErrorAction::TranslateTo(target)
+                            }
+                            "propagate" | "rethrow" => ErrorAction::Propagate,
+                            _ => ErrorAction::Handle,
+                        };
+                        if let Some(te) =
+                            checker.validate_catch(&error_code, action, decl.span.clone())
+                        {
+                            errors.push(TypeError {
+                                code: te.code,
+                                message: te.message,
+                                span: te.span,
+                                secondary: None,
+                            });
+                        }
+                    }
+
+                    if returns_error
+                        && matches!(clause.kind, ClauseKind::Ensures | ClauseKind::Requires)
+                    {
+                        let refs = collect_ident_references(&clause.body);
+                        for fn_ref in &refs {
+                            if let Some(te) =
+                                checker.validate_unchecked_call(fn_ref, decl.span.clone())
+                            {
+                                errors.push(TypeError {
+                                    code: te.code,
+                                    message: te.message,
+                                    span: te.span,
+                                    secondary: None,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        errors
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

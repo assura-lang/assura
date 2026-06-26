@@ -108,3 +108,119 @@ impl Default for UnsafeEscapeChecker {
         Self::new()
     }
 }
+
+impl UnsafeEscapeChecker {
+    /// AST-walking entry point: scan for unsafe/trusted blocks and check proofs.
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        use assura_parser::ast::{BlockKind, ClauseKind, Decl, Expr};
+
+        let mut checker = UnsafeEscapeChecker::new();
+        let mut found = false;
+        for decl in &source.decls {
+            match &decl.node {
+                Decl::FnDef(f) => {
+                    let mut obligations = Vec::new();
+                    for clause in &f.clauses {
+                        if let ClauseKind::Other(ref k) = clause.kind
+                            && (k == "obligation" || k == "proof_obligation" || k == "must_prove")
+                        {
+                            if let Expr::Ident(obl) = &clause.body.node {
+                                obligations.push(obl.clone());
+                            } else if let Some((_, args)) =
+                                crate::checkers::extract_call(&clause.body)
+                            {
+                                for arg in args {
+                                    if let Some(name) = crate::checkers::extract_ident(arg) {
+                                        obligations.push(name.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    for clause in &f.clauses {
+                        if let ClauseKind::Other(ref k) = clause.kind {
+                            if k == "unsafe" || k == "unsafe_escape" || k == "trusted" {
+                                found = true;
+                                checker.declare_unsafe(
+                                    f.name.clone(),
+                                    obligations.clone(),
+                                    decl.span.clone(),
+                                );
+                            }
+                            if k == "safety_proof" || k == "proof" {
+                                checker.attach_proof(&f.name);
+                            }
+                        }
+                    }
+                }
+                Decl::Block {
+                    kind, name, body, ..
+                } if *kind == BlockKind::UnsafeEscape => {
+                    found = true;
+                    let mut obligations = Vec::new();
+                    for clause in body {
+                        if let ClauseKind::Other(ref k) = clause.kind
+                            && (k == "obligation" || k == "proof_obligation" || k == "must_prove")
+                        {
+                            if let Expr::Ident(obl) = &clause.body.node {
+                                obligations.push(obl.clone());
+                            } else if let Some((_, args)) =
+                                crate::checkers::extract_call(&clause.body)
+                            {
+                                for arg in args {
+                                    if let Some(name) = crate::checkers::extract_ident(arg) {
+                                        obligations.push(name.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    checker.declare_unsafe(name.clone(), obligations, decl.span.clone());
+                    for clause in body {
+                        if let ClauseKind::Other(ref k) = clause.kind
+                            && (k == "safety_proof" || k == "proof")
+                        {
+                            checker.attach_proof(name);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        // Discharge obligations from proof clauses
+        for decl in &source.decls {
+            match &decl.node {
+                Decl::FnDef(f) => {
+                    for clause in &f.clauses {
+                        if let ClauseKind::Other(ref k) = clause.kind
+                            && (k == "discharges" || k == "proves")
+                            && let Expr::Ident(obligation) = &clause.body.node
+                        {
+                            checker.discharge_obligation(&f.name, obligation.clone());
+                        }
+                    }
+                }
+                Decl::Block {
+                    kind, name, body, ..
+                } if *kind == BlockKind::UnsafeEscape => {
+                    for clause in body {
+                        if let ClauseKind::Other(ref k) = clause.kind
+                            && (k == "discharges" || k == "proves")
+                            && let Expr::Ident(obligation) = &clause.body.node
+                        {
+                            checker.discharge_obligation(name, obligation.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut errors = checker.check_unproven();
+        errors.extend(checker.check_obligations());
+        errors.extend(checker.check_empty_obligations());
+        errors
+    }
+}

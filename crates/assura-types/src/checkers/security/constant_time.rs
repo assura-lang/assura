@@ -119,3 +119,36 @@ impl Default for ConstantTimeChecker {
         Self::new()
     }
 }
+
+impl ConstantTimeChecker {
+    /// AST-walking entry point: scan for `constant_time` clauses and check bodies.
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut all_errors = Vec::new();
+        for decl in &source.decls {
+            let Some((clauses, params)) = crate::checks::runtime_decl_clauses_params(&decl.node)
+            else {
+                continue;
+            };
+            let has_ct = clauses.iter().any(
+                |c| matches!(&c.kind, assura_parser::ast::ClauseKind::Other(k) if k == "constant_time"),
+            );
+            if !has_ct {
+                continue;
+            }
+            let mut checker = ConstantTimeChecker::new();
+            for param in params {
+                let tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+                let is_secret = tokens.iter().any(|t| t == "secret" || t == "#[secret]");
+                if is_secret {
+                    checker.mark_secret(param.name.clone());
+                }
+            }
+            for clause in clauses {
+                for err in checker.check_expr(&clause.body, &decl.span) {
+                    all_errors.push(err.into());
+                }
+            }
+        }
+        all_errors
+    }
+}

@@ -154,6 +154,131 @@ impl FfiBoundaryChecker {
     }
 }
 
+impl FfiBoundaryChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        use assura_parser::ast::{ClauseKind, Decl, Expr};
+
+        let mut checker = Self::new();
+        let mut externs = Vec::new();
+        let mut has_any_boundary = false;
+
+        for decl in &source.decls {
+            if let Decl::Extern(e) = &decl.node {
+                let has_boundary = e.clauses.iter().any(
+                    |c| {
+                        matches!(c.kind, ClauseKind::Other(ref k) if k == "trust" || k == "boundary")
+                    },
+                );
+                if has_boundary {
+                    has_any_boundary = true;
+                }
+                let has_contract = !e.clauses.is_empty();
+                externs.push((
+                    e.name.clone(),
+                    has_boundary,
+                    has_contract,
+                    decl.span.clone(),
+                ));
+
+                let boundary = if e.clauses.iter().any(|c| {
+                    matches!(&c.kind, ClauseKind::Other(k) if k == "trust")
+                        && matches!(&c.body.node, Expr::Ident(v) if v == "trusted")
+                }) {
+                    TrustBoundary::Trusted
+                } else if e.clauses.iter().any(|c| {
+                    matches!(&c.kind, ClauseKind::Other(k) if k == "trust")
+                        && matches!(&c.body.node, Expr::Ident(v) if v == "audited")
+                }) {
+                    TrustBoundary::Audited
+                } else {
+                    TrustBoundary::Untrusted
+                };
+                checker.register_extern(e.name.clone(), boundary);
+
+                let has_requires = e.clauses.iter().any(|c| c.kind == ClauseKind::Requires);
+                let has_ensures = e.clauses.iter().any(|c| c.kind == ClauseKind::Ensures);
+                if has_requires || has_ensures {
+                    checker.mark_contracted(e.name.clone());
+                }
+            }
+        }
+
+        if !has_any_boundary {
+            return Vec::new();
+        }
+
+        let mut errors: Vec<TypeError> = checker
+            .check_file(&externs)
+            .into_iter()
+            .map(|fe| TypeError {
+                code: fe.code,
+                message: fe.message,
+                span: fe.span,
+                secondary: None,
+            })
+            .collect();
+
+        for decl in &source.decls {
+            if let Decl::Extern(e) = &decl.node {
+                let has_requires = e.clauses.iter().any(|c| c.kind == ClauseKind::Requires);
+                let has_ensures = e.clauses.iter().any(|c| c.kind == ClauseKind::Ensures);
+                let has_boundary = e.clauses.iter().any(
+                    |c| {
+                        matches!(c.kind, ClauseKind::Other(ref k) if k == "trust" || k == "boundary")
+                    },
+                );
+                if has_boundary && !has_requires && !has_ensures {
+                    errors.push(TypeError {
+                        code: "A11005".into(),
+                        message: format!(
+                            "extern `{}` has trust boundary but no requires/ensures contracts; \
+                             add preconditions and postconditions to validate the trust boundary",
+                            e.name
+                        ),
+                        span: decl.span.clone(),
+                        secondary: None,
+                    });
+                }
+
+                let has_unsafe_ann = e
+                    .clauses
+                    .iter()
+                    .any(|c| matches!(&c.kind, ClauseKind::Other(k) if k == "unsafe"));
+                let is_ffi_wrapper = has_boundary;
+                for err in checker.check_unsafe_confinement(
+                    &e.name,
+                    is_ffi_wrapper,
+                    has_unsafe_ann,
+                    &decl.span,
+                ) {
+                    errors.push(err.into());
+                }
+            }
+        }
+
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if matches!(clause.kind, ClauseKind::Ensures | ClauseKind::Requires) {
+                    let refs = collect_ident_references(&clause.body);
+                    for callee in &refs {
+                        let result_validated = clauses.iter().any(|c| {
+                            c.kind == ClauseKind::Ensures && expr_references_var(&c.body, callee)
+                        });
+                        for err in checker.check_ffi_call(callee, result_validated, &decl.span) {
+                            errors.push(err.into());
+                        }
+                    }
+                }
+            }
+        }
+
+        errors
+    }
+}
+
 impl Default for FfiBoundaryChecker {
     fn default() -> Self {
         Self::new()

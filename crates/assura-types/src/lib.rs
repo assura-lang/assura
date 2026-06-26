@@ -44,6 +44,12 @@ pub use domain::{GeneratedTest, TableSmtObligation, TestGenerator, TestKind, Tes
 // From checks module (public API for pipeline)
 pub use checks::collect_table_smt_obligations;
 
+// Re-export checks/ helpers so domain/ can call them at crate scope.
+pub(crate) use checks::{
+    clauses_contract_fn, clauses_contract_fn_block, fn_or_contract_name_clauses,
+    runtime_decl_clauses_params,
+};
+
 // From convert module (pub(crate) items accessed within crate)
 pub(crate) use convert::parse_type_tokens;
 

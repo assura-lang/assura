@@ -3,9 +3,19 @@
 //! ComplexityBoundChecker, BehavioralEquivalenceChecker,
 //! MultiPassRefinementChecker, IncrementalContractChecker,
 //! ScopedInvariantChecker, ContractCompositionChecker,
-//! ContractLibraryChecker.
+//! ContractLibraryChecker, MatchExhaustivenessChecker.
 
-use crate::TypeError;
+use assura_parser::ast::{BlockKind, ClauseKind, Decl, Expr, ExprVisitor, MatchArm, SpExpr};
+
+use crate::checkers::{
+    InterfaceChecker, InterfaceContract, InterfaceMethod, InvariantKind, StructuralInvariant,
+    StructuralInvariantChecker, collect_ident_references, extract_call, extract_ident,
+    extract_int_literal, extract_kv_pairs,
+};
+use crate::checks::{clauses_contract_fn, clauses_contract_fn_block, clauses_contract_fn_extern};
+use crate::convert::parse_type_tokens;
+use crate::types::*;
+use crate::{Type, TypeError};
 
 // ===========================================================================
 // T101: PERF.2 Complexity bounds (AARA)
@@ -833,5 +843,931 @@ impl ContractLibraryChecker {
 impl Default for ContractLibraryChecker {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ===========================================================================
+// Pattern exhaustiveness (T017)
+// ===========================================================================
+
+/// A pattern in a match arm, used for exhaustiveness checking.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Pattern {
+    /// Matches a specific enum variant by name.
+    Variant(String),
+    /// Wildcard `_` pattern that matches anything.
+    Wildcard,
+    /// Matches a specific literal value.
+    Literal(assura_parser::ast::Literal),
+}
+
+/// Check whether a set of patterns exhaustively covers all variants of an enum.
+///
+/// Returns `None` if the patterns are exhaustive, or `Some(missing)` with the
+/// list of uncovered variant names.
+pub(crate) fn check_exhaustiveness(
+    patterns: &[Pattern],
+    enum_variants: &[String],
+) -> Option<Vec<String>> {
+    if patterns.iter().any(|p| matches!(p, Pattern::Wildcard)) {
+        return None;
+    }
+    let covered: std::collections::HashSet<&str> = patterns
+        .iter()
+        .filter_map(|p| match p {
+            Pattern::Variant(name) => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    let missing: Vec<String> = enum_variants
+        .iter()
+        .filter(|v| !covered.contains(v.as_str()))
+        .cloned()
+        .collect();
+    if missing.is_empty() {
+        None
+    } else {
+        Some(missing)
+    }
+}
+
+// ===========================================================================
+// Match exhaustiveness source walking (T017)
+// ===========================================================================
+
+/// Walk all expressions in the source file and check match expressions
+/// for exhaustiveness against known enum types.
+pub(crate) fn run_match_exhaustiveness_source(
+    source: &assura_parser::ast::SourceFile,
+    symbols: &assura_resolve::SymbolTable,
+) -> Vec<TypeError> {
+    let mut errors = Vec::new();
+    let mut enum_variants: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for decl in &source.decls {
+        if let Decl::EnumDef(e) = &decl.node {
+            enum_variants.insert(
+                e.name.clone(),
+                e.variants.iter().map(|v| v.name.clone()).collect(),
+            );
+        }
+    }
+    for decl in &source.decls {
+        let Some(clauses) = clauses_contract_fn_extern(&decl.node) else {
+            continue;
+        };
+        for clause in clauses {
+            check_match_exhaustiveness_expr(
+                &clause.body,
+                &decl.span,
+                &enum_variants,
+                symbols,
+                &mut errors,
+            );
+        }
+    }
+    errors
+}
+
+fn check_match_exhaustiveness_expr(
+    expr: &SpExpr,
+    span: &std::ops::Range<usize>,
+    enum_variants: &std::collections::HashMap<String, Vec<String>>,
+    _symbols: &assura_resolve::SymbolTable,
+    errors: &mut Vec<TypeError>,
+) {
+    struct MatchExhaustivenessVisitor<'a> {
+        span: &'a std::ops::Range<usize>,
+        enum_variants: &'a std::collections::HashMap<String, Vec<String>>,
+        errors: &'a mut Vec<TypeError>,
+    }
+
+    impl ExprVisitor for MatchExhaustivenessVisitor<'_> {
+        fn visit_match(&mut self, scrutinee: &SpExpr, arms: &[MatchArm]) {
+            self.visit_expr(scrutinee);
+            for arm in arms {
+                self.visit_expr(&arm.body);
+            }
+            if let Expr::Ident(name) = &scrutinee.node
+                && let Some(variants) = self.enum_variants.get(name)
+            {
+                let patterns: Vec<Pattern> = arms
+                    .iter()
+                    .map(|arm| match &arm.pattern {
+                        assura_parser::ast::Pattern::Ident(n) => Pattern::Variant(n.clone()),
+                        assura_parser::ast::Pattern::Wildcard => Pattern::Wildcard,
+                        assura_parser::ast::Pattern::Literal(lit) => Pattern::Literal(lit.clone()),
+                        assura_parser::ast::Pattern::Constructor { name, .. } => {
+                            Pattern::Variant(name.clone())
+                        }
+                        assura_parser::ast::Pattern::Tuple(_) => Pattern::Wildcard,
+                    })
+                    .collect();
+
+                if let Some(missing) = check_exhaustiveness(&patterns, variants) {
+                    self.errors.push(TypeError {
+                        code: "A10001".into(),
+                        message: format!(
+                            "non-exhaustive match: missing variants {}",
+                            missing.join(", ")
+                        ),
+                        span: self.span.clone(),
+                        secondary: None,
+                    });
+                }
+            }
+            let has_wildcard = arms
+                .iter()
+                .any(|arm| matches!(arm.pattern, assura_parser::ast::Pattern::Wildcard));
+            let has_enum_coverage = if let Expr::Ident(name) = &scrutinee.node {
+                self.enum_variants.contains_key(name)
+            } else {
+                false
+            };
+            if !has_wildcard && !has_enum_coverage && !arms.is_empty() {
+                self.errors.push(TypeError {
+                    code: "A10002".into(),
+                    message: "match expression on unknown type has no wildcard `_` arm; \
+                              consider adding a catch-all pattern"
+                        .into(),
+                    span: self.span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+    }
+
+    let mut visitor = MatchExhaustivenessVisitor {
+        span,
+        enum_variants,
+        errors,
+    };
+    visitor.visit_expr(expr);
+}
+
+// ===========================================================================
+// Interface contracts source walking (T062)
+// ===========================================================================
+
+fn extract_interface_method(body: &SpExpr) -> Option<InterfaceMethod> {
+    match &body.node {
+        Expr::Ident(name) => Some(InterfaceMethod {
+            name: name.clone(),
+            param_types: vec![],
+            return_type: Type::Unknown,
+            has_requires: false,
+            has_ensures: false,
+            no_reentrancy: false,
+        }),
+        Expr::Call { func, args } => {
+            let name = match &func.as_ref().node {
+                Expr::Ident(n) => n.clone(),
+                _ => return None,
+            };
+            let param_types: Vec<Type> = args
+                .iter()
+                .map(|arg| match &arg.node {
+                    Expr::Ident(t) => parse_type_tokens(std::slice::from_ref(t)),
+                    _ => Type::Unknown,
+                })
+                .collect();
+            Some(InterfaceMethod {
+                name,
+                param_types,
+                return_type: Type::Unknown,
+                has_requires: false,
+                has_ensures: false,
+                no_reentrancy: false,
+            })
+        }
+        Expr::Raw(tokens) => {
+            let name = tokens.first()?.clone();
+            let mut param_types = Vec::new();
+            let mut return_type = Type::Unknown;
+            if let Some(paren_start) = tokens.iter().position(|t| t == "(")
+                && let Some(paren_end) = tokens.iter().position(|t| t == ")")
+            {
+                let param_tokens = &tokens[paren_start + 1..paren_end];
+                for chunk in param_tokens.split(|t| t == ",") {
+                    if !chunk.is_empty() {
+                        let owned: Vec<String> = chunk.to_vec();
+                        param_types.push(parse_type_tokens(&owned));
+                    }
+                }
+                if let Some(arrow_pos) = tokens[paren_end..].iter().position(|t| t == "->") {
+                    let ret_tokens: Vec<String> = tokens[paren_end + arrow_pos + 1..].to_vec();
+                    if !ret_tokens.is_empty() {
+                        return_type = parse_type_tokens(&ret_tokens);
+                    }
+                }
+            }
+            Some(InterfaceMethod {
+                name,
+                param_types,
+                return_type,
+                has_requires: false,
+                has_ensures: false,
+                no_reentrancy: false,
+            })
+        }
+        _ => None,
+    }
+}
+
+impl InterfaceChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = InterfaceChecker::new();
+        let mut errors = Vec::new();
+
+        for decl in &source.decls {
+            if let Decl::Contract(c) = &decl.node {
+                let is_interface = c
+                    .clauses
+                    .iter()
+                    .any(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "interface"));
+                if is_interface {
+                    let methods: Vec<InterfaceMethod> = c
+                        .clauses
+                        .iter()
+                        .filter(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "method"))
+                        .filter_map(|cl| extract_interface_method(&cl.body))
+                        .collect();
+                    let extends: Vec<String> = c
+                        .clauses
+                        .iter()
+                        .filter(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "extends"))
+                        .filter_map(|cl| {
+                            if let Expr::Ident(name) = &cl.body.node {
+                                Some(name.clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    checker.register_interface(InterfaceContract {
+                        name: c.name.clone(),
+                        methods,
+                        extends,
+                    });
+                }
+            }
+        }
+
+        for decl in &source.decls {
+            if let Decl::Contract(c) = &decl.node {
+                for clause in &c.clauses {
+                    if let ClauseKind::Other(k) = &clause.kind
+                        && k == "implements"
+                        && let Expr::Ident(iface_name) = &clause.body.node
+                    {
+                        let impl_methods: Vec<InterfaceMethod> = c
+                            .clauses
+                            .iter()
+                            .filter(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "method"))
+                            .filter_map(|cl| extract_interface_method(&cl.body))
+                            .collect();
+                        let method_names: Vec<String> =
+                            impl_methods.iter().map(|m| m.name.clone()).collect();
+                        checker.register_impl(
+                            c.name.clone(),
+                            iface_name.clone(),
+                            method_names.clone(),
+                        );
+                        for err in
+                            checker.check_impl(&c.name, iface_name, &method_names, &decl.span)
+                        {
+                            errors.push(err.into());
+                        }
+                        for method in &impl_methods {
+                            for err in checker.check_method_signature(
+                                iface_name,
+                                &method.name,
+                                &method.param_types,
+                                &method.return_type,
+                                &decl.span,
+                            ) {
+                                errors.push(err.into());
+                            }
+                            let is_reentrant = c.clauses.iter().any(|cl| {
+                                matches!(&cl.kind, ClauseKind::Other(k) if k == "reentrant")
+                                    && matches!(&cl.body.node, Expr::Ident(n) if n == &method.name)
+                            });
+                            for err in checker.check_reentrancy(
+                                iface_name,
+                                &method.name,
+                                is_reentrant,
+                                &decl.span,
+                            ) {
+                                errors.push(err.into());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        errors
+    }
+}
+
+// ===========================================================================
+// Structural invariants source walking (T063)
+// ===========================================================================
+
+impl StructuralInvariantChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = StructuralInvariantChecker::new();
+        let mut errors = Vec::new();
+
+        for decl in &source.decls {
+            if let Decl::TypeDef(td) = &decl.node {
+                if let assura_parser::ast::TypeBody::Struct(fields) = &td.body {
+                    let recursive_fields: Vec<String> = fields
+                        .iter()
+                        .filter(|f| {
+                            let tokens = f.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+                            tokens.iter().any(|t| t == &td.name)
+                        })
+                        .map(|f| f.name.clone())
+                        .collect();
+                    if !recursive_fields.is_empty() {
+                        checker.register_recursive_type(td.name.clone(), recursive_fields);
+                    }
+                }
+            } else if let Decl::Contract(c) = &decl.node {
+                for clause in &c.clauses {
+                    if let ClauseKind::Other(k) = &clause.kind
+                        && k == "structural_invariant"
+                    {
+                        let kind = match &clause.body.node {
+                            Expr::Ident(name) => match name.as_str() {
+                                "sorted" => InvariantKind::Sorted { descending: false },
+                                "acyclic" => InvariantKind::Acyclic,
+                                "bst_ordering" => InvariantKind::BstOrdering,
+                                other => InvariantKind::Custom(other.to_string()),
+                            },
+                            Expr::Call { func, .. } => {
+                                if let Expr::Ident(name) = &func.as_ref().node {
+                                    match name.as_str() {
+                                        "tree_balance" => {
+                                            InvariantKind::TreeBalance { max_diff: 1 }
+                                        }
+                                        "min_heap" => {
+                                            InvariantKind::HeapProperty { min_heap: true }
+                                        }
+                                        "max_heap" => {
+                                            InvariantKind::HeapProperty { min_heap: false }
+                                        }
+                                        other => InvariantKind::Custom(other.to_string()),
+                                    }
+                                } else {
+                                    InvariantKind::Custom(format!("{:?}", clause.body))
+                                }
+                            }
+                            _ => InvariantKind::Custom(format!("{:?}", clause.body)),
+                        };
+                        checker.register_invariant(StructuralInvariant {
+                            name: format!("{}_{}", c.name, kind),
+                            type_name: c.name.clone(),
+                            kind: kind.clone(),
+                        });
+                        for err in checker.check_invariant_applicability(&c.name, &kind, &decl.span)
+                        {
+                            errors.push(err.into());
+                        }
+                    }
+                    if let ClauseKind::Other(k) = &clause.kind
+                        && k == "modifies_structure"
+                    {
+                        let op_name = match &clause.body.node {
+                            Expr::Ident(name) => name.as_str(),
+                            _ => "unknown",
+                        };
+                        let has_preservation = c.clauses.iter().any(|cl| {
+                            matches!(&cl.kind, ClauseKind::Other(k2) if k2 == "preserves_invariant")
+                        });
+                        for err in checker.check_operation_preserves(
+                            &c.name,
+                            op_name,
+                            true,
+                            has_preservation,
+                            &decl.span,
+                        ) {
+                            errors.push(err.into());
+                        }
+                    }
+                }
+            }
+        }
+
+        errors
+    }
+}
+
+// ===========================================================================
+// Complexity bounds source walking
+// ===========================================================================
+
+impl ComplexityBoundChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = ComplexityBoundChecker::new();
+        let mut found = false;
+        for decl in &source.decls {
+            let Some(clauses) = clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            let Some(name) = decl.node.name().map(|s| s.to_string()) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "complexity" || k == "time_complexity" || k == "big_o")
+                {
+                    found = true;
+                    if let Expr::Ident(class_name) = &clause.body.node {
+                        let class = parse_complexity_class(class_name);
+                        checker.declare_bound(name.clone(), class, decl.span.clone());
+                    }
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        for decl in &source.decls {
+            let Some(clauses) = clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            let Some(name) = decl.node.name() else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "measured_complexity" || k == "actual_complexity")
+                    && let Expr::Ident(class_name) = &clause.body.node
+                {
+                    checker.record_measured(name, parse_complexity_class(class_name));
+                }
+            }
+        }
+        let mut errors = checker.check_bounds();
+        errors.extend(checker.check_unverified());
+        errors.extend(checker.check_expensive());
+        errors
+    }
+}
+
+fn parse_complexity_class(name: &str) -> ComplexityClass {
+    match name {
+        "constant" | "O1" => ComplexityClass::Constant,
+        "logarithmic" | "O_log_n" => ComplexityClass::Logarithmic,
+        "linear" | "On" => ComplexityClass::Linear,
+        "nlogn" | "O_n_log_n" => ComplexityClass::NLogN,
+        "quadratic" | "On2" => ComplexityClass::Quadratic,
+        "cubic" | "On3" => ComplexityClass::Cubic,
+        "exponential" | "O2n" => ComplexityClass::Exponential,
+        _ => ComplexityClass::Linear,
+    }
+}
+
+// ===========================================================================
+// Behavioral equivalence source walking
+// ===========================================================================
+
+impl BehavioralEquivalenceChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = BehavioralEquivalenceChecker::new();
+        let mut found = false;
+        for decl in &source.decls {
+            let Some(clauses) = clauses_contract_fn_block(&decl.node) else {
+                continue;
+            };
+            let parent_name = decl.node.name().unwrap_or("");
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "equivalent" || k == "behavioral_equiv" || k == "equiv")
+                {
+                    found = true;
+                    if let Expr::BinOp { lhs, rhs, .. } = &clause.body.node
+                        && let (Expr::Ident(a), Expr::Ident(b)) =
+                            (&lhs.as_ref().node, &rhs.as_ref().node)
+                    {
+                        checker.declare(
+                            format!("{a}_equiv_{b}"),
+                            a.clone(),
+                            b.clone(),
+                            parent_name.to_string(),
+                            decl.span.clone(),
+                        );
+                    }
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        for decl in &source.decls {
+            let Some(clauses) = clauses_contract_fn_block(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "verified_equiv" || k == "equiv_proved")
+                    && let Expr::Ident(name) = &clause.body.node
+                {
+                    checker.mark_verified(name);
+                }
+            }
+        }
+        let mut errors = checker.check_unverified();
+        errors.extend(checker.check_self_equivalence());
+        errors.extend(checker.check_contract_ref());
+        errors
+    }
+}
+
+// ===========================================================================
+// Multi-pass refinement source walking
+// ===========================================================================
+
+impl MultiPassRefinementChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = MultiPassRefinementChecker::new();
+        let mut found = false;
+        for decl in &source.decls {
+            let Some(clauses) = clauses_contract_fn_block(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "refinement_pass" || k == "multi_pass" || k == "refine")
+                {
+                    found = true;
+                    match &clause.body.node {
+                        Expr::Call { func, args } => {
+                            if let Expr::Ident(name) = &func.as_ref().node {
+                                let from = args
+                                    .first()
+                                    .and_then(extract_ident)
+                                    .unwrap_or("abstract")
+                                    .to_string();
+                                let to = args
+                                    .get(1)
+                                    .and_then(extract_ident)
+                                    .unwrap_or("concrete")
+                                    .to_string();
+                                let order = args
+                                    .get(2)
+                                    .and_then(extract_int_literal)
+                                    .unwrap_or(DEFAULT_PARAM_ONE)
+                                    as usize;
+                                checker.add_pass(name.clone(), from, to, order, decl.span.clone());
+                            }
+                        }
+                        Expr::Ident(name) => {
+                            checker.add_pass(
+                                name.clone(),
+                                "abstract".into(),
+                                "concrete".into(),
+                                1,
+                                decl.span.clone(),
+                            );
+                        }
+                        _ => {
+                            let kvs = extract_kv_pairs(&clause.body);
+                            let name = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "name" || *k == "pass")
+                                .and_then(|(_, v)| extract_ident(v))
+                                .unwrap_or("unnamed")
+                                .to_string();
+                            let from = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "from" || *k == "source")
+                                .and_then(|(_, v)| extract_ident(v))
+                                .unwrap_or("abstract")
+                                .to_string();
+                            let to = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "to" || *k == "target")
+                                .and_then(|(_, v)| extract_ident(v))
+                                .unwrap_or("concrete")
+                                .to_string();
+                            let order = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "order")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(DEFAULT_PARAM_ONE)
+                                as usize;
+                            checker.add_pass(name, from, to, order, decl.span.clone());
+                        }
+                    }
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        for decl in &source.decls {
+            let Some(clauses) = clauses_contract_fn_block(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "discharge_pass" || k == "pass_proved")
+                {
+                    if let Some((name, args)) = extract_call(&clause.body) {
+                        let count =
+                            args.first()
+                                .and_then(extract_int_literal)
+                                .unwrap_or(DEFAULT_PARAM_ONE) as usize;
+                        checker.discharge(name, count);
+                    } else if let Expr::Ident(name) = &clause.body.node {
+                        checker.discharge(name, 1);
+                    } else {
+                        let kvs = extract_kv_pairs(&clause.body);
+                        let name = kvs
+                            .iter()
+                            .find(|(k, _)| *k == "name" || *k == "pass")
+                            .and_then(|(_, v)| extract_ident(v))
+                            .unwrap_or("unnamed");
+                        let count =
+                            kvs.iter()
+                                .find(|(k, _)| *k == "count" || *k == "obligations")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(DEFAULT_PARAM_ONE) as usize;
+                        checker.discharge(name, count);
+                    }
+                }
+            }
+        }
+        let mut errors = checker.check_complete();
+        errors.extend(checker.check_chain());
+        errors.extend(checker.check_non_trivial());
+        errors
+    }
+}
+
+// ===========================================================================
+// Incremental contracts source walking
+// ===========================================================================
+
+impl IncrementalContractChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = IncrementalContractChecker::new();
+        let mut found = false;
+        for decl in &source.decls {
+            let Some(clauses) = clauses_contract_fn_block(&decl.node) else {
+                continue;
+            };
+            let requires_count = clauses
+                .iter()
+                .filter(|c| matches!(c.kind, ClauseKind::Requires))
+                .count();
+            let ensures_count = clauses
+                .iter()
+                .filter(|c| matches!(c.kind, ClauseKind::Ensures))
+                .count();
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "version" || k == "incremental" || k == "contract_version")
+                {
+                    found = true;
+                    match &clause.body.node {
+                        Expr::Call { func, args } => {
+                            if let Expr::Ident(name) = &func.as_ref().node {
+                                let major = args
+                                    .first()
+                                    .and_then(extract_int_literal)
+                                    .unwrap_or(DEFAULT_PARAM_ONE)
+                                    as u32;
+                                let minor = args
+                                    .get(1)
+                                    .and_then(extract_int_literal)
+                                    .unwrap_or(DEFAULT_PARAM_ZERO)
+                                    as u32;
+                                let patch = args
+                                    .get(2)
+                                    .and_then(extract_int_literal)
+                                    .unwrap_or(DEFAULT_PARAM_ZERO)
+                                    as u32;
+                                let version = major * 10000 + minor * 100 + patch;
+                                checker.add_version(
+                                    name.clone(),
+                                    version,
+                                    requires_count,
+                                    ensures_count,
+                                    decl.span.clone(),
+                                );
+                            }
+                        }
+                        Expr::Ident(name) => {
+                            checker.add_version(
+                                name.clone(),
+                                10000,
+                                requires_count,
+                                ensures_count,
+                                decl.span.clone(),
+                            );
+                        }
+                        _ => {
+                            let kvs = extract_kv_pairs(&clause.body);
+                            let name = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "name" || *k == "contract")
+                                .and_then(|(_, v)| extract_ident(v))
+                                .unwrap_or("unnamed")
+                                .to_string();
+                            let major = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "major")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(DEFAULT_PARAM_ONE)
+                                as u32;
+                            let minor = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "minor")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(DEFAULT_PARAM_ZERO)
+                                as u32;
+                            let patch = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "patch")
+                                .and_then(|(_, v)| extract_int_literal(v))
+                                .unwrap_or(DEFAULT_PARAM_ZERO)
+                                as u32;
+                            let version = major * 10000 + minor * 100 + patch;
+                            checker.add_version(
+                                name,
+                                version,
+                                requires_count,
+                                ensures_count,
+                                decl.span.clone(),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        let mut errors = checker.check_precondition_weakening();
+        errors.extend(checker.check_postcondition_strengthening());
+        errors.extend(checker.check_version_continuity());
+        errors
+    }
+}
+
+// ===========================================================================
+// Scoped invariants source walking
+// ===========================================================================
+
+impl ScopedInvariantChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = ScopedInvariantChecker::new();
+        let mut errors = Vec::new();
+        let mut found = false;
+        for decl in &source.decls {
+            let Some(clauses) = clauses_contract_fn_block(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind {
+                    if k == "suspend_invariant" || k == "scoped_invariant" {
+                        found = true;
+                        if let Expr::Ident(name) = &clause.body.node {
+                            checker.declare_invariant(name.clone());
+                            if let Some(err) = checker.suspend(name) {
+                                errors.push(err);
+                            }
+                        }
+                    }
+                    if (k == "restore_invariant" || k == "restore")
+                        && let Expr::Ident(name) = &clause.body.node
+                        && let Some(err) = checker.restore(name)
+                    {
+                        errors.push(err);
+                    }
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        for decl in &source.decls {
+            let Some(clauses) = clauses_contract_fn_block(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {
+                    let refs = collect_ident_references(&clause.body);
+                    for name in &refs {
+                        if checker.is_suspended(name) {
+                            errors.push(TypeError {
+                                code: "A52001".into(),
+                                message: format!(
+                                    "invariant `{name}` is suspended in active clause context"
+                                ),
+                                span: decl.span.clone(),
+                                secondary: None,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        errors.extend(checker.check_all_restored());
+        errors
+    }
+}
+
+// ===========================================================================
+// Contract composition source walking
+// ===========================================================================
+
+impl ContractCompositionChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = ContractCompositionChecker::new();
+        let mut found = false;
+        for decl in &source.decls {
+            if let Decl::Contract(c) = &decl.node {
+                let extends: Vec<String> = c
+                    .clauses
+                    .iter()
+                    .filter(|cl| {
+                        matches!(&cl.kind, ClauseKind::Other(k) if k == "extends" || k == "inherits")
+                    })
+                    .filter_map(|cl| {
+                        if let Expr::Ident(name) = &cl.body.node {
+                            Some(name.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if !extends.is_empty() {
+                    found = true;
+                }
+                checker.declare(c.name.clone(), extends, c.clauses.len());
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        let mut errors = checker.check_extends();
+        errors.extend(checker.check_circular());
+        errors.extend(checker.check_diamond());
+        errors.extend(checker.check_empty_contracts());
+        errors
+    }
+}
+
+// ===========================================================================
+// Contract library source walking
+// ===========================================================================
+
+impl ContractLibraryChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = ContractLibraryChecker::new();
+        let mut found = false;
+        for decl in &source.decls {
+            if let Decl::Block {
+                kind, name, body, ..
+            } = &decl.node
+                && *kind == BlockKind::Library
+            {
+                found = true;
+                checker.declare_library(name.clone(), "0.1.0".into());
+                for clause in body {
+                    if let ClauseKind::Other(ref k) = clause.kind {
+                        if (k == "export" || k == "exports")
+                            && let Expr::Ident(contract_name) = &clause.body.node
+                        {
+                            checker.add_export(name, contract_name.clone());
+                        }
+                        if (k == "depends" || k == "dependency")
+                            && let Expr::Ident(dep_name) = &clause.body.node
+                        {
+                            checker.add_dependency(
+                                name,
+                                LibraryDep {
+                                    name: dep_name.clone(),
+                                    version_req: "*".into(),
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        let mut errors = checker.check_empty_exports();
+        errors.extend(checker.check_circular_deps());
+        errors.extend(checker.check_duplicates());
+        errors.extend(checker.check_version_compat());
+        errors
     }
 }

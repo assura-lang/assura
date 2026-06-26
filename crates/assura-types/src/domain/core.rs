@@ -6,6 +6,8 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+use assura_parser::ast::{BlockKind, ClauseKind, Decl, Expr, ServiceItem, SpExpr};
+
 use crate::{Type, TypeError};
 
 // ===========================================================================
@@ -819,5 +821,361 @@ impl CrudAuthContracts {
 impl Default for CrudAuthContracts {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl CrudAuthContracts {
+    /// AST-walking entry point: scan services for CRUD operations and check auth.
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for decl in &source.decls {
+            if let Decl::Service(s) = &decl.node {
+                let mut checker = CrudAuthContracts::new();
+                for item in &s.items {
+                    if let ServiceItem::Operation { name, clauses } = item {
+                        let has_auth = clauses.iter().any(|c| {
+                            matches!(c.kind, ClauseKind::Other(ref k) if k == "auth" || k == "requires_auth")
+                        });
+                        let crud_type = if name.starts_with("create") || name.starts_with("add") {
+                            CrudType::Create
+                        } else if name.starts_with("read")
+                            || name.starts_with("get")
+                            || name.starts_with("list")
+                        {
+                            CrudType::Read
+                        } else if name.starts_with("update") || name.starts_with("set") {
+                            CrudType::Update
+                        } else if name.starts_with("delete") || name.starts_with("remove") {
+                            CrudType::Delete
+                        } else {
+                            continue;
+                        };
+                        checker.add_crud(name.clone(), crud_type, has_auth);
+                    }
+                }
+                for item in &s.items {
+                    if let ServiceItem::Operation { name, clauses } = item {
+                        for clause in clauses {
+                            if let ClauseKind::Other(ref k) = clause.kind
+                                && (k == "auth_policy" || k == "role")
+                            {
+                                let role = extract_ident_from_expr(&clause.body)
+                                    .unwrap_or("user")
+                                    .to_string();
+                                let allow_self = clauses.iter().any(
+                                    |c| matches!(&c.kind, ClauseKind::Other(k2) if k2 == "allow_self"),
+                                );
+                                checker.add_auth_policy(name.clone(), role, allow_self);
+                            }
+                        }
+                    }
+                }
+                errors.extend(checker.check_auth_coverage());
+                errors.extend(checker.check_delete_protection());
+                errors.extend(checker.check_precondition_coverage());
+            }
+        }
+        errors
+    }
+}
+
+impl AxiomaticDefChecker {
+    /// AST-walking entry point: collect axioms, mark used, and run checks.
+    pub fn check_source(
+        source: &assura_parser::ast::SourceFile,
+        symbols: &assura_resolve::SymbolTable,
+    ) -> Vec<TypeError> {
+        let mut checker = AxiomaticDefChecker::new();
+        let axiom_names: Vec<String> = source
+            .decls
+            .iter()
+            .filter_map(|d| {
+                if let Decl::Block { kind, name, .. } = &d.node
+                    && *kind == BlockKind::Axiomatic
+                {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for decl in &source.decls {
+            if let Decl::Block {
+                kind, name, body, ..
+            } = &decl.node
+                && *kind == BlockKind::Axiomatic
+            {
+                let mut refs = Vec::new();
+                for clause in body {
+                    let idents = crate::checkers::collect_ident_references(&clause.body);
+                    for ident in &idents {
+                        if axiom_names.contains(ident) && ident != name {
+                            refs.push(ident.clone());
+                        }
+                    }
+                }
+                refs.sort();
+                refs.dedup();
+                checker.declare_axiom(AxiomDef {
+                    name: name.clone(),
+                    span: decl.span.clone(),
+                    references: refs,
+                });
+            }
+        }
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {
+                    let refs = crate::checkers::collect_ident_references(&clause.body);
+                    for name in &refs {
+                        checker.mark_used(name);
+                    }
+                }
+            }
+        }
+        let known: Vec<&str> = symbols.symbols.iter().map(|s| s.name.as_str()).collect();
+        let mut errors = checker.check_references(&known);
+        errors.extend(checker.check_unused());
+        errors.extend(checker.check_circular());
+        errors
+    }
+}
+
+impl QuantifierTriggerChecker {
+    /// AST-walking entry point: scan clause bodies for quantifiers missing triggers.
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = QuantifierTriggerChecker::new();
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn_extern(&decl.node) else {
+                continue;
+            };
+            let has_strict = clauses
+                .iter()
+                .any(|c| matches!(&c.kind, ClauseKind::Other(k) if k == "strict_triggers"));
+            if !has_strict {
+                continue;
+            }
+            for clause in clauses {
+                collect_quantifiers(&clause.body, &mut checker, &decl.span);
+            }
+        }
+        checker.check_triggers()
+    }
+}
+
+// ===========================================================================
+// Prophecy resolution checker
+// ===========================================================================
+
+/// Validates that prophecy declarations have matching resolve() calls.
+pub(crate) struct ProphecyResolutionChecker;
+
+impl ProphecyResolutionChecker {
+    /// AST-walking entry point: check that each referenced prophecy is resolved.
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        let prophecies: Vec<(&str, &std::ops::Range<usize>)> = source
+            .decls
+            .iter()
+            .filter_map(|d| match &d.node {
+                Decl::Prophecy(p) => Some((p.name.as_str(), &d.span)),
+                Decl::Block {
+                    kind: BlockKind::Other(k),
+                    name,
+                    ..
+                } if k == "prophecy" => Some((name.as_str(), &d.span)),
+                _ => None,
+            })
+            .collect();
+        if prophecies.is_empty() {
+            return errors;
+        }
+        let prophecy_names: std::collections::HashSet<&str> =
+            prophecies.iter().map(|(n, _)| *n).collect();
+        let mut referenced_names = std::collections::HashSet::new();
+        let mut resolved_names = std::collections::HashSet::new();
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                collect_resolve_calls(&clause.body, &mut resolved_names);
+                collect_ident_refs(&clause.body, &prophecy_names, &mut referenced_names);
+            }
+        }
+        for (name, span) in prophecies {
+            if referenced_names.contains(name) && !resolved_names.contains(name) {
+                errors.push(TypeError {
+                    code: "A05025".into(),
+                    message: format!("prophecy variable `{name}` is never resolved"),
+                    span: span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+        errors
+    }
+}
+
+// ===========================================================================
+// Private helpers for check_source methods
+// ===========================================================================
+
+fn extract_ident_from_expr(expr: &SpExpr) -> Option<&str> {
+    match &expr.node {
+        Expr::Ident(s) => Some(s.as_str()),
+        Expr::Raw(tokens) => tokens.first().map(|s| s.as_str()),
+        _ => None,
+    }
+}
+
+fn collect_quantifiers(
+    expr: &SpExpr,
+    checker: &mut QuantifierTriggerChecker,
+    fallback_span: &std::ops::Range<usize>,
+) {
+    match &expr.node {
+        Expr::Forall { var, domain, body } | Expr::Exists { var, domain, body } => {
+            let has_trigger =
+                expr_contains_text(domain, "triggers") || expr_contains_text(body, "triggers");
+            checker.add_quantifier(var.clone(), has_trigger, fallback_span.clone());
+            collect_quantifiers(domain, checker, fallback_span);
+            collect_quantifiers(body, checker, fallback_span);
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_quantifiers(lhs, checker, fallback_span);
+            collect_quantifiers(rhs, checker, fallback_span);
+        }
+        Expr::UnaryOp { expr: e, .. } | Expr::Old(e) => {
+            collect_quantifiers(e, checker, fallback_span);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_quantifiers(cond, checker, fallback_span);
+            collect_quantifiers(then_branch, checker, fallback_span);
+            if let Some(eb) = else_branch {
+                collect_quantifiers(eb, checker, fallback_span);
+            }
+        }
+        Expr::Call { func, args } => {
+            collect_quantifiers(func, checker, fallback_span);
+            for a in args {
+                collect_quantifiers(a, checker, fallback_span);
+            }
+        }
+        Expr::Block(exprs) | Expr::List(exprs) => {
+            for e in exprs {
+                collect_quantifiers(e, checker, fallback_span);
+            }
+        }
+        Expr::Field(e, _) | Expr::Index { expr: e, .. } => {
+            collect_quantifiers(e, checker, fallback_span);
+        }
+        Expr::Match { scrutinee, arms } => {
+            collect_quantifiers(scrutinee, checker, fallback_span);
+            for arm in arms {
+                collect_quantifiers(&arm.body, checker, fallback_span);
+            }
+        }
+        Expr::Let { value, body, .. } => {
+            collect_quantifiers(value, checker, fallback_span);
+            collect_quantifiers(body, checker, fallback_span);
+        }
+        _ => {}
+    }
+}
+
+fn expr_contains_text(expr: &SpExpr, text: &str) -> bool {
+    match &expr.node {
+        Expr::Ident(s) => s == text,
+        Expr::Raw(tokens) => tokens.iter().any(|t| t == text),
+        Expr::Block(exprs) | Expr::List(exprs) => exprs.iter().any(|e| expr_contains_text(e, text)),
+        Expr::Call { func, args } => {
+            expr_contains_text(func, text) || args.iter().any(|a| expr_contains_text(a, text))
+        }
+        _ => false,
+    }
+}
+
+fn collect_ident_refs(
+    expr: &SpExpr,
+    prophecy_names: &std::collections::HashSet<&str>,
+    found: &mut std::collections::HashSet<String>,
+) {
+    match &expr.node {
+        Expr::Ident(name) => {
+            if prophecy_names.contains(name.as_str()) {
+                found.insert(name.clone());
+            }
+        }
+        Expr::Raw(tokens) => {
+            for tok in tokens {
+                if prophecy_names.contains(tok.as_str()) {
+                    found.insert(tok.clone());
+                }
+            }
+        }
+        Expr::Call { func, args } => {
+            collect_ident_refs(func, prophecy_names, found);
+            for arg in args {
+                collect_ident_refs(arg, prophecy_names, found);
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_ident_refs(lhs, prophecy_names, found);
+            collect_ident_refs(rhs, prophecy_names, found);
+        }
+        Expr::UnaryOp { expr, .. } | Expr::Old(expr) | Expr::Ghost(expr) => {
+            collect_ident_refs(expr, prophecy_names, found);
+        }
+        Expr::Block(es) | Expr::List(es) => {
+            for e in es {
+                collect_ident_refs(e, prophecy_names, found);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_resolve_calls(expr: &SpExpr, names: &mut std::collections::HashSet<String>) {
+    match &expr.node {
+        Expr::Call { func, args } => {
+            if let Expr::Ident(fname) = &func.as_ref().node
+                && (fname == "resolve" || fname == "resolve_prophecy")
+                && let Some(_sp_arg) = args.first()
+                && let Expr::Ident(var) = &_sp_arg.node
+            {
+                names.insert(var.clone());
+            }
+            for arg in args {
+                collect_resolve_calls(arg, names);
+            }
+        }
+        Expr::Raw(tokens) => {
+            for window in tokens.windows(2) {
+                if (window[0] == "resolve" || window[0] == "resolve_prophecy") && window[1] != "(" {
+                    names.insert(window[1].clone());
+                }
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_resolve_calls(lhs, names);
+            collect_resolve_calls(rhs, names);
+        }
+        Expr::UnaryOp { expr, .. } | Expr::Old(expr) | Expr::Ghost(expr) => {
+            collect_resolve_calls(expr, names);
+        }
+        Expr::Block(es) | Expr::List(es) => {
+            for e in es {
+                collect_resolve_calls(e, names);
+            }
+        }
+        _ => {}
     }
 }

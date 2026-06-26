@@ -125,3 +125,119 @@ impl Default for SecureErasureChecker {
         Self::new()
     }
 }
+
+impl SecureErasureChecker {
+    /// AST-walking entry point: scan for `#[sensitive]` params and check erasure.
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        use assura_parser::ast::{BinOp, ClauseKind, Expr, Span};
+
+        let mut checker = SecureErasureChecker::new();
+        let mut has_sensitive = false;
+
+        for decl in &source.decls {
+            let params = decl.node.params();
+            if params.is_empty() {
+                continue;
+            }
+            for param in params {
+                let p_tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+                let is_sensitive = p_tokens
+                    .iter()
+                    .any(|t| t == "sensitive" || t == "#[sensitive]");
+                if is_sensitive {
+                    checker.mark_sensitive(param.name.clone());
+                    has_sensitive = true;
+                }
+            }
+        }
+
+        if !has_sensitive {
+            return Vec::new();
+        }
+
+        let mut errors = Vec::new();
+        let sensitive_names = checker.sensitive_names();
+        let mut sensitive_decl_span: std::collections::HashMap<String, Span> =
+            std::collections::HashMap::new();
+        for decl in &source.decls {
+            let params = decl.node.params();
+            if params.is_empty() {
+                continue;
+            }
+            for param in params {
+                let p_tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+                if p_tokens
+                    .iter()
+                    .any(|t| t == "sensitive" || t == "#[sensitive]")
+                {
+                    sensitive_decl_span
+                        .entry(param.name.clone())
+                        .or_insert_with(|| decl.span.clone());
+                }
+            }
+        }
+        for name in &sensitive_names {
+            for decl in &source.decls {
+                let clauses = decl.node.clauses();
+                if clauses.is_empty() {
+                    continue;
+                }
+                let return_ty_tokens = decl
+                    .node
+                    .return_ty()
+                    .map(|t| t.to_tokens())
+                    .unwrap_or_default();
+
+                let has_erasure = clauses.iter().any(|c| {
+                    c.kind == ClauseKind::Ensures
+                        && super::super::expr_references_var(&c.body, name)
+                });
+                if has_erasure {
+                    checker.mark_zeroized(name.clone());
+                }
+
+                for clause in clauses {
+                    if clause.kind == ClauseKind::Ensures
+                        && let Expr::BinOp {
+                            lhs,
+                            op: BinOp::Eq,
+                            rhs,
+                        } = &clause.body.node
+                        && let Expr::Ident(src) = &rhs.as_ref().node
+                        && src == name
+                        && let Expr::Ident(tgt) = &lhs.as_ref().node
+                    {
+                        let tgt_is_sensitive = checker.sensitive_names().contains(tgt);
+                        for err in checker.check_copy(name, tgt, tgt_is_sensitive, &decl.span) {
+                            errors.push(err.into());
+                        }
+                    }
+                }
+
+                let fn_return_is_sensitive = return_ty_tokens
+                    .iter()
+                    .any(|t| t == "sensitive" || t == "#[sensitive]");
+                for err in checker.check_return(name, fn_return_is_sensitive, &decl.span) {
+                    errors.push(err.into());
+                }
+            }
+
+            let fallback_span = 0..0usize;
+            let scope_span = sensitive_decl_span.get(name).unwrap_or(&fallback_span);
+            for err in checker.check_scope_exit(name, scope_span) {
+                errors.push(err.into());
+            }
+        }
+
+        let first_sensitive_span = sensitive_decl_span
+            .values()
+            .next()
+            .cloned()
+            .unwrap_or(0..0usize);
+        for err in checker.check_all_erased(&first_sensitive_span) {
+            errors.push(err.into());
+        }
+
+        errors
+    }
+}

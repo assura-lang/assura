@@ -1,12 +1,18 @@
 //! Format-related domain checkers.
 //!
 //! BinaryFormatChecker, BitLevelChecker, StringEncodingChecker,
-//! ChecksumChecker, ProtocolGrammarChecker.
+//! ChecksumChecker, ProtocolGrammarChecker, and source-level check
+//! wiring moved from `checks/format.rs`.
 
 use std::collections::HashMap;
 use std::ops::Range;
 
+use assura_parser::ast::{ClauseKind, Decl, Expr, SpExpr};
+
 use crate::TypeError;
+use crate::checkers::*;
+use crate::domain::OpaqueFunctionChecker;
+use crate::types::*;
 
 // ===========================================================================
 // T070: FMT.1 Binary format contracts
@@ -582,4 +588,735 @@ impl ProtocolGrammarChecker {
         }
         errors
     }
+}
+
+// ===========================================================================
+// Source-level check wiring (moved from checks/format.rs)
+// ===========================================================================
+
+impl BinaryFormatChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = BinaryFormatChecker::new();
+        let mut found = false;
+        let mut buffer_len: usize = 0;
+        for decl in &source.decls {
+            let Some(clauses) = crate::clauses_contract_fn_block(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind {
+                    if k == "binary_format" || k == "byte_layout" {
+                        found = true;
+                        if let Some((_, args)) = extract_call(&clause.body) {
+                            if let Some(len) = args.first().and_then(extract_int_literal) {
+                                buffer_len = len as usize;
+                            }
+                        } else if let Some(len) = extract_int_literal(&clause.body) {
+                            buffer_len = len as usize;
+                        }
+                    }
+                    if k == "field" {
+                        found = true;
+                        let field = parse_binary_field(&clause.body, &decl.span);
+                        checker.add_field(field);
+                    }
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        checker.check_all(buffer_len)
+    }
+}
+
+/// Parse a binary field declaration from an expression.
+fn parse_binary_field(body: &SpExpr, span: &Range<usize>) -> BinaryField {
+    match &body.node {
+        Expr::Call { func, args } => {
+            if let Expr::Ident(name) = &func.as_ref().node {
+                let offset = args
+                    .first()
+                    .and_then(extract_int_literal)
+                    .unwrap_or(DEFAULT_PARAM_ZERO) as usize;
+                let size = args
+                    .get(1)
+                    .and_then(extract_int_literal)
+                    .unwrap_or(DEFAULT_PARAM_ONE) as usize;
+                let endianness = args.get(2).and_then(extract_ident).map(|e| match e {
+                    "big" | "be" => Endianness::Big,
+                    "little" | "le" => Endianness::Little,
+                    _ => Endianness::Native,
+                });
+                return BinaryField {
+                    name: name.clone(),
+                    offset,
+                    size,
+                    endianness,
+                    span: span.clone(),
+                };
+            }
+            BinaryField {
+                name: "unnamed".into(),
+                offset: 0,
+                size: 1,
+                endianness: None,
+                span: span.clone(),
+            }
+        }
+        Expr::Ident(name) => BinaryField {
+            name: name.clone(),
+            offset: 0,
+            size: 1,
+            endianness: None,
+            span: span.clone(),
+        },
+        _ => {
+            let kvs = extract_kv_pairs(body);
+            let name = kvs
+                .iter()
+                .find(|(k, _)| *k == "name")
+                .and_then(|(_, v)| extract_ident(v))
+                .unwrap_or("unnamed")
+                .to_string();
+            let offset = kvs
+                .iter()
+                .find(|(k, _)| *k == "offset")
+                .and_then(|(_, v)| extract_int_literal(v))
+                .unwrap_or(DEFAULT_PARAM_ZERO) as usize;
+            let size = kvs
+                .iter()
+                .find(|(k, _)| *k == "size")
+                .and_then(|(_, v)| extract_int_literal(v))
+                .unwrap_or(DEFAULT_PARAM_ONE) as usize;
+            let endianness = kvs
+                .iter()
+                .find(|(k, _)| *k == "endian" || *k == "endianness")
+                .and_then(|(_, v)| extract_ident(v))
+                .map(|e| match e {
+                    "big" | "be" => Endianness::Big,
+                    "little" | "le" => Endianness::Little,
+                    _ => Endianness::Native,
+                });
+            BinaryField {
+                name,
+                offset,
+                size,
+                endianness,
+                span: span.clone(),
+            }
+        }
+    }
+}
+
+impl BitLevelChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut container_bits: usize = 0;
+        let mut checker: Option<BitLevelChecker> = None;
+        let mut found = false;
+        for decl in &source.decls {
+            let Some(clauses) = crate::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind {
+                    if k == "bit_layout" || k == "bit_level" {
+                        found = true;
+                        let bits = match &clause.body.node {
+                            Expr::Call { func: _, args } => args
+                                .first()
+                                .and_then(extract_int_literal)
+                                .unwrap_or(DEFAULT_BIT_CONTAINER_BITS)
+                                as usize,
+                            Expr::Literal(_) => extract_int_literal(&clause.body)
+                                .unwrap_or(DEFAULT_BIT_CONTAINER_BITS)
+                                as usize,
+                            _ => 64,
+                        };
+                        container_bits = bits;
+                        checker = Some(BitLevelChecker::new(bits));
+                    }
+                    if k == "bit_field" {
+                        found = true;
+                        let field = parse_bit_field(&clause.body, &decl.span);
+                        if let Some(field) = field {
+                            if let Some(ref mut ch) = checker {
+                                ch.add_field(field);
+                            } else {
+                                container_bits = DEFAULT_BIT_CONTAINER_BITS as usize;
+                                let mut ch = BitLevelChecker::new(container_bits);
+                                ch.add_field(field);
+                                checker = Some(ch);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        match checker {
+            Some(ch) => ch.check_all(container_bits),
+            None => Vec::new(),
+        }
+    }
+}
+
+/// Parse a bit field declaration from an expression.
+fn parse_bit_field(body: &SpExpr, span: &Range<usize>) -> Option<BitField> {
+    match &body.node {
+        Expr::Call { func, args } => {
+            if let Expr::Ident(name) = &func.as_ref().node {
+                let bit_offset = args
+                    .first()
+                    .and_then(extract_int_literal)
+                    .unwrap_or(DEFAULT_PARAM_ZERO) as usize;
+                let bit_width = args
+                    .get(1)
+                    .and_then(extract_int_literal)
+                    .unwrap_or(DEFAULT_PARAM_ONE) as usize;
+                let cross_byte_ok = args
+                    .get(2)
+                    .and_then(extract_ident)
+                    .is_some_and(|v| v == "true");
+                Some(BitField {
+                    name: name.clone(),
+                    bit_offset,
+                    bit_width,
+                    span: span.clone(),
+                    cross_byte_ok,
+                })
+            } else {
+                None
+            }
+        }
+        Expr::Ident(name) => Some(BitField {
+            name: name.clone(),
+            bit_offset: 0,
+            bit_width: 1,
+            span: span.clone(),
+            cross_byte_ok: false,
+        }),
+        _ => {
+            let kvs = extract_kv_pairs(body);
+            let name = kvs
+                .iter()
+                .find(|(k, _)| *k == "name")
+                .and_then(|(_, v)| extract_ident(v))
+                .unwrap_or("unnamed")
+                .to_string();
+            let bit_offset = kvs
+                .iter()
+                .find(|(k, _)| *k == "offset" || *k == "bit_offset")
+                .and_then(|(_, v)| extract_int_literal(v))
+                .unwrap_or(DEFAULT_PARAM_ZERO) as usize;
+            let bit_width = kvs
+                .iter()
+                .find(|(k, _)| *k == "width" || *k == "bit_width" || *k == "size")
+                .and_then(|(_, v)| extract_int_literal(v))
+                .unwrap_or(DEFAULT_PARAM_ONE) as usize;
+            let cross_byte_ok = kvs
+                .iter()
+                .find(|(k, _)| *k == "cross_byte" || *k == "cross_byte_ok")
+                .and_then(|(_, v)| extract_ident(v))
+                .is_some_and(|v| v == "true");
+            Some(BitField {
+                name,
+                bit_offset,
+                bit_width,
+                span: span.clone(),
+                cross_byte_ok,
+            })
+        }
+    }
+}
+
+impl StringEncodingChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = StringEncodingChecker::new();
+        let mut found = false;
+        for decl in &source.decls {
+            let Some(clauses) = crate::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "encoding" || k == "string_encoding" || k == "charset")
+                {
+                    found = true;
+                    match &clause.body.node {
+                        Expr::Call { func, args } => {
+                            if let Expr::Ident(name) = &func.as_ref().node {
+                                let enc = args
+                                    .first()
+                                    .and_then(extract_ident)
+                                    .map(parse_encoding)
+                                    .unwrap_or(StringEncoding::RawBytes);
+                                checker.declare(name.clone(), enc);
+                            }
+                        }
+                        Expr::Ident(name) => {
+                            checker.declare(name.clone(), StringEncoding::RawBytes);
+                        }
+                        _ => {
+                            let kvs = extract_kv_pairs(&clause.body);
+                            let name = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "name" || *k == "var")
+                                .and_then(|(_, v)| extract_ident(v))
+                                .unwrap_or("unnamed")
+                                .to_string();
+                            let enc = kvs
+                                .iter()
+                                .find(|(k, _)| *k == "encoding" || *k == "enc")
+                                .and_then(|(_, v)| extract_ident(v))
+                                .map(parse_encoding)
+                                .unwrap_or(StringEncoding::RawBytes);
+                            checker.declare(name, enc);
+                        }
+                    }
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        let mut errors = Vec::new();
+        for decl in &source.decls {
+            let Some(clauses) = crate::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if clause.kind == ClauseKind::Ensures {
+                    let refs = collect_ident_references(&clause.body);
+                    for name in &refs {
+                        if let Some(err) = checker.check_use_as_string(name, &decl.span) {
+                            errors.push(err);
+                        }
+                        let target_enc = checker
+                            .encoding_of(name)
+                            .cloned()
+                            .unwrap_or(StringEncoding::Utf8);
+                        if let Some(err) =
+                            checker.check_encoding_compat(name, &target_enc, &decl.span)
+                        {
+                            errors.push(err);
+                        }
+                        let byte_len = extract_byte_len_from_context(&clause.body, name)
+                            .unwrap_or_else(|| match checker.encoding_of(name) {
+                                Some(StringEncoding::Utf16Le | StringEncoding::Utf16Be) => 2,
+                                _ => 1,
+                            });
+                        if let Some(err) = checker.check_truncation(name, byte_len, &decl.span) {
+                            errors.push(err);
+                        }
+                    }
+                }
+            }
+        }
+        errors
+    }
+}
+
+/// Extract byte length from an expression context for a given variable name.
+fn extract_byte_len_from_context(expr: &SpExpr, var_name: &str) -> Option<usize> {
+    match &expr.node {
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            if let Expr::Ident(recv) = &receiver.node
+                && recv == var_name
+                && (method == "truncate" || method == "slice")
+            {
+                let len_arg = if method == "slice" {
+                    args.get(1)
+                } else {
+                    args.first()
+                };
+                return len_arg.and_then(extract_int_literal).map(|v| v as usize);
+            }
+            let from_recv = extract_byte_len_from_context(receiver, var_name);
+            if from_recv.is_some() {
+                return from_recv;
+            }
+            for a in args {
+                let from_a = extract_byte_len_from_context(a, var_name);
+                if from_a.is_some() {
+                    return from_a;
+                }
+            }
+            None
+        }
+        Expr::Call { func, args } => {
+            let from_f = extract_byte_len_from_context(func, var_name);
+            if from_f.is_some() {
+                return from_f;
+            }
+            for a in args {
+                let from_a = extract_byte_len_from_context(a, var_name);
+                if from_a.is_some() {
+                    return from_a;
+                }
+            }
+            None
+        }
+        Expr::BinOp { lhs, rhs, .. } => extract_byte_len_from_context(lhs, var_name)
+            .or_else(|| extract_byte_len_from_context(rhs, var_name)),
+        Expr::Block(exprs) | Expr::List(exprs) => exprs
+            .iter()
+            .find_map(|e| extract_byte_len_from_context(e, var_name)),
+        _ => None,
+    }
+}
+
+/// Parse a string encoding name to the enum.
+fn parse_encoding(name: &str) -> StringEncoding {
+    match name {
+        "utf8" | "UTF8" | "utf-8" | "UTF-8" => StringEncoding::Utf8,
+        "utf16le" | "UTF16LE" | "utf-16le" => StringEncoding::Utf16Le,
+        "utf16be" | "UTF16BE" | "utf-16be" => StringEncoding::Utf16Be,
+        "ascii" | "ASCII" => StringEncoding::Ascii,
+        "latin1" | "LATIN1" | "iso-8859-1" => StringEncoding::Latin1,
+        _ => StringEncoding::RawBytes,
+    }
+}
+
+impl ChecksumChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = ChecksumChecker::new();
+        let mut found = false;
+        for decl in &source.decls {
+            let Some(clauses) = crate::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind {
+                    if k == "checksum" || k == "crc" || k == "hash" {
+                        found = true;
+                        parse_checksum_decl(&mut checker, &clause.body, &decl.span);
+                    }
+                    if (k == "verify_checksum" || k == "verified")
+                        && let Expr::Ident(name) = &clause.body.node
+                    {
+                        checker.mark_verified(name);
+                    }
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        let mut errors = Vec::new();
+        for decl in &source.decls {
+            let Some(clauses) = crate::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {
+                    let refs = collect_ident_references(&clause.body);
+                    for name in &refs {
+                        if let Some(err) = checker.check_use_before_verify(name, &decl.span) {
+                            errors.push(err);
+                        }
+                        if let Some((algo, region_start, region_end)) = checker.region_info(name) {
+                            let algo = algo.clone();
+                            if let Some(err) =
+                                checker.check_algorithm_match(name, &algo, &decl.span)
+                            {
+                                errors.push(err);
+                            }
+                            if let Some(err) = checker.check_range_coverage(
+                                name,
+                                region_start,
+                                region_end,
+                                &decl.span,
+                            ) {
+                                errors.push(err);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        errors
+    }
+}
+
+/// Parse a checksum declaration clause body.
+fn parse_checksum_decl(checker: &mut ChecksumChecker, body: &SpExpr, _span: &Range<usize>) {
+    match &body.node {
+        Expr::Call { func, args } => {
+            if let Expr::Ident(name) = &func.as_ref().node {
+                let algo = args
+                    .first()
+                    .and_then(extract_ident)
+                    .map(parse_checksum_algorithm)
+                    .unwrap_or(ChecksumAlgorithm::Crc32);
+                let start = args
+                    .get(1)
+                    .and_then(extract_int_literal)
+                    .unwrap_or(DEFAULT_PARAM_ZERO) as usize;
+                let end = args
+                    .get(2)
+                    .and_then(extract_int_literal)
+                    .unwrap_or(DEFAULT_REGION_SIZE) as usize;
+                checker.declare_region(name.clone(), algo, start, end);
+            }
+        }
+        Expr::Ident(name) => {
+            checker.declare_region(name.clone(), ChecksumAlgorithm::Crc32, 0, 0);
+        }
+        _ => {
+            let kvs = extract_kv_pairs(body);
+            let name = kvs
+                .iter()
+                .find(|(k, _)| *k == "name" || *k == "region")
+                .and_then(|(_, v)| extract_ident(v))
+                .unwrap_or("unnamed")
+                .to_string();
+            let algo = kvs
+                .iter()
+                .find(|(k, _)| *k == "algorithm" || *k == "algo")
+                .and_then(|(_, v)| extract_ident(v))
+                .map(parse_checksum_algorithm)
+                .unwrap_or(ChecksumAlgorithm::Crc32);
+            let start = kvs
+                .iter()
+                .find(|(k, _)| *k == "start")
+                .and_then(|(_, v)| extract_int_literal(v))
+                .unwrap_or(DEFAULT_PARAM_ZERO) as usize;
+            let end = kvs
+                .iter()
+                .find(|(k, _)| *k == "end")
+                .and_then(|(_, v)| extract_int_literal(v))
+                .unwrap_or(DEFAULT_REGION_SIZE) as usize;
+            checker.declare_region(name, algo, start, end);
+        }
+    }
+}
+
+/// Parse a checksum algorithm name to the enum.
+fn parse_checksum_algorithm(name: &str) -> ChecksumAlgorithm {
+    match name {
+        "crc32" | "CRC32" | "crc" => ChecksumAlgorithm::Crc32,
+        "adler32" | "ADLER32" | "adler" => ChecksumAlgorithm::Adler32,
+        "sha256" | "SHA256" | "sha-256" => ChecksumAlgorithm::Sha256,
+        "sha512" | "SHA512" | "sha-512" => ChecksumAlgorithm::Sha512,
+        "md5" | "MD5" => ChecksumAlgorithm::Md5,
+        _ => ChecksumAlgorithm::Custom(name.to_string()),
+    }
+}
+
+impl ProtocolGrammarChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker: Option<ProtocolGrammarChecker> = None;
+        let mut found = false;
+        for decl in &source.decls {
+            let Some(clauses) = crate::clauses_contract_fn_block(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind {
+                    if k == "protocol" || k == "state_machine" || k == "rfc" {
+                        found = true;
+                        let initial = extract_ident(&clause.body).unwrap_or("init").to_string();
+                        if checker.is_none() {
+                            checker = Some(ProtocolGrammarChecker::new(initial));
+                        }
+                    }
+                    if (k == "state" || k == "protocol_state")
+                        && let Some(name) = extract_ident(&clause.body)
+                        && let Some(ref mut ch) = checker
+                    {
+                        ch.add_state(name.to_string());
+                    }
+                    if k == "transition"
+                        && let Some((from, args)) = extract_call(&clause.body)
+                        && args.len() >= 2
+                        && let Some(ref mut ch) = checker
+                    {
+                        let msg = extract_ident(&args[0]).unwrap_or("unknown").to_string();
+                        let to = extract_ident(&args[1]).unwrap_or("unknown").to_string();
+                        ch.add_transition(from.to_string(), to, msg);
+                    }
+                    if (k == "required_fields" || k == "required")
+                        && let Some((msg, args)) = extract_call(&clause.body)
+                        && let Some(ref mut ch) = checker
+                    {
+                        let field_names: Vec<String> = args
+                            .iter()
+                            .filter_map(|a| extract_ident(a).map(String::from))
+                            .collect();
+                        ch.add_required_fields(msg.to_string(), field_names);
+                    }
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        let checker = match checker {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
+        let mut checker = checker;
+        let mut errors = Vec::new();
+        for decl in &source.decls {
+            let Some(clauses) = crate::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "send" || k == "message")
+                    && let Some(msg) = extract_ident(&clause.body)
+                {
+                    if let Some(err) = checker.check_send(msg, &decl.span) {
+                        errors.push(err);
+                    }
+                    if let Some(err) = checker.transition(msg, &decl.span) {
+                        errors.push(err);
+                    }
+                    let field_errs = checker.check_required_fields(msg, &[], &decl.span);
+                    errors.extend(field_errs);
+                }
+            }
+        }
+        errors
+    }
+}
+
+impl OpaqueFunctionChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut checker = OpaqueFunctionChecker::new();
+        let mut found = false;
+        for decl in &source.decls {
+            if let Decl::FnDef(f) = &decl.node {
+                for clause in &f.clauses {
+                    if let ClauseKind::Other(ref k) = clause.kind
+                        && k == "opaque"
+                    {
+                        found = true;
+                        let has_contract = f
+                            .clauses
+                            .iter()
+                            .any(|c| matches!(c.kind, ClauseKind::Requires | ClauseKind::Ensures));
+                        checker.declare_opaque(f.name.clone(), has_contract, decl.span.clone());
+                    }
+                }
+            } else if let Decl::Contract(c) = &decl.node {
+                for clause in &c.clauses {
+                    if let ClauseKind::Other(ref k) = clause.kind
+                        && k == "opaque"
+                    {
+                        found = true;
+                    }
+                }
+            }
+        }
+        if !found {
+            return Vec::new();
+        }
+        let mut errors = Vec::new();
+        for decl in &source.decls {
+            let Some(clauses) = crate::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind {
+                    if k == "proof" || k == "proof_context" {
+                        checker.enter_proof();
+                    }
+                    if k == "end_proof" {
+                        checker.exit_proof();
+                    }
+                    if k == "reveal"
+                        && let Expr::Ident(fn_name) = &clause.body.node
+                        && let Some(err) = checker.reveal(fn_name, &decl.span)
+                    {
+                        errors.push(err);
+                    }
+                }
+                if clause.kind == ClauseKind::Requires || clause.kind == ClauseKind::Ensures {
+                    let refs = collect_ident_references(&clause.body);
+                    for name in &refs {
+                        if let Some(err) = checker.check_call(name, &decl.span) {
+                            errors.push(err);
+                        }
+                        if checker.is_opaque(name)
+                            && let Some(mut err) = checker.check_body_access(name, &decl.span)
+                        {
+                            err.secondary = checker.opaque_span(name).map(|s| {
+                                (s.clone(), format!("opaque function `{name}` declared here"))
+                            });
+                            errors.push(err);
+                        }
+                    }
+                }
+            }
+        }
+        errors
+    }
+}
+
+/// Check codec registry declarations (G008: FMT.4).
+pub fn check_codec_registry(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+    use assura_parser::ast::MagicPattern;
+    let mut errors = Vec::new();
+
+    for decl in &source.decls {
+        let Decl::CodecRegistry(cr) = &decl.node else {
+            continue;
+        };
+
+        // A52001: Check for overlapping magic byte prefixes
+        let byte_patterns: Vec<(usize, &[u8])> = cr
+            .codecs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, c)| match &c.magic {
+                MagicPattern::Bytes { bytes, .. } if !bytes.is_empty() => {
+                    Some((i, bytes.as_slice()))
+                }
+                _ => None,
+            })
+            .collect();
+
+        for (i, (idx_a, bytes_a)) in byte_patterns.iter().enumerate() {
+            for (idx_b, bytes_b) in byte_patterns.iter().skip(i + 1) {
+                let min_len = bytes_a.len().min(bytes_b.len());
+                if bytes_a[..min_len] == bytes_b[..min_len] {
+                    errors.push(TypeError {
+                        code: "A52001".into(),
+                        message: format!(
+                            "overlapping magic byte patterns in codec registry `{}`: \
+                             codec `{}` and codec `{}` share a common prefix",
+                            cr.name, cr.codecs[*idx_a].name, cr.codecs[*idx_b].name,
+                        ),
+                        span: decl.span.clone(),
+                        secondary: None,
+                    });
+                }
+            }
+        }
+
+        // A52002: Check for empty decoder names
+        for codec in &cr.codecs {
+            if codec.decoder.is_empty() {
+                errors.push(TypeError {
+                    code: "A52002".into(),
+                    message: format!(
+                        "codec `{}` in registry `{}` has no decoder function",
+                        codec.name, cr.name,
+                    ),
+                    span: decl.span.clone(),
+                    secondary: None,
+                });
+            }
+        }
+    }
+
+    errors
 }

@@ -346,6 +346,407 @@ impl EffectChecker {
     }
 }
 
+impl EffectChecker {
+    /// Full AST-walking entry point for effect checking.
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let checker = EffectChecker::new();
+        let mut errors = Vec::new();
+        let effect_map = Self::build_effect_map_from(source, &checker);
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn_extern(&decl.node) else {
+                continue;
+            };
+            let (declared, actual) = Self::extract_effects_from_clauses(clauses);
+            if let Some(ref declared_set) = declared {
+                for ee in checker.check_known(declared_set, &decl.span) {
+                    errors.push(TypeError {
+                        code: ee.code,
+                        message: ee.message,
+                        span: ee.span,
+                        secondary: None,
+                    });
+                }
+                if matches!(&decl.node, Decl::FnDef(_)) {
+                    if let Some(actual_set) = actual {
+                        for ee in checker.check_containment(declared_set, &actual_set, &decl.span) {
+                            errors.push(TypeError {
+                                code: ee.code,
+                                message: ee.message,
+                                span: ee.span,
+                                secondary: None,
+                            });
+                        }
+                    }
+                    let callee_effects = Self::infer_callee_effects(clauses, &effect_map);
+                    for ee in checker.check_containment(declared_set, &callee_effects, &decl.span) {
+                        errors.push(TypeError {
+                            code: ee.code,
+                            message: ee.message,
+                            span: ee.span,
+                            secondary: None,
+                        });
+                    }
+                }
+            }
+        }
+        errors
+    }
+
+    /// Build a map from function/contract/extern names to their declared effect sets.
+    pub fn build_effect_map_from(
+        source: &assura_parser::ast::SourceFile,
+        checker: &EffectChecker,
+    ) -> HashMap<String, EffectSet> {
+        let mut map = HashMap::new();
+        for decl in &source.decls {
+            if let Some(clauses) = crate::checks::clauses_contract_fn_extern(&decl.node) {
+                let (declared, _) = Self::extract_effects_from_clauses(clauses);
+                if let Some(declared_set) = declared
+                    && let Some(name) = decl.node.name()
+                {
+                    map.insert(name.to_string(), checker.expand(&declared_set));
+                }
+            } else if let Decl::Service(s) = &decl.node {
+                for item in &s.items {
+                    if let ServiceItem::Operation { name, clauses, .. } = item {
+                        let (declared, _) = Self::extract_effects_from_clauses(clauses);
+                        if let Some(declared_set) = declared {
+                            map.insert(name.clone(), checker.expand(&declared_set));
+                        }
+                    }
+                }
+            }
+        }
+        map
+    }
+
+    /// Extract declared and actual effect sets from a list of clauses.
+    pub fn extract_effects_from_clauses(
+        clauses: &[assura_parser::ast::Clause],
+    ) -> (Option<EffectSet>, Option<EffectSet>) {
+        let mut declared: Option<EffectSet> = None;
+        let mut actual: Option<EffectSet> = None;
+        for clause in clauses {
+            if clause.kind == ClauseKind::Effects {
+                let effects = Self::extract_effect_names_from_expr(&clause.body);
+                declared = Some(EffectSet::from_effect_names(effects));
+            }
+        }
+        let mut inferred = EffectSet::pure();
+        for clause in clauses {
+            if matches!(
+                clause.kind,
+                ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Modifies
+            ) {
+                Self::infer_effects_from_expr(&clause.body, &mut inferred);
+            }
+        }
+        if !inferred.is_pure() {
+            actual = Some(inferred);
+        }
+        (declared, actual)
+    }
+
+    fn infer_callee_effects(
+        clauses: &[assura_parser::ast::Clause],
+        effect_map: &HashMap<String, EffectSet>,
+    ) -> EffectSet {
+        let mut result = EffectSet::pure();
+        for clause in clauses {
+            if matches!(
+                clause.kind,
+                ClauseKind::Requires
+                    | ClauseKind::Ensures
+                    | ClauseKind::Modifies
+                    | ClauseKind::Invariant
+                    | ClauseKind::Rule
+            ) {
+                Self::collect_call_effects(&clause.body, effect_map, &mut result);
+            }
+        }
+        result
+    }
+
+    fn collect_call_effects(
+        expr: &SpExpr,
+        effect_map: &HashMap<String, EffectSet>,
+        effects: &mut EffectSet,
+    ) {
+        match &expr.node {
+            Expr::Call { func, args } => {
+                if let Some(name) = Self::extract_call_name(func)
+                    && let Some(callee_effects) = effect_map.get(&name)
+                {
+                    for eff in callee_effects.iter() {
+                        effects.insert(eff.to_string());
+                    }
+                }
+                for arg in args {
+                    Self::collect_call_effects(arg, effect_map, effects);
+                }
+            }
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
+                if let Some(callee_effects) = effect_map.get(method.as_str()) {
+                    for eff in callee_effects.iter() {
+                        effects.insert(eff.to_string());
+                    }
+                }
+                Self::collect_call_effects(receiver, effect_map, effects);
+                for arg in args {
+                    Self::collect_call_effects(arg, effect_map, effects);
+                }
+            }
+            Expr::BinOp { lhs, rhs, .. } => {
+                Self::collect_call_effects(lhs, effect_map, effects);
+                Self::collect_call_effects(rhs, effect_map, effects);
+            }
+            Expr::UnaryOp { expr: inner, .. } => {
+                Self::collect_call_effects(inner, effect_map, effects);
+            }
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                Self::collect_call_effects(cond, effect_map, effects);
+                Self::collect_call_effects(then_branch, effect_map, effects);
+                if let Some(el) = else_branch {
+                    Self::collect_call_effects(el, effect_map, effects);
+                }
+            }
+            Expr::Block(items) | Expr::List(items) | Expr::Tuple(items) => {
+                for item in items {
+                    Self::collect_call_effects(item, effect_map, effects);
+                }
+            }
+            Expr::Forall { body, domain, .. } | Expr::Exists { body, domain, .. } => {
+                Self::collect_call_effects(body, effect_map, effects);
+                Self::collect_call_effects(domain, effect_map, effects);
+            }
+            Expr::Old(inner)
+            | Expr::Ghost(inner)
+            | Expr::Field(inner, _)
+            | Expr::Cast { expr: inner, .. } => {
+                Self::collect_call_effects(inner, effect_map, effects);
+            }
+            Expr::Index { expr: base, index } => {
+                Self::collect_call_effects(base, effect_map, effects);
+                Self::collect_call_effects(index, effect_map, effects);
+            }
+            Expr::Apply { args, .. } => {
+                for arg in args {
+                    Self::collect_call_effects(arg, effect_map, effects);
+                }
+            }
+            Expr::Let { value, body, .. } => {
+                Self::collect_call_effects(value, effect_map, effects);
+                Self::collect_call_effects(body, effect_map, effects);
+            }
+            Expr::Match { scrutinee, arms } => {
+                Self::collect_call_effects(scrutinee, effect_map, effects);
+                for arm in arms {
+                    Self::collect_call_effects(&arm.body, effect_map, effects);
+                }
+            }
+            Expr::Ident(_) | Expr::Literal(_) | Expr::Raw(_) => {}
+        }
+    }
+
+    fn extract_call_name(func: &SpExpr) -> Option<String> {
+        match &func.node {
+            Expr::Ident(name) => Some(name.clone()),
+            Expr::Field(_, name) => Some(name.clone()),
+            _ => None,
+        }
+    }
+
+    fn extract_effect_names_from_expr(expr: &SpExpr) -> Vec<String> {
+        match &expr.node {
+            Expr::Ident(name) => vec![name.clone()],
+            Expr::Raw(tokens) => {
+                let filtered: Vec<&str> = tokens
+                    .iter()
+                    .map(|s| s.as_str())
+                    .filter(|t| !matches!(*t, "," | "{" | "}" | "<" | ">" | "|"))
+                    .collect();
+                let mut names = Vec::new();
+                let mut current = String::new();
+                for tok in filtered {
+                    if tok == "." {
+                        current.push('.');
+                    } else if current.ends_with('.') {
+                        current.push_str(tok);
+                    } else {
+                        if !current.is_empty() {
+                            names.push(current);
+                        }
+                        current = tok.to_string();
+                    }
+                }
+                if !current.is_empty() {
+                    names.push(current);
+                }
+                names
+            }
+            Expr::Block(items) => items
+                .iter()
+                .flat_map(Self::extract_effect_names_from_expr)
+                .collect(),
+            Expr::Field(base, field) => {
+                let mut base_names = Self::extract_effect_names_from_expr(base);
+                if let Some(last) = base_names.last_mut() {
+                    last.push('.');
+                    last.push_str(field);
+                } else {
+                    base_names.push(field.clone());
+                }
+                base_names
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn infer_effects_from_expr(expr: &SpExpr, effects: &mut EffectSet) {
+        match &expr.node {
+            Expr::Ident(name) => {
+                let io_prefixes = [
+                    "console",
+                    "file",
+                    "stdin",
+                    "stdout",
+                    "stderr",
+                    "network",
+                    "socket",
+                    "http",
+                    "tcp",
+                    "udp",
+                    "process",
+                    "env",
+                    "time",
+                    "random",
+                    "rand",
+                    "print",
+                    "read_line",
+                    "write_file",
+                    "read_file",
+                    "open",
+                    "close",
+                    "flush",
+                    "seek",
+                ];
+                for prefix in &io_prefixes {
+                    if name.starts_with(prefix) || name == *prefix {
+                        effects.insert("io".into());
+                        return;
+                    }
+                }
+                if name.starts_with("alloc")
+                    || name.starts_with("dealloc")
+                    || name.starts_with("malloc")
+                    || name.starts_with("free")
+                    || name.starts_with("realloc")
+                    || name.starts_with("resize")
+                {
+                    effects.insert("mem".into());
+                }
+                if name == "panic"
+                    || name == "abort"
+                    || name == "unreachable"
+                    || name == "exit"
+                    || name == "todo"
+                {
+                    effects.insert("panic".into());
+                }
+            }
+            Expr::Field(base, field) => {
+                let io_methods = [
+                    "read",
+                    "write",
+                    "flush",
+                    "close",
+                    "open",
+                    "seek",
+                    "send",
+                    "recv",
+                    "connect",
+                    "listen",
+                    "accept",
+                    "print",
+                    "println",
+                    "read_line",
+                ];
+                if io_methods.contains(&field.as_str()) {
+                    effects.insert("io".into());
+                }
+                Self::infer_effects_from_expr(base, effects);
+            }
+            Expr::Call { func, args } => {
+                Self::infer_effects_from_expr(func, effects);
+                for a in args {
+                    Self::infer_effects_from_expr(a, effects);
+                }
+            }
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
+                let io_methods = [
+                    "read",
+                    "write",
+                    "flush",
+                    "close",
+                    "open",
+                    "seek",
+                    "send",
+                    "recv",
+                    "connect",
+                    "listen",
+                    "accept",
+                    "print",
+                    "println",
+                    "read_line",
+                ];
+                if io_methods.contains(&method.as_str()) {
+                    effects.insert("io".into());
+                }
+                Self::infer_effects_from_expr(receiver, effects);
+                for a in args {
+                    Self::infer_effects_from_expr(a, effects);
+                }
+            }
+            Expr::BinOp { lhs, rhs, .. } => {
+                Self::infer_effects_from_expr(lhs, effects);
+                Self::infer_effects_from_expr(rhs, effects);
+            }
+            Expr::UnaryOp { expr, .. } | Expr::Old(expr) => {
+                Self::infer_effects_from_expr(expr, effects);
+            }
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                Self::infer_effects_from_expr(cond, effects);
+                Self::infer_effects_from_expr(then_branch, effects);
+                if let Some(e) = else_branch {
+                    Self::infer_effects_from_expr(e, effects);
+                }
+            }
+            Expr::Block(items) | Expr::List(items) => {
+                for item in items {
+                    Self::infer_effects_from_expr(item, effects);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 impl Default for EffectChecker {
     fn default() -> Self {
         Self::new()

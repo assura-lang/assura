@@ -104,6 +104,60 @@ impl DeterminismChecker {
     }
 }
 
+impl DeterminismChecker {
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<crate::TypeError> {
+        use assura_parser::ast::{ClauseKind, Expr};
+
+        let mut all_errors = Vec::new();
+        let mut checker = Self::new();
+
+        for decl in &source.decls {
+            let Some((fn_name, clauses)) = crate::checks::fn_or_contract_name_clauses(&decl.node)
+            else {
+                continue;
+            };
+
+            let is_pure = clauses.iter().any(|c| {
+                c.kind == ClauseKind::Effects
+                    && matches!(&c.body.node, Expr::Ident(name) if name == "pure")
+            });
+            if !is_pure {
+                continue;
+            }
+
+            checker.mark_deterministic(fn_name.to_string());
+
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && k == "non_deterministic"
+                {
+                    for name in collect_ident_references(&clause.body) {
+                        checker.add_non_det_source(name);
+                    }
+                }
+            }
+
+            let mut used_names = Vec::new();
+            for clause in clauses {
+                let refs = collect_ident_references(&clause.body);
+                used_names.extend(refs);
+            }
+
+            for err in checker.check_fn_body(fn_name, &used_names, &decl.span) {
+                all_errors.push(err.into());
+            }
+
+            for name in &used_names {
+                for err in checker.check_iteration(fn_name, name, &decl.span) {
+                    all_errors.push(err.into());
+                }
+            }
+        }
+
+        all_errors
+    }
+}
+
 impl Default for DeterminismChecker {
     fn default() -> Self {
         Self::new()

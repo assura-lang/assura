@@ -771,11 +771,416 @@ impl InfoFlowChecker {
     }
 }
 
+impl InfoFlowChecker {
+    /// Full AST-walking entry point for information flow checking.
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut errors = Vec::new();
+        for decl in &source.decls {
+            if let Decl::Contract(c) = &decl.node {
+                errors.extend(Self::check_contract_info_flow(c, &decl.span));
+            } else if let Decl::FnDef(f) = &decl.node {
+                errors.extend(Self::check_fn_info_flow(f, &decl.span));
+            }
+        }
+        errors.extend(DependentTypeChecker::check_source(source));
+        errors
+    }
+
+    fn check_contract_info_flow(
+        contract: &assura_parser::ast::ContractDecl,
+        span: &Range<usize>,
+    ) -> Vec<TypeError> {
+        let mut checker = InfoFlowChecker::new();
+        for clause in &contract.clauses {
+            if clause.kind == ClauseKind::Input {
+                let mut _has = false;
+                assign_labels_from_clause(&clause.body, &mut checker, &mut _has);
+            }
+            if let ClauseKind::Other(ref k) = clause.kind
+                && k == "purpose"
+                && let Expr::Raw(tokens) = &clause.body.node
+                && tokens.len() >= 2
+            {
+                checker.declare_purpose(tokens[0].clone(), tokens[1].clone());
+            }
+            if let ClauseKind::Other(ref k) = clause.kind
+                && k == "declassify"
+            {
+                let refs = collect_ident_references(&clause.body);
+                for name in refs {
+                    checker.mark_declassify(name);
+                }
+            }
+            if let ClauseKind::Other(ref k) = clause.kind
+                && k == "timing_sensitive"
+            {
+                let refs = collect_ident_references(&clause.body);
+                for name in refs {
+                    checker.register_timing_sensitive(name);
+                }
+            }
+        }
+        if !checker.has_labels() {
+            return Vec::new();
+        }
+        let mut errors = Vec::new();
+        for clause in &contract.clauses {
+            if clause.kind == ClauseKind::Ensures {
+                for err in checker.check_expr(&clause.body, span) {
+                    errors.push(err.into());
+                }
+                check_expr_info_flow(&clause.body, &checker, span, &mut errors);
+            }
+            if clause.kind == ClauseKind::Ensures || clause.kind == ClauseKind::Requires {
+                let refs = collect_ident_references(&clause.body);
+                for name in &refs {
+                    if let Some(label) = checker.get_label(name) {
+                        if let Some(err) = checker.check_covert_channel(label, name, span) {
+                            errors.push(err.into());
+                        }
+                        if let Some(err) =
+                            checker.check_declassify(label, SecurityLabel::Public, false, span)
+                        {
+                            errors.push(err.into());
+                        }
+                    }
+                }
+            }
+            if let ClauseKind::Other(ref k) = clause.kind
+                && k == "purpose_check"
+                && let Expr::Raw(tokens) = &clause.body.node
+                && tokens.len() >= 2
+            {
+                let var_name = &tokens[0];
+                let required_purpose = &tokens[1];
+                if checker.get_label(var_name).is_some()
+                    && let Some(err) = checker.check_purpose_label(var_name, required_purpose, span)
+                {
+                    errors.push(err.into());
+                }
+                if let Some(purpose) = checker.get_purpose(var_name)
+                    && purpose != required_purpose.as_str()
+                {
+                    errors.push(TypeError {
+                        code: "A08003".into(),
+                        message: format!(
+                            "purpose mismatch for `{var_name}`: registered as `{purpose}`, \
+                                 required `{required_purpose}`"
+                        ),
+                        span: span.clone(),
+                        secondary: None,
+                    });
+                }
+            }
+        }
+        errors
+    }
+
+    fn check_fn_info_flow(
+        fn_def: &assura_parser::ast::FnDef,
+        span: &Range<usize>,
+    ) -> Vec<TypeError> {
+        let mut checker = InfoFlowChecker::new();
+        for clause in &fn_def.clauses {
+            if clause.kind == ClauseKind::Input {
+                let mut _has = false;
+                assign_labels_from_clause(&clause.body, &mut checker, &mut _has);
+            }
+            if let ClauseKind::Other(ref k) = clause.kind
+                && k == "purpose"
+                && let Expr::Raw(tokens) = &clause.body.node
+                && tokens.len() >= 2
+            {
+                checker.declare_purpose(tokens[0].clone(), tokens[1].clone());
+            }
+            if let ClauseKind::Other(ref k) = clause.kind
+                && k == "declassify"
+            {
+                for name in collect_ident_references(&clause.body) {
+                    checker.mark_declassify(name);
+                }
+            }
+            if let ClauseKind::Other(ref k) = clause.kind
+                && k == "timing_sensitive"
+            {
+                for name in collect_ident_references(&clause.body) {
+                    checker.register_timing_sensitive(name);
+                }
+            }
+        }
+        for param in &fn_def.params {
+            let tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+            let label = infer_label_from_type_tokens(&tokens);
+            if label > SecurityLabel::Public {
+                checker.declare(param.name.clone(), label);
+            }
+        }
+        if !checker.has_labels() {
+            return Vec::new();
+        }
+        let mut errors = Vec::new();
+        for clause in &fn_def.clauses {
+            if clause.kind == ClauseKind::Ensures {
+                for err in checker.check_expr(&clause.body, span) {
+                    errors.push(err.into());
+                }
+                check_expr_info_flow(&clause.body, &checker, span, &mut errors);
+            }
+        }
+        errors
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Private helpers for info-flow AST walking
+// ---------------------------------------------------------------------------
+
+fn assign_labels_from_clause(expr: &SpExpr, checker: &mut InfoFlowChecker, has_any: &mut bool) {
+    match &expr.node {
+        Expr::Raw(tokens) => {
+            let mut i = 0;
+            while i < tokens.len() {
+                let label = match tokens[i].as_str() {
+                    "secret" | "restricted" => Some(SecurityLabel::Restricted),
+                    "confidential" => Some(SecurityLabel::Confidential),
+                    "internal" => Some(SecurityLabel::Internal),
+                    "public" => Some(SecurityLabel::Public),
+                    _ => None,
+                };
+                if let Some(label) = label
+                    && label > SecurityLabel::Public
+                    && let Some(name) = tokens.get(i + 1)
+                    && name != ":"
+                {
+                    checker.declare(name.clone(), label);
+                    *has_any = true;
+                }
+                i += 1;
+            }
+        }
+        Expr::Block(items) => {
+            for item in items {
+                assign_labels_from_clause(item, checker, has_any);
+            }
+        }
+        Expr::Call { args, .. } => {
+            for arg in args {
+                assign_labels_from_clause(arg, checker, has_any);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn infer_label_from_type_tokens(tokens: &[String]) -> SecurityLabel {
+    for tok in tokens {
+        match tok.as_str() {
+            "secret" | "restricted" => return SecurityLabel::Restricted,
+            "confidential" => return SecurityLabel::Confidential,
+            "internal" => return SecurityLabel::Internal,
+            _ => {}
+        }
+    }
+    SecurityLabel::Public
+}
+
+fn check_expr_info_flow(
+    expr: &SpExpr,
+    checker: &InfoFlowChecker,
+    span: &Range<usize>,
+    errors: &mut Vec<TypeError>,
+) {
+    if let Expr::BinOp {
+        lhs,
+        rhs,
+        op: BinOp::Eq,
+        ..
+    } = &expr.node
+    {
+        let (target, source) = if is_result_expr(lhs) {
+            ("result", rhs.as_ref())
+        } else if is_result_expr(rhs) {
+            ("result", lhs.as_ref())
+        } else {
+            return;
+        };
+        let source_label = checker.infer_label(source);
+        if source_label > SecurityLabel::Public
+            && let Some(err) = checker.check_assignment(SecurityLabel::Public, source_label, span)
+        {
+            errors.push(
+                err.with_context(&format!("information flow violation in `{target}`"))
+                    .into(),
+            );
+        }
+    }
+    if let Expr::If {
+        cond, then_branch, ..
+    } = &expr.node
+    {
+        let cond_label = checker.infer_label(cond);
+        if cond_label > SecurityLabel::Public {
+            let branch_label = infer_branch_target_label(then_branch, checker);
+            if let Some(err) = checker.check_implicit_flow(cond_label, branch_label, span) {
+                errors.push(err.into());
+            }
+        }
+    }
+}
+
+fn is_result_expr(expr: &SpExpr) -> bool {
+    matches!(&expr.node, Expr::Ident(name) if name == "result")
+}
+
+fn infer_branch_target_label(expr: &SpExpr, checker: &InfoFlowChecker) -> SecurityLabel {
+    if contains_result_ref(expr) {
+        SecurityLabel::Public
+    } else {
+        checker.infer_label(expr)
+    }
+}
+
+fn contains_result_ref(expr: &SpExpr) -> bool {
+    match &expr.node {
+        Expr::Ident(name) => name == "result",
+        Expr::BinOp { lhs, rhs, .. } => contains_result_ref(lhs) || contains_result_ref(rhs),
+        Expr::Field(inner, _) | Expr::Old(inner) => contains_result_ref(inner),
+        Expr::Call { func, args } => {
+            contains_result_ref(func) || args.iter().any(contains_result_ref)
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            contains_result_ref(receiver) || args.iter().any(contains_result_ref)
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            contains_result_ref(cond)
+                || contains_result_ref(then_branch)
+                || else_branch.as_ref().is_some_and(|e| contains_result_ref(e))
+        }
+        _ => false,
+    }
+}
+
 impl Default for InfoFlowChecker {
     fn default() -> Self {
         Self::new()
     }
 }
+
+// ---------------------------------------------------------------------------
+// DependentTypeChecker::check_source
+// ---------------------------------------------------------------------------
+
+impl DependentTypeChecker {
+    /// AST-walking entry point: check dependent type annotations on declarations.
+    pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
+        let mut dep_checker = DependentTypeChecker::new();
+        let mut errors = Vec::new();
+        for decl in &source.decls {
+            if let Decl::EnumDef(e) = &decl.node {
+                let variants: Vec<String> = e.variants.iter().map(|v| v.name.clone()).collect();
+                dep_checker.register_enum(e.name.clone(), variants);
+            }
+        }
+        for decl in &source.decls {
+            let Some(clauses) = crate::checks::clauses_contract_fn(&decl.node) else {
+                continue;
+            };
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && (k == "dep_type" || k == "dependent")
+                    && let Expr::Raw(tokens) = &clause.body.node
+                    && tokens.len() >= 2
+                {
+                    let index_name = &tokens[0];
+                    let index_type = &tokens[1];
+                    for dte in dep_checker.validate_index(index_name, index_type, &decl.span) {
+                        errors.push(TypeError {
+                            code: dte.code,
+                            message: dte.message,
+                            span: dte.span,
+                            secondary: None,
+                        });
+                    }
+                    let dep_index = match index_type.as_str() {
+                        "Nat" => DepIndex::Nat(index_name.clone()),
+                        "Bool" => DepIndex::Bool(index_name.clone()),
+                        other => DepIndex::Enum {
+                            name: index_name.clone(),
+                            enum_type: other.to_string(),
+                        },
+                    };
+                    dep_checker.bind_index(index_name.clone(), dep_index.clone());
+                    if tokens.len() >= 3 {
+                        let base_type =
+                            crate::convert::parse_type_tokens(std::slice::from_ref(&tokens[2]));
+                        let dep_type = DepType {
+                            base: base_type.clone(),
+                            indices: vec![dep_index],
+                        };
+                        dep_checker.register_dep_type(index_name.clone(), dep_type);
+                    }
+                }
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && k == "index_expr"
+                    && let Some((_, idx)) = dep_checker.index_vars_ref().iter().next()
+                {
+                    for dte in dep_checker.check_index_expr(&clause.body, idx, &decl.span) {
+                        errors.push(TypeError {
+                            code: dte.code,
+                            message: dte.message,
+                            span: dte.span,
+                            secondary: None,
+                        });
+                    }
+                }
+                if matches!(clause.kind, ClauseKind::Ensures | ClauseKind::Requires) {
+                    let ghost_context = false;
+                    for dte in
+                        dep_checker.check_index_erasure(&clause.body, ghost_context, &decl.span)
+                    {
+                        errors.push(TypeError {
+                            code: dte.code,
+                            message: dte.message,
+                            span: dte.span,
+                            secondary: None,
+                        });
+                    }
+                }
+            }
+            for clause in clauses {
+                if let ClauseKind::Other(ref k) = clause.kind
+                    && k == "dep_type_eq"
+                    && let Expr::Raw(tokens) = &clause.body.node
+                    && tokens.len() >= 2
+                {
+                    let name_a = &tokens[0];
+                    let name_b = &tokens[1];
+                    if let (Some(dt_a), Some(dt_b)) = (
+                        dep_checker.dep_types_ref().get(name_a),
+                        dep_checker.dep_types_ref().get(name_b),
+                    ) {
+                        let a = dt_a.clone();
+                        let b = dt_b.clone();
+                        for dte in dep_checker.check_dep_type_eq(&a, &b, &decl.span) {
+                            errors.push(TypeError {
+                                code: dte.code,
+                                message: dte.message,
+                                span: dte.span,
+                                secondary: None,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        errors
+    }
+}
+
 #[cfg(test)]
 #[path = "info_flow_tests.rs"]
 mod tests;
