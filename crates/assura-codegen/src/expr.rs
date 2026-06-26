@@ -447,6 +447,7 @@ pub(crate) fn raw_tokens_to_rust(tokens: &[String]) -> String {
 /// If the expression contains patterns that would fail on stub types
 /// (nested field accesses like `a.b.c`), emit it as a comment instead
 /// to keep the generated code compilable while preserving the contract intent.
+#[cfg(test)]
 pub(crate) fn generate_debug_assert(code: &mut String, expr: &str, label: &str) {
     // If expression references deep field chains (e.g., state.head.extra.extra_max),
     // emit as a comment since stub types don't have these fields.

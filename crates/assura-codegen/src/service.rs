@@ -761,8 +761,9 @@ pub(crate) fn generate_interface_trait(name: &str, body: &[Clause], code: &mut S
 
 /// Generate a single trait method from an interface `method` clause body.
 ///
-/// Public wrapper around `build_trait_method_fn` for callers (contract.rs, tests)
+/// Public wrapper around `build_trait_method_fn` for callers (tests)
 /// that still use the `&mut String` append pattern.
+#[cfg(test)]
 pub(crate) fn generate_trait_method(body: &SpExpr, code: &mut String) {
     use crate::hir::*;
     let f = build_trait_method_fn(body);

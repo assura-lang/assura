@@ -27,6 +27,8 @@ pub(crate) fn generate_contract_contents(
     code: &mut String,
     ir_bodies: Option<&std::collections::HashMap<String, String>>,
 ) {
+    use crate::hir::*;
+
     // Interface contracts become traits even in multi-file mode
     let is_interface = c
         .clauses
@@ -47,12 +49,6 @@ pub(crate) fn generate_contract_contents(
             _ => None,
         })
         .collect();
-
-    let tps = if c.type_params.is_empty() {
-        String::new()
-    } else {
-        format!("<{}>", c.type_params.join(", "))
-    };
 
     let mut input_params: Vec<(String, String)> = Vec::new();
     let mut output_type = "()".to_string();
@@ -106,85 +102,125 @@ pub(crate) fn generate_contract_contents(
         output_type.clone()
     };
 
+    // Build doc comments
+    let mut doc: Vec<String> = Vec::new();
     for req in &requires_exprs {
-        code.push_str(&format!("/// Requires: {req}\n"));
+        doc.push(format!("Requires: {req}"));
     }
     for eff in &effects {
-        code.push_str(&format!("/// Effects: {eff}\n"));
+        doc.push(format!("Effects: {eff}"));
     }
     for m in &modifies {
-        code.push_str(&format!("/// Modifies: {m}\n"));
+        doc.push(format!("Modifies: {m}"));
     }
 
-    let params_s: String = input_params
+    // Build params
+    let params: Vec<RustParam> = input_params
         .iter()
-        .map(|(name, ty)| format!("{name}: {ty}"))
-        .collect::<Vec<_>>()
-        .join(", ");
+        .map(|(name, ty)| RustParam {
+            name: name.clone(),
+            ty: RustType::Raw(ty.clone()),
+        })
+        .collect();
 
-    code.push_str(&format!(
-        "pub fn check{tps}({params_s}) -> {return_type} {{\n"
-    ));
+    let ret = if return_type == "()" {
+        None
+    } else {
+        Some(RustType::Raw(return_type.clone()))
+    };
 
+    // Build function body
+    let mut body: Vec<RustStmt> = Vec::new();
+
+    // old() variable snapshots for ensures clauses
     for clause in &c.clauses {
         if clause.kind == ClauseKind::Ensures {
             for (var, rust_expr) in collect_old_exprs(&clause.body) {
-                code.push_str(&format!(
-                    "    let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();\n"
-                ));
+                body.push(RustStmt::Raw(format!(
+                    "let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();"
+                )));
             }
         }
     }
 
+    // Requires assertions
     for req in &requires_exprs {
-        generate_debug_assert(code, req, "requires");
+        body.push(RustStmt::Assert {
+            cond: req.clone(),
+            label: "requires".into(),
+        });
     }
 
-    // Feature-specific annotations (CORE/SEC/MEM/CONC/FMT/NUM/PLAT/PERF/TEST/MISC)
+    // Feature-specific annotations
     if !feature_code.is_empty() {
-        code.push_str(&feature_code);
+        body.push(RustStmt::Raw(feature_code));
     }
 
     // Check for IR-generated body to replace todo!() placeholder
     let ir_body = ir_bodies.and_then(|m| m.get(&c.name));
 
     if ensures_exprs.is_empty() && invariants.is_empty() {
-        if let Some(body) = ir_body {
-            code.push_str(body);
+        if let Some(ir) = ir_body {
+            body.push(RustStmt::Raw(ir.clone()));
         } else {
-            code.push_str("    todo!(\"implementation provided by AI agent\")\n");
+            body.push(RustStmt::Expr(RustExpr::Todo(
+                "implementation provided by AI agent".into(),
+            )));
         }
     } else {
-        if let Some(body) = ir_body {
-            code.push_str(body);
+        if let Some(ir) = ir_body {
+            body.push(RustStmt::Raw(ir.clone()));
         } else {
-            code.push_str(&format!(
-                "    let {result_var}: {output_type} = todo!(\"implementation provided by AI agent\");\n",
-                result_var = RESULT_VAR
-            ));
+            body.push(RustStmt::Raw(format!(
+                "let {RESULT_VAR}: {output_type} = todo!(\"implementation provided by AI agent\");"
+            )));
         }
-        // Bind the output variable name so ensures clauses can reference it
         if let Some(ref name) = output_name {
-            code.push_str(&format!("    let {name} = {RESULT_VAR}.clone();\n"));
+            body.push(RustStmt::Raw(format!("let {name} = {RESULT_VAR}.clone();")));
         }
         for ens in &ensures_exprs {
-            generate_debug_assert(code, ens, "ensures");
+            body.push(RustStmt::Assert {
+                cond: ens.clone(),
+                label: "ensures".into(),
+            });
         }
         for inv in &invariants {
-            generate_debug_assert(code, inv, "invariant");
+            body.push(RustStmt::Assert {
+                cond: inv.clone(),
+                label: "invariant".into(),
+            });
         }
         if error_enum_name.is_some() {
-            code.push_str(&format!("    Ok({RESULT_VAR})\n"));
+            body.push(RustStmt::Expr(RustExpr::Ok(Box::new(RustExpr::Ident(
+                RESULT_VAR.into(),
+            )))));
         } else {
-            code.push_str(&format!("    {RESULT_VAR}\n"));
+            body.push(RustStmt::Expr(RustExpr::Ident(RESULT_VAR.into())));
         }
     }
-    code.push_str("}\n");
 
+    let check_fn = RustFn {
+        name: "check".into(),
+        type_params: c.type_params.clone(),
+        params,
+        ret,
+        body,
+        doc,
+        ..RustFn::default()
+    };
+    code.push_str(&render_item_raw(&RustItem::Fn(check_fn)));
+
+    // Generate implements blocks
     if !implements.is_empty() {
-        code.push_str(&format!("\npub struct {}{tps};\n\n", c.name));
+        code.push_str(&render_item_raw(&RustItem::Struct(RustStruct {
+            name: c.name.clone(),
+            type_params: c.type_params.clone(),
+            derives: vec![],
+            ..RustStruct::default()
+        })));
+
         for iface in &implements {
-            code.push_str(&format!("impl{tps} {iface} for {}{tps} {{\n", c.name));
+            let mut impl_methods: Vec<RustFn> = Vec::new();
             for clause in &c.clauses {
                 if let ClauseKind::Other(k) = &clause.kind
                     && k == "method"
@@ -195,11 +231,25 @@ pub(crate) fn generate_contract_contents(
                         _ => None,
                     };
                     if let Some(method_name) = method_name {
-                        code.push_str(&format!("    fn {method_name}(&self) {{ todo!() }}\n"));
+                        impl_methods.push(RustFn {
+                            name: method_name.to_string(),
+                            params: vec![RustParam {
+                                name: "&self".into(),
+                                ty: RustType::Raw("&Self".into()),
+                            }],
+                            body: vec![RustStmt::Expr(RustExpr::Todo(String::new()))],
+                            is_pub: false,
+                            ..RustFn::default()
+                        });
                     }
                 }
             }
-            code.push_str("}\n");
+            code.push_str(&render_item_raw(&RustItem::Impl(RustImpl {
+                trait_name: Some(iface.clone()),
+                target: c.name.clone(),
+                type_params: c.type_params.clone(),
+                methods: impl_methods,
+            })));
         }
     }
 }
@@ -209,6 +259,8 @@ pub(crate) fn generate_contract(
     code: &mut String,
     ir_bodies: Option<&std::collections::HashMap<String, String>>,
 ) {
+    use crate::hir::*;
+
     // Interface contracts become traits (no wrapping module needed)
     let is_interface = c
         .clauses
@@ -219,15 +271,17 @@ pub(crate) fn generate_contract(
         return;
     }
 
-    // Single-file mode: wrap contents in a pub mod.
-    // prettyplease handles indentation, so we just emit the module wrapper.
-    code.push_str(&format!(
-        "/// Contract: {}\npub mod contract_{} {{\n",
-        c.name,
-        c.name.to_lowercase()
-    ));
-    generate_contract_contents(c, code, ir_bodies);
-    code.push_str("}\n\n");
+    // Single-file mode: wrap contents in a pub mod
+    let mut inner = String::new();
+    generate_contract_contents(c, &mut inner, ir_bodies);
+
+    let m = RustItem::Mod(RustMod {
+        name: format!("contract_{}", c.name.to_lowercase()),
+        items: vec![RustItem::Raw(inner)],
+        is_pub: true,
+        doc: vec![format!("Contract: {}", c.name)],
+    });
+    code.push_str(&render_item_raw(&m));
 }
 
 // ---------------------------------------------------------------------------
@@ -338,6 +392,8 @@ pub(crate) fn generate_proptest_for_contract_contents(c: &ContractDecl, code: &m
 /// Shared proptest generation. `check_call_path` is the path to the
 /// contract's check function from inside the test module.
 fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: &str) {
+    use crate::hir::*;
+
     if !contract_is_testable(c) {
         return;
     }
@@ -361,16 +417,7 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
             ClauseKind::Output => {
                 output_name = extract_output_name(&clause.body);
             }
-            ClauseKind::Effects
-            | ClauseKind::Modifies
-            | ClauseKind::Invariant
-            | ClauseKind::Errors
-            | ClauseKind::Rule
-            | ClauseKind::DataFlow
-            | ClauseKind::MustNot
-            | ClauseKind::Decreases
-            | ClauseKind::Ordering
-            | ClauseKind::Other(_) => {}
+            _ => {}
         }
     }
 
@@ -390,12 +437,8 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
 
     let fn_name = c.name.to_lowercase();
 
-    code.push_str("#[cfg(test)]\n");
-    code.push_str(&format!("mod proptest_{fn_name} {{\n"));
-    code.push_str("    use proptest::prelude::*;\n\n");
-    code.push_str("    proptest! {\n");
-    code.push_str("        #[test]\n");
-
+    // Build the proptest macro body as raw code since proptest! is a macro
+    // and not representable as a plain RustFn
     let param_strs: Vec<String> = input_params
         .iter()
         .map(|(name, ty)| {
@@ -407,32 +450,44 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
             }
         })
         .collect();
-    code.push_str(&format!(
-        "        fn test_{fn_name}({}) {{\n",
-        param_strs.join(", ")
-    ));
 
+    let mut test_body = String::new();
     for req in &unrefined_requires {
-        code.push_str(&format!("            prop_assume!({req});\n"));
+        test_body.push_str(&format!("            prop_assume!({req});\n"));
     }
 
     let call_args: Vec<&str> = input_params.iter().map(|(n, _)| n.as_str()).collect();
-    code.push_str(&format!(
+    test_body.push_str(&format!(
         "            let result = {check_call_path}({});\n",
         call_args.join(", ")
     ));
-    // Bind the output variable name so ensures clauses can reference it
     if let Some(ref name) = output_name {
-        code.push_str(&format!("            let {name} = result.clone();\n"));
+        test_body.push_str(&format!("            let {name} = result.clone();\n"));
     }
-
     for ens in &ensures_exprs {
-        code.push_str(&format!("            prop_assert!({ens});\n"));
+        test_body.push_str(&format!("            prop_assert!({ens});\n"));
     }
 
-    code.push_str("        }\n");
-    code.push_str("    }\n");
-    code.push_str("}\n\n");
+    // Emit as a RustMod with #[cfg(test)] + raw proptest! macro inside
+    let inner_raw = format!(
+        "use proptest::prelude::*;\n\n\
+         proptest! {{\n\
+         {indent}#[test]\n\
+         {indent}fn test_{fn_name}({params}) {{\n\
+         {test_body}\
+         {indent}}}\n\
+         }}\n",
+        indent = "    ",
+        params = param_strs.join(", "),
+    );
+
+    code.push_str(&render_item_raw(&RustItem::Raw("#[cfg(test)]\n".to_string())));
+    code.push_str(&render_item_raw(&RustItem::Mod(RustMod {
+        name: format!("proptest_{fn_name}"),
+        items: vec![RustItem::Raw(inner_raw)],
+        is_pub: false,
+        doc: vec![],
+    })));
 }
 
 /// Check if any contract in the source is testable (needs proptest).
@@ -475,60 +530,11 @@ pub(crate) fn source_has_testable_contracts(source: &assura_ast::SourceFile) -> 
 }
 
 /// Generate a Rust trait from a contract that has an `interface` clause.
+///
+/// Delegates to the shared `generate_interface_trait` which already builds
+/// a `RustItem::Trait` from clause bodies.
 pub(crate) fn generate_interface_trait_from_contract(c: &ContractDecl, code: &mut String) {
-    let tps = if c.type_params.is_empty() {
-        String::new()
-    } else {
-        format!("<{}>", c.type_params.join(", "))
-    };
-
-    // Collect extends (supertraits)
-    let extends: Vec<String> = c
-        .clauses
-        .iter()
-        .filter(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "extends"))
-        .filter_map(|cl| {
-            if let Expr::Ident(name) = &cl.body.node {
-                Some(name.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    if extends.is_empty() {
-        code.push_str(&format!(
-            "/// Interface contract: {}\npub trait {}{tps} {{\n",
-            c.name, c.name
-        ));
-    } else {
-        let bounds = extends.join(" + ");
-        code.push_str(&format!(
-            "/// Interface contract: {}\npub trait {}{tps}: {bounds} {{\n",
-            c.name, c.name
-        ));
-    }
-
-    // Generate trait methods from `method` clauses
-    for clause in &c.clauses {
-        if let ClauseKind::Other(k) = &clause.kind
-            && k == "method"
-        {
-            generate_trait_method(&clause.body, code);
-        }
-    }
-
-    // Generate invariant as a provided method
-    for clause in &c.clauses {
-        if matches!(clause.kind, ClauseKind::Invariant | ClauseKind::Ensures) {
-            let expr = expr_to_rust(&clause.body);
-            code.push_str(&format!(
-                "    /// Interface invariant\n    fn check_invariant(&self) {{ debug_assert!({expr}); }}\n\n"
-            ));
-        }
-    }
-
-    code.push_str("}\n\n");
+    generate_interface_trait(&c.name, &c.clauses, code);
 }
 
 /// Extract `(name, rust_type)` pairs from an input clause body.
