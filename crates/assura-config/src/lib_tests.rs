@@ -523,3 +523,92 @@ fn compiler_config_from_project_with_effects() {
     assert!(config.codegen.generate_tests);
     assert!(!config.codegen.run_cargo_check);
 }
+
+// ---- Dependency parsing ----
+
+#[test]
+fn parse_empty_dependencies() {
+    let toml_str = r#"
+[package]
+name = "test"
+version = "0.1.0"
+"#;
+    let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+    assert!(config.dependencies.is_empty());
+}
+
+#[test]
+fn parse_path_dependency() {
+    let toml_str = r#"
+[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+my-lib = { path = "../my-lib" }
+"#;
+    let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.dependencies.len(), 1);
+    let dep = config.dependencies.get("my-lib").unwrap();
+    assert_eq!(dep.local_path(), Some("../my-lib"));
+}
+
+#[test]
+fn parse_multiple_dependencies() {
+    let toml_str = r#"
+[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+stdlib = { path = "../stdlib" }
+utils = { path = "/absolute/path/to/utils" }
+"#;
+    let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.dependencies.len(), 2);
+    assert_eq!(
+        config.dependencies.get("stdlib").unwrap().local_path(),
+        Some("../stdlib")
+    );
+    assert_eq!(
+        config.dependencies.get("utils").unwrap().local_path(),
+        Some("/absolute/path/to/utils")
+    );
+}
+
+#[test]
+fn parse_version_dependency() {
+    let toml_str = r#"
+[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+stdlib = "0.1.0"
+"#;
+    let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+    let dep = config.dependencies.get("stdlib").unwrap();
+    assert_eq!(dep.local_path(), None);
+}
+
+#[test]
+fn parse_git_dependency() {
+    let toml_str = r#"
+[package]
+name = "test"
+version = "0.1.0"
+
+[dependencies]
+stdlib = { git = "https://github.com/assura-lang/stdlib", tag = "v0.1.0" }
+"#;
+    let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+    let dep = config.dependencies.get("stdlib").unwrap();
+    // Git deps have no local path
+    assert_eq!(dep.local_path(), None);
+}
+
+#[test]
+fn default_config_has_no_dependencies() {
+    let config = ProjectConfig::default();
+    assert!(config.dependencies.is_empty());
+}

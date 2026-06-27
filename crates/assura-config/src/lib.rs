@@ -3,6 +3,7 @@
 //! Provides `ProjectConfig` (parsed from `assura.toml`), `OutputMode`,
 //! and `Verbosity` types used across the CLI and library crates.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -57,6 +58,48 @@ pub struct ProjectConfig {
     pub codegen: CodegenTomlConfig,
     pub contracts: ContractsConfig,
     pub inline: InlineConfig,
+    /// Package dependencies from `[dependencies]` in assura.toml.
+    pub dependencies: HashMap<String, DependencySpec>,
+}
+
+/// A single dependency specification.
+///
+/// Supports local path dependencies (Phase 1):
+/// ```toml
+/// [dependencies]
+/// my-lib = { path = "../my-lib" }
+/// ```
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(untagged)]
+pub enum DependencySpec {
+    /// Inline version string (reserved for future registry support).
+    Version(String),
+    /// Detailed dependency with explicit source.
+    Detailed(DetailedDependency),
+}
+
+/// Detailed dependency specification with source location.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(default)]
+pub struct DetailedDependency {
+    /// Local filesystem path to the dependency project root.
+    pub path: Option<String>,
+    /// Git repository URL (reserved for Phase 2).
+    pub git: Option<String>,
+    /// Git tag for version pinning (reserved for Phase 2).
+    pub tag: Option<String>,
+    /// Version requirement (reserved for Phase 3 registry).
+    pub version: Option<String>,
+}
+
+impl DependencySpec {
+    /// Returns the local path if this is a path dependency.
+    pub fn local_path(&self) -> Option<&str> {
+        match self {
+            DependencySpec::Detailed(d) => d.path.as_deref(),
+            DependencySpec::Version(_) => None,
+        }
+    }
 }
 
 /// Package metadata from `[package]` in assura.toml.

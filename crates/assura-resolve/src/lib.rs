@@ -22,7 +22,8 @@ use assura_parser::ast::{ClauseKind, Decl, ServiceItem, SourceFile, SpExpr, Type
 pub use errors::{ResolutionError, ResolvedFile};
 pub use imports::{ImportStatus, ModuleMap, ResolvedImport};
 pub use project::{
-    ProjectResult, discover_and_resolve_project, find_project_root, resolve_project,
+    DependencyMap, ProjectResult, discover_and_resolve_project, find_project_root,
+    resolve_dependency_map, resolve_project, resolve_project_with_deps,
 };
 pub use symbols::{Scope, Symbol, SymbolKind, SymbolTable};
 

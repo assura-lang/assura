@@ -13,3 +13,4 @@ categories.workspace = true
 assura-parser = { path = "../assura-parser" }
 assura-diagnostics = { path = "../assura-diagnostics" }
 assura-stdlib = { path = "../assura-stdlib" }
+assura-config = { path = "../assura-config" }

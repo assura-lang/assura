@@ -6,6 +6,9 @@ use crate::errors::ResolvedFile;
 use crate::imports::ModuleMap;
 use crate::resolve_with_modules;
 
+/// Maps dependency name -> resolved root path on disk.
+pub type DependencyMap = HashMap<String, std::path::PathBuf>;
+
 /// Find the project root by walking up from `start` until `assura.toml`
 /// is found.  Returns the directory containing `assura.toml`, or `None`
 /// if no config file exists (single-file mode).
@@ -78,6 +81,15 @@ pub(crate) fn build_module_graph(
     root_file: &std::path::Path,
     project_root: &std::path::Path,
 ) -> ModuleGraph {
+    build_module_graph_with_deps(root_file, project_root, &DependencyMap::new())
+}
+
+/// Build a module graph with external dependency support.
+pub(crate) fn build_module_graph_with_deps(
+    root_file: &std::path::Path,
+    project_root: &std::path::Path,
+    deps: &DependencyMap,
+) -> ModuleGraph {
     let mut modules = ModuleMap::new();
     let mut errors = Vec::new();
     let mut order = Vec::new();
@@ -128,6 +140,7 @@ pub(crate) fn build_module_graph(
     resolve_imports_recursive(
         &root_module,
         project_root,
+        deps,
         &mut modules,
         &mut visiting,
         &mut visited,
@@ -150,6 +163,7 @@ pub(crate) fn build_module_graph(
 fn resolve_imports_recursive(
     module_path: &str,
     project_root: &std::path::Path,
+    deps: &DependencyMap,
     modules: &mut ModuleMap,
     visiting: &mut HashSet<String>,
     visited: &mut HashSet<String>,
@@ -181,6 +195,7 @@ fn resolve_imports_recursive(
             resolve_imports_recursive(
                 &path_str,
                 project_root,
+                deps,
                 modules,
                 visiting,
                 visited,
@@ -190,15 +205,19 @@ fn resolve_imports_recursive(
             continue;
         }
 
-        // Resolve to filesystem
-        match resolve_module_path(project_root, imp_path) {
-            Some(file_path) => {
+        // Try local filesystem first, then external dependencies
+        let resolved_file = resolve_module_path(project_root, imp_path)
+            .map(|fp| (path_str.clone(), fp))
+            .or_else(|| resolve_dep_module_path(imp_path, deps));
+
+        match resolved_file {
+            Some((module_key, file_path)) => {
                 match std::fs::read_to_string(&file_path) {
                     Ok(source) => {
                         let (ast, parse_errs) = assura_parser::parse(&source);
                         if !parse_errs.is_empty() {
                             errors.push(ModuleError {
-                                module_path: path_str.clone(),
+                                module_path: module_key.clone(),
                                 message: format!(
                                     "{}: {} parse error(s)",
                                     file_path.display(),
@@ -207,12 +226,20 @@ fn resolve_imports_recursive(
                             });
                         }
                         if let Some(ast) = ast {
-                            modules.insert(path_str.clone(), ast);
+                            modules.insert(module_key.clone(), ast);
                         }
                         // Recursively resolve this module's imports
+                        // For dep imports, the dep_root becomes the effective project root
+                        let effective_root = if module_key != path_str {
+                            // This was resolved from a dependency; find the dep root
+                            file_path.parent().unwrap_or(project_root).to_path_buf()
+                        } else {
+                            project_root.to_path_buf()
+                        };
                         resolve_imports_recursive(
-                            &path_str,
-                            project_root,
+                            &module_key,
+                            &effective_root,
+                            deps,
                             modules,
                             visiting,
                             visited,
@@ -222,15 +249,14 @@ fn resolve_imports_recursive(
                     }
                     Err(e) => {
                         errors.push(ModuleError {
-                            module_path: path_str.clone(),
+                            module_path: module_key,
                             message: format!("{}: {e}", file_path.display()),
                         });
                     }
                 }
             }
             None => {
-                // Module not found on filesystem. Not necessarily an error:
-                // could be a standard library module.
+                // Module not found locally or in dependencies.
                 errors.push(ModuleError {
                     module_path: path_str.clone(),
                     message: format!("module not found: {}", imp_path.join("/")),
@@ -245,6 +271,96 @@ fn resolve_imports_recursive(
     if !order.contains(&mp) {
         order.push(mp);
     }
+}
+
+/// Resolve a dotted module path against external dependencies.
+///
+/// If the first segment matches a dependency name (after normalizing
+/// hyphens to underscores), look for the remaining segments inside
+/// that dependency's project root.
+///
+/// Example: `dep_lib::math` with dependency `dep-lib = { path = "../dep" }`
+/// resolves to `../dep/math.assura`.
+pub(crate) fn resolve_dep_module_path(
+    module_path: &[String],
+    deps: &DependencyMap,
+) -> Option<(String, std::path::PathBuf)> {
+    if module_path.is_empty() {
+        return None;
+    }
+    let first = &module_path[0];
+    // Look up by exact name, then try hyphen/underscore normalization
+    let dep_root = deps.get(first).or_else(|| {
+        let normalized = first.replace('_', "-");
+        deps.get(&normalized)
+    })?;
+
+    if module_path.len() < 2 {
+        // Just `import dep_lib` with no sub-path: look for a root module
+        let mut file_path = dep_root.clone();
+        file_path.push("lib");
+        file_path.set_extension("assura");
+        if file_path.exists() {
+            return Some((first.clone(), file_path));
+        }
+        return None;
+    }
+
+    // Remaining segments form the path inside the dependency
+    let mut file_path = dep_root.clone();
+    for segment in &module_path[1..] {
+        file_path.push(segment);
+    }
+    file_path.set_extension("assura");
+    if file_path.exists() {
+        Some((module_path.join("."), file_path))
+    } else {
+        None
+    }
+}
+
+/// Build a `DependencyMap` from an `assura-config` `ProjectConfig`.
+///
+/// Resolves relative paths against the project root. Logs warnings
+/// for dependencies that cannot be resolved (git/version deps are
+/// not yet supported).
+pub fn resolve_dependency_map(
+    project_root: &std::path::Path,
+    config: &assura_config::ProjectConfig,
+) -> (DependencyMap, Vec<String>) {
+    let mut deps = DependencyMap::new();
+    let mut warnings = Vec::new();
+
+    for (name, spec) in &config.dependencies {
+        match spec.local_path() {
+            Some(path) => {
+                let resolved = if std::path::Path::new(path).is_absolute() {
+                    std::path::PathBuf::from(path)
+                } else {
+                    project_root.join(path)
+                };
+                if resolved.is_dir() {
+                    // Normalize the name: hyphens -> underscores for import matching
+                    let import_name = name.replace('-', "_");
+                    deps.insert(import_name, resolved);
+                } else {
+                    warnings.push(format!(
+                        "dependency '{name}': path '{}' does not exist or is not a directory",
+                        resolved.display()
+                    ));
+                }
+            }
+            None => {
+                if spec.local_path().is_none() {
+                    warnings.push(format!(
+                        "dependency '{name}': only path dependencies are supported (git/version coming in Phase 2/3)"
+                    ));
+                }
+            }
+        }
+    }
+
+    (deps, warnings)
 }
 
 pub(crate) fn file_to_module_path(
@@ -307,6 +423,14 @@ pub type ProjectResult = Result<(HashMap<String, ResolvedFile>, Vec<String>), Ve
 /// Returns `(resolved_files, warnings)` where `resolved_files` maps
 /// dotted module paths to their `ResolvedFile`s.
 pub fn resolve_project(root_file: &std::path::Path) -> ProjectResult {
+    resolve_project_with_deps(root_file, &DependencyMap::new())
+}
+
+/// High-level project resolution with external dependency support.
+pub fn resolve_project_with_deps(
+    root_file: &std::path::Path,
+    deps: &DependencyMap,
+) -> ProjectResult {
     let project_root = find_project_root(root_file).unwrap_or_else(|| {
         root_file
             .parent()
@@ -314,7 +438,7 @@ pub fn resolve_project(root_file: &std::path::Path) -> ProjectResult {
             .to_path_buf()
     });
 
-    let graph = build_module_graph(root_file, &project_root);
+    let graph = build_module_graph_with_deps(root_file, &project_root, deps);
 
     let mut all_errors: Vec<String> = graph
         .errors
@@ -587,5 +711,181 @@ mod tests {
         let debug = format!("{e:?}");
         assert!(debug.contains("std.math"));
         assert!(debug.contains("not found"));
+    }
+
+    // ---- resolve_dep_module_path ----
+
+    #[test]
+    fn dep_module_path_empty_deps() {
+        let deps = DependencyMap::new();
+        let result = resolve_dep_module_path(&["dep_lib".into(), "math".into()], &deps);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn dep_module_path_resolves_with_underscore() {
+        let tmp = std::env::temp_dir().join("assura_test_dep_underscore");
+        let _ = std::fs::create_dir_all(&tmp);
+        std::fs::write(tmp.join("math.assura"), "contract X {}").unwrap();
+
+        let mut deps = DependencyMap::new();
+        // Dependency name uses hyphens, import uses underscores
+        deps.insert("dep_lib".to_string(), tmp.clone());
+
+        let result =
+            resolve_dep_module_path(&["dep_lib".into(), "math".into()], &deps);
+        assert!(result.is_some());
+        let (key, path) = result.unwrap();
+        assert_eq!(key, "dep_lib.math");
+        assert!(path.to_string_lossy().contains("math.assura"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn dep_module_path_hyphen_normalization() {
+        let tmp = std::env::temp_dir().join("assura_test_dep_hyphen");
+        let _ = std::fs::create_dir_all(&tmp);
+        std::fs::write(tmp.join("utils.assura"), "contract Y {}").unwrap();
+
+        let mut deps = DependencyMap::new();
+        deps.insert("dep_lib".to_string(), tmp.clone());
+
+        // Import uses underscores: dep_lib::utils
+        let result =
+            resolve_dep_module_path(&["dep_lib".into(), "utils".into()], &deps);
+        assert!(result.is_some());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn dep_module_path_not_found_in_dep() {
+        let tmp = std::env::temp_dir().join("assura_test_dep_not_found");
+        let _ = std::fs::create_dir_all(&tmp);
+        // No .assura files in the dep directory
+
+        let mut deps = DependencyMap::new();
+        deps.insert("dep_lib".to_string(), tmp.clone());
+
+        let result =
+            resolve_dep_module_path(&["dep_lib".into(), "nonexistent".into()], &deps);
+        assert!(result.is_none());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn dep_module_empty_path() {
+        let deps = DependencyMap::new();
+        assert!(resolve_dep_module_path(&[], &deps).is_none());
+    }
+
+    // ---- resolve_dependency_map ----
+
+    #[test]
+    fn resolve_dependency_map_path_dep() {
+        let tmp = std::env::temp_dir().join("assura_test_dep_map");
+        let dep_dir = tmp.join("my-dep");
+        let _ = std::fs::create_dir_all(&dep_dir);
+
+        let config = assura_config::ProjectConfig {
+            dependencies: {
+                let mut m = HashMap::new();
+                m.insert(
+                    "my-dep".to_string(),
+                    assura_config::DependencySpec::Detailed(
+                        assura_config::DetailedDependency {
+                            path: Some("my-dep".to_string()),
+                            ..Default::default()
+                        },
+                    ),
+                );
+                m
+            },
+            ..Default::default()
+        };
+
+        let (deps, warnings) = resolve_dependency_map(&tmp, &config);
+        assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+        // Hyphen normalized to underscore in key
+        assert!(deps.contains_key("my_dep"));
+        assert_eq!(deps["my_dep"], dep_dir);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn resolve_dependency_map_missing_path() {
+        let tmp = std::env::temp_dir().join("assura_test_dep_map_missing");
+        let _ = std::fs::create_dir_all(&tmp);
+
+        let config = assura_config::ProjectConfig {
+            dependencies: {
+                let mut m = HashMap::new();
+                m.insert(
+                    "missing".to_string(),
+                    assura_config::DependencySpec::Detailed(
+                        assura_config::DetailedDependency {
+                            path: Some("does-not-exist".to_string()),
+                            ..Default::default()
+                        },
+                    ),
+                );
+                m
+            },
+            ..Default::default()
+        };
+
+        let (deps, warnings) = resolve_dependency_map(&tmp, &config);
+        assert!(deps.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("does not exist"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ---- End-to-end: build_module_graph_with_deps ----
+
+    #[test]
+    fn build_graph_with_dep_resolves_import() {
+        let tmp = std::env::temp_dir().join("assura_test_e2e_dep");
+        let dep_dir = tmp.join("dep-lib");
+        let consumer_dir = tmp.join("consumer");
+        let _ = std::fs::create_dir_all(&dep_dir);
+        let _ = std::fs::create_dir_all(&consumer_dir);
+
+        // Create a dependency contract
+        std::fs::write(
+            dep_dir.join("math.assura"),
+            "contract SafeAdd {\n  input(a: Int, b: Int)\n  requires { a >= 0 }\n}\n",
+        )
+        .unwrap();
+
+        // Create a consumer that imports it (Assura uses dot-separated paths)
+        std::fs::write(
+            consumer_dir.join("main.assura"),
+            "import dep_lib.math\n",
+        )
+        .unwrap();
+
+        let mut deps = DependencyMap::new();
+        deps.insert("dep_lib".to_string(), dep_dir.clone());
+
+        let graph = build_module_graph_with_deps(
+            &consumer_dir.join("main.assura"),
+            &consumer_dir,
+            &deps,
+        );
+
+        // The module map should contain both the consumer and the dep
+        assert!(
+            graph.modules.len() >= 2,
+            "expected at least 2 modules, got {}: {:?}",
+            graph.modules.len(),
+            graph.modules.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            graph.modules.contains_key("dep_lib.math"),
+            "should contain dep_lib.math, keys: {:?}",
+            graph.modules.keys().collect::<Vec<_>>()
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }
