@@ -483,6 +483,35 @@ fn flush_clause(
     }
 }
 
+/// Escape `{` and `}` for use in format string literals (e.g. `debug_assert!`
+/// messages). Without this, expressions like `unsafe { X }` in the message
+/// cause "invalid format string" errors.
+fn escape_braces(s: &str) -> String {
+    s.replace('{', "{{").replace('}', "}}")
+}
+
+/// Check if the string contains `result` as a standalone word (not part of
+/// `partial_result` etc.).
+fn contains_result_word(input: &str) -> bool {
+    let bytes = input.as_bytes();
+    let needle = b"result";
+    let mut i = 0;
+    while i + needle.len() <= bytes.len() {
+        if &bytes[i..i + needle.len()] == needle {
+            let before_ok =
+                i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
+            let after_ok = i + needle.len() >= bytes.len()
+                || !(bytes[i + needle.len()].is_ascii_alphanumeric()
+                    || bytes[i + needle.len()] == b'_');
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
 /// Replace the standalone word `result` with `__assura_result`, respecting
 /// identifier boundaries so that e.g. `partial_result` is left intact.
 fn replace_result_word(input: &str) -> String {
@@ -510,11 +539,229 @@ fn replace_result_word(input: &str) -> String {
     out
 }
 
-/// Mark a function with Assura contract annotations.
+/// Add a precondition to a Rust function.
+///
+/// In debug builds, generates a `debug_assert!` at the start of the function.
+/// In release builds, the assertion is stripped (zero runtime cost).
+///
+/// Multiple `#[requires]` attributes can be stacked on the same function.
+/// Works with regular and `async` functions.
+///
+/// # Example
+///
+/// ```ignore
+/// use assura_macros::requires;
+///
+/// #[requires(divisor != 0)]
+/// #[requires(dividend >= i64::MIN + 1)]
+/// fn safe_divide(dividend: i64, divisor: i64) -> i64 {
+///     dividend / divisor
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn requires(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as ItemFn);
+    let pred_str = attr.to_string();
+
+    // Parse the attribute expression
+    let assert_code = match syn::parse::<syn::Expr>(attr) {
+        Ok(expr) => {
+            let msg = format!("assura: precondition failed: {pred_str}");
+            quote! { debug_assert!(#expr, #msg); }
+        }
+        Err(_) => {
+            let msg = format!("assura: could not parse precondition: {pred_str}");
+            quote! { compile_error!(#msg); }
+        }
+    };
+
+    let vis = &input.vis;
+    let sig = &input.sig;
+    let attrs = &input.attrs;
+    let block = &input.block;
+    let stmts = &block.stmts;
+
+    quote! {
+        #(#attrs)*
+        #vis #sig {
+            #assert_code
+            #(#stmts)*
+        }
+    }
+    .into()
+}
+
+/// Add a postcondition to a Rust function.
+///
+/// In debug builds, captures the return value and checks the condition
+/// before returning. Use `result` to refer to the return value.
+/// In release builds, the assertion is stripped (zero runtime cost).
+///
+/// Multiple `#[ensures]` attributes can be stacked on the same function.
+/// Works with regular and `async` functions.
+///
+/// # Example
+///
+/// ```ignore
+/// use assura_macros::ensures;
+///
+/// #[ensures(result >= 0)]
+/// fn absolute(x: i32) -> i32 {
+///     if x < 0 { -x } else { x }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn ensures(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as ItemFn);
+    let pred_str = attr.to_string();
+    let has_return = !matches!(input.sig.output, syn::ReturnType::Default);
+
+    if !has_return {
+        // No return type: ensures doesn't make sense, pass through with warning
+        let msg = format!("assura: #[ensures] on void function has no effect: {pred_str}");
+        let vis = &input.vis;
+        let sig = &input.sig;
+        let attrs = &input.attrs;
+        let block = &input.block;
+        let stmts = &block.stmts;
+        return quote! {
+            #(#attrs)*
+            #vis #sig {
+                let _ = #msg;
+                #(#stmts)*
+            }
+        }
+        .into();
+    }
+
+    // Replace standalone `result` with `__assura_result` in the predicate
+    let adjusted = replace_result_word(&pred_str);
+    let assert_code = match syn::parse_str::<syn::Expr>(&adjusted) {
+        Ok(expr) => {
+            let msg = format!("assura: postcondition failed: {pred_str}");
+            quote! { debug_assert!(#expr, #msg); }
+        }
+        Err(_) => {
+            let msg = format!("assura: could not parse postcondition: {pred_str}");
+            quote! { compile_error!(#msg); }
+        }
+    };
+
+    let vis = &input.vis;
+    let sig = &input.sig;
+    let attrs = &input.attrs;
+    let block = &input.block;
+    let stmts = &block.stmts;
+
+    quote! {
+        #(#attrs)*
+        #vis #sig {
+            let __assura_result = { #(#stmts)* };
+            #assert_code
+            __assura_result
+        }
+    }
+    .into()
+}
+
+/// Add an invariant to a Rust function.
+///
+/// In debug builds, generates `debug_assert!` at both function entry
+/// AND exit (after computing the return value). Use this for conditions
+/// that must hold before and after the function executes.
+///
+/// If the expression contains `result`, the entry check is skipped
+/// (since the return value is not yet available) and only the exit
+/// check runs.
+///
+/// # Example
+///
+/// ```ignore
+/// use assura_macros::invariant;
+///
+/// #[invariant(self.len <= self.capacity)]
+/// fn push(&mut self, item: T) {
+///     // ...
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn invariant(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as ItemFn);
+    let pred_str = attr.to_string();
+    let has_return = !matches!(input.sig.output, syn::ReturnType::Default);
+    let mentions_result = contains_result_word(&pred_str);
+
+    let assert_code = match syn::parse::<syn::Expr>(attr) {
+        Ok(expr) => {
+            let pre_msg =
+                escape_braces(&format!("assura: invariant violated on entry: {pred_str}"));
+            let post_msg =
+                escape_braces(&format!("assura: invariant violated on exit: {pred_str}"));
+
+            let pre = if mentions_result {
+                // Can't check `result` at entry; skip
+                quote! {}
+            } else {
+                quote! { debug_assert!(#expr, #pre_msg); }
+            };
+
+            if mentions_result {
+                // Build exit check with `result` replaced
+                let adjusted = replace_result_word(&pred_str);
+                match syn::parse_str::<syn::Expr>(&adjusted) {
+                    Ok(adj_expr) => (pre, quote! { debug_assert!(#adj_expr, #post_msg); }),
+                    Err(_) => (pre, quote! { debug_assert!(#expr, #post_msg); }),
+                }
+            } else {
+                (pre, quote! { debug_assert!(#expr, #post_msg); })
+            }
+        }
+        Err(_) => {
+            let msg = format!("assura: could not parse invariant: {pred_str}");
+            (quote! { compile_error!(#msg); }, quote! {})
+        }
+    };
+
+    let vis = &input.vis;
+    let sig = &input.sig;
+    let attrs = &input.attrs;
+    let block = &input.block;
+    let stmts = &block.stmts;
+    let (pre, post) = assert_code;
+
+    if has_return {
+        quote! {
+            #(#attrs)*
+            #vis #sig {
+                #pre
+                let __assura_result = { #(#stmts)* };
+                #post
+                __assura_result
+            }
+        }
+        .into()
+    } else {
+        quote! {
+            #(#attrs)*
+            #vis #sig {
+                #pre
+                #(#stmts)*
+                #post
+            }
+        }
+        .into()
+    }
+}
+
+/// Mark a function with Assura contract annotations via doc comments.
 ///
 /// In debug builds, generates `debug_assert!` statements from `@requires`
-/// (preconditions) and `@ensures` (postconditions) doc comment clauses.
+/// and `@ensures` clauses in doc comments. Also supports feature-specific
+/// annotations (`@ghost`, `@taint`, `@region`, etc.).
 /// In release builds, the function is unchanged (zero runtime cost).
+///
+/// For a more ergonomic syntax, consider using `#[requires(...)]` and
+/// `#[ensures(...)]` attributes directly instead.
 ///
 /// # Example
 ///
@@ -778,5 +1025,38 @@ mod tests {
             replace_result_word("result > 0 && result < 100"),
             "__assura_result > 0 && __assura_result < 100"
         );
+    }
+
+    // ---- escape_braces ----
+
+    #[test]
+    fn escape_braces_in_unsafe_block() {
+        assert_eq!(
+            escape_braces("unsafe { COUNTER >= 0 }"),
+            "unsafe {{ COUNTER >= 0 }}"
+        );
+    }
+
+    #[test]
+    fn escape_braces_no_braces() {
+        assert_eq!(escape_braces("x > 0"), "x > 0");
+    }
+
+    // ---- contains_result_word ----
+
+    #[test]
+    fn contains_result_standalone() {
+        assert!(contains_result_word("result >= 0"));
+    }
+
+    #[test]
+    fn contains_result_not_in_compound() {
+        assert!(!contains_result_word("partial_result > 0"));
+        assert!(!contains_result_word("result_count > 0"));
+    }
+
+    #[test]
+    fn contains_result_absent() {
+        assert!(!contains_result_word("x > 0"));
     }
 }

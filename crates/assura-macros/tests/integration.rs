@@ -1,6 +1,6 @@
 //! Integration tests for assura-macros proc macros.
 
-use assura_macros::{contract, trust};
+use assura_macros::{contract, ensures, invariant, requires, trust};
 
 // -- #[contract] tests --
 
@@ -135,4 +135,126 @@ fn contract_multiline_predicate() {
 #[should_panic(expected = "assura: precondition failed")]
 fn contract_multiline_predicate_fails() {
     bounded(0);
+}
+
+// -- #[requires] attribute syntax tests --
+
+#[requires(divisor != 0)]
+fn attr_safe_divide(dividend: i64, divisor: i64) -> i64 {
+    dividend / divisor
+}
+
+#[test]
+fn requires_attr_valid_call() {
+    assert_eq!(attr_safe_divide(10, 2), 5);
+    assert_eq!(attr_safe_divide(-9, 3), -3);
+}
+
+#[test]
+#[should_panic(expected = "assura: precondition failed: divisor != 0")]
+fn requires_attr_fails_on_zero() {
+    attr_safe_divide(10, 0);
+}
+
+// Multiple #[requires] stacked on same function
+#[requires(a > 0)]
+#[requires(b > 0)]
+fn attr_both_positive(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+#[test]
+fn requires_attr_multiple_valid() {
+    assert_eq!(attr_both_positive(3, 4), 7);
+}
+
+#[test]
+#[should_panic(expected = "assura: precondition failed")]
+fn requires_attr_multiple_first_fails() {
+    attr_both_positive(0, 5);
+}
+
+#[test]
+#[should_panic(expected = "assura: precondition failed")]
+fn requires_attr_multiple_second_fails() {
+    attr_both_positive(5, 0);
+}
+
+// -- #[ensures] attribute syntax tests --
+
+#[ensures(result >= 0)]
+fn attr_absolute(x: i32) -> i32 {
+    if x < 0 { -x } else { x }
+}
+
+#[test]
+fn ensures_attr_valid() {
+    assert_eq!(attr_absolute(-5), 5);
+    assert_eq!(attr_absolute(3), 3);
+    assert_eq!(attr_absolute(0), 0);
+}
+
+// Combined #[requires] + #[ensures]
+#[requires(x >= 0)]
+#[requires(x <= max)]
+#[ensures(result >= 0)]
+#[ensures(result <= max)]
+fn attr_clamp(x: i32, max: i32) -> i32 {
+    x.min(max).max(0)
+}
+
+#[test]
+fn requires_ensures_combined() {
+    assert_eq!(attr_clamp(5, 10), 5);
+    assert_eq!(attr_clamp(0, 10), 0);
+    assert_eq!(attr_clamp(10, 10), 10);
+}
+
+#[test]
+#[should_panic(expected = "assura: precondition failed")]
+fn requires_ensures_precondition_fails() {
+    attr_clamp(-1, 10);
+}
+
+// -- #[invariant] attribute syntax tests --
+
+#[invariant(x > 0)]
+fn attr_increment(x: i32) -> i32 {
+    x + 1
+}
+
+#[test]
+fn invariant_attr_checks_entry_and_exit() {
+    assert_eq!(attr_increment(5), 6);
+}
+
+#[test]
+#[should_panic(expected = "assura: invariant violated on entry")]
+fn invariant_attr_fails_on_entry() {
+    attr_increment(0);
+}
+
+// Invariant with `result` - only checks on exit
+#[invariant(result >= 0)]
+fn attr_abs_invariant(x: i32) -> i32 {
+    if x < 0 { -x } else { x }
+}
+
+#[test]
+fn invariant_attr_with_return() {
+    assert_eq!(attr_abs_invariant(-7), 7);
+    assert_eq!(attr_abs_invariant(3), 3);
+}
+
+// -- async function support --
+
+#[requires(n > 0)]
+#[ensures(result == n * 2)]
+async fn attr_async_double(n: i32) -> i32 {
+    n * 2
+}
+
+#[tokio::test]
+async fn requires_ensures_async() {
+    assert_eq!(attr_async_double(5).await, 10);
 }
