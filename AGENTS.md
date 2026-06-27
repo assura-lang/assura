@@ -147,6 +147,19 @@ still use explicit matches; do not add new match blocks without justification.
    registries; start with `bash scripts/agent-new-checker.sh <name>`.
 7. **New `Decl` variant**: start with `bash scripts/agent-new-decl.sh <Variant>`;
    then `cargo build` until zero non-exhaustive matches.
+8. **`EncodeTerm` var access must apply `encode_ident_name()`**:
+   `encode_expr_shared` passes raw AST identifier names (e.g. `"result"`) to
+   `get_var` / `set_var` / `get_or_create_int_var`. If the `EncodeTerm` impl's
+   var map uses SMT-mapped names (e.g. `"__result"` via `collect_vars`), the impl
+   must call `encode_ident_name(name)` inside those methods. Without this,
+   `result` creates an unconstrained fresh var instead of finding `__result`,
+   breaking Nat return type verification and similar prelude constraints.
+9. **CVC5 ITE requires identical sorts (SIGSEGV on mismatch)**: Unlike Z3,
+   CVC5 does not auto-coerce Int/Real in ITE branches. An ITE with a Real
+   then-branch (e.g. `(/ 3 2)`) and an Int else-branch (e.g. `0`) causes
+   SIGSEGV. The `make_ite` impl must detect sort mismatches and coerce via
+   `cvc5::Kind::ToReal`. This applies to any CVC5 term construction that
+   combines Int and Real sorts (ITE, Equal, etc.).
 
 ### Crate map (where to edit)
 
@@ -406,7 +419,13 @@ enum names differ from SMT-LIB2: `IntsDivision` (not `IntsDiv`),
 for free constants. Wrap bound vars in `VariableList` kind for
 `Forall`/`Exists`: `tm.mk_term(Kind::VariableList, &[bound_var])`.
 Static linking: `features = ["static"]` on the cvc5 dep in
-Cargo.toml links cadical, picpoly, gmp statically.
+Cargo.toml links cadical, picpoly, gmp statically. String literals:
+`tm.mk_string(s, false)` (second arg = useEscSequences). Integer
+from string: `tm.mk_integer_from_str(s)` (not `mk_integer_from_string`).
+Real from ratio: `tm.mk_real_from_rational(numer, denom)` (not `mk_real`).
+**ITE sort safety**: CVC5 crashes (SIGSEGV) if ITE branches have
+different sorts (e.g. Real vs Int). Always coerce via
+`tm.mk_term(Kind::ToReal, &[int_term])` before constructing the ITE.
 
 ### Specification Compliance
 
