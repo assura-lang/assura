@@ -62,6 +62,12 @@ const BUILTIN_VALUE_NAMES: &[&str] = &[
     "abs",
     "min",
     "max",
+    "clamp",
+    "signum",
+    "gcd",
+    "lcm",
+    "divmod",
+    "pow",
     "contains",
     "keys",
     "values",
@@ -202,6 +208,16 @@ pub fn resolve_with_modules(
         table
             .insert(root, name, SymbolKind::BuiltinType, 0..0)
             .expect("stdlib prelude types should not collide with built-ins");
+    }
+
+    // --- Stdlib prelude contracts (abs, min, max, clamp, ...) ---
+    for &name in &assura_stdlib::prelude_contract_names() {
+        if table.scopes[root].symbols.contains_key(name) {
+            continue;
+        }
+        table
+            .insert(root, name, SymbolKind::ContractDef, 0..0)
+            .expect("stdlib prelude contracts should not collide");
     }
 
     // --- Module scope (child of root) ---
