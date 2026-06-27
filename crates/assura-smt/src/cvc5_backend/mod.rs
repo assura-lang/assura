@@ -130,5 +130,5 @@ mod tests_cvc5_smtlib;
 mod tests_cvc5_shell;
 
 #[cfg(all(test, feature = "cvc5-verify"))]
-#[path = "../tests_cvc5_native.rs"]
+#[path = "../tests_cvc5_native"]
 mod tests_cvc5_native;
