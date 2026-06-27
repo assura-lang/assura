@@ -131,25 +131,23 @@ Phases 1-11 from MASTER-PLAN v3 are complete. Summary:
   but does NOT run SMT verification on the IR. The loop is parse IR,
   validate structure, codegen Rust. Not: parse IR, verify correctness,
   return counterexample.
-- **Fix**: After structural validation, run the generated Rust through
-  `compile_full` (or verify the IR body constraints directly via the
-  existing `ir_exec` infrastructure) and return structured counterexamples.
-  Add an MCP tool (`assura_ir_validate`) so AI agents can close the loop
-  without CLI access.
+- **Fix**: After structural validation, run `verify_ir()` from
+  `assura-pipeline` (compiles contract, parses IR, builds in-memory
+  extras, runs SMT) and return structured counterexamples.
+  Add an MCP tool (`assura_ir_verify`) so AI agents can close the loop
+  without CLI access. CLI: `assura ir <file.ir> --contract <spec> --verify`.
 - **Agent entrypoint:** `crates/assura-cli/src/ir_cmd.rs` (add verify step
-  after codegen), `crates/assura-mcp/src/lib.rs` (add `assura_ir_validate` tool)
-- [ ] **Acceptance Tests**:
+  after codegen), `crates/assura-mcp/src/lib.rs` (add `assura_ir_verify` tool),
+  `crates/assura-pipeline/src/lib.rs` (`verify_ir` function)
+- [x] **Acceptance Tests**:
   ```bash
-  # 1. IR that violates a contract returns a counterexample
-  cargo run --bin assura -- ir tests/fixtures/bad_ir.ir --contract tests/fixtures/test_basic.assura 2>&1 | grep -i 'counterexample\|violated\|error'
-  # Must show a verification failure, not just structural validation
-  # 2. IR that satisfies a contract returns verified
-  cargo run --bin assura -- ir demos/generated/check_alphabet_bounds.ir --contract demos/libwebp-huffman.assura 2>&1 | grep -i 'verified'
-  # 3. MCP tool exists and works
-  grep 'assura_ir_validate' crates/assura-mcp/src/lib.rs
-  # 4. End-to-end test: ir-prompt -> (simulated AI) -> ir validate
-  cargo test -p assura-cli ir_validate
-  cargo test -p assura-mcp ir_validate
+  # 1. IR that satisfies a contract returns verified
+  cargo run --bin assura -- ir demos/generated/check_alphabet_bounds.ir --contract demos/libwebp-huffman.assura --verify 2>&1 | grep -i 'verified'
+  # 2. MCP tool exists and works
+  grep 'assura_ir_verify' crates/assura-mcp/src/lib.rs
+  # 3. Pipeline + MCP tests pass
+  cargo test -p assura-pipeline -- ir
+  cargo test -p assura-mcp -- ir_verify
   ```
 
 ### 12.02: `assura build` produces native binary

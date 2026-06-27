@@ -970,3 +970,82 @@ fn support_expect_verify_limitation_on_incremental() {
     });
     assert!(has_limitation);
 }
+
+// -------------------------------------------------------------------
+// verify_ir tests (AI verification loop, task 12.01)
+// -------------------------------------------------------------------
+
+#[test]
+fn verify_ir_identity_contract_verified() {
+    let contract =
+        "contract Echo {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n";
+    let ir = "module Echo {\n  fn #0 : ($0: Int) -> Int ! pure\n  {\n    $result = load $0 : Int\n  }\n}\n";
+    let config = CompilerConfig::default();
+    let result = verify_ir(contract, ir, &config);
+    assert_eq!(
+        result.status, "verified",
+        "identity IR should verify; clauses: {:?}",
+        result.clauses
+    );
+    assert!(result.compile_errors.is_empty());
+    assert!(result.ir_errors.is_empty());
+    assert!(result.validation_errors.is_empty());
+    assert!(result.summary.verified > 0);
+}
+
+#[test]
+fn verify_ir_compile_error_on_bad_contract() {
+    let contract = "contract { @@@ }";
+    let ir =
+        "module X {\n  fn #0 : ($0: Int) -> Int ! pure\n  {\n    $result = load $0 : Int\n  }\n}\n";
+    let config = CompilerConfig::default();
+    let result = verify_ir(contract, ir, &config);
+    assert_eq!(result.status, "error");
+    assert!(!result.compile_errors.is_empty());
+}
+
+#[test]
+fn verify_ir_parse_error_on_bad_ir() {
+    let contract =
+        "contract Echo {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n";
+    let ir = "not valid IR text";
+    let config = CompilerConfig::default();
+    let result = verify_ir(contract, ir, &config);
+    assert_eq!(result.status, "error");
+    assert!(!result.ir_errors.is_empty());
+}
+
+#[test]
+fn verify_ir_serializes_to_json() {
+    let contract =
+        "contract Echo {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n";
+    let ir = "module Echo {\n  fn #0 : ($0: Int) -> Int ! pure\n  {\n    $result = load $0 : Int\n  }\n}\n";
+    let config = CompilerConfig::default();
+    let result = verify_ir(contract, ir, &config);
+    let json = serde_json::to_string_pretty(&result);
+    assert!(json.is_ok(), "IrVerifyResult should serialize to JSON");
+    let json_str = json.unwrap();
+    assert!(json_str.contains("\"status\""));
+    assert!(json_str.contains("\"progress\""));
+    assert!(json_str.contains("\"clauses\""));
+    assert!(json_str.contains("\"summary\""));
+}
+
+#[test]
+fn verify_ir_progress_format() {
+    let contract =
+        "contract Echo {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n";
+    let ir = "module Echo {\n  fn #0 : ($0: Int) -> Int ! pure\n  {\n    $result = load $0 : Int\n  }\n}\n";
+    let config = CompilerConfig::default();
+    let result = verify_ir(contract, ir, &config);
+    assert!(
+        result.progress.contains("clauses verified"),
+        "progress should say 'clauses verified': {}",
+        result.progress
+    );
+    assert!(
+        result.progress.contains('%'),
+        "progress should contain percentage: {}",
+        result.progress
+    );
+}

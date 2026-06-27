@@ -295,6 +295,14 @@ enum Commands {
         /// Output directory for generated Rust (default: stdout)
         #[arg(short, long)]
         output: Option<String>,
+
+        /// Run SMT verification of IR against the contract (requires --contract)
+        #[arg(long)]
+        verify: bool,
+
+        /// Run SMT verification only, skip codegen (requires --contract)
+        #[arg(long)]
+        verify_only: bool,
     },
 
     /// Generate documentation from contract files
@@ -446,7 +454,17 @@ pub fn run() {
             file,
             contract,
             output,
-        } => run_ir(&file, contract.as_deref(), output.as_deref(), verbosity),
+            verify,
+            verify_only,
+        } => run_ir(
+            &file,
+            contract.as_deref(),
+            output.as_deref(),
+            verbosity,
+            output_mode,
+            verify || verify_only,
+            verify_only,
+        ),
         Commands::Doc {
             file,
             output,
