@@ -50,64 +50,56 @@ pub use result::{
     is_known_smt_limitation,
 };
 
-/// Shared IR expression encoding helpers.
-mod clause_gate_policy;
-mod clause_policy;
-// Encode convergence policy modules (solver-neutral; backends build terms locally):
-//   encode_atom_policy       — names/atoms (`result`→`__result`, UF names, float/str atoms)
-//   encode_raw_ops_policy    — raw-token operators + quantifier/range SMT-LIB shapes
-//   encode_quantifier_policy — AST quantifier domain/orchestration (shell/native)
-//   encode_method_policy     — KnownBuiltin tables, `is_*_builtin`, SMT-LIB method text
-//   encode_call_policy       — `EncodeCallKind` / preamble (Z3/CVC5/shell classify + asserts)
-//   encode_field_policy      — field plan + FieldValueKind (bool/size/int) + SMT-LIB shapes
-//   encode_old_policy        — `old(e)` pre-state plan (ident/field/method; field plan + kinds)
-//   encode_if_policy         — `if cond then t [else e]` plan (`ite` vs `=>`)
-//   encode_index_policy      — `coll[idx]` plan (`__index` + optional bounds on `__len`)
-//   encode_let_policy        — `let` / block plan (SMT-LIB `let` shapes)
-//   encode_list_policy       — list/array constructor plan
-//   encode_tuple_policy      — tuple constructor plan
-//   encode_match_policy      — match / ADT scrutinee plan
-//   encode_binop_policy      — binary/unary op plan (arith/cmp/logic; AstBinOpKind/AstUnaryKind)
-//   encode_adt_policy        — ADT constructor/test plan
-// Shared `Expr`→solver-term encoding via `EncodeTerm` trait (issue #602).
-mod encode_term;
+// ---------------------------------------------------------------------------
+// Policy modules (solver-neutral verification policies, organized in policy/)
+// ---------------------------------------------------------------------------
+pub(crate) mod policy;
 
-mod encode_adt_policy;
-mod encode_atom_policy;
-mod encode_binop_policy;
-mod encode_call_policy;
-mod encode_field_policy;
-mod encode_if_policy;
-mod encode_index_policy;
-mod encode_let_policy;
-mod encode_list_policy;
-mod encode_match_policy;
-mod encode_method_policy;
-mod encode_old_policy;
-mod encode_quantifier_policy;
-mod encode_raw_ops_policy;
-mod encode_timeout_policy;
-mod encode_tuple_policy;
-mod ir_encode;
-mod ir_exec;
-mod ir_generate;
-mod ir_lower;
-#[cfg(test)]
-mod ir_parity;
-mod ir_templates;
-mod ir_type_ctx;
-mod lemma_inject_policy;
-mod portfolio_policy;
-mod prelude_policy;
-mod solver_outcome_policy;
-mod trigger_seed_policy;
-mod unmodelable;
-mod verify_context;
-mod verify_labels;
+// Re-export all policy submodules at crate root so existing `use crate::encode_atom_policy`
+// paths throughout the crate (and backends) continue to resolve without changes.
+pub(crate) use policy::clause_gate_policy;
+pub(crate) use policy::clause_policy;
+pub(crate) use policy::encode_adt_policy;
+pub(crate) use policy::encode_atom_policy;
+pub(crate) use policy::encode_binop_policy;
+pub(crate) use policy::encode_call_policy;
+pub(crate) use policy::encode_field_policy;
+pub(crate) use policy::encode_if_policy;
+pub(crate) use policy::encode_index_policy;
+pub(crate) use policy::encode_let_policy;
+pub(crate) use policy::encode_list_policy;
+pub(crate) use policy::encode_match_policy;
+pub(crate) use policy::encode_method_policy;
+pub(crate) use policy::encode_old_policy;
+pub(crate) use policy::encode_quantifier_policy;
+pub(crate) use policy::encode_raw_ops_policy;
+pub(crate) use policy::encode_term;
+pub(crate) use policy::encode_timeout_policy;
+pub(crate) use policy::encode_tuple_policy;
+pub(crate) use policy::lemma_inject_policy;
+pub(crate) use policy::portfolio_policy;
+pub(crate) use policy::prelude_policy;
+pub(crate) use policy::solver_outcome_policy;
+pub(crate) use policy::trigger_seed_policy;
+pub(crate) use policy::unmodelable;
+pub(crate) use policy::verify_context;
+pub(crate) use policy::verify_labels;
+
+// ---------------------------------------------------------------------------
+// IR modules (implementation IR, organized in ir_modules/)
+// ---------------------------------------------------------------------------
+pub(crate) mod ir_modules;
+pub(crate) use ir_modules::ir_encode;
+pub(crate) use ir_modules::ir_exec;
+pub(crate) use ir_modules::ir_generate;
+pub(crate) use ir_modules::ir_lower;
+pub(crate) use ir_modules::ir_templates;
+pub(crate) use ir_modules::ir_type_ctx;
+pub(crate) use ir_modules::ir_codegen;
+pub(crate) use ir_modules::ir_loader;
 
 /// Public entry point functions for SMT verification.
 mod entry;
-mod ir_loader;
 pub use entry::{
     EvolutionResult, Verifier, VerifyFileExtras, check_refinement_subtype,
     check_refinement_subtype_with_context, has_verifiable_clauses, verify, verify_buffer_bounds,
@@ -309,7 +301,6 @@ pub mod havoc_assume;
 
 /// Implementation IR (Section 4): parser, codegen, and `assura ir` CLI command.
 pub mod ir;
-pub mod ir_codegen;
 pub use ir::{
     IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrInstr, IrLiteral, IrMatchPattern, IrModule,
     IrNode, IrParser, IrPred, IrPredArg, IrSlotDecl, IrValidation, parse_ir_module,
@@ -346,10 +337,6 @@ mod tests_verify_contract;
 #[cfg(all(test, feature = "z3-verify"))]
 #[path = "tests_quantified.rs"]
 mod tests_quantified;
-
-#[cfg(test)]
-#[path = "tests_ir.rs"]
-mod tests_ir;
 
 #[cfg(test)]
 #[path = "tests_cvc5_unit.rs"]

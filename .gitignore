@@ -10,3 +10,4 @@
 .assura-cache/
 /docs/book/
 fuzz/Cargo.lock
+.patchloom/

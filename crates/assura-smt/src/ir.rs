@@ -999,5 +999,5 @@ fn count_input_params(body: &assura_ast::SpExpr) -> usize {
 }
 
 #[cfg(test)]
-#[path = "ir_tests.rs"]
+#[path = "ir_modules/ir_tests.rs"]
 mod tests;

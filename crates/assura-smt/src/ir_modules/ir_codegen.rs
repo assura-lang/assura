@@ -2,7 +2,7 @@
 //!
 //! Converts parsed `IrModule` / `IrFunction` structures into Rust source text.
 
-use super::ir::{
+use crate::ir::{
     IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrLiteral, IrMatchPattern, IrModule, IrPred,
     IrPredArg,
 };
