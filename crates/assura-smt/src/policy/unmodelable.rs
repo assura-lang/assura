@@ -8,69 +8,39 @@
 //! Complements [`crate::clause_gate_policy`] (outcomes/cache keys) which consumes these
 //! predicates without caring which backend invoked them.
 
-use assura_ast::{Expr, SpExpr};
+use assura_ast::{Expr, ExprVisitor, SpExpr};
 
 /// Returns `true` if the expression tree contains features that the SMT
 /// encoder cannot faithfully represent.
 ///
-/// Historically gated field/method/raw/taint/typestate paths; most are now modelable
-/// (#198, #200, #201, #262). The walk still recurses so future unmodelable leaves can
-/// be added in one place without triplicating backends.
+/// Uses `ExprVisitor` to walk the tree. Override `visit_*` methods in
+/// `UnmodelableCheck` to gate specific expression kinds. Currently all
+/// expression types are modelable (#198, #200, #201, #262), so the walk
+/// finds nothing. Future unmodelable leaves can be added by overriding
+/// a single visitor method instead of maintaining a 55-line match block.
 pub(crate) fn expr_has_unmodelable_features(expr: &SpExpr) -> bool {
-    match &expr.node {
-        // #198: Field access is always modelable (flattened / treated as variables).
-        Expr::Field(obj, _field) => expr_has_unmodelable_features(obj),
-        // #201: Method calls are always modelable (unknown methods → UFs).
-        Expr::MethodCall {
-            receiver,
-            method: _,
-            args,
-        } => {
-            expr_has_unmodelable_features(receiver)
-                || args.iter().any(expr_has_unmodelable_features)
-        }
-        // #200, #262: Raw tokens (taint, ghost, region, validate, typestate @) modelable.
-        Expr::Raw(_tokens) => false,
-        Expr::BinOp { lhs, rhs, .. } => {
-            expr_has_unmodelable_features(lhs) || expr_has_unmodelable_features(rhs)
-        }
-        Expr::UnaryOp { expr: inner, .. }
-        | Expr::Old(inner)
-        | Expr::Ghost(inner)
-        | Expr::Cast { expr: inner, .. } => expr_has_unmodelable_features(inner),
-        Expr::Call { func, args } => {
-            expr_has_unmodelable_features(func) || args.iter().any(expr_has_unmodelable_features)
-        }
-        Expr::Index { expr: e, index } => {
-            expr_has_unmodelable_features(e) || expr_has_unmodelable_features(index)
-        }
-        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
-            expr_has_unmodelable_features(domain) || expr_has_unmodelable_features(body)
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            expr_has_unmodelable_features(cond)
-                || expr_has_unmodelable_features(then_branch)
-                || else_branch
-                    .as_ref()
-                    .is_some_and(|e| expr_has_unmodelable_features(e))
-        }
-        Expr::Let { value, body, .. } => {
-            expr_has_unmodelable_features(value) || expr_has_unmodelable_features(body)
-        }
-        Expr::Match { scrutinee, arms } => {
-            expr_has_unmodelable_features(scrutinee)
-                || arms.iter().any(|a| expr_has_unmodelable_features(&a.body))
-        }
-        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
-            items.iter().any(expr_has_unmodelable_features)
-        }
-        Expr::Apply { args, .. } => args.iter().any(expr_has_unmodelable_features),
-        Expr::Literal(_) | Expr::Ident(_) => false,
+    struct UnmodelableCheck {
+        found: bool,
     }
+
+    impl ExprVisitor for UnmodelableCheck {
+        fn visit_expr(&mut self, expr: &SpExpr) {
+            if self.found {
+                return; // short-circuit once any unmodelable feature is found
+            }
+            assura_ast::walk_expr(self, expr);
+        }
+        // All expression kinds are currently modelable.
+        // To gate a future unmodelable kind, override its visit_* method:
+        //
+        //   fn visit_some_kind(&mut self, ...) {
+        //       self.found = true;
+        //   }
+    }
+
+    let mut check = UnmodelableCheck { found: false };
+    check.visit_expr(expr);
+    check.found
 }
 
 /// Reasons list for unmodelable features (empty while all expr kinds are modelable).

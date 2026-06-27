@@ -8,86 +8,44 @@
 //! Complements [`crate::lemma_inject_policy`] (`apply` lemma names, not Call/MethodCall).
 //! Does not own quantifier pattern validation or SMT term construction.
 
-use assura_ast::{Clause, Expr, SpExpr};
+use assura_ast::{Clause, Expr, ExprVisitor, SpExpr};
 
 use crate::advanced::TriggerManager;
 
 /// Register `Call`/`MethodCall` names from an expression for quantifier e-matching.
+///
+/// Uses `ExprVisitor` to walk the tree. Only `visit_call` and
+/// `visit_method_call` do real work (registering names); all other
+/// variants recurse via the default visitor implementations.
 pub(crate) fn register_trigger_functions_from_expr(expr: &SpExpr, tm: &mut TriggerManager) {
-    match &expr.node {
-        Expr::Call { func, args } => {
-            if let Expr::Ident(name) = &func.as_ref().node {
-                tm.register_function(name.clone());
-            }
-            for a in args {
-                register_trigger_functions_from_expr(a, tm);
-            }
-        }
-        Expr::MethodCall {
-            receiver,
-            method,
-            args,
-        } => {
-            tm.register_function(method.clone());
-            register_trigger_functions_from_expr(receiver, tm);
-            for a in args {
-                register_trigger_functions_from_expr(a, tm);
-            }
-        }
-        Expr::BinOp { lhs, rhs, .. } => {
-            register_trigger_functions_from_expr(lhs, tm);
-            register_trigger_functions_from_expr(rhs, tm);
-        }
-        Expr::UnaryOp { expr: inner, .. }
-        | Expr::Old(inner)
-        | Expr::Ghost(inner)
-        | Expr::Field(inner, _)
-        | Expr::Cast { expr: inner, .. } => {
-            register_trigger_functions_from_expr(inner, tm);
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            register_trigger_functions_from_expr(cond, tm);
-            register_trigger_functions_from_expr(then_branch, tm);
-            if let Some(eb) = else_branch {
-                register_trigger_functions_from_expr(eb, tm);
-            }
-        }
-        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
-            register_trigger_functions_from_expr(domain, tm);
-            register_trigger_functions_from_expr(body, tm);
-        }
-        Expr::Index { expr: e, index } => {
-            register_trigger_functions_from_expr(e, tm);
-            register_trigger_functions_from_expr(index, tm);
-        }
-        Expr::Block(items) | Expr::Tuple(items) | Expr::List(items) => {
-            for e in items {
-                register_trigger_functions_from_expr(e, tm);
-            }
-        }
-        Expr::Apply { args, .. } => {
-            for a in args {
-                register_trigger_functions_from_expr(a, tm);
-            }
-        }
-        Expr::Let { value, body, .. } => {
-            register_trigger_functions_from_expr(value, tm);
-            register_trigger_functions_from_expr(body, tm);
-        }
-        Expr::Match {
-            scrutinee, arms, ..
-        } => {
-            register_trigger_functions_from_expr(scrutinee, tm);
-            for arm in arms {
-                register_trigger_functions_from_expr(&arm.body, tm);
-            }
-        }
-        _ => {}
+    struct TriggerSeedVisitor<'a> {
+        tm: &'a mut TriggerManager,
     }
+
+    impl ExprVisitor for TriggerSeedVisitor<'_> {
+        fn visit_call(&mut self, func: &SpExpr, args: &[SpExpr]) {
+            if let Expr::Ident(name) = &func.node {
+                self.tm.register_function(name.clone());
+            }
+            // recurse into func + args via default
+            self.visit_expr(func);
+            for arg in args {
+                self.visit_expr(arg);
+            }
+        }
+
+        fn visit_method_call(&mut self, receiver: &SpExpr, method: &str, args: &[SpExpr]) {
+            self.tm.register_function(method.to_string());
+            // recurse into receiver + args via default
+            self.visit_expr(receiver);
+            for arg in args {
+                self.visit_expr(arg);
+            }
+        }
+    }
+
+    let mut visitor = TriggerSeedVisitor { tm };
+    visitor.visit_expr(expr);
 }
 
 /// Seed a trigger manager from all clause bodies (contract-level prelude step).
