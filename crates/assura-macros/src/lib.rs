@@ -158,22 +158,21 @@ fn extract_feature_annotations(attrs: &[syn::Attribute]) -> Vec<FeatureAnnotatio
 }
 
 /// Try to parse the annotation body as a Rust boolean expression and
-/// generate a `debug_assert!`. If parsing fails, fall back to a
+/// generate a contract check. If parsing fails, fall back to a
 /// `debug_assert!(true, msg)` so the annotation is documented at
 /// runtime but doesn't silently vanish.
-fn assert_or_doc(body: &str, msg: &str) -> proc_macro2::TokenStream {
+fn assert_or_doc(body: &str, fn_name: &str, kind: &str, msg: &str) -> proc_macro2::TokenStream {
     let trimmed = body.trim().trim_start_matches('(').trim_end_matches(')');
     if let Some(expr) = (!trimmed.is_empty())
         .then(|| syn::parse_str::<syn::Expr>(trimmed).ok())
         .flatten()
     {
-        return quote! {
-            debug_assert!(#expr, #msg);
-        };
+        return make_check(&expr, fn_name, kind, trimmed);
     }
     // Body is not a parseable expression; keep as documented assertion
+    let escaped = escape_braces(msg);
     quote! {
-        debug_assert!(true, #msg);
+        debug_assert!(true, #escaped);
     }
 }
 
@@ -189,7 +188,10 @@ fn assert_or_doc(body: &str, msg: &str) -> proc_macro2::TokenStream {
 ///   or `debug_assert!(true, msg)` otherwise.
 /// - **Specialized**: features with custom runtime logic (no_reentrant
 ///   generates a reentrancy guard, deadline captures timestamps).
-fn generate_feature_asserts(annotations: &[FeatureAnnotation]) -> Vec<proc_macro2::TokenStream> {
+fn generate_feature_asserts(
+    annotations: &[FeatureAnnotation],
+    fn_name: &str,
+) -> Vec<proc_macro2::TokenStream> {
     annotations
         .iter()
         .filter_map(|ann| {
@@ -270,13 +272,13 @@ fn generate_feature_asserts(annotations: &[FeatureAnnotation]) -> Vec<proc_macro
                 // ----- Asserting: try to parse body as expression -----
 
                 // CORE.4: Axiom - assumed without proof
-                "axiom" => Some(assert_or_doc(&ann.body, &msg)),
+                "axiom" => Some(assert_or_doc(&ann.body, fn_name, "axiom", &msg)),
 
                 // CORE.8: Liveness - property must eventually hold
-                "liveness" => Some(assert_or_doc(&ann.body, &msg)),
+                "liveness" => Some(assert_or_doc(&ann.body, fn_name, "liveness", &msg)),
 
                 // MEM.1: Memory region bounds
-                "region" => Some(assert_or_doc(&ann.body, &msg)),
+                "region" => Some(assert_or_doc(&ann.body, fn_name, "region", &msg)),
 
                 // MEM.2: Fixed-width overflow
                 "fixed_width" => Some(quote! {
@@ -285,13 +287,13 @@ fn generate_feature_asserts(annotations: &[FeatureAnnotation]) -> Vec<proc_macro
                 }),
 
                 // MEM.3: Allocator invariant
-                "allocator" => Some(assert_or_doc(&ann.body, &msg)),
+                "allocator" => Some(assert_or_doc(&ann.body, fn_name, "allocator", &msg)),
 
                 // MEM.4: Circular buffer bounds
-                "circular_buffer" => Some(assert_or_doc(&ann.body, &msg)),
+                "circular_buffer" => Some(assert_or_doc(&ann.body, fn_name, "circular_buffer", &msg)),
 
                 // TYPE.2: Structural invariant
-                "structural_invariant" => Some(assert_or_doc(&ann.body, &msg)),
+                "structural_invariant" => Some(assert_or_doc(&ann.body, fn_name, "structural_invariant", &msg)),
 
                 // TYPE.3: Error propagation
                 "must_propagate" => Some(quote! {
@@ -302,11 +304,11 @@ fn generate_feature_asserts(annotations: &[FeatureAnnotation]) -> Vec<proc_macro
                 // SEC.1: Taint tracking - validate expression
                 "taint" => {
                     let taint_msg = format!("assura taint: value must be validated: {}", ann.body);
-                    Some(assert_or_doc(&ann.body, &taint_msg))
+                    Some(assert_or_doc(&ann.body, fn_name, "taint", &taint_msg))
                 }
 
                 // SEC.2: FFI boundary
-                "ffi_boundary" => Some(assert_or_doc(&ann.body, &msg)),
+                "ffi_boundary" => Some(assert_or_doc(&ann.body, fn_name, "ffi_boundary", &msg)),
 
                 // SEC.3: Constant-time execution
                 "constant_time" => Some(quote! {
@@ -321,13 +323,13 @@ fn generate_feature_asserts(annotations: &[FeatureAnnotation]) -> Vec<proc_macro
                 }),
 
                 // SEC.5: Crypto conformance
-                "conforms" => Some(assert_or_doc(&ann.body, &msg)),
+                "conforms" => Some(assert_or_doc(&ann.body, fn_name, "conforms", &msg)),
 
                 // CONC.4: Lock ordering
-                "lock_order" => Some(assert_or_doc(&ann.body, &msg)),
+                "lock_order" => Some(assert_or_doc(&ann.body, fn_name, "lock_order", &msg)),
 
                 // CONC.5: Temporal deadline
-                "deadline" => Some(assert_or_doc(&ann.body, &msg)),
+                "deadline" => Some(assert_or_doc(&ann.body, fn_name, "deadline", &msg)),
 
                 // CONC.6: Memory ordering
                 "ordering" => Some(quote! {
@@ -336,31 +338,31 @@ fn generate_feature_asserts(annotations: &[FeatureAnnotation]) -> Vec<proc_macro
                 }),
 
                 // STOR.1: Crash recovery
-                "crash_recovery" => Some(assert_or_doc(&ann.body, &msg)),
+                "crash_recovery" => Some(assert_or_doc(&ann.body, fn_name, "crash_recovery", &msg)),
 
                 // STOR.2: Page cache
-                "page_cache" => Some(assert_or_doc(&ann.body, &msg)),
+                "page_cache" => Some(assert_or_doc(&ann.body, fn_name, "page_cache", &msg)),
 
                 // STOR.3: MVCC/snapshot isolation
-                "mvcc" => Some(assert_or_doc(&ann.body, &msg)),
+                "mvcc" => Some(assert_or_doc(&ann.body, fn_name, "mvcc", &msg)),
 
                 // STOR.4: Rollback/savepoint
-                "rollback" => Some(assert_or_doc(&ann.body, &msg)),
+                "rollback" => Some(assert_or_doc(&ann.body, fn_name, "rollback", &msg)),
 
                 // STOR.5: Monotonic state
-                "monotonic" => Some(assert_or_doc(&ann.body, &msg)),
+                "monotonic" => Some(assert_or_doc(&ann.body, fn_name, "monotonic", &msg)),
 
                 // STOR.6: Storage failure mode
-                "storage_failure" | "failure_mode" => Some(assert_or_doc(&ann.body, &msg)),
+                "storage_failure" | "failure_mode" => Some(assert_or_doc(&ann.body, fn_name, "storage_failure", &msg)),
 
                 // FMT.1: Binary format layout
-                "binary_format" => Some(assert_or_doc(&ann.body, &msg)),
+                "binary_format" => Some(assert_or_doc(&ann.body, fn_name, "binary_format", &msg)),
 
                 // FMT.2: Bit-level format
-                "bit_level" => Some(assert_or_doc(&ann.body, &msg)),
+                "bit_level" => Some(assert_or_doc(&ann.body, fn_name, "bit_level", &msg)),
 
                 // FMT.3: String encoding
-                "string_encoding" => Some(assert_or_doc(&ann.body, &msg)),
+                "string_encoding" => Some(assert_or_doc(&ann.body, fn_name, "string_encoding", &msg)),
 
                 // FMT.4: Codec registry
                 "codec_registry" => Some(quote! {
@@ -369,28 +371,28 @@ fn generate_feature_asserts(annotations: &[FeatureAnnotation]) -> Vec<proc_macro
                 }),
 
                 // FMT.5: Checksum integrity
-                "checksum" => Some(assert_or_doc(&ann.body, &msg)),
+                "checksum" => Some(assert_or_doc(&ann.body, fn_name, "checksum", &msg)),
 
                 // FMT.6: ProtocolGrammar state_machine transition
-                "protocol_grammar" => Some(assert_or_doc(&ann.body, &msg)),
+                "protocol_grammar" => Some(assert_or_doc(&ann.body, fn_name, "protocol_grammar", &msg)),
 
                 // NUM.1: Numerical precision
-                "precision" => Some(assert_or_doc(&ann.body, &msg)),
+                "precision" => Some(assert_or_doc(&ann.body, fn_name, "precision", &msg)),
 
                 // NUM.2: Precomputed table
-                "precomputed_table" => Some(assert_or_doc(&ann.body, &msg)),
+                "precomputed_table" => Some(assert_or_doc(&ann.body, fn_name, "precomputed_table", &msg)),
 
                 // PLAT.3: Resource limit
-                "resource_limit" => Some(assert_or_doc(&ann.body, &msg)),
+                "resource_limit" => Some(assert_or_doc(&ann.body, fn_name, "resource_limit", &msg)),
 
                 // PERF.2: Complexity bound
-                "complexity" => Some(assert_or_doc(&ann.body, &msg)),
+                "complexity" => Some(assert_or_doc(&ann.body, fn_name, "complexity", &msg)),
 
                 // TEST.2: Behavioral equivalence
-                "behavioral_equiv" => Some(assert_or_doc(&ann.body, &msg)),
+                "behavioral_equiv" => Some(assert_or_doc(&ann.body, fn_name, "behavioral_equiv", &msg)),
 
                 // TEST.3: Multi-pass refinement
-                "multi_pass" => Some(assert_or_doc(&ann.body, &msg)),
+                "multi_pass" => Some(assert_or_doc(&ann.body, fn_name, "multi_pass", &msg)),
 
                 _ => None,
             }
@@ -483,6 +485,32 @@ fn flush_clause(
     }
 }
 
+/// Generate a contract check expression. When the `runtime-checks` feature is
+/// enabled, emits `assura_runtime::contract_violation()` which persists in
+/// release builds. Otherwise emits `debug_assert!()` (stripped in release).
+fn make_check(
+    expr: &syn::Expr,
+    fn_name: &str,
+    kind: &str,
+    pred_str: &str,
+) -> proc_macro2::TokenStream {
+    let msg = escape_braces(&format!("assura: {kind} failed: {pred_str}"));
+    if cfg!(feature = "runtime-checks") {
+        let cond_str = pred_str.to_string();
+        let fn_str = fn_name.to_string();
+        let kind_str = kind.to_string();
+        quote! {
+            if !(#expr) {
+                ::assura_runtime::contract_violation(#fn_str, #kind_str, #cond_str, file!(), line!());
+            }
+        }
+    } else {
+        quote! {
+            debug_assert!(#expr, #msg);
+        }
+    }
+}
+
 /// Escape `{` and `}` for use in format string literals (e.g. `debug_assert!`
 /// messages). Without this, expressions like `unsafe { X }` in the message
 /// cause "invalid format string" errors.
@@ -562,13 +590,10 @@ fn replace_result_word(input: &str) -> String {
 pub fn requires(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
     let pred_str = attr.to_string();
+    let fn_name = input.sig.ident.to_string();
 
-    // Parse the attribute expression
     let assert_code = match syn::parse::<syn::Expr>(attr) {
-        Ok(expr) => {
-            let msg = format!("assura: precondition failed: {pred_str}");
-            quote! { debug_assert!(#expr, #msg); }
-        }
+        Ok(expr) => make_check(&expr, &fn_name, "precondition", &pred_str),
         Err(_) => {
             let msg = format!("assura: could not parse precondition: {pred_str}");
             quote! { compile_error!(#msg); }
@@ -635,12 +660,10 @@ pub fn ensures(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 
     // Replace standalone `result` with `__assura_result` in the predicate
+    let fn_name = input.sig.ident.to_string();
     let adjusted = replace_result_word(&pred_str);
     let assert_code = match syn::parse_str::<syn::Expr>(&adjusted) {
-        Ok(expr) => {
-            let msg = format!("assura: postcondition failed: {pred_str}");
-            quote! { debug_assert!(#expr, #msg); }
-        }
+        Ok(expr) => make_check(&expr, &fn_name, "postcondition", &pred_str),
         Err(_) => {
             let msg = format!("assura: could not parse postcondition: {pred_str}");
             quote! { compile_error!(#msg); }
@@ -691,30 +714,27 @@ pub fn invariant(attr: TokenStream, item: TokenStream) -> TokenStream {
     let has_return = !matches!(input.sig.output, syn::ReturnType::Default);
     let mentions_result = contains_result_word(&pred_str);
 
+    let fn_name = input.sig.ident.to_string();
+
     let assert_code = match syn::parse::<syn::Expr>(attr) {
         Ok(expr) => {
-            let pre_msg =
-                escape_braces(&format!("assura: invariant violated on entry: {pred_str}"));
-            let post_msg =
-                escape_braces(&format!("assura: invariant violated on exit: {pred_str}"));
-
             let pre = if mentions_result {
-                // Can't check `result` at entry; skip
                 quote! {}
             } else {
-                quote! { debug_assert!(#expr, #pre_msg); }
+                make_check(&expr, &fn_name, "invariant (entry)", &pred_str)
             };
 
-            if mentions_result {
-                // Build exit check with `result` replaced
+            let post = if mentions_result {
                 let adjusted = replace_result_word(&pred_str);
                 match syn::parse_str::<syn::Expr>(&adjusted) {
-                    Ok(adj_expr) => (pre, quote! { debug_assert!(#adj_expr, #post_msg); }),
-                    Err(_) => (pre, quote! { debug_assert!(#expr, #post_msg); }),
+                    Ok(adj_expr) => make_check(&adj_expr, &fn_name, "invariant (exit)", &pred_str),
+                    Err(_) => make_check(&expr, &fn_name, "invariant (exit)", &pred_str),
                 }
             } else {
-                (pre, quote! { debug_assert!(#expr, #post_msg); })
-            }
+                make_check(&expr, &fn_name, "invariant (exit)", &pred_str)
+            };
+
+            (pre, post)
         }
         Err(_) => {
             let msg = format!("assura: could not parse invariant: {pred_str}");
@@ -780,13 +800,15 @@ pub fn contract(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
     let (requires, ensures) = extract_clauses(&input.attrs);
     let feature_annotations = extract_feature_annotations(&input.attrs);
-    let feature_asserts = generate_feature_asserts(&feature_annotations);
+    let fn_name_for_features = input.sig.ident.to_string();
+    let feature_asserts = generate_feature_asserts(&feature_annotations, &fn_name_for_features);
 
     // If no contract clauses or feature annotations found, return unchanged
     if requires.is_empty() && ensures.is_empty() && feature_annotations.is_empty() {
         return quote!(#input).into();
     }
 
+    let fn_name = input.sig.ident.to_string();
     let vis = &input.vis;
     let sig = &input.sig;
     let attrs = &input.attrs;
@@ -795,21 +817,13 @@ pub fn contract(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // Build precondition assertions
     let pre_asserts: Vec<proc_macro2::TokenStream> = requires
         .iter()
-        .map(|pred| {
-            let msg = format!("assura: precondition failed: {pred}");
-            // Parse the predicate as a Rust expression
-            match syn::parse_str::<syn::Expr>(pred) {
-                Ok(expr) => quote! {
-                    debug_assert!(#expr, #msg);
-                },
-                Err(_) => {
-                    // If we can't parse it, emit a compile-time warning comment
-                    let warn_msg =
-                        format!("assura: could not parse precondition as Rust expression: {pred}");
-                    quote! {
-                        // #warn_msg
-                        let _ = #warn_msg;
-                    }
+        .map(|pred| match syn::parse_str::<syn::Expr>(pred) {
+            Ok(expr) => make_check(&expr, &fn_name, "precondition", pred),
+            Err(_) => {
+                let warn_msg =
+                    format!("assura: could not parse precondition as Rust expression: {pred}");
+                quote! {
+                    let _ = #warn_msg;
                 }
             }
         })
@@ -823,14 +837,9 @@ pub fn contract(_attr: TokenStream, item: TokenStream) -> TokenStream {
         let post_asserts: Vec<proc_macro2::TokenStream> = ensures
             .iter()
             .map(|pred| {
-                let msg = format!("assura: postcondition failed: {pred}");
-                // Replace `result` with `__assura_result` using word-boundary
-                // awareness so identifiers like `partial_result` are not mangled.
                 let adjusted = replace_result_word(pred);
                 match syn::parse_str::<syn::Expr>(&adjusted) {
-                    Ok(expr) => quote! {
-                        debug_assert!(#expr, #msg);
-                    },
+                    Ok(expr) => make_check(&expr, &fn_name, "postcondition", pred),
                     Err(_) => {
                         let warn_msg = format!(
                             "assura: could not parse postcondition as Rust expression: {pred}"
@@ -921,6 +930,84 @@ pub fn trust(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
         .into()
     }
+}
+
+/// Mark function parameters as tainted for secret leak prevention.
+///
+/// Wraps all non-`self` parameters in `assura_runtime::Tainted<T>`, which:
+/// - Does NOT implement `Display` (compile error on `println!("{}", param)`)
+/// - Implements `Debug` as `[REDACTED: <label>]`
+/// - Requires `.declassify()` or `.validate()` to access the inner value
+///
+/// The attribute argument is the taint label (e.g., `secret`, `pii`, `api_key`).
+///
+/// # Example
+///
+/// ```ignore
+/// use assura_macros::taint;
+///
+/// #[taint(secret)]
+/// fn process_api_key(key: String, name: String) -> bool {
+///     // `key` and `name` are now Tainted<String>
+///     let raw_key = key.declassify();  // explicit opt-in
+///     let valid = name.validate(|n| !n.is_empty());  // checked access
+///     valid.is_some()
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn taint(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as ItemFn);
+    let label = attr.to_string();
+    let label = label.trim();
+
+    if label.is_empty() {
+        return syn::Error::new_spanned(
+            &input.sig.ident,
+            "assura: #[taint] requires a label argument, e.g. #[taint(secret)]",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    // Collect non-self parameter names to taint
+    let taint_params: Vec<syn::Ident> = input
+        .sig
+        .inputs
+        .iter()
+        .filter_map(|arg| {
+            if let syn::FnArg::Typed(pat_type) = arg
+                && let syn::Pat::Ident(pat_ident) = &*pat_type.pat
+            {
+                return Some(pat_ident.ident.clone());
+            }
+            None
+        })
+        .collect();
+
+    // Generate shadow bindings that wrap each parameter in Tainted<T>
+    let shadows: Vec<proc_macro2::TokenStream> = taint_params
+        .iter()
+        .map(|ident| {
+            quote! {
+                let #ident = ::assura_runtime::Tainted::new(#ident, #label);
+            }
+        })
+        .collect();
+
+    let vis = &input.vis;
+    let sig = &input.sig;
+    let attrs = &input.attrs;
+    let block = &input.block;
+    let stmts = &block.stmts;
+
+    quote! {
+        #(#attrs)*
+        #vis #sig {
+            #(#shadows)*
+            #(#stmts)*
+        }
+    }
+    .into()
 }
 
 #[cfg(test)]

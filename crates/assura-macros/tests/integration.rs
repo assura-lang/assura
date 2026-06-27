@@ -1,6 +1,6 @@
 //! Integration tests for assura-macros proc macros.
 
-use assura_macros::{contract, ensures, invariant, requires, trust};
+use assura_macros::{contract, ensures, invariant, requires, taint, trust};
 
 // -- #[contract] tests --
 
@@ -229,7 +229,7 @@ fn invariant_attr_checks_entry_and_exit() {
 }
 
 #[test]
-#[should_panic(expected = "assura: invariant violated on entry")]
+#[should_panic(expected = "assura: invariant (entry) failed")]
 fn invariant_attr_fails_on_entry() {
     attr_increment(0);
 }
@@ -257,4 +257,97 @@ async fn attr_async_double(n: i32) -> i32 {
 #[tokio::test]
 async fn requires_ensures_async() {
     assert_eq!(attr_async_double(5).await, 10);
+}
+
+// -- #[taint] attribute tests --
+
+#[taint(secret)]
+fn tainted_api_key(key: String) -> String {
+    // `key` is now Tainted<String>; must declassify to use
+    let raw = key.declassify();
+    format!("processed:{}", raw)
+}
+
+#[test]
+fn taint_declassify_works() {
+    let result = tainted_api_key("sk-abc123".to_string());
+    assert_eq!(result, "processed:sk-abc123");
+}
+
+#[taint(pii)]
+fn tainted_validate(email: String) -> bool {
+    // Use .validate() to check the tainted value
+    email.validate(|e| e.contains('@')).is_some()
+}
+
+#[test]
+fn taint_validate_pass() {
+    assert!(tainted_validate("user@example.com".to_string()));
+}
+
+#[test]
+fn taint_validate_fail() {
+    assert!(!tainted_validate("not-an-email".to_string()));
+}
+
+#[taint(api_key)]
+fn tainted_debug_format(token: String) -> String {
+    // Debug format should show [REDACTED], not the actual value
+    format!("{:?}", token)
+}
+
+#[test]
+fn taint_debug_redacts() {
+    let debug_output = tainted_debug_format("super-secret-key".to_string());
+    assert!(debug_output.contains("REDACTED"));
+    assert!(!debug_output.contains("super-secret-key"));
+}
+
+#[taint(secret)]
+fn tainted_multiple_params(key: String, token: String) -> String {
+    // Both params are tainted
+    let k = key.declassify();
+    let t = token.declassify();
+    format!("{}:{}", k, t)
+}
+
+#[test]
+fn taint_multiple_params() {
+    let result = tainted_multiple_params("key1".to_string(), "tok2".to_string());
+    assert_eq!(result, "key1:tok2");
+}
+
+#[taint(secret)]
+fn tainted_with_map(key: String) -> String {
+    // Use .map() to transform while keeping taint
+    let upper = key.map(|s| s.to_uppercase());
+    upper.declassify()
+}
+
+#[test]
+fn taint_map_preserves_taint() {
+    let result = tainted_with_map("hello".to_string());
+    assert_eq!(result, "HELLO");
+}
+
+// -- #[contract] with runtime-checks feature (default mode = debug_assert) --
+// These tests verify the default mode works. To test runtime-checks mode,
+// rebuild with: cargo test -p assura-macros --features runtime-checks
+
+#[contract]
+/// @requires x > 0
+/// @ensures result > 0
+fn contract_runtime_mode(x: i32) -> i32 {
+    x * 2
+}
+
+#[test]
+fn contract_default_mode_works() {
+    assert_eq!(contract_runtime_mode(5), 10);
+}
+
+#[test]
+#[should_panic(expected = "assura: precondition failed")]
+fn contract_default_mode_panics() {
+    contract_runtime_mode(0);
 }

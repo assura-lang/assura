@@ -91,6 +91,47 @@ pub fn parse_doc_clauses(doc_lines: &[(String, usize)]) -> InlineContract {
     contract
 }
 
+/// Extract contract clauses from proc-macro attributes (`#[requires(...)]`,
+/// `#[ensures(...)]`, `#[invariant(...)]`).
+///
+/// This complements `parse_doc_clauses` which handles `/// @requires` doc comments.
+fn extract_attr_clauses(attrs: &[syn::Attribute], source: &str) -> InlineContract {
+    let mut contract = InlineContract::default();
+    for attr in attrs {
+        if let syn::Meta::List(meta_list) = &attr.meta {
+            let kind = if meta_list.path.is_ident("requires") {
+                Some(InlineClauseKind::Requires)
+            } else if meta_list.path.is_ident("ensures") {
+                Some(InlineClauseKind::Ensures)
+            } else if meta_list.path.is_ident("invariant") {
+                Some(InlineClauseKind::Invariant)
+            } else {
+                None
+            };
+
+            if let Some(kind) = kind {
+                let body = meta_list.tokens.to_string();
+                let offset = span_to_offset(attr.pound_token.span, source);
+                if !body.is_empty() {
+                    contract.push(ContractClause { kind, body, offset });
+                }
+            }
+        }
+    }
+    contract
+}
+
+/// Merge clauses from `other` into `base`.
+fn merge_contracts(base: &mut InlineContract, other: InlineContract) {
+    base.requires.extend(other.requires);
+    base.ensures.extend(other.ensures);
+    base.invariants.extend(other.invariants);
+    base.effects.extend(other.effects);
+    base.decreases.extend(other.decreases);
+    base.ffi_boundary.extend(other.ffi_boundary);
+    base.annotations.extend(other.annotations);
+}
+
 // ---------------------------------------------------------------------------
 // Rust source file parser
 // ---------------------------------------------------------------------------
@@ -182,7 +223,9 @@ pub fn parse_rust_source(source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyze
         match item {
             syn::Item::Fn(func) => {
                 let doc_lines = extract_doc_lines(&func.attrs, source);
-                let contract = parse_doc_clauses(&doc_lines);
+                let mut contract = parse_doc_clauses(&doc_lines);
+                let attr_contract = extract_attr_clauses(&func.attrs, source);
+                merge_contracts(&mut contract, attr_contract);
                 if !contract.is_empty() {
                     let offset = func_span_offset(&func.sig, source);
                     items.push(AnnotatedItem {
@@ -256,7 +299,9 @@ pub fn parse_rust_source(source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyze
                 for impl_item in &imp.items {
                     if let syn::ImplItem::Fn(method) = impl_item {
                         let doc_lines = extract_doc_lines(&method.attrs, source);
-                        let contract = parse_doc_clauses(&doc_lines);
+                        let mut contract = parse_doc_clauses(&doc_lines);
+                        let attr_contract = extract_attr_clauses(&method.attrs, source);
+                        merge_contracts(&mut contract, attr_contract);
                         if !contract.is_empty() {
                             let offset = func_span_offset_method(&method.sig, source);
                             items.push(AnnotatedItem {
