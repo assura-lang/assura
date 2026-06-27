@@ -236,10 +236,7 @@ fn is_numeric_non_numeric() {
 
 #[test]
 fn is_numeric_refined_base() {
-    let ty = Type::Refined {
-        base: Box::new(Type::Int),
-        predicate: "x > 0".into(),
-    };
+    let ty = Type::refined_from_str(Type::Int, "x", "x > 0");
     assert!(is_numeric(&ty));
 }
 

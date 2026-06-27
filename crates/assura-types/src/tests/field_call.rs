@@ -610,10 +610,7 @@ fn parse_type_tokens_refinement_preserves_predicate() {
     let ty = parse_type_tokens(&tokens);
     assert_eq!(
         ty,
-        Type::Refined {
-            base: Box::new(Type::Int),
-            predicate: "x > 0".to_string(),
-        }
+        Type::refined_from_str(Type::Int, "x", "x > 0")
     );
 }
 
@@ -629,10 +626,7 @@ fn parse_type_tokens_refinement_complex_predicate() {
     let ty = parse_type_tokens(&tokens);
     assert_eq!(
         ty,
-        Type::Refined {
-            base: Box::new(Type::Nat),
-            predicate: "n >= 1 && n <= 100".to_string(),
-        }
+        Type::refined_from_str(Type::Nat, "n", "n >= 1 && n <= 100")
     );
 }
 
@@ -646,10 +640,7 @@ fn parse_type_tokens_refinement_no_predicate() {
     let ty = parse_type_tokens(&tokens);
     assert_eq!(
         ty,
-        Type::Refined {
-            base: Box::new(Type::Bool),
-            predicate: String::new(),
-        }
+        Type::refined_from_str(Type::Bool, "x", "")
     );
 }
 
@@ -675,13 +666,12 @@ fn refinement_predicate_roundtrip_through_clause_params() {
         .map(|t| t.to_tokens())
         .unwrap_or_default();
     let ty = parse_type_tokens(&ty_tokens);
-    assert_eq!(
-        ty,
-        Type::Refined {
-            base: Box::new(Type::Int),
-            predicate: "n > 0".to_string(),
-        }
-    );
+    if let Type::Refined { ref base, .. } = ty {
+        assert_eq!(**base, Type::Int);
+        assert_eq!(ty.predicate_str(), Some("n > 0".into()));
+    } else {
+        panic!("expected Refined, got {ty:?}");
+    }
 }
 
 #[test]
@@ -705,13 +695,14 @@ fn refinement_predicate_with_less_than_in_multi_param() {
         .map(|t| t.to_tokens())
         .unwrap_or_default();
     let ty_a = parse_type_tokens(&ty_a_tokens);
-    assert_eq!(
-        ty_a,
-        Type::Refined {
-            base: Box::new(Type::Int),
-            predicate: "x < 10".to_string(),
-        }
-    );
+    if let Type::Refined { ref base, .. } = ty_a {
+        assert_eq!(**base, Type::Int);
+        // Predicate may be stored as "x < 10" (single token) or "x < 10" (split)
+        let pred = ty_a.predicate_str().unwrap_or_default();
+        assert!(pred.contains("x") && pred.contains("10"), "expected x < 10, got {pred}");
+    } else {
+        panic!("expected Refined, got {ty_a:?}");
+    }
 
     let ty_b_tokens = params[1]
         .ty

@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
 
+use assura_parser::ast::{Expr, SpExpr, Spanned, expr_to_string};
 use assura_resolve::ResolvedFile;
 
 use crate::checkers::PendingDecreaseCheck;
@@ -113,7 +114,10 @@ pub enum Type {
     // --- Refined type: base type with predicate ---
     Refined {
         base: Box<Type>,
-        predicate: String,
+        /// Parsed predicate expression (structural AST node).
+        predicate: Box<SpExpr>,
+        /// The variable bound by the refinement (e.g., "x" in `{x: Int | x > 0}`).
+        bound_var: String,
     },
 
     // --- Genuinely unknown type (unresolved reference, unparsed tokens) ---
@@ -132,6 +136,34 @@ impl Type {
     /// suppress further diagnostics.
     pub(crate) fn is_indeterminate(&self) -> bool {
         matches!(self, Type::Unknown | Type::Error)
+    }
+
+    /// Construct a refined type from string-form predicate (convenience).
+    ///
+    /// The predicate text is stored as `Expr::Raw` tokens for backward
+    /// compatibility. Use the constructor directly with a parsed `Expr`
+    /// for structural analysis.
+    pub fn refined_from_str(base: Type, bound_var: &str, predicate_text: &str) -> Self {
+        let tokens: Vec<String> = if predicate_text.is_empty() {
+            vec![]
+        } else {
+            predicate_text.split_whitespace().map(String::from).collect()
+        };
+        Type::Refined {
+            base: Box::new(base),
+            predicate: Box::new(Spanned::no_span(Expr::Raw(tokens))),
+            bound_var: bound_var.to_string(),
+        }
+    }
+
+    /// Get the predicate as a display string.
+    pub fn predicate_str(&self) -> Option<String> {
+        if let Type::Refined { predicate, .. } = self {
+            let s = expr_to_string(predicate);
+            if s.is_empty() { None } else { Some(s) }
+        } else {
+            None
+        }
     }
 }
 
@@ -408,11 +440,16 @@ impl std::fmt::Display for Type {
                 }
                 write!(f, ")")
             }
-            Type::Refined { base, predicate } => {
-                if predicate.is_empty() {
+            Type::Refined {
+                base,
+                predicate,
+                bound_var,
+            } => {
+                let pred_str = expr_to_string(predicate);
+                if pred_str.is_empty() {
                     write!(f, "{base}")
                 } else {
-                    write!(f, "{{ x : {base} | {predicate} }}")
+                    write!(f, "{{ {bound_var} : {base} | {pred_str} }}")
                 }
             }
             Type::Unknown => write!(f, "Unknown"),
@@ -471,10 +508,7 @@ mod tests {
                 ret: Box::new(Type::Bool),
             },
             Type::Tuple(vec![Type::Int, Type::Bool]),
-            Type::Refined {
-                base: Box::new(Type::Int),
-                predicate: "x > 0".into(),
-            },
+            Type::refined_from_str(Type::Int, "x", "x > 0"),
         ];
         for ty in &concrete {
             assert!(!ty.is_indeterminate(), "{ty} should not be indeterminate");
@@ -551,19 +585,13 @@ mod tests {
 
     #[test]
     fn display_refined_with_predicate() {
-        let ty = Type::Refined {
-            base: Box::new(Type::Int),
-            predicate: "x > 0".into(),
-        };
+        let ty = Type::refined_from_str(Type::Int, "x", "x > 0");
         assert_eq!(ty.to_string(), "{ x : Int | x > 0 }");
     }
 
     #[test]
     fn display_refined_empty_predicate() {
-        let ty = Type::Refined {
-            base: Box::new(Type::Nat),
-            predicate: "".into(),
-        };
+        let ty = Type::refined_from_str(Type::Nat, "x", "");
         // Empty predicate just displays the base type
         assert_eq!(ty.to_string(), "Nat");
     }
@@ -858,5 +886,74 @@ mod tests {
             env.lookup_field("Point", "x"),
             Some(&Type::Float)
         );
+    }
+
+    // ---- Refined type with Expr predicate ----
+
+    #[test]
+    fn refined_from_str_creates_expr_raw() {
+        let ty = Type::refined_from_str(Type::Int, "x", "x > 0");
+        if let Type::Refined {
+            base,
+            predicate,
+            bound_var,
+        } = &ty
+        {
+            assert_eq!(**base, Type::Int);
+            assert_eq!(bound_var, "x");
+            // Predicate should be Expr::Raw with split tokens
+            assert!(
+                matches!(&predicate.node, Expr::Raw(tokens) if tokens.len() == 3),
+                "expected 3-token Raw, got {:?}",
+                predicate.node
+            );
+        } else {
+            panic!("expected Refined");
+        }
+    }
+
+    #[test]
+    fn refined_predicate_str_returns_text() {
+        let ty = Type::refined_from_str(Type::Nat, "v", "v >= 0");
+        assert_eq!(ty.predicate_str(), Some("v >= 0".into()));
+    }
+
+    #[test]
+    fn refined_predicate_str_empty_returns_none() {
+        let ty = Type::refined_from_str(Type::Int, "x", "");
+        assert_eq!(ty.predicate_str(), None);
+    }
+
+    #[test]
+    fn refined_display_uses_bound_var() {
+        let ty = Type::refined_from_str(Type::Int, "v", "v > 0");
+        assert_eq!(ty.to_string(), "{ v : Int | v > 0 }");
+    }
+
+    #[test]
+    fn refined_with_structural_expr() {
+        // Construct a Refined type with a real BinOp expression
+        use assura_parser::ast::BinOp;
+        let pred = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            op: BinOp::Gt,
+            rhs: Box::new(Spanned::no_span(Expr::Literal(
+                assura_parser::ast::Literal::Int("0".into()),
+            ))),
+        });
+        let ty = Type::Refined {
+            base: Box::new(Type::Int),
+            predicate: Box::new(pred),
+            bound_var: "x".into(),
+        };
+        // Should display as { x : Int | x > 0 }
+        let s = ty.to_string();
+        assert!(s.contains("x") && s.contains("Int"), "got: {s}");
+    }
+
+    #[test]
+    fn refined_non_refined_type_predicate_str_is_none() {
+        assert_eq!(Type::Int.predicate_str(), None);
+        assert_eq!(Type::Bool.predicate_str(), None);
     }
 }

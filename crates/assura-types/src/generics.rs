@@ -121,9 +121,14 @@ pub(crate) fn substitute(ty: &Type, bindings: &HashMap<String, Type>) -> Type {
             params: params.iter().map(|p| substitute(p, bindings)).collect(),
             ret: Box::new(substitute(ret, bindings)),
         },
-        Type::Refined { base, predicate } => Type::Refined {
+        Type::Refined {
+            base,
+            predicate,
+            bound_var,
+        } => Type::Refined {
             base: Box::new(substitute(base, bindings)),
             predicate: predicate.clone(),
+            bound_var: bound_var.clone(),
         },
         // All other types are leaves; no substitution needed
         _ => ty.clone(),

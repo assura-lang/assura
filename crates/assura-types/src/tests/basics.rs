@@ -230,10 +230,7 @@ fn parse_type_refined() {
         .collect();
     assert_eq!(
         parse_type_tokens(&tokens),
-        Type::Refined {
-            base: Box::new(Type::Int),
-            predicate: "x > 0".to_string(),
-        }
+        Type::refined_from_str(Type::Int, "x", "x > 0")
     );
 }
 

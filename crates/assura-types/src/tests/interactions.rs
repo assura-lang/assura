@@ -116,11 +116,8 @@ fn interaction_refinement_linear_refined_type_with_linear_base() {
     assert!(errors.is_empty());
 
     // Verify the type representation captures both aspects
-    let ty = Type::Refined {
-        base: Box::new(Type::Int),
-        predicate: "v > 0".into(),
-    };
-    assert_eq!(format!("{ty}"), "{ x : Int | v > 0 }");
+    let ty = Type::refined_from_str(Type::Int, "v", "v > 0");
+    assert_eq!(format!("{ty}"), "{ v : Int | v > 0 }");
 }
 
 // -- Test Case 4: Linear + Effect (Resource-Scoped Effects) --------------
@@ -619,10 +616,7 @@ fn interaction_linear_infoflow_orthogonal_grade_and_type() {
     tracker.declare("secret_key".into(), UsageGrade::Linear, 0..10);
 
     // Type is Refined { base: Bytes, predicate: "label == Confidential" }
-    let _ty = Type::Refined {
-        base: Box::new(Type::Bytes),
-        predicate: "label == Confidential".into(),
-    };
+    let _ty = Type::refined_from_str(Type::Bytes, "x", "label == Confidential");
 
     // One computational use: linear check passes
     tracker.use_var("secret_key");
@@ -637,10 +631,7 @@ fn interaction_linear_infoflow_unlimited_with_label() {
     let mut tracker = UsageTracker::new();
     tracker.declare("public_data".into(), UsageGrade::Unlimited, 0..11);
 
-    let _ty = Type::Refined {
-        base: Box::new(Type::String),
-        predicate: "label == Public".into(),
-    };
+    let _ty = Type::refined_from_str(Type::String, "x", "label == Public");
 
     // Multiple uses: unlimited grade allows any count
     tracker.use_var("public_data");
@@ -692,10 +683,7 @@ fn interaction_three_way_typestate_effect_refinement_all_pass() {
     );
 
     // Refinement: the type has a predicate (compile-time, no runtime cost)
-    let ty = Type::Refined {
-        base: Box::new(Type::Named("Connection".into())),
-        predicate: "capacity > 0".into(),
-    };
+    let ty = Type::refined_from_str(Type::Named("Connection".into()), "x", "capacity > 0");
     assert_eq!(format!("{ty}"), "{ x : Connection | capacity > 0 }");
 }
 
@@ -711,10 +699,7 @@ fn interaction_three_way_typestate_passes_effect_fails() {
     ts.transition("execute", 10..17).unwrap();
 
     // Refinement OK (ghost predicate)
-    let _ty = Type::Refined {
-        base: Box::new(Type::Named("Task".into())),
-        predicate: "priority > 0".into(),
-    };
+    let _ty = Type::refined_from_str(Type::Named("Task".into()), "x", "priority > 0");
 
     // Effects FAIL: declared pure, body does io
     let eff = EffectChecker::new();

@@ -55,10 +55,28 @@ pub(crate) fn type_from_expr(expr: &assura_parser::ast::TypeExpr) -> Type {
             params: params.iter().map(type_from_expr).collect(),
             ret: Box::new(type_from_expr(ret)),
         },
-        TypeExpr::Refined { base, predicate } => Type::Refined {
-            base: Box::new(type_from_expr(base)),
-            predicate: predicate.clone(),
-        },
+        TypeExpr::Refined { base, predicate } => {
+            // Extract bound variable name from the predicate text (first token
+            // before any operator). Default to "x" if we cannot determine it.
+            let bound_var = predicate
+                .split_whitespace()
+                .next()
+                .filter(|s| s.chars().all(|c| c.is_alphanumeric() || c == '_'))
+                .unwrap_or("x")
+                .to_string();
+            let tokens: Vec<String> = if predicate.is_empty() {
+                vec![]
+            } else {
+                predicate.split_whitespace().map(String::from).collect()
+            };
+            Type::Refined {
+                base: Box::new(type_from_expr(base)),
+                predicate: Box::new(assura_parser::ast::Spanned::no_span(
+                    assura_parser::ast::Expr::Raw(tokens),
+                )),
+                bound_var,
+            }
+        }
     }
 }
 
@@ -119,20 +137,30 @@ pub(crate) fn parse_type_tokens(tokens: &[String]) -> Type {
             let base = parse_type_tokens(&owned);
 
             // Extract predicate: everything between | and }
-            let predicate = if let Some(pipe_pos) = clean.iter().position(|t| *t == "|") {
-                clean[pipe_pos + 1..]
-                    .iter()
-                    .take_while(|t| **t != "}")
-                    .copied()
-                    .collect::<Vec<&str>>()
-                    .join(" ")
+            let pred_tokens: Vec<String> =
+                if let Some(pipe_pos) = clean.iter().position(|t| *t == "|") {
+                    clean[pipe_pos + 1..]
+                        .iter()
+                        .take_while(|t| **t != "}")
+                        .map(|s| s.to_string())
+                        .collect()
+                } else {
+                    vec![]
+                };
+
+            // Extract bound variable name (token before the colon)
+            let bound_var = if colon_pos > 1 {
+                clean[colon_pos - 1].to_string()
             } else {
-                String::new()
+                "x".to_string()
             };
 
             return Type::Refined {
                 base: Box::new(base),
-                predicate,
+                predicate: Box::new(assura_parser::ast::Spanned::no_span(
+                    assura_parser::ast::Expr::Raw(pred_tokens),
+                )),
+                bound_var,
             };
         }
         return Type::Unknown;
@@ -453,12 +481,10 @@ mod tests {
             base: Box::new(TypeExpr::Named("Int".into())),
             predicate: "x > 0".into(),
         };
+        let result = type_from_expr(&expr);
         assert_eq!(
-            type_from_expr(&expr),
-            Type::Refined {
-                base: Box::new(Type::Int),
-                predicate: "x > 0".into(),
-            },
+            result,
+            Type::refined_from_str(Type::Int, "x", "x > 0"),
         );
     }
 
@@ -648,13 +674,21 @@ mod tests {
 
     #[test]
     fn parse_refinement_type() {
-        assert_eq!(
-            parse_type_tokens(&tokens(&["{", "x", ":", "Int", "|", "x > 0", "}"])),
-            Type::Refined {
-                base: Box::new(Type::Int),
-                predicate: "x > 0".into(),
-            },
-        );
+        let result = parse_type_tokens(&tokens(&["{", "x", ":", "Int", "|", "x > 0", "}"]));
+        // The predicate "x > 0" comes as a single token from the token split,
+        // which gets stored as Expr::Raw(["x > 0"]). Compare via predicate_str().
+        if let Type::Refined {
+            ref base,
+            ref bound_var,
+            ..
+        } = result
+        {
+            assert_eq!(**base, Type::Int);
+            assert_eq!(bound_var, "x");
+            assert_eq!(result.predicate_str(), Some("x > 0".into()));
+        } else {
+            panic!("expected Refined, got {result:?}");
+        }
     }
 
     #[test]

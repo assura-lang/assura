@@ -321,17 +321,11 @@ fn substitute_in_fn_type() {
 fn substitute_in_refined_type() {
     let mut bindings = HashMap::new();
     bindings.insert("T".into(), Type::Int);
-    let ty = Type::Refined {
-        base: Box::new(Type::TypeParam("T".into())),
-        predicate: "v > 0".into(),
-    };
+    let ty = Type::refined_from_str(Type::TypeParam("T".into()), "v", "v > 0");
     let result = substitute(&ty, &bindings);
     assert_eq!(
         result,
-        Type::Refined {
-            base: Box::new(Type::Int),
-            predicate: "v > 0".into(),
-        }
+        Type::refined_from_str(Type::Int, "v", "v > 0")
     );
 }
 
