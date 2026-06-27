@@ -12,6 +12,12 @@ categories.workspace = true
 [lib]
 proc-macro = true
 
+[features]
+## When enabled, contract checks use `assura_runtime::contract_violation()`
+## instead of `debug_assert!()`. This makes checks persist in release builds
+## with pluggable violation handlers (log, panic, webhook).
+runtime-checks = []
+
 [dependencies]
 syn = { version = "2", features = ["full", "parsing"] }
 quote = "1"
@@ -19,3 +25,4 @@ proc-macro2 = "1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }
+assura-runtime = { path = "../assura-runtime" }

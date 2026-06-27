@@ -1119,3 +1119,131 @@ fn annotation_merge_includes_annotations() {
     assert_eq!(merged.external_clauses().len(), 1);
     assert_eq!(merged.inline_clauses().len(), 2);
 }
+
+// -- Attribute extraction tests (#659) --
+
+#[test]
+fn parse_requires_attribute_syntax() {
+    let source = r#"
+#[requires(x > 0)]
+fn positive(x: i32) -> i32 {
+    x
+}
+"#;
+    let items = parse_rust_source(source).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].contract.requires.len(), 1);
+    assert_eq!(items[0].contract.requires[0].body, "x > 0");
+}
+
+#[test]
+fn parse_ensures_attribute_syntax() {
+    let source = r#"
+#[ensures(result >= 0)]
+fn absolute(x: i32) -> i32 {
+    if x < 0 { -x } else { x }
+}
+"#;
+    let items = parse_rust_source(source).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].contract.ensures.len(), 1);
+    assert_eq!(items[0].contract.ensures[0].body, "result >= 0");
+}
+
+#[test]
+fn parse_invariant_attribute_syntax() {
+    let source = r#"
+#[invariant(self.len <= self.capacity)]
+fn push(x: i32) -> i32 {
+    x
+}
+"#;
+    let items = parse_rust_source(source).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].contract.invariants.len(), 1);
+    assert_eq!(
+        items[0].contract.invariants[0].body,
+        "self . len <= self . capacity"
+    );
+}
+
+#[test]
+fn parse_mixed_doc_and_attr_clauses() {
+    let source = r#"
+/// @requires y > 0
+#[requires(x > 0)]
+#[ensures(result > 0)]
+fn multiply(x: i32, y: i32) -> i32 {
+    x * y
+}
+"#;
+    let items = parse_rust_source(source).unwrap();
+    assert_eq!(items.len(), 1);
+    // One from doc comment, one from attribute
+    assert_eq!(items[0].contract.requires.len(), 2);
+    assert_eq!(items[0].contract.ensures.len(), 1);
+}
+
+#[test]
+fn parse_multiple_requires_attributes() {
+    let source = r#"
+#[requires(a > 0)]
+#[requires(b > 0)]
+#[ensures(result > 0)]
+fn add_positive(a: i32, b: i32) -> i32 {
+    a + b
+}
+"#;
+    let items = parse_rust_source(source).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].contract.requires.len(), 2);
+    assert_eq!(items[0].contract.ensures.len(), 1);
+}
+
+#[test]
+fn parse_attr_clauses_on_method() {
+    let source = r#"
+struct Counter { value: i32 }
+
+impl Counter {
+    #[requires(self.value < i32::MAX)]
+    #[ensures(result > 0)]
+    fn increment(&mut self) -> i32 {
+        self.value += 1;
+        self.value
+    }
+}
+"#;
+    let items = parse_rust_source(source).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].contract.requires.len(), 1);
+    assert_eq!(items[0].contract.ensures.len(), 1);
+}
+
+#[test]
+fn parse_no_attr_clauses_passes_through() {
+    let source = r#"
+fn plain(x: i32) -> i32 {
+    x + 1
+}
+"#;
+    let items = parse_rust_source(source).unwrap();
+    assert!(items.is_empty());
+}
+
+#[test]
+fn parse_contradictory_requires_attributes() {
+    // check-rust should extract these for Z3 to find contradiction
+    let source = r#"
+#[requires(x > 10)]
+#[requires(x < 5)]
+fn impossible(x: i32) -> i32 {
+    x
+}
+"#;
+    let items = parse_rust_source(source).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].contract.requires.len(), 2);
+    assert_eq!(items[0].contract.requires[0].body, "x > 10");
+    assert_eq!(items[0].contract.requires[1].body, "x < 5");
+}
