@@ -508,8 +508,10 @@ pub fn discover_and_resolve_project_with_deps(
         }
     }
 
-    // Also load modules from external dependencies that are imported
-    load_dep_modules_for_project(&all_modules, deps, &mut all_modules.clone(), &mut errors);
+    // Also load modules from external dependencies that are imported.
+    // Clone local modules as the read-only snapshot; insert deps into the real map.
+    let local_snapshot = all_modules.clone();
+    load_dep_modules_for_project(&local_snapshot, deps, &mut all_modules, &mut errors);
 
     // Resolve each module with access to the full module map
     let mut resolved = HashMap::new();
@@ -962,6 +964,20 @@ mod tests {
         let (resolved, _warnings) = result.unwrap();
         // Should resolve at least the consumer module
         assert!(!resolved.is_empty(), "expected resolved modules");
+        // The dep module must actually be resolved (not silently dropped)
+        assert!(
+            resolved.len() >= 2,
+            "dep module should be in resolved map, got keys: {:?}",
+            resolved.keys().collect::<Vec<_>>()
+        );
+        let has_dep = resolved
+            .keys()
+            .any(|k| k.contains("dep_lib") || k.contains("math"));
+        assert!(
+            has_dep,
+            "dep_lib.math should be resolved, got: {:?}",
+            resolved.keys().collect::<Vec<_>>()
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
