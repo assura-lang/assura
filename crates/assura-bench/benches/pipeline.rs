@@ -161,6 +161,155 @@ fn bench_scaling(c: &mut Criterion) {
     group.finish();
 }
 
+// Generate multiple small contracts (tests contract-count scaling)
+fn generate_multi_contract(n_contracts: usize) -> String {
+    let mut s = String::new();
+    for i in 0..n_contracts {
+        s.push_str(&format!(
+            "contract C{i} {{\n  input {{ x: Int, y: Int }}\n  output {{ result: Int }}\n  requires {{ x >= 0 }}\n  requires {{ y > 0 }}\n  ensures {{ x + y >= 0 }}\n}}\n\n"
+        ));
+    }
+    s
+}
+
+// Large-scale scaling benchmarks (500, 1000, 5000 clauses)
+fn bench_large_scaling(c: &mut Criterion) {
+    let mut group = c.benchmark_group("large_scaling");
+    group.sample_size(10);
+    for n in [500, 1000, 5000] {
+        let source = generate_large_contract(n);
+        group.bench_with_input(BenchmarkId::new("parse_clauses", n), &source, |b, src| {
+            b.iter(|| assura_parser::parse(src));
+        });
+    }
+    // Type-check scaling (limited to 1000 to keep benchmark runtime reasonable)
+    for n in [500, 1000] {
+        let source = generate_large_contract(n);
+        let (file, _) = assura_parser::parse(&source);
+        let file = file.expect("should parse");
+        group.bench_with_input(
+            BenchmarkId::new("typecheck_clauses", n),
+            &file,
+            |b, file| {
+                b.iter(|| {
+                    let resolved = assura_resolve::resolve(file).expect("resolve");
+                    assura_types::type_check(&resolved)
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+// Multi-contract scaling (many small contracts in one file)
+fn bench_multi_contract(c: &mut Criterion) {
+    let mut group = c.benchmark_group("multi_contract");
+    group.sample_size(10);
+    for n in [50, 100, 500] {
+        let source = generate_multi_contract(n);
+        group.bench_with_input(BenchmarkId::new("parse_contracts", n), &source, |b, src| {
+            b.iter(|| assura_parser::parse(src));
+        });
+        let (file, _) = assura_parser::parse(&source);
+        let file = file.expect("should parse");
+        group.bench_with_input(
+            BenchmarkId::new("typecheck_contracts", n),
+            &file,
+            |b, file| {
+                b.iter(|| {
+                    let resolved = assura_resolve::resolve(file).expect("resolve");
+                    assura_types::type_check(&resolved)
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+// Benchmark the large fixture file (bench_large.assura)
+fn bench_large_fixture(c: &mut Criterion) {
+    let source = include_str!("../../../tests/fixtures/bench_large.assura");
+    let mut group = c.benchmark_group("large_fixture");
+    group.sample_size(20);
+    group.bench_function("parse", |b| {
+        b.iter(|| assura_parser::parse(source));
+    });
+    let (file, _) = assura_parser::parse(source);
+    let file = file.expect("should parse");
+    let resolved = assura_resolve::resolve(&file).expect("should resolve");
+    group.bench_function("typecheck", |b| {
+        b.iter(|| assura_types::type_check(&resolved));
+    });
+    let typed = assura_types::type_check(&resolved).expect("should typecheck");
+    group.bench_function("codegen", |b| {
+        b.iter(|| assura_codegen::codegen(&typed));
+    });
+    group.finish();
+}
+
+// Benchmark multi-file project (bench_project/)
+fn bench_multi_file_project(c: &mut Criterion) {
+    static PROJECT_FILES: &[(&str, &str)] = &[
+        (
+            "math_ops",
+            include_str!("../../../tests/fixtures/bench_project/math_ops.assura"),
+        ),
+        (
+            "validation",
+            include_str!("../../../tests/fixtures/bench_project/validation.assura"),
+        ),
+        (
+            "network",
+            include_str!("../../../tests/fixtures/bench_project/network.assura"),
+        ),
+        (
+            "storage",
+            include_str!("../../../tests/fixtures/bench_project/storage.assura"),
+        ),
+    ];
+
+    let mut group = c.benchmark_group("multi_file_project");
+    group.sample_size(20);
+
+    // Parse all files
+    group.bench_function("parse_all", |b| {
+        b.iter(|| {
+            for (_, src) in PROJECT_FILES {
+                let _ = assura_parser::parse(src);
+            }
+        });
+    });
+
+    // Type-check all files
+    let parsed: Vec<_> = PROJECT_FILES
+        .iter()
+        .map(|(name, src)| {
+            let (file, _) = assura_parser::parse(src);
+            (*name, file.expect("should parse"))
+        })
+        .collect();
+    group.bench_function("typecheck_all", |b| {
+        b.iter(|| {
+            for (_, file) in &parsed {
+                let resolved = assura_resolve::resolve(file).expect("resolve");
+                let _ = assura_types::type_check(&resolved);
+            }
+        });
+    });
+
+    // Full pipeline (compile) for all files
+    group.bench_function("compile_all", |b| {
+        b.iter(|| {
+            for (name, src) in PROJECT_FILES {
+                let config = assura_config::CompilerConfig::default();
+                let _ = assura_pipeline::compile(src, *name, &config);
+            }
+        });
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_parse,
@@ -170,5 +319,9 @@ criterion_group!(
     bench_smt_verify,
     bench_full_pipeline,
     bench_scaling,
+    bench_large_scaling,
+    bench_multi_contract,
+    bench_large_fixture,
+    bench_multi_file_project,
 );
 criterion_main!(benches);

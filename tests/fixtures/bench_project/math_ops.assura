@@ -1,0 +1,177 @@
+// Math operation contracts
+
+contract MathOp00 {
+  input { x: Int, y: Int }
+  output { result: Int }
+  requires { x >= 0 }
+  requires { y > 0 }
+  requires { x + y < 1000000 }
+  ensures { x + y >= 0 }
+  ensures { x >= 0 }
+}
+
+contract MathOp01 {
+  input { x: Int, y: Int }
+  output { result: Int }
+  requires { x >= 0 }
+  requires { y > 0 }
+  requires { x + y < 1000000 }
+  ensures { x + y >= 0 }
+  ensures { x >= 0 }
+}
+
+contract MathOp02 {
+  input { x: Int, y: Int }
+  output { result: Int }
+  requires { x >= 0 }
+  requires { y > 0 }
+  requires { x + y < 1000000 }
+  ensures { x + y >= 0 }
+  ensures { x >= 0 }
+}
+
+contract MathOp03 {
+  input { x: Int, y: Int }
+  output { result: Int }
+  requires { x >= 0 }
+  requires { y > 0 }
+  requires { x + y < 1000000 }
+  ensures { x + y >= 0 }
+  ensures { x >= 0 }
+}
+
+contract MathOp04 {
+  input { x: Int, y: Int }
+  output { result: Int }
+  requires { x >= 0 }
+  requires { y > 0 }
+  requires { x + y < 1000000 }
+  ensures { x + y >= 0 }
+  ensures { x >= 0 }
+}
+
+contract MathOp05 {
+  input { x: Int, y: Int }
+  output { result: Int }
+  requires { x >= 0 }
+  requires { y > 0 }
+  requires { x + y < 1000000 }
+  ensures { x + y >= 0 }
+  ensures { x >= 0 }
+}
+
+contract MathOp06 {
+  input { x: Int, y: Int }
+  output { result: Int }
+  requires { x >= 0 }
+  requires { y > 0 }
+  requires { x + y < 1000000 }
+  ensures { x + y >= 0 }
+  ensures { x >= 0 }
+}
+
+contract MathOp07 {
+  input { x: Int, y: Int }
+  output { result: Int }
+  requires { x >= 0 }
+  requires { y > 0 }
+  requires { x + y < 1000000 }
+  ensures { x + y >= 0 }
+  ensures { x >= 0 }
+}
+
+contract MathOp08 {
+  input { x: Int, y: Int }
+  output { result: Int }
+  requires { x >= 0 }
+  requires { y > 0 }
+  requires { x + y < 1000000 }
+  ensures { x + y >= 0 }
+  ensures { x >= 0 }
+}
+
+contract MathOp09 {
+  input { x: Int, y: Int }
+  output { result: Int }
+  requires { x >= 0 }
+  requires { y > 0 }
+  requires { x + y < 1000000 }
+  ensures { x + y >= 0 }
+  ensures { x >= 0 }
+}
+
+contract MathOp10 {
+  input { x: Int, y: Int }
+  output { result: Int }
+  requires { x >= 0 }
+  requires { y > 0 }
+  requires { x + y < 1000000 }
+  ensures { x + y >= 0 }
+  ensures { x >= 0 }
+}
+
+contract MathOp11 {
+  input { x: Int, y: Int }
+  output { result: Int }
+  requires { x >= 0 }
+  requires { y > 0 }
+  requires { x + y < 1000000 }
+  ensures { x + y >= 0 }
+  ensures { x >= 0 }
+}
+
+contract MathOp12 {
+  input { x: Int, y: Int }
+  output { result: Int }
+  requires { x >= 0 }
+  requires { y > 0 }
+  requires { x + y < 1000000 }
+  ensures { x + y >= 0 }
+  ensures { x >= 0 }
+}
+
+contract MathOp13 {
+  input { x: Int, y: Int }
+  output { result: Int }
+  requires { x >= 0 }
+  requires { y > 0 }
+  requires { x + y < 1000000 }
+  ensures { x + y >= 0 }
+  ensures { x >= 0 }
+}
+
+contract MathOp14 {
+  input { x: Int, y: Int }
+  output { result: Int }
+  requires { x >= 0 }
+  requires { y > 0 }
+  requires { x + y < 1000000 }
+  ensures { x + y >= 0 }
+  ensures { x >= 0 }
+}
+
+extern fn math_helper_0(a: Int, b: Int) -> Int
+  requires { a >= 0 }
+  requires { b >= 0 }
+  ensures { a + b >= 0 }
+
+extern fn math_helper_1(a: Int, b: Int) -> Int
+  requires { a >= 0 }
+  requires { b >= 0 }
+  ensures { a + b >= 0 }
+
+extern fn math_helper_2(a: Int, b: Int) -> Int
+  requires { a >= 0 }
+  requires { b >= 0 }
+  ensures { a + b >= 0 }
+
+extern fn math_helper_3(a: Int, b: Int) -> Int
+  requires { a >= 0 }
+  requires { b >= 0 }
+  ensures { a + b >= 0 }
+
+extern fn math_helper_4(a: Int, b: Int) -> Int
+  requires { a >= 0 }
+  requires { b >= 0 }
+  ensures { a + b >= 0 }
+

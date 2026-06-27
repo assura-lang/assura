@@ -1,0 +1,112 @@
+// Storage and persistence contracts
+
+contract Store00 {
+  input { key: Int, value: Int, capacity: Int }
+  output { result: Bool }
+  requires { key >= 0 }
+  requires { value >= 0 }
+  requires { capacity > 0 }
+  requires { key < capacity }
+  ensures { key < capacity }
+  ensures { key >= 0 }
+}
+
+contract Store01 {
+  input { key: Int, value: Int, capacity: Int }
+  output { result: Bool }
+  requires { key >= 0 }
+  requires { value >= 0 }
+  requires { capacity > 0 }
+  requires { key < capacity }
+  ensures { key < capacity }
+  ensures { key >= 0 }
+}
+
+contract Store02 {
+  input { key: Int, value: Int, capacity: Int }
+  output { result: Bool }
+  requires { key >= 0 }
+  requires { value >= 0 }
+  requires { capacity > 0 }
+  requires { key < capacity }
+  ensures { key < capacity }
+  ensures { key >= 0 }
+}
+
+contract Store03 {
+  input { key: Int, value: Int, capacity: Int }
+  output { result: Bool }
+  requires { key >= 0 }
+  requires { value >= 0 }
+  requires { capacity > 0 }
+  requires { key < capacity }
+  ensures { key < capacity }
+  ensures { key >= 0 }
+}
+
+contract Store04 {
+  input { key: Int, value: Int, capacity: Int }
+  output { result: Bool }
+  requires { key >= 0 }
+  requires { value >= 0 }
+  requires { capacity > 0 }
+  requires { key < capacity }
+  ensures { key < capacity }
+  ensures { key >= 0 }
+}
+
+contract Store05 {
+  input { key: Int, value: Int, capacity: Int }
+  output { result: Bool }
+  requires { key >= 0 }
+  requires { value >= 0 }
+  requires { capacity > 0 }
+  requires { key < capacity }
+  ensures { key < capacity }
+  ensures { key >= 0 }
+}
+
+contract Store06 {
+  input { key: Int, value: Int, capacity: Int }
+  output { result: Bool }
+  requires { key >= 0 }
+  requires { value >= 0 }
+  requires { capacity > 0 }
+  requires { key < capacity }
+  ensures { key < capacity }
+  ensures { key >= 0 }
+}
+
+contract Store07 {
+  input { key: Int, value: Int, capacity: Int }
+  output { result: Bool }
+  requires { key >= 0 }
+  requires { value >= 0 }
+  requires { capacity > 0 }
+  requires { key < capacity }
+  ensures { key < capacity }
+  ensures { key >= 0 }
+}
+
+contract Store08 {
+  input { key: Int, value: Int, capacity: Int }
+  output { result: Bool }
+  requires { key >= 0 }
+  requires { value >= 0 }
+  requires { capacity > 0 }
+  requires { key < capacity }
+  ensures { key < capacity }
+  ensures { key >= 0 }
+}
+
+contract Store09 {
+  input { key: Int, value: Int, capacity: Int }
+  output { result: Bool }
+  requires { key >= 0 }
+  requires { value >= 0 }
+  requires { capacity > 0 }
+  requires { key < capacity }
+  ensures { key < capacity }
+  ensures { key >= 0 }
+}
+
