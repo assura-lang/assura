@@ -185,6 +185,7 @@ fn test_type_error_diagnostic() {
         message: "type mismatch".to_string(),
         span: 0..5,
         secondary: None,
+        suggestion: None,
     };
     let rope = Rope::from_str("hello");
     let test_uri = Url::parse("file:///test.assura").unwrap();
@@ -422,6 +423,7 @@ fn test_type_error_with_secondary() {
         message: "expected Bool, found Int".to_string(),
         span: 10..15,
         secondary: Some((0..5, "type declared here".to_string())),
+        suggestion: None,
     };
     let rope = Rope::from_str("type Foo = Int\nrequires { x }");
     let uri = Url::parse("file:///test.assura").unwrap();
@@ -507,6 +509,7 @@ fn test_diagnostic_source_is_assura() {
         message: "test".to_string(),
         span: 0..1,
         secondary: None,
+        suggestion: None,
     };
     let rope = Rope::from_str("x");
     let uri = Url::parse("file:///test.assura").unwrap();
