@@ -911,3 +911,62 @@ fn decl_summary_formats_extern_name() {
         result.declarations
     );
 }
+
+// -------------------------------------------------------------------
+// assura_test_support helpers (#634): at least one external caller each
+// -------------------------------------------------------------------
+
+#[test]
+fn support_verify_strict_ok_on_trivial_contract() {
+    // A contract whose ensures is implied by its requires.
+    // Z3 should verify this with no Unknown results.
+    let output = assura_test_support::verify_strict_ok(
+        "contract StrictTest {\n  input(x: Int)\n  requires { x > 0 }\n  ensures { x > 0 }\n}",
+        "strict.assura",
+    );
+    assert!(
+        !output.verification.is_empty(),
+        "should produce verification results"
+    );
+}
+
+#[test]
+fn support_verify_result_returns_output() {
+    let output = assura_test_support::verify_result(
+        "contract VR {\n  input(n: Int)\n  requires { n >= 0 }\n  ensures { n >= 0 }\n}",
+        "vr.assura",
+    );
+    // verify_result does not assert; we inspect manually.
+    assert!(!output.has_errors, "valid source should not have errors");
+    assert!(
+        !output.verification.is_empty(),
+        "should have verification results"
+    );
+}
+
+#[test]
+fn support_expect_error_codes_catches_type_mismatch() {
+    let output = assura_test_support::verify_result(
+        "contract Bad {\n  input(x: Int)\n  requires { x + \"hello\" }\n}",
+        "bad.assura",
+    );
+    assert!(output.has_errors);
+    assura_test_support::expect_error_codes(&output, &["A03001"]);
+}
+
+#[test]
+fn support_expect_verify_limitation_on_incremental() {
+    // The zlib demo's incremental_contract feature is not encoded in SMT,
+    // producing a known-limitation Unknown.
+    let src = assura_test_support::load_fixture("demos/zlib-inflate.assura");
+    let output = assura_test_support::expect_verify_limitation(&src, "zlib.assura");
+    // Should have at least one Unknown with the limitation marker.
+    let has_limitation = output.verification.iter().any(|r| {
+        matches!(
+            r,
+            assura_smt::VerificationResult::Unknown { reason, .. }
+                if assura_smt::is_known_smt_limitation(reason)
+        )
+    });
+    assert!(has_limitation);
+}

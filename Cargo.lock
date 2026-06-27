@@ -252,6 +252,7 @@ dependencies = [
  "assura-parser",
  "assura-resolve",
  "assura-smt",
+ "assura-test-support",
  "assura-types",
  "serde",
  "serde_json",

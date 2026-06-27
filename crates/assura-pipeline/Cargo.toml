@@ -19,3 +19,5 @@ serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 serde_json = "1"
+assura-test-support = { path = "../assura-test-support" }
+assura-smt = { path = "../assura-smt" }
