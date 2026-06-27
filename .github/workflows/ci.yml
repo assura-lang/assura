@@ -175,7 +175,7 @@ jobs:
 
       - name: Clippy
         if: ${{ !cancelled() }}
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --locked -- -D warnings
 
       - name: Cleanup target (self-hosted)
         if: ${{ always() && vars.RUNNER }}
@@ -246,7 +246,7 @@ jobs:
           HOME: ${{ runner.temp }}/install-action-home
 
       - name: Test (nextest)
-        run: cargo nextest run --workspace
+        run: cargo nextest run --workspace --locked
 
       - name: Cleanup target (self-hosted)
         if: ${{ always() && vars.RUNNER }}
@@ -317,7 +317,7 @@ jobs:
       - name: Run pipeline benchmarks (smoke + compile check only)
         # Run only full_pipeline bench in CI (smoke to ensure it compiles/runs).
         # Minimum valid Criterion sample-size is 10. Use quiet + noplot for speed. No thresholds.
-        run: cargo bench -p assura-bench --bench pipeline full_pipeline -- --sample-size 10 --quiet --noplot
+        run: cargo bench -p assura-bench --locked --bench pipeline full_pipeline -- --sample-size 10 --quiet --noplot
 
       - name: Upload benchmark output
         if: ${{ !cancelled() }}
@@ -392,13 +392,13 @@ jobs:
           fi
 
       - name: Build compiler
-        run: cargo build --bin assura
+        run: cargo build --bin assura --locked
 
       - name: E2E check all demos (parse + resolve + typecheck + verify)
         run: |
           for demo in demos/*.assura; do
             echo "=== Checking $demo ==="
-            cargo run --bin assura -- check "$demo"
+            cargo run --locked --bin assura -- check "$demo"
           done
 
       - name: Validate generated code for demos
@@ -406,7 +406,7 @@ jobs:
         run: |
           for demo in demos/*.assura; do
             echo "=== Building $demo ==="
-            cargo run --bin assura -- build --no-check "$demo"
+            cargo run --locked --bin assura -- build --no-check "$demo"
             echo "=== Checking generated Rust for $demo ==="
             (cd generated && cargo check)
             rm -rf generated
@@ -438,7 +438,7 @@ jobs:
         with:
           shared-key: ci-no-z3
       - name: Build without Z3 (graceful fallback)
-        run: cargo check -p assura-smt --no-default-features
+        run: cargo check -p assura-smt --no-default-features --locked
 
   # ── CVC5 native integration tests ───────────────────────────────────────
   cvc5:
@@ -516,17 +516,17 @@ jobs:
           fi
 
       - name: Clippy with CVC5 native
-        run: cargo clippy -p assura-smt --features cvc5-verify -- -D warnings
+        run: cargo clippy -p assura-smt --features cvc5-verify --locked -- -D warnings
 
       - name: Test assura-smt with CVC5 native
         if: ${{ !cancelled() }}
-        run: cargo test -p assura-smt --features cvc5-verify
+        run: cargo test -p assura-smt --features cvc5-verify --locked
 
       - name: Verify portfolio solver with CVC5
         if: ${{ !cancelled() }}
         run: |
-          cargo build --bin assura --features cvc5-verify
-          cargo run --bin assura --features cvc5-verify -- check --solver cvc5 demos/libwebp-huffman.assura
+          cargo build --bin assura --features cvc5-verify --locked
+          cargo run --locked --bin assura --features cvc5-verify -- check --solver cvc5 demos/libwebp-huffman.assura
 
       - name: Cleanup target (self-hosted)
         if: ${{ always() && vars.RUNNER }}
