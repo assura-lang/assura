@@ -15,6 +15,7 @@ mod advanced_passes;
 mod evolution;
 mod helpers;
 mod jobs;
+mod layer_dispatch;
 pub(crate) mod verify;
 
 #[cfg(test)]
@@ -32,6 +33,7 @@ pub(crate) use helpers::{
     extract_input_params, extract_output_return_type, type_expr_to_token_vec,
 };
 pub(crate) use jobs::collect_verification_jobs;
+pub use layer_dispatch::{verify_layer2, verify_layer3};
 pub use verify::{
     Verifier, check_refinement_subtype, check_refinement_subtype_with_context,
     has_verifiable_clauses, verify, verify_buffer_bounds, verify_contract,
