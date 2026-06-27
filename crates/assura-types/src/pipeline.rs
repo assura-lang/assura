@@ -6,7 +6,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use assura_parser::ast::{ClauseKind, Decl, ServiceItem};
+use assura_parser::ast::{
+    ClauseKind, ContractDecl, Decl, EnumDef, ExternDecl, FnDef, ServiceDecl, ServiceItem, TypeDef,
+};
 use assura_resolve::{ImportStatus, ResolvedFile, SymbolTable};
 
 use crate::checkers::PendingDecreaseCheck;
@@ -217,8 +219,8 @@ fn generate_tests_from_contracts(
 }
 
 /// Inject type information from an imported module's AST into the type
-/// environment. Adds concrete types for imported contracts, services,
-/// type definitions, enum variants, and function signatures.
+/// environment. Uses `DeclVisitor` to walk declarations and register
+/// matching names as types/signatures.
 fn inject_imported_types(
     env: &mut TypeEnv,
     imp: &assura_resolve::ResolvedImport,
@@ -226,126 +228,152 @@ fn inject_imported_types(
 ) {
     // Collect the names this import brings into scope
     let imported_names: Vec<&str> = if !imp.items.is_empty() {
-        // Selective import: `import math { Add, Vector }`
         imp.items.iter().map(|s| s.as_str()).collect()
     } else if let Some(alias) = &imp.alias {
-        // Aliased import: `import math as m`
         vec![alias.as_str()]
     } else if let Some(last) = imp.path.last() {
-        // Default import: `import math` brings the module name
         vec![last.as_str()]
     } else {
         return;
     };
 
-    for decl in &source.decls {
-        match &decl.node {
-            Decl::Contract(c) if imported_names.contains(&c.name.as_str()) => {
-                // Register the contract name as a Named type
-                env.insert(c.name.clone(), Type::Named(c.name.clone()));
-                // Register input params so callers know the contract's signature
-                for clause in &c.clauses {
-                    if clause.kind == ClauseKind::Input {
-                        register_input_clause_params(&clause.body, env);
-                    }
+    struct ImportInjector<'a> {
+        env: &'a mut TypeEnv,
+        imported_names: Vec<&'a str>,
+    }
+
+    impl<'a> assura_parser::ast::DeclVisitor for ImportInjector<'a> {
+        fn visit_contract(&mut self, c: &ContractDecl) {
+            if !self.imported_names.contains(&c.name.as_str()) {
+                return;
+            }
+            self.env.insert(c.name.clone(), Type::Named(c.name.clone()));
+            for clause in &c.clauses {
+                if clause.kind == ClauseKind::Input {
+                    register_input_clause_params(&clause.body, self.env);
                 }
             }
-            Decl::Service(s) if imported_names.contains(&s.name.as_str()) => {
-                env.insert(s.name.clone(), Type::Named(s.name.clone()));
-                // Register operation/query signatures
-                for item in &s.items {
-                    let (name, clauses) = match item {
-                        ServiceItem::Operation { name, clauses } => (name, clauses),
-                        ServiceItem::Query { name, clauses } => (name, clauses),
-                        _ => continue,
-                    };
-                    let mut param_types = Vec::new();
-                    for clause in clauses {
-                        if clause.kind == ClauseKind::Input {
-                            collect_input_param_types(&clause.body, &mut param_types);
+        }
+
+        fn visit_service(&mut self, s: &ServiceDecl) {
+            if !self.imported_names.contains(&s.name.as_str()) {
+                return;
+            }
+            self.env.insert(s.name.clone(), Type::Named(s.name.clone()));
+            for item in &s.items {
+                let (name, clauses) = match item {
+                    ServiceItem::Operation { name, clauses } => (name, clauses),
+                    ServiceItem::Query { name, clauses } => (name, clauses),
+                    _ => continue,
+                };
+                let mut param_types = Vec::new();
+                for clause in clauses {
+                    if clause.kind == ClauseKind::Input {
+                        collect_input_param_types(&clause.body, &mut param_types);
+                    }
+                }
+                let mut ret = Type::Unit;
+                for clause in clauses {
+                    if clause.kind == ClauseKind::Output {
+                        let ty = extract_output_type_from_body(&clause.body);
+                        if !ty.is_indeterminate() {
+                            ret = ty;
+                            break;
                         }
                     }
-                    let mut ret = Type::Unit;
-                    for clause in clauses {
-                        if clause.kind == ClauseKind::Output {
-                            let ty = extract_output_type_from_body(&clause.body);
-                            if !ty.is_indeterminate() {
-                                ret = ty;
-                                break;
-                            }
-                        }
-                    }
-                    env.insert(
-                        name.clone(),
+                }
+                self.env.insert(
+                    name.clone(),
+                    Type::Fn {
+                        params: param_types,
+                        ret: Box::new(ret),
+                    },
+                );
+            }
+        }
+
+        fn visit_type_def(&mut self, td: &TypeDef) {
+            if !self.imported_names.contains(&td.name.as_str()) {
+                return;
+            }
+            self.env
+                .insert(td.name.clone(), Type::Named(td.name.clone()));
+            if let assura_parser::ast::TypeBody::Struct(fields) = &td.body {
+                let field_types: Vec<(String, Type)> = fields
+                    .iter()
+                    .map(|f| (f.name.clone(), resolve_type_opt(f.ty.as_ref())))
+                    .collect();
+                self.env.struct_fields.insert(td.name.clone(), field_types);
+            }
+        }
+
+        fn visit_enum_def(&mut self, e: &EnumDef) {
+            if !self.imported_names.contains(&e.name.as_str()) {
+                return;
+            }
+            self.env.insert(e.name.clone(), Type::Named(e.name.clone()));
+            for variant in &e.variants {
+                if !variant.fields.is_empty() {
+                    let field_types: Vec<Type> = variant
+                        .fields
+                        .iter()
+                        .map(|f| parse_type_tokens(std::slice::from_ref(f)))
+                        .collect();
+                    self.env.insert(
+                        variant.name.clone(),
                         Type::Fn {
-                            params: param_types,
-                            ret: Box::new(ret),
+                            params: field_types,
+                            ret: Box::new(Type::Named(e.name.clone())),
                         },
                     );
                 }
             }
-            Decl::TypeDef(td) if imported_names.contains(&td.name.as_str()) => {
-                env.insert(td.name.clone(), Type::Named(td.name.clone()));
-                if let assura_parser::ast::TypeBody::Struct(fields) = &td.body {
-                    let field_types: Vec<(String, Type)> = fields
-                        .iter()
-                        .map(|f| (f.name.clone(), resolve_type_opt(f.ty.as_ref())))
-                        .collect();
-                    env.struct_fields.insert(td.name.clone(), field_types);
-                }
+        }
+
+        fn visit_fn_def(&mut self, f: &FnDef) {
+            if !self.imported_names.contains(&f.name.as_str()) {
+                return;
             }
-            Decl::EnumDef(e) if imported_names.contains(&e.name.as_str()) => {
-                env.insert(e.name.clone(), Type::Named(e.name.clone()));
-                for variant in &e.variants {
-                    if !variant.fields.is_empty() {
-                        let field_types: Vec<Type> = variant
-                            .fields
-                            .iter()
-                            .map(|f| parse_type_tokens(std::slice::from_ref(f)))
-                            .collect();
-                        env.insert(
-                            variant.name.clone(),
-                            Type::Fn {
-                                params: field_types,
-                                ret: Box::new(Type::Named(e.name.clone())),
-                            },
-                        );
-                    }
-                }
+            let param_types: Vec<Type> = f
+                .params
+                .iter()
+                .map(|p| resolve_type_opt(p.ty.as_ref()))
+                .collect();
+            let ret = resolve_type_opt(f.return_ty.as_ref());
+            self.env.insert(
+                f.name.clone(),
+                Type::Fn {
+                    params: param_types,
+                    ret: Box::new(ret),
+                },
+            );
+        }
+
+        fn visit_extern(&mut self, e: &ExternDecl) {
+            if !self.imported_names.contains(&e.name.as_str()) {
+                return;
             }
-            Decl::FnDef(f) if imported_names.contains(&f.name.as_str()) => {
-                let param_types: Vec<Type> = f
-                    .params
-                    .iter()
-                    .map(|p| resolve_type_opt(p.ty.as_ref()))
-                    .collect();
-                let ret = resolve_type_opt(f.return_ty.as_ref());
-                env.insert(
-                    f.name.clone(),
-                    Type::Fn {
-                        params: param_types,
-                        ret: Box::new(ret),
-                    },
-                );
-            }
-            Decl::Extern(e) if imported_names.contains(&e.name.as_str()) => {
-                let param_types: Vec<Type> = e
-                    .params
-                    .iter()
-                    .map(|p| resolve_type_opt(p.ty.as_ref()))
-                    .collect();
-                let ret = resolve_type_opt(e.return_ty.as_ref());
-                env.insert(
-                    e.name.clone(),
-                    Type::Fn {
-                        params: param_types,
-                        ret: Box::new(ret),
-                    },
-                );
-            }
-            _ => {}
+            let param_types: Vec<Type> = e
+                .params
+                .iter()
+                .map(|p| resolve_type_opt(p.ty.as_ref()))
+                .collect();
+            let ret = resolve_type_opt(e.return_ty.as_ref());
+            self.env.insert(
+                e.name.clone(),
+                Type::Fn {
+                    params: param_types,
+                    ret: Box::new(ret),
+                },
+            );
         }
     }
+
+    let mut injector = ImportInjector {
+        env,
+        imported_names,
+    };
+    assura_parser::ast::walk_decls(&mut injector, &source.decls);
 }
 
 // ---------------------------------------------------------------------------
