@@ -117,6 +117,9 @@ pub struct BackendConfig {
     /// When present, codegen replaces `todo!()` placeholders with real
     /// implementations from IR sidecar files.
     pub ir_bodies: std::collections::HashMap<String, String>,
+    /// When true, contract assertions use `assura_runtime::contract_violation`
+    /// instead of `debug_assert!`, persisting checks in release builds.
+    pub runtime_checks: bool,
 }
 
 impl Default for BackendConfig {
@@ -127,6 +130,7 @@ impl Default for BackendConfig {
             debug_info: false,
             target: CompileTarget::Native,
             ir_bodies: std::collections::HashMap::new(),
+            runtime_checks: false,
         }
     }
 }
@@ -465,6 +469,7 @@ struct CodeGenVisitor<'a> {
     code: &'a mut String,
     include_contracts_services: bool,
     ir_bodies: Option<&'a std::collections::HashMap<String, String>>,
+    runtime_checks: bool,
 }
 
 impl DeclVisitor for CodeGenVisitor<'_> {
@@ -501,7 +506,11 @@ impl DeclVisitor for CodeGenVisitor<'_> {
     }
     fn visit_contract(&mut self, c: &ContractDecl) {
         if self.include_contracts_services {
-            generate_contract(c, self.code, self.ir_bodies);
+            if self.runtime_checks {
+                generate_contract_runtime(c, self.code, self.ir_bodies);
+            } else {
+                generate_contract(c, self.code, self.ir_bodies);
+            }
         }
     }
     fn visit_service(&mut self, s: &ServiceDecl) {
@@ -659,6 +668,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             code: &mut shared,
             include_contracts_services: false,
             ir_bodies: ir_ref,
+            runtime_checks: config.runtime_checks,
         };
         assura_ast::walk_decls(&mut codegen_visitor, &source.decls);
 
@@ -681,7 +691,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
                 mod_code.push_str("use super::*;\n\n");
                 // Generate the contract body without wrapping it in
                 // `pub mod contract_xxx { ... }` since it IS the module file.
-                generate_contract_contents(c, &mut mod_code, ir_ref);
+                generate_contract_contents_opts(c, &mut mod_code, ir_ref, config.runtime_checks);
                 // S009: proptest for multi-file contracts
                 generate_proptest_for_contract_contents(c, &mut mod_code);
                 let formatted = format_rust(&mod_code);
@@ -731,6 +741,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             code: &mut all_code,
             include_contracts_services: true,
             ir_bodies: ir_ref,
+            runtime_checks: config.runtime_checks,
         };
         assura_ast::walk_decls(&mut codegen_visitor, &source.decls);
 

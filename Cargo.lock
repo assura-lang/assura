@@ -273,6 +273,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "assura-runtime"
+version = "0.1.0"
+
+[[package]]
 name = "assura-rust-analyzer"
 version = "0.1.0"
 dependencies = [

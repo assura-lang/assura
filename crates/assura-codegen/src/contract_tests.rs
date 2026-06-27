@@ -508,6 +508,79 @@ fn contract_with_ir_body_replaces_todo() {
     );
 }
 
+// ---- runtime checks codegen ----
+
+#[test]
+fn runtime_checks_emits_contract_violation() {
+    let c = mk_contract(
+        "SafeDiv",
+        vec![
+            mk_clause(
+                ClauseKind::Input,
+                Spanned::no_span(Expr::Cast {
+                    expr: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+                    ty: "Int".into(),
+                }),
+            ),
+            mk_clause(
+                ClauseKind::Requires,
+                Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+                    op: BinOp::Neq,
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                }),
+            ),
+            mk_clause(
+                ClauseKind::Ensures,
+                Spanned::no_span(Expr::Literal(Literal::Bool(true))),
+            ),
+        ],
+    );
+    let mut code = String::new();
+    generate_contract_contents_opts(&c, &mut code, None, true);
+    assert!(
+        code.contains("assura_runtime::contract_violation"),
+        "runtime checks should emit contract_violation call: {code}"
+    );
+    assert!(
+        code.contains("\"SafeDiv\""),
+        "violation should reference contract name: {code}"
+    );
+    assert!(
+        code.contains("\"requires\""),
+        "violation should reference clause kind: {code}"
+    );
+    assert!(
+        !code.contains("debug_assert!"),
+        "runtime checks should NOT use debug_assert!: {code}"
+    );
+}
+
+#[test]
+fn runtime_checks_off_emits_debug_assert() {
+    let c = mk_contract(
+        "SafeDiv",
+        vec![mk_clause(
+            ClauseKind::Requires,
+            Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+                op: BinOp::Neq,
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            }),
+        )],
+    );
+    let mut code = String::new();
+    generate_contract_contents_opts(&c, &mut code, None, false);
+    assert!(
+        code.contains("debug_assert!"),
+        "without runtime checks should use debug_assert!: {code}"
+    );
+    assert!(
+        !code.contains("assura_runtime"),
+        "without runtime checks should NOT reference assura_runtime: {code}"
+    );
+}
+
 // ---- generate_interface_trait_from_contract ----
 
 #[test]

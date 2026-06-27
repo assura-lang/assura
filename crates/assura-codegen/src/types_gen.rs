@@ -25,6 +25,12 @@ edition = "2024"
         toml.push_str("thiserror = \"2\"\n");
     }
 
+    if config.runtime_checks {
+        // Use crates.io version when published; until then, users must add
+        // a [patch] or path override pointing to their local assura-runtime.
+        toml.push_str("assura-runtime = \"0.1\"\n");
+    }
+
     if include_proptest {
         toml.push_str("\n[dev-dependencies]\nproptest = \"1\"\n");
     }
@@ -995,6 +1001,29 @@ mod tests {
         let toml = generate_cargo_toml_impl("wasm_mod", &cfg, false, false);
         assert!(toml.contains("cdylib"));
         assert!(toml.contains("wasm32-wasip1"));
+    }
+
+    #[test]
+    fn cargo_toml_runtime_checks() {
+        let cfg = BackendConfig {
+            runtime_checks: true,
+            ..Default::default()
+        };
+        let toml = generate_cargo_toml_impl("rt_crate", &cfg, false, false);
+        assert!(
+            toml.contains("assura-runtime"),
+            "runtime checks should add assura-runtime dep: {toml}"
+        );
+    }
+
+    #[test]
+    fn cargo_toml_no_runtime_checks() {
+        let cfg = BackendConfig::default();
+        let toml = generate_cargo_toml_impl("rt_crate", &cfg, false, false);
+        assert!(
+            !toml.contains("assura-runtime"),
+            "default should not include assura-runtime: {toml}"
+        );
     }
 
     // ---- generate_type_def ----

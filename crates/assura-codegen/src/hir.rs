@@ -344,6 +344,10 @@ fn render_item(item: &RustItem, out: &mut String) {
 }
 
 fn render_fn(f: &RustFn, out: &mut String) {
+    render_fn_opts(f, out, &RenderOpts::default());
+}
+
+fn render_fn_opts(f: &RustFn, out: &mut String, opts: &RenderOpts) {
     for doc in &f.doc {
         let _ = writeln!(out, "/// {doc}");
     }
@@ -392,7 +396,7 @@ fn render_fn(f: &RustFn, out: &mut String) {
         );
 
         for stmt in &f.body {
-            render_stmt(stmt, out, 1);
+            render_stmt_opts(stmt, out, 1, opts);
         }
 
         out.push_str("}\n\n");
@@ -550,7 +554,27 @@ fn render_type(ty: &RustType) -> String {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn render_stmt(stmt: &RustStmt, out: &mut String, indent: usize) {
+    render_stmt_opts(stmt, out, indent, &RenderOpts::default());
+}
+
+/// Options that control how statements are rendered.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RenderOpts {
+    /// When true, assertions emit `assura_runtime::contract_violation` calls
+    /// that persist in release builds instead of `debug_assert!`.
+    pub runtime_checks: bool,
+    /// The contract name for runtime violation reports.
+    pub contract_name: String,
+}
+
+pub(crate) fn render_stmt_opts(
+    stmt: &RustStmt,
+    out: &mut String,
+    indent: usize,
+    opts: &RenderOpts,
+) {
     let pad = "    ".repeat(indent);
     match stmt {
         RustStmt::Let { name, ty, init } => {
@@ -565,6 +589,23 @@ pub(crate) fn render_stmt(stmt: &RustStmt, out: &mut String, indent: usize) {
             // emit as a comment since stub types don't have these fields.
             if crate::has_deep_field_access(cond) {
                 let _ = writeln!(out, "{pad}// {label}: {}", cond.replace('"', "\\\""));
+            } else if opts.runtime_checks {
+                // Runtime checks: persist in release builds via assura_runtime
+                let escaped_cond = cond.replace('"', "\\\"");
+                let contract = opts.contract_name.replace('"', "\\\"");
+                if cond.contains('\n') {
+                    let flat_cond = cond.replace('\n', " ");
+                    let _ = writeln!(
+                        out,
+                        "{pad}if !({{ {cond} }}) {{ assura_runtime::contract_violation(\"{contract}\", \"{label}\", \"{escaped_cond}\", file!(), line!()); }}"
+                    );
+                    let _ = flat_cond.len(); // suppress unused warning
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "{pad}if !({cond}) {{ assura_runtime::contract_violation(\"{contract}\", \"{label}\", \"{escaped_cond}\", file!(), line!()); }}"
+                    );
+                }
             } else if cond.contains('\n') {
                 let msg = cond.replace('\n', " ").replace('"', "\\\"");
                 let _ = writeln!(out, "{pad}debug_assert!({{ {cond} }}, \"{label}: {msg}\");");
@@ -760,6 +801,22 @@ pub fn render_item_raw(item: &RustItem) -> String {
     let mut out = String::new();
     render_item(item, &mut out);
     out
+}
+
+/// Like `render_item_raw` but passes `RenderOpts` to control assertion style.
+pub(crate) fn render_item_raw_with_opts(item: &RustItem, opts: &RenderOpts) -> String {
+    let mut out = String::new();
+    render_item_with_opts(item, &mut out, opts);
+    out
+}
+
+fn render_item_with_opts(item: &RustItem, out: &mut String, opts: &RenderOpts) {
+    match item {
+        RustItem::Fn(f) => render_fn_opts(f, out, opts),
+        // Only functions contain assertions; other items delegate to the
+        // regular renderer.
+        other => render_item(other, out),
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -29,6 +29,15 @@ pub(crate) fn generate_contract_contents(
     code: &mut String,
     ir_bodies: Option<&std::collections::HashMap<String, String>>,
 ) {
+    generate_contract_contents_opts(c, code, ir_bodies, false);
+}
+
+pub(crate) fn generate_contract_contents_opts(
+    c: &ContractDecl,
+    code: &mut String,
+    ir_bodies: Option<&std::collections::HashMap<String, String>>,
+    runtime_checks: bool,
+) {
     use crate::hir::*;
 
     // Interface contracts become traits even in multi-file mode
@@ -213,7 +222,18 @@ pub(crate) fn generate_contract_contents(
         doc,
         ..RustFn::default()
     };
-    code.push_str(&render_item_raw(&RustItem::Fn(check_fn)));
+    if runtime_checks {
+        let opts = crate::hir::RenderOpts {
+            runtime_checks: true,
+            contract_name: c.name.clone(),
+        };
+        code.push_str(&crate::hir::render_item_raw_with_opts(
+            &RustItem::Fn(check_fn),
+            &opts,
+        ));
+    } else {
+        code.push_str(&render_item_raw(&RustItem::Fn(check_fn)));
+    }
 
     // Generate implements blocks
     if !implements.is_empty() {
@@ -257,6 +277,34 @@ pub(crate) fn generate_contract_contents(
             })));
         }
     }
+}
+
+pub(crate) fn generate_contract_runtime(
+    c: &ContractDecl,
+    code: &mut String,
+    ir_bodies: Option<&std::collections::HashMap<String, String>>,
+) {
+    use crate::hir::*;
+
+    let is_interface = c
+        .clauses
+        .iter()
+        .any(|cl| matches!(&cl.kind, ClauseKind::Other(k) if k == "interface"));
+    if is_interface {
+        generate_interface_trait_from_contract(c, code);
+        return;
+    }
+
+    let mut inner = String::new();
+    generate_contract_contents_opts(c, &mut inner, ir_bodies, true);
+
+    let m = RustItem::Mod(RustMod {
+        name: format!("contract_{}", c.name.to_lowercase()),
+        items: vec![RustItem::Raw(inner)],
+        is_pub: true,
+        doc: vec![format!("Contract: {}", c.name)],
+    });
+    code.push_str(&render_item_raw(&m));
 }
 
 pub(crate) fn generate_contract(
