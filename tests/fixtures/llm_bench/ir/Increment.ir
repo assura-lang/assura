@@ -1,0 +1,9 @@
+// IR for Increment: result = x + 1
+module increment {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $1 = const 1 : Int
+    $2 = arith add $0 $1 : Int
+    $result = load $2 : Int
+  }
+}

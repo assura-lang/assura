@@ -1,0 +1,10 @@
+// LLM Benchmark 15: GCD single step (Euclidean)
+// Difficulty: medium
+// Expected: result >= 0 when inputs positive
+contract GcdStep {
+    input(a: Int, b: Int)
+    output(result: Int)
+    requires { a > 0 }
+    requires { b > 0 }
+    ensures { result >= 0 }
+}

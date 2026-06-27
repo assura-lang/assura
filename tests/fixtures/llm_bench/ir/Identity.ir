@@ -1,0 +1,7 @@
+// IR for Identity: result = x
+module identity {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $result = load $0 : Int
+  }
+}

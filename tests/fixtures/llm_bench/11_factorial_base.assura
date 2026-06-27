@@ -1,0 +1,10 @@
+// LLM Benchmark 11: Factorial base case
+// Difficulty: medium (recursive reasoning)
+// Expected: result >= 1 when n >= 0
+contract FactorialBase {
+    input(n: Int)
+    output(result: Int)
+    requires { n >= 0 }
+    requires { n <= 10 }
+    ensures { result >= 1 }
+}

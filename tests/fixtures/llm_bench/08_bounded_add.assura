@@ -1,0 +1,13 @@
+// LLM Benchmark 08: Bounded addition (no overflow)
+// Difficulty: medium (arithmetic reasoning with bounds)
+// Expected: result == a + b, result <= 200
+contract BoundedAdd {
+    input(a: Int, b: Int)
+    output(result: Int)
+    requires { a >= 0 }
+    requires { a <= 100 }
+    requires { b >= 0 }
+    requires { b <= 100 }
+    ensures { result == a + b }
+    ensures { result <= 200 }
+}

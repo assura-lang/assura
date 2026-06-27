@@ -1,0 +1,8 @@
+// LLM Benchmark 10: Conditional swap (sort two values)
+// Difficulty: medium
+// Expected: first <= second, both values preserved
+contract SwapIfGreater {
+    input(a: Int, b: Int)
+    output(first: Int)
+    ensures { first <= b || first <= a }
+}

@@ -1,0 +1,10 @@
+// LLM Benchmark 14: Safe midpoint (no overflow)
+// Difficulty: medium (classic interview question)
+// Expected: lo <= result <= hi
+contract Midpoint {
+    input(lo: Int, hi: Int)
+    output(result: Int)
+    requires { lo <= hi }
+    ensures { result >= lo }
+    ensures { result <= hi }
+}

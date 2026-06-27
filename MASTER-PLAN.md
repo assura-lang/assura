@@ -263,15 +263,13 @@ Phases 1-11 from MASTER-PLAN v3 are complete. Summary:
   validate it. Measure pass rate. Publish the numbers.
 - **Agent entrypoint:** new `scripts/benchmark-llm-verify.sh` or
   `crates/assura-bench/src/llm_benchmark.rs`
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
-  # 1. Benchmark contracts exist
+  # 1. Benchmark contracts exist (20 contracts)
   ls tests/fixtures/llm_bench/*.assura | wc -l
-  # Must be >= 20
-  # 2. Script/tool exists
-  ls scripts/benchmark-llm-verify.sh || ls crates/assura-bench/src/llm*
-  # Must find at least one
-  # 3. At least one measured result is documented
+  # 2. Script exists
+  ls scripts/benchmark-llm-verify.sh
+  # 3. Measured results documented in docs/LLM-BENCHMARK.md
   grep -i 'verification.*rate\|success.*rate\|pass.*rate' docs/*.md
   ```
 
@@ -315,6 +313,19 @@ closed loop before measuring success rate).
 ---
 
 ## Progress Notes
+
+### 2026-06-27: Phase 12 completion (session 2)
+
+- Completed 12.03: Runtime contract monitoring (assura-runtime crate, codegen
+  integration, CLI --runtime-checks flag). PR #654 merged.
+- Completed 12.04: Stdlib contracts auto-import. PR #650 from prior session,
+  marked [x].
+- Completed 12.06: LLM verification success rate benchmark suite. 20 graded
+  contracts, 4 reference IRs, benchmark script with --dry-run/--live modes,
+  docs/LLM-BENCHMARK.md with methodology and initial results. PR #655.
+- Phase 12 status: 6/7 tasks complete. Only 12.07 (public launch) remains,
+  blocked on external actions (make repo public, publish crates.io).
+- Next session: 12.07 or start new phase based on user direction.
 
 ### 2026-06-27: v3 to v4 rewrite
 

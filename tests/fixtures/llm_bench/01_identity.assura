@@ -1,0 +1,8 @@
+// LLM Benchmark 01: Identity function
+// Difficulty: trivial
+// Expected: result == x
+contract Identity {
+    input(x: Int)
+    output(result: Int)
+    ensures { result == x }
+}

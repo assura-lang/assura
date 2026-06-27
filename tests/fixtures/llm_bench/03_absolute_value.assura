@@ -1,0 +1,9 @@
+// LLM Benchmark 03: Absolute value
+// Difficulty: easy (conditional logic)
+// Expected: if x >= 0 then x else -x
+contract AbsoluteValue {
+    input(x: Int)
+    output(result: Int)
+    ensures { result >= 0 }
+    ensures { result == x || result == -x }
+}

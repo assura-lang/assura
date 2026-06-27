@@ -1,0 +1,11 @@
+// LLM Benchmark 16: Round up to multiple
+// Difficulty: medium-hard (modular arithmetic)
+// Expected: result >= n, result % multiple == 0
+contract RoundUp {
+    input(n: Int, multiple: Int)
+    output(result: Int)
+    requires { multiple > 0 }
+    requires { n >= 0 }
+    ensures { result >= n }
+    ensures { result % multiple == 0 }
+}

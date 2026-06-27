@@ -1,0 +1,8 @@
+// LLM Benchmark 07: Sign function
+// Difficulty: easy (three-way branch)
+// Expected: -1, 0, or 1
+contract Sign {
+    input(x: Int)
+    output(result: Int)
+    ensures { result == -1 || result == 0 || result == 1 }
+}
