@@ -140,6 +140,7 @@ version = "0.1.0"
 dependencies = [
  "assura-codegen",
  "assura-config",
+ "assura-fmt",
  "assura-parser",
  "assura-pipeline",
  "assura-resolve",

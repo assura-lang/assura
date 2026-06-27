@@ -14,11 +14,15 @@ assura-types = { path = "../assura-types" }
 assura-codegen = { path = "../assura-codegen" }
 assura-pipeline = { path = "../assura-pipeline" }
 assura-config = { path = "../assura-config" }
-
+assura-fmt = { path = "../assura-fmt" }
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
 
 [[bench]]
 name = "pipeline"
+harness = false
+
+[[bench]]
+name = "compiler"
 harness = false
