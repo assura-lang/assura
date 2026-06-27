@@ -455,7 +455,16 @@ pub fn resolve_project_with_deps(
 /// module graph, and resolve all of them. This is the entry point
 /// for `assura check /path/to/project/`.
 pub fn discover_and_resolve_project(project_root: &std::path::Path) -> ProjectResult {
-    // Find all .assura files
+    discover_and_resolve_project_with_deps(project_root, &DependencyMap::new())
+}
+
+/// Like [`discover_and_resolve_project`], but also resolves imports against
+/// external dependencies in the provided `DependencyMap`.
+pub fn discover_and_resolve_project_with_deps(
+    project_root: &std::path::Path,
+    deps: &DependencyMap,
+) -> ProjectResult {
+    // Find all .assura files in the project itself
     let mut assura_files = Vec::new();
     collect_assura_files(project_root, &mut assura_files);
 
@@ -466,7 +475,7 @@ pub fn discover_and_resolve_project(project_root: &std::path::Path) -> ProjectRe
         )]);
     }
 
-    // Build a combined module map from all files
+    // Build a combined module map from all local files
     let mut all_modules = ModuleMap::new();
     let mut errors = Vec::new();
 
@@ -499,6 +508,9 @@ pub fn discover_and_resolve_project(project_root: &std::path::Path) -> ProjectRe
         }
     }
 
+    // Also load modules from external dependencies that are imported
+    load_dep_modules_for_project(&all_modules, deps, &mut all_modules.clone(), &mut errors);
+
     // Resolve each module with access to the full module map
     let mut resolved = HashMap::new();
     for (module_path, source) in &all_modules {
@@ -527,6 +539,62 @@ pub fn discover_and_resolve_project(project_root: &std::path::Path) -> ProjectRe
         Err(errors)
     } else {
         Ok((resolved, errors))
+    }
+}
+
+/// Scan all modules for imports that reference external dependencies,
+/// load those dependency modules, and add them to the module map.
+fn load_dep_modules_for_project(
+    local_modules: &ModuleMap,
+    deps: &DependencyMap,
+    all_modules: &mut ModuleMap,
+    errors: &mut Vec<String>,
+) {
+    if deps.is_empty() {
+        return;
+    }
+
+    // Collect all import paths that reference a dependency
+    let mut dep_imports: Vec<Vec<String>> = Vec::new();
+    for source in local_modules.values() {
+        for imp in &source.imports {
+            let path_str = imp.path.join(".");
+            if !all_modules.contains_key(&path_str)
+                && let Some(first) = imp.path.first()
+            {
+                let normalized = first.replace('_', "-");
+                if deps.contains_key(first) || deps.contains_key(&normalized) {
+                    dep_imports.push(imp.path.clone());
+                }
+            }
+        }
+    }
+
+    // Load each dependency module
+    for imp_path in &dep_imports {
+        if let Some((module_key, file_path)) = resolve_dep_module_path(imp_path, deps) {
+            if all_modules.contains_key(&module_key) {
+                continue;
+            }
+            match std::fs::read_to_string(&file_path) {
+                Ok(source) => {
+                    let (ast, parse_errs) = assura_parser::parse(&source);
+                    if !parse_errs.is_empty() {
+                        errors.push(format!(
+                            "{}: {} parse error(s)",
+                            file_path.display(),
+                            parse_errs.len()
+                        ));
+                    }
+                    if let Some(ast) = ast {
+                        all_modules.insert(module_key, ast);
+                    }
+                }
+                Err(e) => {
+                    errors.push(format!("{}: {e}", file_path.display()));
+                }
+            }
+        }
     }
 }
 
@@ -863,6 +931,57 @@ mod tests {
             graph.modules.keys().collect::<Vec<_>>()
         );
 
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ---- End-to-end: discover_and_resolve_project_with_deps ----
+
+    #[test]
+    fn discover_project_with_deps_resolves_cross_package_import() {
+        let tmp = std::env::temp_dir().join("assura_test_discover_deps");
+        let dep_dir = tmp.join("dep-lib");
+        let consumer_dir = tmp.join("consumer");
+        let _ = std::fs::create_dir_all(&dep_dir);
+        let _ = std::fs::create_dir_all(&consumer_dir);
+
+        // Create a dependency contract
+        std::fs::write(
+            dep_dir.join("math.assura"),
+            "contract SafeAdd {\n  input(a: Int, b: Int)\n  requires { a >= 0 }\n}\n",
+        )
+        .unwrap();
+
+        // Create a consumer that imports the dep
+        std::fs::write(consumer_dir.join("main.assura"), "import dep_lib.math\n").unwrap();
+
+        let mut deps = DependencyMap::new();
+        deps.insert("dep_lib".to_string(), dep_dir.clone());
+
+        let result = discover_and_resolve_project_with_deps(&consumer_dir, &deps);
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
+        let (resolved, _warnings) = result.unwrap();
+        // Should resolve at least the consumer module
+        assert!(!resolved.is_empty(), "expected resolved modules");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn discover_project_without_deps_same_as_no_deps() {
+        let tmp = std::env::temp_dir().join("assura_test_discover_no_deps");
+        let _ = std::fs::create_dir_all(&tmp);
+        std::fs::write(
+            tmp.join("main.assura"),
+            "contract Simple { input(x: Int) requires { x > 0 } }\n",
+        )
+        .unwrap();
+
+        let result1 = discover_and_resolve_project(&tmp);
+        let result2 = discover_and_resolve_project_with_deps(&tmp, &DependencyMap::new());
+        assert!(result1.is_ok());
+        assert!(result2.is_ok());
+        let (r1, _) = result1.unwrap();
+        let (r2, _) = result2.unwrap();
+        assert_eq!(r1.len(), r2.len());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

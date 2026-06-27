@@ -463,8 +463,19 @@ pub(crate) fn run_build_project(
 
     eprintln!("Building project at {}", project_root.display());
 
+    // Load dependencies from assura.toml if present
+    let project_config = load_project_config(&project_root);
+    let (dep_map, dep_warnings) = if let Some((ref cfg, ref root)) = project_config {
+        assura_resolve::resolve_dependency_map(root, cfg)
+    } else {
+        (assura_resolve::DependencyMap::new(), vec![])
+    };
+    for w in &dep_warnings {
+        eprintln!("Warning: {w}");
+    }
+
     let (resolved_files, warnings) =
-        match assura_resolve::discover_and_resolve_project(&project_root) {
+        match assura_resolve::discover_and_resolve_project_with_deps(&project_root, &dep_map) {
             Ok(pair) => pair,
             Err(errors) => {
                 for e in &errors {
