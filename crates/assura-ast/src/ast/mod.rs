@@ -6,7 +6,7 @@
 
 pub type Span = std::ops::Range<usize>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Spanned<T> {
     pub node: T,
     pub span: Span,
@@ -28,7 +28,7 @@ pub type SpExpr = Spanned<Expr>;
 // Top-level file
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SourceFile {
     pub project: Option<ProjectDecl>,
     pub module: Option<ModuleDecl>,
@@ -36,18 +36,18 @@ pub struct SourceFile {
     pub decls: Vec<Spanned<Decl>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProjectDecl {
     pub name: String,
     pub profile: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ModuleDecl {
     pub path: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ImportDecl {
     pub path: Vec<String>,
     pub alias: Option<String>,
@@ -59,7 +59,7 @@ pub struct ImportDecl {
 // Declarations
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Decl {
     Contract(ContractDecl),
     Service(ServiceDecl),
@@ -234,7 +234,7 @@ impl Decl {
 // Contract
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ContractDecl {
     pub name: String,
     pub type_params: Vec<String>,
@@ -244,7 +244,7 @@ pub struct ContractDecl {
     pub fn_params: Vec<Param>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Clause {
     pub kind: ClauseKind,
     pub body: SpExpr,
@@ -311,7 +311,7 @@ impl MemoryOrdering {
 // Expressions
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     /// Integer, float, string, or boolean literal
     Literal(Literal),
@@ -393,13 +393,13 @@ pub enum Expr {
     Raw(Vec<String>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MatchArm {
     pub pattern: Pattern,
     pub body: SpExpr,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
     /// A simple identifier or enum variant name
     Ident(String),
@@ -1247,14 +1247,14 @@ fn extract_clause_params_from_raw(tokens: &[String], params: &mut Vec<ParsedPara
 // Type / Enum
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TypeDef {
     pub name: String,
     pub type_params: Vec<String>,
     pub body: TypeBody,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypeBody {
     Alias(Vec<String>),
     Struct(Vec<FieldDef>),
@@ -1262,7 +1262,7 @@ pub enum TypeBody {
     Empty,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FieldDef {
     pub name: String,
     /// Structured type expression. `None` if untyped.
@@ -1270,14 +1270,14 @@ pub struct FieldDef {
     pub is_pub: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EnumDef {
     pub name: String,
     pub type_params: Vec<String>,
     pub variants: Vec<EnumVariant>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EnumVariant {
     pub name: String,
     pub fields: Vec<String>,
@@ -1287,7 +1287,7 @@ pub struct EnumVariant {
 // Extern / Fn
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ExternDecl {
     pub name: String,
     pub params: Vec<Param>,
@@ -1306,7 +1306,7 @@ pub struct ExternDecl {
 ///     ensures  { result.contains(user.name) }
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BindDecl {
     /// The contract name (the `as Ident` part).
     pub name: String,
@@ -1319,7 +1319,7 @@ pub struct BindDecl {
 }
 
 /// Ghost prophecy variable: `ghost prophecy <name>: <type>`
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProphecyDecl {
     pub name: String,
     /// Structured type expression. `None` if untyped.
@@ -1331,7 +1331,7 @@ pub struct ProphecyDecl {
 // ---------------------------------------------------------------------------
 
 /// A codec registry declaration: `codec_registry <name> { output: <type>, codec ... }`
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CodecRegistryDecl {
     pub name: String,
     /// The common output type (e.g., `ImageOutput`)
@@ -1341,7 +1341,7 @@ pub struct CodecRegistryDecl {
 }
 
 /// A single codec in a registry: `codec <name> { magic: [...], decoder: <fn>, contracts: { ... } }`
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CodecEntry {
     pub name: String,
     /// Magic byte pattern for identification
@@ -1353,7 +1353,7 @@ pub struct CodecEntry {
 }
 
 /// The way a codec identifies its format
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MagicPattern {
     /// Exact or prefix byte pattern: `[0x89, 0x50, ...]` or `[0xFF, 0xD8, ..]`
     Bytes { bytes: Vec<u8>, prefix: bool },
@@ -1363,7 +1363,7 @@ pub enum MagicPattern {
     Probe(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FnDef {
     pub name: String,
     pub is_ghost: bool,
@@ -1374,7 +1374,7 @@ pub struct FnDef {
     pub clauses: Vec<Clause>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Param {
     pub name: String,
     /// Structured type expression. `None` if untyped.
@@ -1385,13 +1385,13 @@ pub struct Param {
 // Service
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ServiceDecl {
     pub name: String,
     pub items: Vec<ServiceItem>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ServiceItem {
     TypeDef(TypeDef),
     EnumDef(EnumDef),
