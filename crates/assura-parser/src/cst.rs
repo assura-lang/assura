@@ -428,11 +428,23 @@ impl Parser {
             .unwrap_or(TokenSpan { start: 0, end: 0 })
     }
 
-    /// Wrap the current token in an ERROR node and skip it (error recovery).
-    pub(crate) fn err_and_bump(&mut self, message: &str) {
+    /// Emit an error, then skip tokens until reaching one of `sync_to` or EOF.
+    /// All skipped tokens are wrapped in a single ERROR node. This produces
+    /// far fewer cascading errors than skipping one token at a time.
+    ///
+    /// Always consumes at least one token to guarantee forward progress when
+    /// the current token is already in `sync_to`.
+    pub(crate) fn err_and_sync(&mut self, message: &str, sync_to: &[SyntaxKind]) {
         self.error_at_current(message.to_string());
         let m = self.open();
-        self.bump();
+        // Always consume at least one token to avoid infinite loops when the
+        // current token is itself a sync point (e.g. stray `}` at top level).
+        if !self.eof() {
+            self.bump();
+        }
+        while !self.eof() && !sync_to.contains(&self.current()) {
+            self.bump();
+        }
         m.complete(self, SyntaxKind::ERROR);
     }
 }

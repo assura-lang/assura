@@ -26,7 +26,10 @@ pub(crate) fn type_params(p: &mut Parser) {
             p.expect(SyntaxKind::COMMA);
         }
         if p.pos() == before {
-            p.err_and_bump("expected type parameter or `>`");
+            p.err_and_sync(
+                "expected type parameter or `>`",
+                &[SyntaxKind::IDENT, SyntaxKind::R_ANGLE, SyntaxKind::COMMA],
+            );
         }
     }
     p.expect(SyntaxKind::R_ANGLE);
@@ -49,7 +52,10 @@ pub(crate) fn param_list(p: &mut Parser) {
             p.eat(SyntaxKind::COMMA);
         }
         if p.pos() == before {
-            p.err_and_bump("expected parameter or `)`");
+            p.err_and_sync(
+                "expected parameter or `)`",
+                &[SyntaxKind::IDENT, SyntaxKind::R_PAREN, SyntaxKind::COMMA],
+            );
         }
     }
     p.expect(SyntaxKind::R_PAREN);

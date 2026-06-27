@@ -269,7 +269,7 @@ fn match_expr(p: &mut Parser) -> CompletedMarker {
     // IMPORTANT: after eat(COMMA) (or any separator that does not itself call bump_trivia),
     // you MUST bump_trivia() before the next match_arm/pattern/expr call.
     // Otherwise p.current() will not see the next real token (INT_LIT etc.),
-    // pattern() will err_and_bump, the arm will have no PAT child,
+    // pattern() will err_and_sync, the arm will have no PAT child,
     // and lower_match_arm will fall back to Wildcard.
     // This has caused silent missing diagnostics (e.g. A10002) in downstream checkers.
     while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
@@ -344,7 +344,14 @@ fn pattern(p: &mut Parser) {
             }
         }
         _ => {
-            p.err_and_bump("expected pattern");
+            p.err_and_sync(
+                "expected pattern",
+                &[
+                    SyntaxKind::FAT_ARROW,
+                    SyntaxKind::R_BRACE,
+                    SyntaxKind::COMMA,
+                ],
+            );
         }
     }
 }
@@ -405,7 +412,10 @@ fn list_expr(p: &mut Parser) -> CompletedMarker {
             p.bump_trivia();
         }
         if p.pos() == before {
-            p.err_and_bump("expected expression or `]`");
+            p.err_and_sync(
+                "expected expression or `]`",
+                &[SyntaxKind::R_BRACKET, SyntaxKind::COMMA],
+            );
         }
     }
     p.expect(SyntaxKind::R_BRACKET);
@@ -458,7 +468,10 @@ fn arg_list(p: &mut Parser) {
             p.bump_trivia();
         }
         if p.pos() == before {
-            p.err_and_bump("expected argument or `)`");
+            p.err_and_sync(
+                "expected argument or `)`",
+                &[SyntaxKind::R_PAREN, SyntaxKind::COMMA],
+            );
         }
     }
     p.expect(SyntaxKind::R_PAREN);

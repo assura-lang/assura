@@ -136,7 +136,10 @@ fn contract_decl(p: &mut Parser) {
             // Generic blocks inside contracts (feature, incremental, etc.)
             generic_block(p);
         } else {
-            p.err_and_bump("expected clause, type, fn, or closing brace");
+            p.err_and_sync(
+                "expected clause, type, fn, or closing brace",
+                super::BODY_SYNC,
+            );
         }
     }
     super::expect_closer(p, SyntaxKind::R_BRACE);
@@ -172,7 +175,18 @@ fn type_def(p: &mut Parser) {
                 params::field_def(p);
             }
             if p.pos() == before {
-                p.err_and_bump("expected field, clause, or `}`");
+                p.err_and_sync(
+                    "expected field, clause, or `}`",
+                    &[
+                        SyntaxKind::R_BRACE,
+                        SyntaxKind::IDENT,
+                        SyntaxKind::SEMICOLON,
+                        SyntaxKind::COMMA,
+                        SyntaxKind::REQUIRES_KW,
+                        SyntaxKind::ENSURES_KW,
+                        SyntaxKind::INVARIANT_KW,
+                    ],
+                );
             }
         }
         super::expect_closer(p, SyntaxKind::R_BRACE);
@@ -240,7 +254,10 @@ fn enum_def(p: &mut Parser) {
         enum_variant(p);
         if p.pos() == before {
             // No progress -- skip the stuck token to avoid infinite loop.
-            p.err_and_bump("expected enum variant or closing brace");
+            p.err_and_sync(
+                "expected enum variant or closing brace",
+                &[SyntaxKind::IDENT, SyntaxKind::R_BRACE],
+            );
         }
     }
     super::expect_closer(p, SyntaxKind::R_BRACE);
@@ -337,7 +354,10 @@ fn codec_registry_decl(p: &mut Parser) {
         if p.at(SyntaxKind::CODEC_KW) {
             codec_entry(p);
         } else {
-            p.err_and_bump("expected `codec` or `}`");
+            p.err_and_sync(
+                "expected `codec` or `}`",
+                &[SyntaxKind::CODEC_KW, SyntaxKind::R_BRACE],
+            );
         }
     }
     super::expect_closer(p, SyntaxKind::R_BRACE);
@@ -378,16 +398,19 @@ fn codec_entry(p: &mut Parser) {
                 if clauses::at_clause_start(p) {
                     clauses::clause(p);
                 } else {
-                    p.err_and_bump("expected clause or `}`");
+                    p.err_and_sync("expected clause or `}`", super::BODY_SYNC);
                 }
             }
             super::expect_closer(p, SyntaxKind::R_BRACE);
         } else {
             // Skip unknown fields
-            p.err_and_bump("expected `magic`, `decoder`, `contracts`, or `}`");
+            p.err_and_sync(
+                "expected `magic`, `decoder`, `contracts`, or `}`",
+                &[SyntaxKind::MAGIC_KW, SyntaxKind::IDENT, SyntaxKind::R_BRACE],
+            );
         }
         if p.pos() == before {
-            p.err_and_bump("stuck in codec entry");
+            p.err_and_sync("stuck in codec entry", &[SyntaxKind::R_BRACE]);
             break;
         }
     }
@@ -523,7 +546,19 @@ fn service_decl(p: &mut Parser) {
         let before = p.pos();
         service_item(p);
         if p.pos() == before {
-            p.err_and_bump("expected service item or `}`");
+            p.err_and_sync(
+                "expected service item or `}`",
+                &[
+                    SyntaxKind::R_BRACE,
+                    SyntaxKind::TYPE_KW,
+                    SyntaxKind::ENUM_KW,
+                    SyntaxKind::STATES_KW,
+                    SyntaxKind::OPERATION_KW,
+                    SyntaxKind::QUERY_KW,
+                    SyntaxKind::INVARIANT_KW,
+                    SyntaxKind::IDENT,
+                ],
+            );
         }
     }
     super::expect_closer(p, SyntaxKind::R_BRACE);
@@ -556,7 +591,7 @@ fn service_item(p: &mut Parser) {
                     if clauses::at_clause_start(p) {
                         clauses::clause(p);
                     } else {
-                        p.err_and_bump("expected clause or closing brace");
+                        p.err_and_sync("expected clause or closing brace", super::BODY_SYNC);
                     }
                 }
                 super::expect_closer(p, SyntaxKind::R_BRACE);
@@ -580,7 +615,10 @@ fn service_item(p: &mut Parser) {
                 clauses::clause_body(p);
                 m.complete(p, SyntaxKind::SERVICE_ITEM);
             } else {
-                p.err_and_bump("expected service item");
+                p.err_and_sync(
+                    "expected service item",
+                    &[SyntaxKind::R_BRACE, SyntaxKind::IDENT],
+                );
             }
         }
     }
@@ -667,7 +705,10 @@ pub(crate) fn generic_block(p: &mut Parser) {
             ) {
                 decl(p);
             } else {
-                p.err_and_bump("expected clause, declaration, or closing brace");
+                p.err_and_sync(
+                    "expected clause, declaration, or closing brace",
+                    super::BODY_SYNC,
+                );
             }
         }
         super::expect_closer(p, SyntaxKind::R_BRACE);

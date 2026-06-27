@@ -405,4 +405,72 @@ mod tests {
         // Pure garbage should return None
         assert!(file.is_none());
     }
+
+    // --- Error recovery sync tests (#632) ---
+
+    #[test]
+    fn recovery_sync_skips_garbage_between_declarations() {
+        // Multiple garbage tokens between two valid declarations.
+        // With sync-based recovery the parser skips to the next
+        // declaration keyword in one step instead of one token at a time.
+        let src =
+            "contract A { requires { true } }\nfoo bar baz qux\ncontract B { ensures { true } }";
+        let (file, errors) = parse(src);
+        let file = file.expect("should recover and return a file");
+        // Both declarations survive despite the garbage in between.
+        assert!(
+            file.decls.len() >= 2,
+            "expected at least 2 decls, got {}",
+            file.decls.len()
+        );
+        // Sync-based recovery produces exactly 1 error for the garbage
+        // region, not one per garbage token.
+        assert!(
+            errors.len() <= 2,
+            "expected at most 2 errors from sync recovery, got {}: {:?}",
+            errors.len(),
+            errors
+        );
+    }
+
+    #[test]
+    fn recovery_sync_inside_contract_body() {
+        // Garbage tokens inside a contract body should sync to the
+        // next clause keyword, not cascade one-by-one.
+        let src = "contract C {\n  ??? !!!\n  requires { x > 0 }\n  ensures { true }\n}";
+        let (file, errors) = parse(src);
+        let file = file.expect("should recover inside contract body");
+        assert!(
+            !file.decls.is_empty(),
+            "should parse the contract declaration"
+        );
+        // The requires and ensures clauses after the garbage should
+        // still be reachable.
+        assert!(
+            errors.len() <= 3,
+            "expected limited cascading errors, got {}: {:?}",
+            errors.len(),
+            errors
+        );
+    }
+
+    #[test]
+    fn recovery_sync_preserves_later_declarations() {
+        // A broken first declaration should not prevent parsing the rest.
+        let src =
+            "contract Bad { ??? ??? }\ntype Point { x: Int, y: Int }\nenum Color { Red, Green }";
+        let (file, errors) = parse(src);
+        let file = file.expect("should recover across declarations");
+        // The valid type and enum after the broken contract must parse.
+        assert!(
+            file.decls.len() >= 2,
+            "expected at least 2 decls after recovery, got {}: {:?}",
+            file.decls.len(),
+            file.decls
+                .iter()
+                .map(|d| d.node.summary_label())
+                .collect::<Vec<_>>()
+        );
+        assert!(!errors.is_empty(), "should report errors for the garbage");
+    }
 }

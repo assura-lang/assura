@@ -12,6 +12,57 @@ mod params;
 use crate::cst::Parser;
 use crate::syntax_kind::SyntaxKind;
 
+/// Tokens that can start a top-level declaration (for error recovery sync).
+const DECL_SYNC: &[SyntaxKind] = &[
+    SyntaxKind::CONTRACT_KW,
+    SyntaxKind::SERVICE_KW,
+    SyntaxKind::TYPE_KW,
+    SyntaxKind::ENUM_KW,
+    SyntaxKind::EXTERN_KW,
+    SyntaxKind::FN_KW,
+    SyntaxKind::AXIOM_KW,
+    SyntaxKind::LEMMA_KW,
+    SyntaxKind::PURE_KW,
+    SyntaxKind::GHOST_KW,
+    SyntaxKind::OPAQUE_KW,
+    SyntaxKind::BIND_KW,
+    SyntaxKind::IMPORT_KW,
+    SyntaxKind::MODULE_KW,
+    SyntaxKind::PROJECT_KW,
+    SyntaxKind::SPEC_KW,
+    SyntaxKind::HASH,
+    SyntaxKind::R_BRACE,
+];
+
+/// Tokens that sync inside a braced body (contract, service, generic block).
+const BODY_SYNC: &[SyntaxKind] = &[
+    SyntaxKind::R_BRACE,
+    SyntaxKind::CONTRACT_KW,
+    SyntaxKind::TYPE_KW,
+    SyntaxKind::ENUM_KW,
+    SyntaxKind::EXTERN_KW,
+    SyntaxKind::FN_KW,
+    SyntaxKind::AXIOM_KW,
+    SyntaxKind::LEMMA_KW,
+    SyntaxKind::BIND_KW,
+    SyntaxKind::REQUIRES_KW,
+    SyntaxKind::ENSURES_KW,
+    SyntaxKind::INVARIANT_KW,
+    SyntaxKind::EFFECTS_KW,
+    SyntaxKind::MODIFIES_KW,
+    SyntaxKind::INPUT_KW,
+    SyntaxKind::OUTPUT_KW,
+    SyntaxKind::RULE_KW,
+    SyntaxKind::DATA_FLOW_KW,
+    SyntaxKind::MUST_NOT_KW,
+    SyntaxKind::PURE_KW,
+    SyntaxKind::GHOST_KW,
+    SyntaxKind::OPAQUE_KW,
+    SyntaxKind::SPEC_KW,
+    SyntaxKind::HASH,
+    SyntaxKind::IDENT,
+];
+
 /// Parse a complete source file.
 ///
 /// source_file = project_decl? module_decl? import_decl* decl*
@@ -38,7 +89,7 @@ pub(crate) fn source_file(p: &mut Parser) {
         if at_decl_start(p) {
             items::decl(p);
         } else {
-            p.err_and_bump("expected declaration");
+            p.err_and_sync("expected declaration", DECL_SYNC);
         }
     }
 
@@ -70,7 +121,10 @@ fn project_decl(p: &mut Parser) {
                     p.expect(SyntaxKind::IDENT);
                     p.eat(SyntaxKind::COMMA);
                     if p.pos() == before {
-                        p.err_and_bump("expected profile name or `]`");
+                        p.err_and_sync(
+                            "expected profile name or `]`",
+                            &[SyntaxKind::IDENT, SyntaxKind::R_BRACKET],
+                        );
                     }
                 }
                 expect_closer(p, SyntaxKind::R_BRACKET);
@@ -114,7 +168,10 @@ fn import_decl(p: &mut Parser) {
                 p.eat(SyntaxKind::COMMA);
             }
             if p.pos() == before {
-                p.err_and_bump("expected import name or `}`");
+                p.err_and_sync(
+                    "expected import name or `}`",
+                    &[SyntaxKind::IDENT, SyntaxKind::R_BRACE],
+                );
             }
         }
         expect_closer(p, SyntaxKind::R_BRACE);
