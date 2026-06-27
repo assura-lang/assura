@@ -297,6 +297,20 @@ enum Commands {
         output: Option<String>,
     },
 
+    /// Generate documentation from contract files
+    Doc {
+        /// Source file or directory to document
+        file: String,
+
+        /// Output directory (default: stdout)
+        #[arg(short, long)]
+        output: Option<String>,
+
+        /// Include verification results in documentation
+        #[arg(long)]
+        verify: bool,
+    },
+
     /// Start the MCP (Model Context Protocol) server for AI agent integration
     Mcp,
 }
@@ -433,6 +447,11 @@ pub fn run() {
             contract,
             output,
         } => run_ir(&file, contract.as_deref(), output.as_deref(), verbosity),
+        Commands::Doc {
+            file,
+            output,
+            verify,
+        } => run_doc(&file, output.as_deref(), verify, output_mode, verbosity),
         Commands::Mcp => {
             let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
             rt.block_on(async {
