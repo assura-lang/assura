@@ -252,7 +252,6 @@ mod z3_backend;
 // ---------------------------------------------------------------------------
 
 #[cfg(all(test, feature = "z3-verify"))]
-#[path = "tests_z3.rs"]
 mod tests_z3;
 
 #[cfg(all(test, feature = "z3-verify"))]
