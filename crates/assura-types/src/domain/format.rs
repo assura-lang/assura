@@ -67,6 +67,7 @@ impl BinaryFormatChecker {
                     ),
                     span: f.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -85,6 +86,7 @@ impl BinaryFormatChecker {
                     ),
                     span: f.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -108,6 +110,7 @@ impl BinaryFormatChecker {
                         ),
                         span: a.span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -178,6 +181,7 @@ impl BitLevelChecker {
                     ),
                     span: f.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -199,6 +203,7 @@ impl BitLevelChecker {
                         ),
                         span: f.span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -216,6 +221,7 @@ impl BitLevelChecker {
                 ),
                 span: 0..1,
                 secondary: None,
+                suggestion: None,
             });
         }
         None
@@ -279,12 +285,14 @@ impl StringEncodingChecker {
                 message: format!("`{name}` is raw bytes, not a validated string"),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             }),
             None => Some(TypeError {
                 code: "A28001".into(),
                 message: format!("`{name}` has unknown encoding, cannot use as string"),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             }),
             _ => None,
         }
@@ -305,6 +313,7 @@ impl StringEncodingChecker {
                 message: format!("`{src}` is {src_enc:?} but used as {dst_encoding:?}"),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         None
@@ -329,6 +338,7 @@ impl StringEncodingChecker {
                     ),
                     span: span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -423,6 +433,7 @@ impl ChecksumChecker {
                 message: format!("data region `{name}` used before checksum verification"),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         None
@@ -445,6 +456,7 @@ impl ChecksumChecker {
                 ),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         None
@@ -468,6 +480,7 @@ impl ChecksumChecker {
                 ),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         None
@@ -541,6 +554,7 @@ impl ProtocolGrammarChecker {
                 message: format!("cannot send `{message}` in state `{}`", self.current_state),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         None
@@ -563,6 +577,7 @@ impl ProtocolGrammarChecker {
                 ),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             })
         }
     }
@@ -582,6 +597,7 @@ impl ProtocolGrammarChecker {
                         message: format!("required field `{field}` missing in message `{message}`"),
                         span: span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -1297,6 +1313,7 @@ pub fn check_codec_registry(source: &assura_parser::ast::SourceFile) -> Vec<Type
                         ),
                         span: decl.span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -1313,6 +1330,7 @@ pub fn check_codec_registry(source: &assura_parser::ast::SourceFile) -> Vec<Type
                     ),
                     span: decl.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }

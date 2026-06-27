@@ -50,6 +50,7 @@ pub(crate) fn check_generic_instantiation(
                 ),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         return Ok(());
@@ -67,6 +68,7 @@ pub(crate) fn check_generic_instantiation(
                 ),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         return Ok(());

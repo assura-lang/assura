@@ -869,6 +869,7 @@ impl InfoFlowChecker {
                         ),
                         span: span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -1103,6 +1104,7 @@ impl DependentTypeChecker {
                             message: dte.message,
                             span: dte.span,
                             secondary: None,
+                            suggestion: None,
                         });
                     }
                     let dep_index = match index_type.as_str() {
@@ -1134,6 +1136,7 @@ impl DependentTypeChecker {
                             message: dte.message,
                             span: dte.span,
                             secondary: None,
+                            suggestion: None,
                         });
                     }
                 }
@@ -1147,6 +1150,7 @@ impl DependentTypeChecker {
                             message: dte.message,
                             span: dte.span,
                             secondary: None,
+                            suggestion: None,
                         });
                     }
                 }
@@ -1171,6 +1175,7 @@ impl DependentTypeChecker {
                                 message: dte.message,
                                 span: dte.span,
                                 secondary: None,
+                                suggestion: None,
                             });
                         }
                     }

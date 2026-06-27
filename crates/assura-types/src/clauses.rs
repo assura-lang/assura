@@ -395,6 +395,7 @@ pub(crate) fn check_clause_expr(
                     ),
                     span: body_span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }

@@ -75,6 +75,7 @@ pub(crate) fn check_lemma_fn_effects(
                 ),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
     }
@@ -110,6 +111,7 @@ pub(crate) fn check_ghost_fn_effects(
                 ),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
     }

@@ -61,6 +61,7 @@ impl CallbackReentrancyChecker {
                 message: format!("re-entrant call to non-reentrant function `{fn_name}`"),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
 
@@ -75,6 +76,7 @@ impl CallbackReentrancyChecker {
                 ),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
 
@@ -101,6 +103,7 @@ impl CallbackReentrancyChecker {
                 ),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         None
@@ -194,6 +197,7 @@ impl CallbackReentrancyChecker {
                                 ),
                                 span: decl.span.clone(),
                                 secondary: None,
+                                suggestion: None,
                             });
                         }
                     }
@@ -208,6 +212,7 @@ impl CallbackReentrancyChecker {
                     message: format!("callback stack depth is {depth} at end of analysis"),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -268,6 +273,7 @@ impl TemporalDeadlineChecker {
                 ),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         self.deadlines.push((name, deadline_ms));
@@ -289,6 +295,7 @@ impl TemporalDeadlineChecker {
                         ),
                         span: span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             } else {
@@ -299,6 +306,7 @@ impl TemporalDeadlineChecker {
                     ),
                     span: span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }

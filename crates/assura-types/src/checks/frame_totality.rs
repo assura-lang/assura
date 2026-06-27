@@ -45,6 +45,7 @@ pub(crate) fn run_frame_checks(
                     .into(),
                 span: decl.span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         // A14002: Check ensures clauses for implicit modifications to
@@ -102,6 +103,7 @@ pub(crate) fn run_totality_checks(
                     message: te.message,
                     span: te.span,
                     secondary: None,
+                    suggestion: None,
                 });
             }
             pending_smt.extend(te_pending);
@@ -116,6 +118,7 @@ pub(crate) fn run_totality_checks(
                 message: te.message,
                 span: te.span,
                 secondary: None,
+                suggestion: None,
             });
         }
     }

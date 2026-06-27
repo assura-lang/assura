@@ -79,6 +79,7 @@ impl CrashRecoveryChecker {
                     message: format!("data write for `{}` without preceding WAL entry", e.id),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -94,6 +95,7 @@ impl CrashRecoveryChecker {
                     message: format!("commit for `{id}` without fsync"),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -109,6 +111,7 @@ impl CrashRecoveryChecker {
                     message: format!("fsync for `{}` before data write", e.id),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -249,6 +252,7 @@ impl PageCacheChecker {
                     message: format!("cannot evict pinned page {page_id}"),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
             if p.dirty {
@@ -257,6 +261,7 @@ impl PageCacheChecker {
                     message: format!("evicting dirty page {page_id} without flush"),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -275,6 +280,7 @@ impl PageCacheChecker {
                 ),
                 span: 0..1,
                 secondary: None,
+                suggestion: None,
             }]
         } else {
             vec![]
@@ -424,6 +430,7 @@ impl MvccChecker {
                     ),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -445,6 +452,7 @@ impl MvccChecker {
                         ),
                         span: 0..1,
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -457,7 +465,7 @@ impl MvccChecker {
         for (key, versions) in &self.versions {
             for v in versions {
                 if v.txn_id > txn_id && v.committed {
-                    errors.push(TypeError { code: "A35003".into(), message: format!("phantom read: txn {txn_id} sees committed version from later txn {} on `{key}`", v.txn_id), span: 0..1, secondary: None });
+                    errors.push(TypeError { code: "A35003".into(), message: format!("phantom read: txn {txn_id} sees committed version from later txn {} on `{key}`", v.txn_id), span: 0..1, secondary: None, suggestion: None });
                 }
             }
         }
@@ -597,6 +605,7 @@ impl RollbackChecker {
                 message: format!("rollback to unknown savepoint `{savepoint}`"),
                 span: 0..1,
                 secondary: None,
+                suggestion: None,
             });
         }
         self.rolled_back = true;
@@ -615,6 +624,7 @@ impl RollbackChecker {
                     message: format!("resource `{r}` not released after rollback"),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -631,6 +641,7 @@ impl RollbackChecker {
                     message: format!("duplicate savepoint name `{sp}`"),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -796,6 +807,7 @@ impl MonotonicStateChecker {
                     ),
                     span: info.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
             info.current_value = new_value;
@@ -810,6 +822,7 @@ impl MonotonicStateChecker {
                 message: format!("illegal reset of monotonic variable `{name}`"),
                 span: 0..1,
                 secondary: None,
+                suggestion: None,
             })
         } else {
             None
@@ -823,6 +836,7 @@ impl MonotonicStateChecker {
                 message: format!("access to undeclared monotonic variable `{name}`"),
                 span: 0..1,
                 secondary: None,
+                suggestion: None,
             })
         } else {
             None
@@ -989,6 +1003,7 @@ impl StorageFailureChecker {
                 message: format!("storage failure mode `{}` has no handler", m.name()),
                 span: 0..1,
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -1007,6 +1022,7 @@ impl StorageFailureChecker {
                 message: format!("handler for undeclared failure mode `{h}`"),
                 span: 0..1,
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -1024,6 +1040,7 @@ impl StorageFailureChecker {
                 message: format!("critical failure mode `{}` must have a handler", m.name()),
                 span: 0..1,
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }

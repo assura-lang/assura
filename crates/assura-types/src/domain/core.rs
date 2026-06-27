@@ -66,6 +66,7 @@ impl AxiomaticDefChecker {
                         ),
                         span: axiom.span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -82,6 +83,7 @@ impl AxiomaticDefChecker {
                     message: format!("axiom `{name}` is never used in any proof"),
                     span: axiom.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -97,6 +99,7 @@ impl AxiomaticDefChecker {
                     message: format!("axiom `{name}` has circular dependency"),
                     span: axiom.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -187,6 +190,7 @@ impl OpaqueFunctionChecker {
                 message: format!("opaque function `{fn_name}` called without contract"),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         None
@@ -199,6 +203,7 @@ impl OpaqueFunctionChecker {
                 message: format!("body of opaque function `{fn_name}` accessed without reveal"),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         None
@@ -211,6 +216,7 @@ impl OpaqueFunctionChecker {
                 message: format!("`reveal {fn_name}` used outside proof context"),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         self.revealed.push(fn_name.to_string());
@@ -481,6 +487,7 @@ impl QuantifierTriggerChecker {
                     ),
                     span: q.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -767,6 +774,7 @@ impl CrudAuthContracts {
                         ),
                         span: 0..1,
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -786,6 +794,7 @@ impl CrudAuthContracts {
                     ),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -810,6 +819,7 @@ impl CrudAuthContracts {
                         ),
                         span: 0..1,
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -1013,6 +1023,7 @@ impl ProphecyResolutionChecker {
                     message: format!("prophecy variable `{name}` is never resolved"),
                     span: span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }

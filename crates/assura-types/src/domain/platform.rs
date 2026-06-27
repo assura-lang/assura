@@ -52,6 +52,7 @@ impl PlatformAbstractionChecker {
                         ),
                         span: 0..1,
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -66,6 +67,7 @@ impl PlatformAbstractionChecker {
                 message: format!("direct platform reference `{used_platform}` without abstraction"),
                 span: 0..1,
                 secondary: None,
+                suggestion: None,
             })
         } else {
             None
@@ -82,6 +84,7 @@ impl PlatformAbstractionChecker {
                         message: format!("abstraction `{name}` references unknown platform `{p}`"),
                         span: 0..1,
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -220,6 +223,7 @@ impl FeatureFlagChecker {
                 message: format!("feature flag `{n}` is declared but never used"),
                 span: 0..1,
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -239,6 +243,7 @@ impl FeatureFlagChecker {
                             ),
                             span: 0..1,
                             secondary: None,
+                            suggestion: None,
                         });
                     }
                 }
@@ -254,6 +259,7 @@ impl FeatureFlagChecker {
                 message: format!("reference to undeclared feature flag `{flag_name}`"),
                 span: 0..1,
                 secondary: None,
+                suggestion: None,
             })
         } else {
             None
@@ -407,6 +413,7 @@ impl ResourceLimitChecker {
                     ),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -420,6 +427,7 @@ impl ResourceLimitChecker {
                 message: format!("resource `{name}` used without declared limit"),
                 span: 0..1,
                 secondary: None,
+                suggestion: None,
             })
         } else {
             None
@@ -441,6 +449,7 @@ impl ResourceLimitChecker {
                     ),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }

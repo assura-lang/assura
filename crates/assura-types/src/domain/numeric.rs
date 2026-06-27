@@ -56,6 +56,7 @@ impl NumericalPrecisionChecker {
                 ),
                 span: info.span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         None
@@ -73,6 +74,7 @@ impl NumericalPrecisionChecker {
                 ),
                 span: info.span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         None
@@ -89,6 +91,7 @@ impl NumericalPrecisionChecker {
                 ),
                 span: info.span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         None
@@ -158,6 +161,7 @@ impl PrecomputedTableChecker {
                 ),
                 span: t.span.clone(),
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -171,6 +175,7 @@ impl PrecomputedTableChecker {
                 message: format!("table `{}` has no generator function", t.name),
                 span: t.span.clone(),
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -184,6 +189,7 @@ impl PrecomputedTableChecker {
                 message: format!("table `{}` has zero size", t.name),
                 span: t.span.clone(),
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -201,6 +207,7 @@ impl PrecomputedTableChecker {
                 ),
                 span: t.span.clone(),
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -238,6 +245,7 @@ impl PrecomputedTableChecker {
                     message: msg,
                     span: t.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 }
             })
             .collect()
@@ -494,6 +502,7 @@ fn check_expr_fixed_width_full(
                         message: fwe.message,
                         span: fwe.span,
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             } else if let Some(left_type) =
@@ -506,6 +515,7 @@ fn check_expr_fixed_width_full(
                     message: fwe.message,
                     span: fwe.span,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -523,6 +533,7 @@ fn check_expr_fixed_width_full(
                     message: fwe.message,
                     span: fwe.span,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -605,6 +616,7 @@ impl CollectionContracts {
                         ),
                         span: decl.span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }

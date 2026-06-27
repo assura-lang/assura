@@ -42,6 +42,7 @@ impl From<CheckerError> for TypeError {
             message: e.message,
             span: e.span,
             secondary: None,
+            suggestion: None,
         }
     }
 }

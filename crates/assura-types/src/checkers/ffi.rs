@@ -215,6 +215,7 @@ impl FfiBoundaryChecker {
                 message: fe.message,
                 span: fe.span,
                 secondary: None,
+                suggestion: None,
             })
             .collect();
 
@@ -237,6 +238,7 @@ impl FfiBoundaryChecker {
                         ),
                         span: decl.span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
 

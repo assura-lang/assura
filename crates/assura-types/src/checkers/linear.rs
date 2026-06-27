@@ -89,6 +89,7 @@ impl UsageTracker {
                             ),
                             span: span.clone(),
                             secondary: None,
+                            suggestion: None,
                         });
                     }
                 }
@@ -99,6 +100,7 @@ impl UsageTracker {
                             message: format!("linear variable `{name}` was never used"),
                             span: span.clone(),
                             secondary: None,
+                            suggestion: None,
                         });
                     } else if *count > 1 {
                         errors.push(TypeError {
@@ -109,6 +111,7 @@ impl UsageTracker {
                             ),
                             span: span.clone(),
                             secondary: None,
+                            suggestion: None,
                         });
                     }
                 }
@@ -122,6 +125,7 @@ impl UsageTracker {
                             ),
                             span: span.clone(),
                             secondary: None,
+                            suggestion: None,
                         });
                     }
                 }
@@ -228,6 +232,7 @@ impl LinearContext {
                     ),
                     span: span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
 
@@ -282,6 +287,7 @@ impl LinearContext {
                             ),
                             span: span.clone(),
                             secondary: None,
+                            suggestion: None,
                         });
                         break; // One error per variable is enough.
                     }

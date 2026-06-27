@@ -97,6 +97,7 @@ impl AllocatorChecker {
                     message: format!("unbounded allocation: `{name}` has no allocation bound"),
                     span: info.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -111,6 +112,7 @@ impl AllocatorChecker {
                 message: format!("double free: `{name}` already deallocated"),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         self.freed.insert(name.to_string(), span);
@@ -128,6 +130,7 @@ impl AllocatorChecker {
                 message: format!("use of `{alloc_name}` after arena `{arena_name}` dropped"),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         None
@@ -142,6 +145,7 @@ impl AllocatorChecker {
                     message: format!("allocation `{name}` not paired with deallocation"),
                     span: info.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -216,6 +220,7 @@ impl CircularBufferChecker {
                 message: format!("read from empty circular buffer `{name}`"),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         None
@@ -238,6 +243,7 @@ impl CircularBufferChecker {
                 ),
                 span: span.clone(),
                 secondary: None,
+                suggestion: None,
             });
         }
         None
@@ -258,6 +264,7 @@ impl CircularBufferChecker {
                     ),
                     span: span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
             let _physical = (buf.head + offset) % buf.capacity;
@@ -390,6 +397,7 @@ impl MemorySourceChecker {
                         message: mem_err.message,
                         span: mem_err.span,
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -400,6 +408,7 @@ impl MemorySourceChecker {
                     message: mem_err.message,
                     span: mem_err.span,
                     secondary: None,
+                    suggestion: None,
                 });
             }
 
@@ -422,6 +431,7 @@ impl MemorySourceChecker {
                             message: mem_err.message,
                             span: mem_err.span,
                             secondary: None,
+                            suggestion: None,
                         });
                     }
                 }
@@ -617,6 +627,7 @@ impl WeakMemorySourceChecker {
                                 ),
                                 span: decl.span.clone(),
                                 secondary: None,
+                                suggestion: None,
                             });
                         }
                     }
@@ -636,6 +647,7 @@ impl WeakMemorySourceChecker {
                     ),
                     span: decl.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -818,6 +830,7 @@ impl CircularBufferChecker {
                     message: format!("circular buffer `{name}` is full"),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }

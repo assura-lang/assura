@@ -120,6 +120,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                             ),
                             span: inner.span.clone(),
                             secondary: None,
+                            suggestion: None,
                         })
                     }
                 }
@@ -132,6 +133,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                             message: format!("unary `!` requires Bool, found `{inner_ty}`"),
                             span: inner.span.clone(),
                             secondary: None,
+                            suggestion: None,
                         })
                     }
                 }
@@ -151,6 +153,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                     message: format!("if condition must be Bool, found `{cond_ty}`"),
                     span: cond.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
             let then_ty = infer_expr_spanned(then_branch, env, then_branch.span.clone())?;
@@ -168,6 +171,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                         ),
                         span: then_branch.span.clone(), // or whole if; using then for now
                         secondary: None,
+                        suggestion: None,
                     })
                 }
             } else {
@@ -211,6 +215,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                         ),
                         span: item.span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -303,6 +308,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                     message: format!("unknown field `{field}` in type `{recv_ty}`"),
                     span: span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
             match &recv_ty {
@@ -318,6 +324,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                         message: format!("unknown field `{field}` on type `{recv_ty}`"),
                         span: span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
                 _ => {}
@@ -563,6 +570,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                         message: format!("unknown method `{method}` on type `{recv_ty}`"),
                         span: span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
                 _ => {}
@@ -606,6 +614,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                         message: format!("type `{base_ty}` cannot be indexed"),
                         span: span.clone(),
                         secondary: None,
+                        suggestion: None,
                     })
                 }
                 // Error: suppress cascading errors
@@ -665,6 +674,7 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                         ),
                         span: span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -800,6 +810,7 @@ fn infer_binop(
                     ),
                     span: span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
             if !is_numeric(&lhs_ty) {
@@ -810,6 +821,7 @@ fn infer_binop(
                     ),
                     span: lhs.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
             if !types_compatible(&lhs_ty, &rhs_ty) {
@@ -820,6 +832,7 @@ fn infer_binop(
                     message: format!("type mismatch in arithmetic: `{lhs_ty}` vs `{rhs_ty}`"),
                     span: rhs.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
             Ok(lhs_ty)
@@ -835,6 +848,7 @@ fn infer_binop(
                     ),
                     span: rhs.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
             Ok(Type::Bool)
@@ -848,6 +862,7 @@ fn infer_binop(
                     message: format!("logical operator requires Bool, found `{lhs_ty}`"),
                     span: span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
             if rhs_ty != Type::Bool {
@@ -856,6 +871,7 @@ fn infer_binop(
                     message: format!("logical operator requires Bool, found `{rhs_ty}`"),
                     span: span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
             Ok(Type::Bool)
@@ -873,6 +889,7 @@ fn infer_binop(
                     ),
                     span: span.clone(),
                     secondary: None,
+                    suggestion: None,
                 })
             }
         }
@@ -885,6 +902,7 @@ fn infer_binop(
                     message: format!("range requires numeric operands, found `{lhs_ty}`"),
                     span: span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
             if !is_numeric(&rhs_ty) {
@@ -893,6 +911,7 @@ fn infer_binop(
                     message: format!("range requires numeric operands, found `{rhs_ty}`"),
                     span: span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
             Ok(Type::List(Box::new(Type::Int)))
@@ -917,6 +936,7 @@ fn infer_binop(
                         ),
                         span: span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -961,6 +981,7 @@ fn infer_call(
                     ),
                     span: span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
             Ok(*ret)
@@ -987,6 +1008,7 @@ fn infer_call(
             message: format!("type `{other}` is not callable"),
             span: span.clone(),
             secondary: None,
+            suggestion: None,
         }),
     }
 }

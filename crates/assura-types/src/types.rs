@@ -202,6 +202,10 @@ pub struct TypeError {
     pub span: Range<usize>,
     /// Optional secondary span with label (e.g., "expected type declared here").
     pub secondary: Option<(Range<usize>, String)>,
+    /// Optional fix suggestion (e.g., "add an explicit type annotation").
+    /// When `None`, the `From<TypeError> for Diagnostic` impl falls back to
+    /// the error catalog's `fix` text for this error code (if any).
+    pub suggestion: Option<String>,
 }
 
 impl TypeError {
@@ -216,12 +220,21 @@ impl TypeError {
 
 impl From<TypeError> for assura_diagnostics::Diagnostic {
     fn from(e: TypeError) -> Self {
-        let mut d = assura_diagnostics::Diagnostic::error(e.code, e.message, e.span);
+        let mut d = assura_diagnostics::Diagnostic::error(e.code.clone(), e.message, e.span);
         if let Some((span, label)) = e.secondary {
             d.secondary.push(assura_diagnostics::SecondaryLabel {
                 span,
                 message: label,
             });
+        }
+        // Use the explicit suggestion if provided; otherwise fall back to
+        // the error catalog's `fix` text for this error code.
+        let suggestion_text = e.suggestion.or_else(|| {
+            assura_diagnostics::explain(e.code.as_str()).map(|info| info.fix.to_string())
+        });
+        if let Some(text) = suggestion_text {
+            let span = d.primary.clone();
+            d = d.with_suggestion(text, span, "");
         }
         d
     }
@@ -622,9 +635,60 @@ mod tests {
             message: "type mismatch".into(),
             span: 10..20,
             secondary: None,
+            suggestion: None,
         };
         let enriched = err.with_context("in function foo");
         assert_eq!(enriched.message, "type mismatch (in function foo)");
         assert_eq!(enriched.span, 10..20);
+    }
+
+    #[test]
+    fn type_error_to_diagnostic_with_explicit_suggestion() {
+        let err = TypeError {
+            code: "A03001".into(),
+            message: "type mismatch".into(),
+            span: 10..20,
+            secondary: None,
+            suggestion: Some("use `as Int` to cast".into()),
+        };
+        let diag: assura_diagnostics::Diagnostic = err.into();
+        assert_eq!(diag.code, "A03001");
+        let s = diag.suggestion.expect("should have suggestion");
+        assert_eq!(s.message, "use `as Int` to cast");
+    }
+
+    #[test]
+    fn type_error_to_diagnostic_falls_back_to_catalog() {
+        // A03001 exists in the catalog with a non-empty fix field
+        let err = TypeError {
+            code: "A03001".into(),
+            message: "type mismatch".into(),
+            span: 0..5,
+            secondary: None,
+            suggestion: None,
+        };
+        let diag: assura_diagnostics::Diagnostic = err.into();
+        // The catalog fallback should populate the suggestion
+        let s = diag
+            .suggestion
+            .expect("catalog fallback should produce suggestion");
+        assert!(
+            !s.message.is_empty(),
+            "catalog fix text should not be empty"
+        );
+    }
+
+    #[test]
+    fn type_error_to_diagnostic_no_suggestion_for_unknown_code() {
+        let err = TypeError {
+            code: "A00000".into(),
+            message: "unknown error".into(),
+            span: 0..1,
+            secondary: None,
+            suggestion: None,
+        };
+        let diag: assura_diagnostics::Diagnostic = err.into();
+        // A00000 is not in the catalog, so no suggestion
+        assert!(diag.suggestion.is_none());
     }
 }

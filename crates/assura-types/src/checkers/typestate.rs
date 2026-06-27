@@ -299,6 +299,7 @@ pub(crate) fn run_typestate_checks_source(
                         message: tse.message,
                         span: tse.span,
                         secondary: None,
+                        suggestion: None,
                     });
                 }
 
@@ -317,6 +318,7 @@ pub(crate) fn run_typestate_checks_source(
                         message: tse.message,
                         span: tse.span,
                         secondary: None,
+                        suggestion: None,
                     });
                 }
 
@@ -330,6 +332,7 @@ pub(crate) fn run_typestate_checks_source(
                                 message: tse.message,
                                 span: tse.span,
                                 secondary: None,
+                                suggestion: None,
                             });
                         }
 
@@ -360,6 +363,7 @@ pub(crate) fn run_typestate_checks_source(
                             message: tse.message,
                             span: tse.span,
                             secondary: None,
+                            suggestion: None,
                         });
                     }
                 }

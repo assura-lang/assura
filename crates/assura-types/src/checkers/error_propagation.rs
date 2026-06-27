@@ -168,6 +168,7 @@ impl FrameChecker {
                     ),
                     span: span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -287,6 +288,7 @@ impl FrameChecker {
                     ),
                     span: span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -382,6 +384,7 @@ impl ErrorPropagationChecker {
                         ),
                         span,
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -394,6 +397,7 @@ impl ErrorPropagationChecker {
                         ),
                         span,
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -410,6 +414,7 @@ impl ErrorPropagationChecker {
                 message: format!("return value of '{fn_name}' must be checked (must_check policy)"),
                 span,
                 secondary: None,
+                suggestion: None,
             });
         }
         None
@@ -528,6 +533,7 @@ impl ErrorPropagationChecker {
                                     ),
                                     span: decl.span.clone(),
                                     secondary: None,
+                                    suggestion: None,
                                 });
                             }
                         }
@@ -556,6 +562,7 @@ impl ErrorPropagationChecker {
                                 message: te.message,
                                 span: te.span,
                                 secondary: None,
+                                suggestion: None,
                             });
                         }
                     }
@@ -573,6 +580,7 @@ impl ErrorPropagationChecker {
                                     message: te.message,
                                     span: te.span,
                                     secondary: None,
+                                    suggestion: None,
                                 });
                             }
                         }

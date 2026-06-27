@@ -1,3 +1,8 @@
+// TypeError is a diagnostic struct (only allocated on the error path) and
+// intentionally carries rich context. Suppressing because boxing 200+
+// return sites would add noise with no performance benefit.
+#![allow(clippy::result_large_err)]
+
 //! Type checking for the Assura contract language.
 //!
 //! Builds a `TypeEnv` (type environment) from a `ResolvedFile` by mapping

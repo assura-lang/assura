@@ -364,6 +364,7 @@ impl EffectChecker {
                         message: ee.message,
                         span: ee.span,
                         secondary: None,
+                        suggestion: None,
                     });
                 }
                 if matches!(&decl.node, Decl::FnDef(_)) {
@@ -374,6 +375,7 @@ impl EffectChecker {
                                 message: ee.message,
                                 span: ee.span,
                                 secondary: None,
+                                suggestion: None,
                             });
                         }
                     }
@@ -384,6 +386,7 @@ impl EffectChecker {
                             message: ee.message,
                             span: ee.span,
                             secondary: None,
+                            suggestion: None,
                         });
                     }
                 }

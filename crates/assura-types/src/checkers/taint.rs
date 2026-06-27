@@ -245,6 +245,7 @@ impl TaintChecker {
                             .into(),
                         span: span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
                 self.check_expr_inner(base, span, errors);
@@ -266,6 +267,7 @@ impl TaintChecker {
                                     ),
                                     span: span.clone(),
                                     secondary: None,
+                                    suggestion: None,
                                 });
                             }
                         }
@@ -287,6 +289,7 @@ impl TaintChecker {
                                     ),
                                     span: span.clone(),
                                     secondary: None,
+                                    suggestion: None,
                                 });
                             }
                         }

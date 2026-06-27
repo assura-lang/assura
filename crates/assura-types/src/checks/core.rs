@@ -29,6 +29,7 @@ pub(crate) fn run_liveness_checks(source: &assura_parser::ast::SourceFile) -> Ve
                     ),
                     span: decl.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
             let has_leads_to = body.iter().any(|c| {
@@ -49,6 +50,7 @@ pub(crate) fn run_liveness_checks(source: &assura_parser::ast::SourceFile) -> Ve
                     ),
                     span: decl.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }

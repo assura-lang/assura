@@ -65,6 +65,7 @@ impl UnsafeEscapeChecker {
                 message: format!("unsafe block `{}` has no safety proof", b.name),
                 span: b.span.clone(),
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -82,6 +83,7 @@ impl UnsafeEscapeChecker {
                         ),
                         span: b.span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -98,6 +100,7 @@ impl UnsafeEscapeChecker {
                 message: format!("unsafe block `{}` declares no proof obligations", b.name),
                 span: b.span.clone(),
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }

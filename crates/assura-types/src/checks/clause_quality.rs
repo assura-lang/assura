@@ -179,6 +179,7 @@ pub(crate) fn run_unconstrained_output_checks(
                     ),
                     span: clause.body.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
 
@@ -195,6 +196,7 @@ pub(crate) fn run_unconstrained_output_checks(
                         ),
                         span: span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -329,6 +331,7 @@ pub(crate) fn run_feature_max_in_clause_checks(
                         ),
                         span: span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }

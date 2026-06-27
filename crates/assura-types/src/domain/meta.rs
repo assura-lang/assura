@@ -99,6 +99,7 @@ impl ComplexityBoundChecker {
                     ),
                     span: bound.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -114,6 +115,7 @@ impl ComplexityBoundChecker {
                 message: format!("complexity bound for `{n}` is not verified"),
                 span: b.span.clone(),
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -127,6 +129,7 @@ impl ComplexityBoundChecker {
                 message: format!("function `{n}` has exponential complexity bound"),
                 span: b.span.clone(),
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -200,6 +203,7 @@ impl BehavioralEquivalenceChecker {
                 ),
                 span: e.span.clone(),
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -216,6 +220,7 @@ impl BehavioralEquivalenceChecker {
                 ),
                 span: e.span.clone(),
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -229,6 +234,7 @@ impl BehavioralEquivalenceChecker {
                 message: format!("equivalence `{}` has no contract reference", e.name),
                 span: e.span.clone(),
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -300,6 +306,7 @@ impl MultiPassRefinementChecker {
                 ),
                 span: p.span.clone(),
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -319,6 +326,7 @@ impl MultiPassRefinementChecker {
                     ),
                     span: self.passes[i].span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -334,6 +342,7 @@ impl MultiPassRefinementChecker {
                 message: format!("refinement pass `{}` has zero obligations", p.name),
                 span: p.span.clone(),
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -412,6 +421,7 @@ impl IncrementalContractChecker {
                             history.versions[i - 1].span.clone(),
                             format!("previous version v{}", history.versions[i - 1].version),
                         )),
+                        suggestion: None,
                     });
                 }
             }
@@ -435,6 +445,7 @@ impl IncrementalContractChecker {
                             history.versions[i - 1].span.clone(),
                             format!("previous version v{}", history.versions[i - 1].version),
                         )),
+                        suggestion: None,
                     });
                 }
             }
@@ -459,6 +470,7 @@ impl IncrementalContractChecker {
                             history.versions[i - 1].span.clone(),
                             format!("v{}", history.versions[i - 1].version),
                         )),
+                        suggestion: None,
                     });
                 }
             }
@@ -510,6 +522,7 @@ impl ScopedInvariantChecker {
                     message: format!("invariant `{name}` is already suspended"),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
             *state = InvariantState::Suspended;
@@ -521,6 +534,7 @@ impl ScopedInvariantChecker {
                 message: format!("cannot suspend undeclared invariant `{name}`"),
                 span: 0..1,
                 secondary: None,
+                suggestion: None,
             })
         }
     }
@@ -533,6 +547,7 @@ impl ScopedInvariantChecker {
                     message: format!("invariant `{name}` is not currently suspended"),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
             *state = InvariantState::Restored;
@@ -554,6 +569,7 @@ impl ScopedInvariantChecker {
                 message: format!("invariant `{n}` still suspended at scope exit"),
                 span: 0..1,
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -615,6 +631,7 @@ impl ContractCompositionChecker {
                         message: format!("contract `{name}` extends unknown contract `{parent}`"),
                         span: 0..1,
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -633,6 +650,7 @@ impl ContractCompositionChecker {
                     message: format!("circular extends chain involving `{name}`"),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -671,6 +689,7 @@ impl ContractCompositionChecker {
                             ),
                             span: 0..1,
                             secondary: None,
+                            suggestion: None,
                         });
                     }
                 }
@@ -700,6 +719,7 @@ impl ContractCompositionChecker {
                 message: format!("contract `{}` has no clauses and extends nothing", c.name),
                 span: 0..1,
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -773,6 +793,7 @@ impl ContractLibraryChecker {
                 message: format!("library `{}` has no exported contracts", l.name),
                 span: 0..1,
                 secondary: None,
+                suggestion: None,
             })
             .collect()
     }
@@ -788,6 +809,7 @@ impl ContractLibraryChecker {
                         message: format!("library `{}` depends on itself", lib.name),
                         span: 0..1,
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -806,6 +828,7 @@ impl ContractLibraryChecker {
                     message: format!("duplicate library name `{}`", lib.name),
                     span: 0..1,
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -831,6 +854,7 @@ impl ContractLibraryChecker {
                             ),
                             span: 0..1,
                             secondary: None,
+                            suggestion: None,
                         });
                     }
                 }
@@ -973,6 +997,7 @@ fn check_match_exhaustiveness_expr(
                         ),
                         span: self.span.clone(),
                         secondary: None,
+                        suggestion: None,
                     });
                 }
             }
@@ -992,6 +1017,7 @@ fn check_match_exhaustiveness_expr(
                         .into(),
                     span: self.span.clone(),
                     secondary: None,
+                    suggestion: None,
                 });
             }
         }
@@ -1671,6 +1697,7 @@ impl ScopedInvariantChecker {
                                 ),
                                 span: decl.span.clone(),
                                 secondary: None,
+                                suggestion: None,
                             });
                         }
                     }
