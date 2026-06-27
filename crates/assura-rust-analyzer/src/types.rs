@@ -17,6 +17,10 @@ pub enum InlineClauseKind {
     // -- Core contract clauses --
     Requires,
     Ensures,
+    /// Postcondition on the Ok path of a Result-returning function.
+    EnsuresOk,
+    /// Postcondition on the Err path of a Result-returning function.
+    EnsuresErr,
     Invariant,
     Effects,
     Decreases,
@@ -118,6 +122,8 @@ impl InlineClauseKind {
         match s {
             "requires" => Some(Self::Requires),
             "ensures" => Some(Self::Ensures),
+            "ensures_ok" => Some(Self::EnsuresOk),
+            "ensures_err" => Some(Self::EnsuresErr),
             "invariant" => Some(Self::Invariant),
             "effects" => Some(Self::Effects),
             "decreases" => Some(Self::Decreases),
@@ -204,6 +210,8 @@ impl InlineClauseKind {
         match self {
             Self::Requires => "requires",
             Self::Ensures => "ensures",
+            Self::EnsuresOk => "ensures_ok",
+            Self::EnsuresErr => "ensures_err",
             Self::Invariant => "invariant",
             Self::Effects => "effects",
             Self::Decreases => "decreases",
@@ -248,7 +256,13 @@ impl InlineClauseKind {
     pub fn is_core_clause(&self) -> bool {
         matches!(
             self,
-            Self::Requires | Self::Ensures | Self::Invariant | Self::Effects | Self::Decreases
+            Self::Requires
+                | Self::Ensures
+                | Self::EnsuresOk
+                | Self::EnsuresErr
+                | Self::Invariant
+                | Self::Effects
+                | Self::Decreases
         )
     }
 
@@ -304,7 +318,9 @@ impl InlineContract {
     pub(crate) fn push(&mut self, clause: ContractClause) {
         match clause.kind {
             InlineClauseKind::Requires => self.requires.push(clause),
-            InlineClauseKind::Ensures => self.ensures.push(clause),
+            InlineClauseKind::Ensures
+            | InlineClauseKind::EnsuresOk
+            | InlineClauseKind::EnsuresErr => self.ensures.push(clause),
             InlineClauseKind::Invariant => self.invariants.push(clause),
             InlineClauseKind::Effects => self.effects.push(clause),
             InlineClauseKind::Decreases => self.decreases.push(clause),

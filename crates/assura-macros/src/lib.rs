@@ -13,7 +13,7 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{ItemFn, parse_macro_input};
+use syn::{ItemFn, ItemImpl, parse_macro_input};
 
 /// A feature-specific annotation parsed from doc comments.
 ///
@@ -518,6 +518,52 @@ fn escape_braces(s: &str) -> String {
     s.replace('{', "{{").replace('}', "}}")
 }
 
+/// Extract `old(expr)` occurrences from a predicate string.
+///
+/// Returns a list of `(original_text, expr_inside)` pairs and the rewritten
+/// predicate with each `old(expr)` replaced by `__assura_old_N`.
+fn extract_old_expressions(pred: &str) -> (Vec<String>, String) {
+    let mut old_exprs = Vec::new();
+    let mut output = String::with_capacity(pred.len());
+    let bytes = pred.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        // Look for "old(" preceded by a non-identifier char (or start of string)
+        if i + 4 <= bytes.len()
+            && &bytes[i..i + 4] == b"old("
+            && (i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_'))
+        {
+            // Find the matching closing paren (handle nesting)
+            let start = i + 4;
+            let mut depth = 1;
+            let mut j = start;
+            while j < bytes.len() && depth > 0 {
+                if bytes[j] == b'(' {
+                    depth += 1;
+                } else if bytes[j] == b')' {
+                    depth -= 1;
+                }
+                if depth > 0 {
+                    j += 1;
+                }
+            }
+            if depth == 0 {
+                let inner = &pred[start..j];
+                let idx = old_exprs.len();
+                old_exprs.push(inner.to_string());
+                output.push_str(&format!("__assura_old_{idx}"));
+                i = j + 1; // skip past the closing ')'
+                continue;
+            }
+        }
+        output.push(bytes[i] as char);
+        i += 1;
+    }
+
+    (old_exprs, output)
+}
+
 /// Check if the string contains `result` as a standalone word (not part of
 /// `partial_result` etc.).
 fn contains_result_word(input: &str) -> bool {
@@ -659,9 +705,30 @@ pub fn ensures(attr: TokenStream, item: TokenStream) -> TokenStream {
         .into();
     }
 
-    // Replace standalone `result` with `__assura_result` in the predicate
     let fn_name = input.sig.ident.to_string();
-    let adjusted = replace_result_word(&pred_str);
+
+    // Extract old() expressions and generate snapshot bindings
+    let (old_exprs, pred_without_old) = extract_old_expressions(&pred_str);
+    let snapshot_bindings: Vec<proc_macro2::TokenStream> = old_exprs
+        .iter()
+        .enumerate()
+        .map(|(idx, expr_str)| {
+            let var_name = syn::Ident::new(
+                &format!("__assura_old_{idx}"),
+                proc_macro2::Span::call_site(),
+            );
+            match syn::parse_str::<syn::Expr>(expr_str) {
+                Ok(expr) => quote! { let #var_name = (#expr).clone(); },
+                Err(_) => {
+                    let msg = format!("assura: could not parse old() expression: {expr_str}");
+                    quote! { compile_error!(#msg); }
+                }
+            }
+        })
+        .collect();
+
+    // Replace standalone `result` with `__assura_result` in the predicate
+    let adjusted = replace_result_word(&pred_without_old);
     let assert_code = match syn::parse_str::<syn::Expr>(&adjusted) {
         Ok(expr) => make_check(&expr, &fn_name, "postcondition", &pred_str),
         Err(_) => {
@@ -679,6 +746,7 @@ pub fn ensures(attr: TokenStream, item: TokenStream) -> TokenStream {
     quote! {
         #(#attrs)*
         #vis #sig {
+            #(#snapshot_bindings)*
             let __assura_result = { #(#stmts)* };
             #assert_code
             __assura_result
@@ -709,7 +777,17 @@ pub fn ensures(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn invariant(attr: TokenStream, item: TokenStream) -> TokenStream {
+    // Try parsing as an impl block first, then fall back to a function.
+    let item_clone = item.clone();
+    if let Ok(impl_block) = syn::parse::<ItemImpl>(item_clone) {
+        return invariant_impl(attr, impl_block);
+    }
     let input = parse_macro_input!(item as ItemFn);
+    invariant_fn(attr, input)
+}
+
+/// Apply `#[invariant(expr)]` to a single function.
+fn invariant_fn(attr: TokenStream, input: ItemFn) -> TokenStream {
     let pred_str = attr.to_string();
     let has_return = !matches!(input.sig.output, syn::ReturnType::Default);
     let mentions_result = contains_result_word(&pred_str);
@@ -771,6 +849,64 @@ pub fn invariant(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
         .into()
     }
+}
+
+/// Check if a method has a `&mut self` receiver.
+fn is_mut_self_method(sig: &syn::Signature) -> bool {
+    if let Some(syn::FnArg::Receiver(recv)) = sig.inputs.first() {
+        recv.reference.is_some() && recv.mutability.is_some()
+    } else {
+        false
+    }
+}
+
+/// Apply `#[invariant(expr)]` to an impl block: wraps every `&mut self`
+/// method with pre/post invariant checks.
+fn invariant_impl(attr: TokenStream, mut impl_block: ItemImpl) -> TokenStream {
+    let pred_str = attr.to_string();
+    let inv_expr = match syn::parse::<syn::Expr>(attr) {
+        Ok(expr) => expr,
+        Err(_) => {
+            let msg = format!("assura: could not parse invariant: {pred_str}");
+            return quote! { compile_error!(#msg); }.into();
+        }
+    };
+
+    // Get the type name for error messages (best-effort)
+    let self_ty = &impl_block.self_ty;
+    let type_name = quote!(#self_ty).to_string();
+
+    for item in &mut impl_block.items {
+        if let syn::ImplItem::Fn(method) = item {
+            if !is_mut_self_method(&method.sig) {
+                continue;
+            }
+            let method_name = method.sig.ident.to_string();
+            let label = format!("{type_name}::{method_name}");
+            let pre = make_check(&inv_expr, &label, "invariant (entry)", &pred_str);
+            let post = make_check(&inv_expr, &label, "invariant (exit)", &pred_str);
+
+            let has_return = !matches!(method.sig.output, syn::ReturnType::Default);
+            let old_stmts = std::mem::take(&mut method.block.stmts);
+
+            if has_return {
+                method.block.stmts = syn::parse_quote! {
+                    #pre
+                    let __assura_result = { #(#old_stmts)* };
+                    #post
+                    __assura_result
+                };
+            } else {
+                method.block.stmts = syn::parse_quote! {
+                    #pre
+                    #(#old_stmts)*
+                    #post
+                };
+            }
+        }
+    }
+
+    quote!(#impl_block).into()
 }
 
 /// Mark a function with Assura contract annotations via doc comments.
@@ -930,6 +1066,133 @@ pub fn trust(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
         .into()
     }
+}
+
+/// Add a postcondition that only runs on the `Ok` path of a `Result`-returning function.
+///
+/// Use `result` to refer to the unwrapped `Ok` value. When the function
+/// returns `Err`, the postcondition is skipped entirely.
+///
+/// # Example
+///
+/// ```ignore
+/// use assura_macros::ensures_ok;
+///
+/// #[ensures_ok(result.len() <= max_size)]
+/// fn read_data(path: &str, max_size: usize) -> Result<Vec<u8>, std::io::Error> {
+///     let data = std::fs::read(path)?;
+///     Ok(data)
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn ensures_ok(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as ItemFn);
+    let pred_str = attr.to_string();
+    let fn_name = input.sig.ident.to_string();
+
+    // Extract old() expressions and generate snapshot bindings
+    let (old_exprs, pred_without_old) = extract_old_expressions(&pred_str);
+    let snapshot_bindings: Vec<proc_macro2::TokenStream> = old_exprs
+        .iter()
+        .enumerate()
+        .map(|(idx, expr_str)| {
+            let var_name = syn::Ident::new(
+                &format!("__assura_old_{idx}"),
+                proc_macro2::Span::call_site(),
+            );
+            match syn::parse_str::<syn::Expr>(expr_str) {
+                Ok(expr) => quote! { let #var_name = (#expr).clone(); },
+                Err(_) => {
+                    let msg = format!("assura: could not parse old() expression: {expr_str}");
+                    quote! { compile_error!(#msg); }
+                }
+            }
+        })
+        .collect();
+
+    let adjusted = replace_result_word(&pred_without_old);
+    let assert_code = match syn::parse_str::<syn::Expr>(&adjusted) {
+        Ok(expr) => make_check(&expr, &fn_name, "ensures_ok", &pred_str),
+        Err(_) => {
+            let msg = format!("assura: could not parse ensures_ok: {pred_str}");
+            return quote! { compile_error!(#msg); }.into();
+        }
+    };
+
+    let vis = &input.vis;
+    let sig = &input.sig;
+    let attrs = &input.attrs;
+    let block = &input.block;
+    let stmts = &block.stmts;
+
+    quote! {
+        #(#attrs)*
+        #vis #sig {
+            #(#snapshot_bindings)*
+            let __assura_ret = { #(#stmts)* };
+            match __assura_ret {
+                Ok(__assura_result) => {
+                    #assert_code
+                    Ok(__assura_result)
+                }
+                __assura_err => __assura_err
+            }
+        }
+    }
+    .into()
+}
+
+/// Add a postcondition that only runs on the `Err` path of a `Result`-returning function.
+///
+/// Use `result` to refer to the unwrapped `Err` value. When the function
+/// returns `Ok`, the postcondition is skipped entirely.
+///
+/// # Example
+///
+/// ```ignore
+/// use assura_macros::ensures_err;
+///
+/// #[ensures_err(!result.to_string().is_empty())]
+/// fn parse_config(input: &str) -> Result<Config, String> {
+///     if input.is_empty() { return Err("empty input".to_string()); }
+///     // ...
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn ensures_err(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as ItemFn);
+    let pred_str = attr.to_string();
+    let fn_name = input.sig.ident.to_string();
+
+    let adjusted = replace_result_word(&pred_str);
+    let assert_code = match syn::parse_str::<syn::Expr>(&adjusted) {
+        Ok(expr) => make_check(&expr, &fn_name, "ensures_err", &pred_str),
+        Err(_) => {
+            let msg = format!("assura: could not parse ensures_err: {pred_str}");
+            return quote! { compile_error!(#msg); }.into();
+        }
+    };
+
+    let vis = &input.vis;
+    let sig = &input.sig;
+    let attrs = &input.attrs;
+    let block = &input.block;
+    let stmts = &block.stmts;
+
+    quote! {
+        #(#attrs)*
+        #vis #sig {
+            let __assura_ret = { #(#stmts)* };
+            match __assura_ret {
+                Err(__assura_result) => {
+                    #assert_code
+                    Err(__assura_result)
+                }
+                __assura_ok => __assura_ok
+            }
+        }
+    }
+    .into()
 }
 
 /// Mark function parameters as tainted for secret leak prevention.
