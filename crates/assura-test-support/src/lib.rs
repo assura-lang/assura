@@ -341,10 +341,7 @@ mod tests {
 
     #[test]
     fn expect_error_codes_finds_type_error() {
-        let out = compile_result(
-            "contract X {\n  requires { 42 }\n}",
-            "bad_req.assura",
-        );
+        let out = compile_result("contract X {\n  requires { 42 }\n}", "bad_req.assura");
         if out.has_errors && has_error_code(&out, "A03006") {
             expect_error_codes(&out, &["A03006"]);
         }
