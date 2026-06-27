@@ -36,6 +36,7 @@ assura-lsp = { version = "0.1.0", path = "../assura-lsp" }
 assura-mcp = { path = "../assura-mcp" }
 assura-pipeline = { path = "../assura-pipeline" }
 assura-rust-analyzer = { path = "../assura-rust-analyzer" }
+assura-llm = { path = "../assura-llm" }
 syn = { version = "2", features = ["full", "parsing"] }
 quote = "1"
 tower-lsp = "0.20"

@@ -5,12 +5,23 @@ use super::super::*;
 // `assura check-rust <path> [--json] [--layer 0|1]`
 // ---------------------------------------------------------------------------
 
+/// LLM-related options for `check-rust`.
+pub(crate) struct LlmOpts<'a> {
+    pub llm: bool,
+    pub suggest: bool,
+    pub provider: &'a str,
+    pub model: Option<&'a str>,
+    pub public_only: bool,
+    pub unsafe_only: bool,
+}
+
 pub(crate) fn run_check_rust(
     path: &str,
     output_mode: OutputMode,
     verbosity: Verbosity,
     layer: u8,
     solver: Option<assura_smt::SolverChoice>,
+    llm_opts: LlmOpts<'_>,
 ) {
     use assura_rust_analyzer::{AnnotatedItem, AnnotatedItemKind};
 
@@ -216,6 +227,11 @@ pub(crate) fn run_check_rust(
         }
     }
 
+    // LLM analysis (opt-in)
+    if llm_opts.llm || llm_opts.suggest {
+        run_llm_analysis(&file_items, verbosity, &llm_opts);
+    }
+
     // Summary
     if output_mode == OutputMode::Json {
         let summary = serde_json::json!({
@@ -246,6 +262,269 @@ pub(crate) fn run_check_rust(
         }
     } else if total_errors > 0 {
         process::exit(1);
+    }
+}
+
+/// Run LLM-assisted analysis on the scanned items.
+fn run_llm_analysis(
+    file_items: &[(std::path::PathBuf, Vec<assura_rust_analyzer::AnnotatedItem>)],
+    verbosity: Verbosity,
+    opts: &LlmOpts<'_>,
+) {
+    let analyze = opts.llm;
+    let suggest = opts.suggest;
+    let provider_name = opts.provider;
+    let model_override = opts.model;
+    let unsafe_only = opts.unsafe_only;
+    let _public_only = opts.public_only; // TODO: needs visibility in AnnotatedItemKind
+    use assura_llm::{
+        ContractDatabase,
+        cache::LlmCache,
+        provider::{HttpProvider, LlmProvider},
+        types::*,
+    };
+
+    // Build contract database for cross-function propagation
+    let contract_db = ContractDatabase::from_scan(file_items);
+    if verbosity == Verbosity::Verbose {
+        println!(
+            "  contract database: {} annotated functions indexed",
+            contract_db.len()
+        );
+    }
+
+    // Configure LLM provider
+    let config = LlmConfig {
+        provider: provider_name.to_string(),
+        model: model_override
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| match provider_name {
+                "openai" => "gpt-4o".to_string(),
+                "ollama" => "llama3".to_string(),
+                _ => "claude-sonnet-4-20250514".to_string(),
+            }),
+        api_key_env: match provider_name {
+            "openai" => "OPENAI_API_KEY".to_string(),
+            "ollama" => "OLLAMA_API_KEY".to_string(),
+            _ => "ANTHROPIC_API_KEY".to_string(),
+        },
+        base_url: if provider_name == "ollama" {
+            Some("http://localhost:11434/v1".to_string())
+        } else {
+            None
+        },
+        ..Default::default()
+    };
+
+    let cache = LlmCache::new(&config.cache_dir);
+
+    let provider = match HttpProvider::new(config) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("  LLM: {e}");
+            eprintln!("  Set the API key environment variable to enable LLM analysis.");
+            return;
+        }
+    };
+
+    // Level 1: analyze annotated functions body vs contracts
+    if analyze {
+        if verbosity != Verbosity::Quiet {
+            println!();
+            println!("  AI analysis (model: {}):", provider.model_id());
+        }
+
+        for (_file_path, items) in file_items {
+            for item in items {
+                if let assura_rust_analyzer::AnnotatedItemKind::Function {
+                    name,
+                    params,
+                    return_type,
+                    ..
+                } = &item.kind
+                {
+                    if item.contract.requires.is_empty() && item.contract.ensures.is_empty() {
+                        continue; // nothing to analyze
+                    }
+
+                    let contracts: Vec<ContractClauseInfo> = item
+                        .contract
+                        .requires
+                        .iter()
+                        .map(|c| ContractClauseInfo {
+                            kind: "requires".to_string(),
+                            expression: c.body.clone(),
+                        })
+                        .chain(item.contract.ensures.iter().map(|c| ContractClauseInfo {
+                            kind: "ensures".to_string(),
+                            expression: c.body.clone(),
+                        }))
+                        .collect();
+
+                    let called_fns: Vec<CalledFunctionContract> = contract_db
+                        .all_contracts()
+                        .into_iter()
+                        .filter(|cf| cf.name != *name) // exclude self
+                        .collect();
+
+                    let req = AnalysisRequest {
+                        function_name: name.clone(),
+                        function_body: "(source body not available via scan)".to_string(),
+                        function_signature: format!(
+                            "fn {}({})",
+                            name,
+                            params
+                                .iter()
+                                .map(|p| format!("{}: {}", p.name, p.ty))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                        contracts,
+                        params: params
+                            .iter()
+                            .map(|p| ParamEntry {
+                                name: p.name.clone(),
+                                ty: p.ty.clone(),
+                            })
+                            .collect(),
+                        return_type: return_type.clone(),
+                        context: AnalysisContext {
+                            surrounding_types: vec![],
+                            called_functions: called_fns,
+                        },
+                    };
+
+                    match assura_llm::suggest::analyze_function(&provider, &cache, &req) {
+                        Ok(resp) => {
+                            let verdict_str = match &resp.verdict {
+                                Verdict::Pass => "pass",
+                                Verdict::Fail { .. } => "FAIL",
+                                Verdict::Uncertain { .. } => "uncertain",
+                            };
+                            if verbosity != Verbosity::Quiet {
+                                println!(
+                                    "    function `{}` (line {}): [{}, confidence: {:.0}%]",
+                                    name,
+                                    item.line,
+                                    verdict_str,
+                                    resp.confidence * 100.0,
+                                );
+                            }
+                            if verbosity == Verbosity::Verbose {
+                                for path in &resp.paths {
+                                    let status = if path.contracts_satisfied {
+                                        "ok"
+                                    } else {
+                                        "FAIL"
+                                    };
+                                    println!("      path: {} [{}]", path.description, status);
+                                }
+                                if !resp.reasoning.is_empty() {
+                                    println!("      reasoning: {}", resp.reasoning);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            if verbosity != Verbosity::Quiet {
+                                eprintln!("    function `{name}`: LLM error: {e}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Suggestion mode for unannotated functions
+    if suggest {
+        if verbosity != Verbosity::Quiet {
+            println!();
+            println!(
+                "  AI contract suggestions (model: {}):",
+                provider.model_id()
+            );
+        }
+
+        for (_file_path, items) in file_items {
+            for item in items {
+                if let assura_rust_analyzer::AnnotatedItemKind::Function {
+                    name,
+                    params,
+                    return_type: _,
+                    is_unsafe,
+                    is_async,
+                } = &item.kind
+                {
+                    // Skip already-annotated functions
+                    if !item.contract.requires.is_empty()
+                        || !item.contract.ensures.is_empty()
+                        || !item.contract.invariants.is_empty()
+                    {
+                        continue;
+                    }
+
+                    // Apply filters
+                    if unsafe_only && !is_unsafe {
+                        continue;
+                    }
+
+                    let siblings = contract_db.all_contracts();
+
+                    let req = SuggestionRequest {
+                        function_name: name.clone(),
+                        function_signature: format!(
+                            "fn {}({})",
+                            name,
+                            params
+                                .iter()
+                                .map(|p| format!("{}: {}", p.name, p.ty))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                        function_body: "(source body not available via scan)".to_string(),
+                        doc_comments: String::new(),
+                        impl_type: None,
+                        visibility: String::new(),
+                        is_unsafe: *is_unsafe,
+                        is_async: *is_async,
+                        context: SuggestionContext {
+                            surrounding_types: vec![],
+                            sibling_contracts: siblings,
+                        },
+                    };
+
+                    match assura_llm::suggest::suggest_contracts(&provider, &cache, &req) {
+                        Ok(resp) if !resp.suggestions.is_empty() => {
+                            if verbosity != Verbosity::Quiet {
+                                println!(
+                                    "    function `{}` (line {}): {} suggestion(s)",
+                                    name,
+                                    item.line,
+                                    resp.suggestions.len(),
+                                );
+                                for s in &resp.suggestions {
+                                    println!(
+                                        "      #[{}({})], confidence: {:.0}%",
+                                        s.kind,
+                                        s.expression,
+                                        s.confidence * 100.0,
+                                    );
+                                    if verbosity == Verbosity::Verbose {
+                                        println!("        {}", s.reasoning);
+                                    }
+                                }
+                            }
+                        }
+                        Ok(_) => {} // no suggestions
+                        Err(e) => {
+                            if verbosity != Verbosity::Quiet {
+                                eprintln!("    function `{name}`: LLM error: {e}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

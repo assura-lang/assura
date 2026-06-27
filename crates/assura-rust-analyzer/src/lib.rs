@@ -13,7 +13,8 @@ pub use merge::{ClauseSource, MergedContract, SourcedClause, merge_contracts};
 pub use parse::{parse_doc_clauses, parse_rust_file, parse_rust_source, scan_directory};
 pub use python::PythonAdapter;
 pub use types::{
-    AnnotatedItem, AnnotatedItemKind, ContractClause, InlineClauseKind, InlineContract,
+    AnnotatedItem, AnnotatedItemKind, ContractClause, FieldInfo, InlineClauseKind, InlineContract,
+    ParamInfo,
 };
 
 /// Errors produced by the `assura-rust-analyzer` crate.

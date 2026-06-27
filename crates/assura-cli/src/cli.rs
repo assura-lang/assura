@@ -104,6 +104,57 @@ enum Commands {
         /// SMT solver backend
         #[arg(long, value_parser = parse_solver)]
         solver: Option<assura_smt::SolverChoice>,
+
+        /// Enable LLM-assisted body-vs-contract analysis
+        #[arg(long)]
+        llm: bool,
+
+        /// Suggest contracts for unannotated functions (requires --llm)
+        #[arg(long)]
+        suggest: bool,
+
+        /// LLM provider (anthropic, openai, ollama)
+        #[arg(long, default_value = "anthropic")]
+        llm_provider: String,
+
+        /// LLM model name
+        #[arg(long)]
+        llm_model: Option<String>,
+
+        /// Only suggest for public functions (with --suggest)
+        #[arg(long)]
+        public_only: bool,
+
+        /// Only suggest for unsafe functions (with --suggest)
+        #[arg(long)]
+        unsafe_only: bool,
+    },
+
+    /// Suggest contracts from cargo-fuzz crash artifacts
+    SuggestFromCrash {
+        /// Crash artifact file
+        #[arg(long, conflicts_with = "crash_dir")]
+        crash_input: Option<String>,
+
+        /// Directory of crash artifacts (processes all crash-*/oom-*/timeout-* files)
+        #[arg(long, conflicts_with = "crash_input")]
+        crash_dir: Option<String>,
+
+        /// Rust source file or directory containing the crashing function
+        #[arg(long)]
+        target: String,
+
+        /// Stack trace file (from RUST_BACKTRACE=1 output)
+        #[arg(long)]
+        stacktrace: Option<String>,
+
+        /// LLM provider (anthropic, openai, ollama)
+        #[arg(long, default_value = "anthropic")]
+        llm_provider: String,
+
+        /// LLM model name
+        #[arg(long)]
+        llm_model: Option<String>,
     },
 
     /// Generate Rust code from a contract file
@@ -370,7 +421,44 @@ pub fn run() {
             path,
             layer,
             solver,
-        } => run_check_rust(&path, output_mode, verbosity, layer, solver),
+            llm,
+            suggest,
+            llm_provider,
+            llm_model,
+            public_only,
+            unsafe_only,
+        } => run_check_rust(
+            &path,
+            output_mode,
+            verbosity,
+            layer,
+            solver,
+            LlmOpts {
+                llm,
+                suggest,
+                provider: &llm_provider,
+                model: llm_model.as_deref(),
+                public_only,
+                unsafe_only,
+            },
+        ),
+        Commands::SuggestFromCrash {
+            crash_input,
+            crash_dir,
+            target,
+            stacktrace,
+            llm_provider,
+            llm_model,
+        } => run_suggest_from_crash(
+            crash_input.as_deref(),
+            crash_dir.as_deref(),
+            &target,
+            stacktrace.as_deref(),
+            &llm_provider,
+            llm_model.as_deref(),
+            output_mode,
+            verbosity,
+        ),
         Commands::Build {
             file,
             output,
