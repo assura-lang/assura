@@ -14,6 +14,7 @@ use crate::cvc5_binop_encode::{encode_ast_binop_cvc5, encode_ast_unary_cvc5};
 use crate::cvc5_encoder_state::{
     Cvc5EncoderState, canonical_length_cvc5, field_len_fn_cvc5, intern_uf_cvc5,
 };
+use crate::encode_atom_policy::encode_ident_name;
 use crate::encode_term::EncodeTerm;
 
 /// CVC5 native term builder that bundles the TermManager, variable map, and
@@ -83,19 +84,22 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
     // === Variables ===
 
     fn get_var(&self, name: &str) -> Option<cvc5::Term<'a>> {
-        self.vars.get(name).cloned()
+        let key = encode_ident_name(name);
+        self.vars.get(&key).cloned()
     }
 
     fn set_var(&mut self, name: &str, val: cvc5::Term<'a>) {
-        self.vars.insert(name.to_string(), val);
+        let key = encode_ident_name(name);
+        self.vars.insert(key, val);
     }
 
     fn get_or_create_int_var(&mut self, name: &str) -> cvc5::Term<'a> {
-        if let Some(val) = self.vars.get(name) {
+        let key = encode_ident_name(name);
+        if let Some(val) = self.vars.get(&key) {
             return val.clone();
         }
-        let v = self.tm.mk_const(self.tm.integer_sort(), name);
-        self.vars.insert(name.to_string(), v.clone());
+        let v = self.tm.mk_const(self.tm.integer_sort(), &key);
+        self.vars.insert(key, v.clone());
         v
     }
 
@@ -142,8 +146,24 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         then_val: cvc5::Term<'a>,
         else_val: cvc5::Term<'a>,
     ) -> cvc5::Term<'a> {
-        self.tm
-            .mk_term(cvc5::Kind::Ite, &[cond, then_val, else_val])
+        // CVC5 requires ITE branches to have the same sort. Coerce Int/Real
+        // mismatches (e.g. `(/ 3 2)` is Real, `0` is Int) to Real.
+        let then_sort = then_val.sort();
+        let else_sort = else_val.sort();
+        let real = self.tm.real_sort();
+        let int = self.tm.integer_sort();
+        if then_sort == real && else_sort == int {
+            let else_real = self.tm.mk_term(cvc5::Kind::ToReal, &[else_val]);
+            self.tm
+                .mk_term(cvc5::Kind::Ite, &[cond, then_val, else_real])
+        } else if then_sort == int && else_sort == real {
+            let then_real = self.tm.mk_term(cvc5::Kind::ToReal, &[then_val]);
+            self.tm
+                .mk_term(cvc5::Kind::Ite, &[cond, then_real, else_val])
+        } else {
+            self.tm
+                .mk_term(cvc5::Kind::Ite, &[cond, then_val, else_val])
+        }
     }
 
     // === Quantifiers ===
