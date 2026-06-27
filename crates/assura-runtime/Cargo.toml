@@ -1,0 +1,9 @@
+[package]
+name = "assura-runtime"
+description = "Runtime contract monitoring for Assura-generated Rust code"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

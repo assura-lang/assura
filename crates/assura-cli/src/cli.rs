@@ -126,6 +126,10 @@ enum Commands {
         /// SMT solver backend
         #[arg(long, value_parser = parse_solver)]
         solver: Option<assura_smt::SolverChoice>,
+
+        /// Generate runtime contract checks that persist in release builds
+        #[arg(long)]
+        runtime_checks: bool,
     },
 
     /// Create a new Assura project
@@ -373,6 +377,7 @@ pub fn run() {
             target,
             no_check,
             solver,
+            runtime_checks,
         } => run_build(
             &file,
             output_mode,
@@ -381,6 +386,7 @@ pub fn run() {
             target,
             no_check,
             solver,
+            runtime_checks,
         ),
         Commands::Init { name } => run_init(&name),
         Commands::Explain { code } => run_explain(&code),

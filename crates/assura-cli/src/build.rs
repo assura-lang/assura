@@ -3,6 +3,7 @@ use super::*;
 // `assura build <file.assura>` — codegen to generated/
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_build(
     filename: &str,
     _output_mode: OutputMode,
@@ -11,6 +12,7 @@ pub(crate) fn run_build(
     cli_target: Option<assura_codegen::CompileTarget>,
     no_check: bool,
     cli_solver: Option<assura_smt::SolverChoice>,
+    runtime_checks: bool,
 ) {
     // Load project config (assura.toml) if available
     let project = load_project_config(Path::new(filename));
@@ -60,7 +62,14 @@ pub(crate) fn run_build(
     // --- Project mode: detect directory ---
     let path = Path::new(filename);
     if path.is_dir() {
-        run_build_project(path, verbosity, out_dir_str, compile_target, no_check);
+        run_build_project(
+            path,
+            verbosity,
+            out_dir_str,
+            compile_target,
+            no_check,
+            runtime_checks,
+        );
         return;
     }
 
@@ -157,6 +166,7 @@ pub(crate) fn run_build(
     let codegen_start = Instant::now();
     let backend_config = assura_codegen::BackendConfig {
         target: compile_target.clone(),
+        runtime_checks,
         ..assura_codegen::BackendConfig::default()
     };
     let project = assura_codegen::codegen_with_config(&typed, &backend_config);
@@ -478,6 +488,7 @@ pub(crate) fn run_build_project(
     output_dir: &str,
     target: assura_codegen::CompileTarget,
     no_check: bool,
+    runtime_checks: bool,
 ) {
     let (project_root, dep_map, dep_warnings) = load_project_deps(project_dir);
 
@@ -533,6 +544,7 @@ pub(crate) fn run_build_project(
     let mut cargo_toml_written = false;
     let backend_config = assura_codegen::BackendConfig {
         target,
+        runtime_checks,
         ..Default::default()
     };
     for (_module_path, typed) in &all_typed {

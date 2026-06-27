@@ -214,7 +214,7 @@ Phases 1-11 from MASTER-PLAN v3 are complete. Summary:
 - **Agent entrypoint:** `crates/assura-resolve/src/lib.rs` (where prelude
   types are injected), `crates/assura-stdlib/src/lib.rs`
   (`prelude_contract_names`)
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
   # 1. prelude_contract_names is called from outside assura-stdlib
   grep -rn 'prelude_contract_names' crates/ --include='*.rs' | grep -v assura-stdlib | grep -v test
