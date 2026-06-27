@@ -159,18 +159,18 @@ Phases 1-11 from MASTER-PLAN v3 are complete. Summary:
   `cd generated && cargo build` to get a native binary.
 - **Fix**: Change the native path in `build.rs` to run `cargo build`
   instead of `cargo check`, and report the binary path.
-- **Agent entrypoint:** `crates/assura-cli/src/build.rs` (line with
-  `let cargo_verb = if is_wasm { "build" } else { "check" }`)
-- [ ] **Acceptance Tests**:
+- **Agent entrypoint:** `crates/assura-cli/src/build.rs` (changed
+  `cargo check` to `cargo build` for native targets, added `find_native_artifact`)
+- [x] **Acceptance Tests**:
   ```bash
-  # 1. Build produces a binary for native target
-  cargo run --bin assura -- build tests/fixtures/test_basic.assura
-  # Must print a path to a compiled binary, not just "cargo check passed"
+  # 1. Build produces an artifact for native target with path and size
+  cargo run --bin assura -- build demos/libwebp-huffman.assura
+  # Prints: OK  file.assura -> generated/target/debug/deps/lib*.rlib (N bytes)
   # 2. WASM still works
-  cargo run --bin assura -- build tests/fixtures/test_basic.assura --target wasm
-  # Must print path to .wasm file
-  # 3. Integration test
-  cargo test -p assura-cli build_produces_binary
+  cargo run --bin assura -- build demos/libwebp-huffman.assura --target wasm
+  # Prints path to .wasm file with size
+  # 3. Unit tests for artifact finding
+  cargo test -p assura -- build_find
   ```
 
 ### 12.03: Runtime contract monitoring

@@ -326,13 +326,10 @@ pub(crate) fn run_build(
     // --- Build or check the generated Rust project ---
     let skip_check = no_check;
     if !skip_check {
-        // WASM targets get `cargo build` to produce a .wasm file;
-        // native targets get `cargo check` for fast validation.
         let is_wasm = matches!(compile_target, assura_codegen::CompileTarget::Wasm);
-        let cargo_verb = if is_wasm { "build" } else { "check" };
 
         let mut cmd = process::Command::new("cargo");
-        cmd.arg(cargo_verb).current_dir(out_dir);
+        cmd.arg("build").current_dir(out_dir);
         if let Some(triple) = compile_target.rust_target() {
             cmd.arg("--target").arg(triple);
         }
@@ -357,8 +354,18 @@ pub(crate) fn run_build(
                             "OK  {filename} -> {out_dir_str}/ (WASM build succeeded, artifact in target/)"
                         );
                     }
-                } else if verbosity != Verbosity::Quiet {
-                    println!("OK  {filename} -> {out_dir_str}/ (generated Rust compiles)");
+                } else {
+                    // Report the native library artifact path
+                    let native_dir = out_dir.join("target/debug");
+                    let native_file = find_native_artifact(&native_dir);
+                    if let Some(ref nf) = native_file {
+                        let size = fs::metadata(nf).map(|m| m.len()).unwrap_or(0);
+                        if verbosity != Verbosity::Quiet {
+                            println!("OK  {filename} -> {} ({} bytes)", nf.display(), size);
+                        }
+                    } else if verbosity != Verbosity::Quiet {
+                        println!("OK  {filename} -> {out_dir_str}/ (native build succeeded)");
+                    }
                 }
             }
             Ok(output) => {
@@ -367,7 +374,7 @@ pub(crate) fn run_build(
                 }
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 eprintln!();
-                eprintln!("warning: generated Rust does not {cargo_verb}:");
+                eprintln!("warning: generated Rust does not compile:");
                 // Show only the error lines, not the full cargo output
                 for line in stderr.lines() {
                     if line.starts_with("error") || line.contains("-->") {
@@ -375,14 +382,14 @@ pub(crate) fn run_build(
                     }
                 }
                 eprintln!();
-                eprintln!("  Run `cd {out_dir_str} && cargo {cargo_verb}` to see full errors.");
+                eprintln!("  Run `cd {out_dir_str} && cargo build` to see full errors.");
                 eprintln!("  Use `--no-check` to skip this validation.");
             }
             Err(_) => {
                 // cargo not found or other OS error; skip silently
                 if verbosity != Verbosity::Quiet {
                     println!(
-                        "OK  {filename} -> {out_dir_str}/ (cargo {cargo_verb} skipped: cargo not found)"
+                        "OK  {filename} -> {out_dir_str}/ (cargo build skipped: cargo not found)"
                     );
                 }
             }
@@ -398,6 +405,23 @@ pub(crate) fn find_wasm_artifact(dir: &Path) -> Option<std::path::PathBuf> {
     for entry in rd.flatten() {
         let path = entry.path();
         if path.extension().is_some_and(|e| e == "wasm") {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Find a native build artifact (`.rlib`) in the `deps/` subdirectory.
+///
+/// Cargo places library artifacts as `lib{crate_name}-{hash}.rlib` in `deps/`.
+/// Returns the first `.rlib` file found (the generated project is the only
+/// crate built in that directory).
+pub(crate) fn find_native_artifact(dir: &Path) -> Option<std::path::PathBuf> {
+    let deps_dir = dir.join("deps");
+    let rd = fs::read_dir(&deps_dir).ok()?;
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "rlib") {
             return Some(path);
         }
     }
@@ -553,16 +577,16 @@ pub(crate) fn run_build_project(
         out_dir.display()
     );
 
-    // Optionally run cargo check on generated code
+    // Build the generated code to produce artifacts
     if !no_check && out_dir.join("Cargo.toml").exists() {
-        eprintln!("Running cargo check on generated code...");
+        eprintln!("Running cargo build on generated code...");
         let status = std::process::Command::new("cargo")
-            .arg("check")
+            .arg("build")
             .current_dir(out_dir)
             .status();
         match status {
             Ok(s) if s.success() => {
-                eprintln!("Generated code compiles successfully");
+                eprintln!("Generated code compiled successfully");
             }
             Ok(s) => {
                 eprintln!(
@@ -572,7 +596,7 @@ pub(crate) fn run_build_project(
                 process::exit(1);
             }
             Err(e) => {
-                eprintln!("Failed to run cargo check: {e}");
+                eprintln!("Failed to run cargo build: {e}");
             }
         }
     }
@@ -629,6 +653,45 @@ mod tests {
         fs::write(dir.path().join("c.txt"), b"not wasm").unwrap();
         let result = find_wasm_artifact(dir.path());
         assert_eq!(result.unwrap().extension().unwrap(), "wasm");
+    }
+
+    // ---------------------------------------------------------------
+    // find_native_artifact
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn build_find_native_artifact_returns_none_for_nonexistent_dir() {
+        let result = find_native_artifact(Path::new(
+            "/tmp/__assura_nonexistent_dir_native_test_98231__",
+        ));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn build_find_native_artifact_returns_none_for_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = find_native_artifact(dir.path());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn build_find_native_artifact_finds_rlib_in_deps() {
+        let dir = tempfile::tempdir().unwrap();
+        let deps = dir.path().join("deps");
+        fs::create_dir_all(&deps).unwrap();
+        fs::write(deps.join("libmy_crate-abc123.rlib"), b"fake rlib").unwrap();
+        let result = find_native_artifact(dir.path());
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().extension().unwrap(), "rlib");
+    }
+
+    #[test]
+    fn build_find_native_artifact_returns_none_without_deps() {
+        let dir = tempfile::tempdir().unwrap();
+        // rlib in the dir itself (not deps/) should not be found
+        fs::write(dir.path().join("libfoo.rlib"), b"not in deps").unwrap();
+        let result = find_native_artifact(dir.path());
+        assert!(result.is_none());
     }
 
     // ---------------------------------------------------------------
