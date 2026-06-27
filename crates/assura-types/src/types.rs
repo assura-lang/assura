@@ -143,30 +143,71 @@ impl Type {
 /// type checking.
 #[derive(Debug, Clone, Default)]
 pub struct TypeEnv {
-    /// Maps symbol name -> Type.
-    pub bindings: HashMap<String, Type>,
+    /// Scope stack: the last element is the innermost (current) scope.
+    /// There is always at least one scope (the global scope).
+    scopes: Vec<Scope>,
     /// Maps struct type name -> { field_name -> field_type }.
+    /// Struct field definitions are always global (not scope-dependent).
     pub struct_fields: HashMap<String, Vec<(String, Type)>>,
 }
 
+/// A single scope level in the type environment.
+#[derive(Debug, Clone, Default)]
+struct Scope {
+    bindings: HashMap<String, Type>,
+}
+
 impl TypeEnv {
-    /// Create an empty type environment.
+    /// Create an empty type environment with one global scope.
     pub fn new() -> Self {
         Self {
-            bindings: HashMap::new(),
+            scopes: vec![Scope::default()],
             struct_fields: HashMap::new(),
         }
     }
 
-    /// Insert a binding. Returns the previous type if the name was already
-    /// bound.
-    pub fn insert(&mut self, name: String, ty: Type) -> Option<Type> {
-        self.bindings.insert(name, ty)
+    /// Push a new (empty) scope. Bindings inserted after this call
+    /// shadow outer names and are removed when `pop_scope` is called.
+    pub fn push_scope(&mut self) {
+        self.scopes.push(Scope::default());
     }
 
-    /// Look up a name in the environment.
+    /// Pop the innermost scope, removing all bindings introduced in it.
+    ///
+    /// # Panics
+    /// Panics if only the global scope remains (you cannot pop the root).
+    pub fn pop_scope(&mut self) {
+        assert!(
+            self.scopes.len() > 1,
+            "cannot pop the global scope from TypeEnv"
+        );
+        self.scopes.pop();
+    }
+
+    /// Current nesting depth (0 = global scope only).
+    pub fn depth(&self) -> usize {
+        self.scopes.len() - 1
+    }
+
+    /// Insert a binding into the *current* (innermost) scope.
+    /// Returns the previous type if the name was already bound
+    /// in this same scope.
+    pub fn insert(&mut self, name: String, ty: Type) -> Option<Type> {
+        self.scopes
+            .last_mut()
+            .expect("TypeEnv must have at least one scope")
+            .bindings
+            .insert(name, ty)
+    }
+
+    /// Look up a name, searching from the innermost scope outward.
     pub fn lookup(&self, name: &str) -> Option<&Type> {
-        self.bindings.get(name)
+        for scope in self.scopes.iter().rev() {
+            if let Some(ty) = scope.bindings.get(name) {
+                return Some(ty);
+            }
+        }
+        None
     }
 
     /// Look up a field type on a struct type.
@@ -176,14 +217,27 @@ impl TypeEnv {
             .and_then(|fields| fields.iter().find(|(n, _)| n == field_name).map(|(_, t)| t))
     }
 
-    /// Number of bindings.
+    /// Total number of bindings across all scopes.
     pub fn len(&self) -> usize {
-        self.bindings.len()
+        self.scopes.iter().map(|s| s.bindings.len()).sum()
     }
 
-    /// Returns true if the environment has no bindings.
+    /// Returns true if no bindings exist in any scope.
     pub fn is_empty(&self) -> bool {
-        self.bindings.is_empty()
+        self.scopes.iter().all(|s| s.bindings.is_empty())
+    }
+
+    /// Iterate over all bindings from outermost to innermost scope.
+    /// If a name appears in multiple scopes, only the innermost (shadowing)
+    /// binding is yielded.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &Type)> {
+        let mut seen = HashMap::new();
+        for scope in &self.scopes {
+            for (name, ty) in &scope.bindings {
+                seen.insert(name.as_str(), ty);
+            }
+        }
+        seen.into_iter()
     }
 }
 
@@ -690,5 +744,119 @@ mod tests {
         let diag: assura_diagnostics::Diagnostic = err.into();
         // A00000 is not in the catalog, so no suggestion
         assert!(diag.suggestion.is_none());
+    }
+
+    // ---- Scoped TypeEnv ----
+
+    #[test]
+    fn typeenv_global_scope_lookup() {
+        let mut env = TypeEnv::new();
+        env.insert("x".into(), Type::Int);
+        assert_eq!(env.lookup("x"), Some(&Type::Int));
+        assert_eq!(env.depth(), 0);
+    }
+
+    #[test]
+    fn typeenv_push_pop_scope() {
+        let mut env = TypeEnv::new();
+        env.insert("x".into(), Type::Int);
+        assert_eq!(env.depth(), 0);
+
+        env.push_scope();
+        assert_eq!(env.depth(), 1);
+        // Can still see outer binding
+        assert_eq!(env.lookup("x"), Some(&Type::Int));
+
+        // Inner binding shadows outer
+        env.insert("x".into(), Type::Bool);
+        assert_eq!(env.lookup("x"), Some(&Type::Bool));
+
+        env.pop_scope();
+        assert_eq!(env.depth(), 0);
+        // Shadowing removed, original type restored
+        assert_eq!(env.lookup("x"), Some(&Type::Int));
+    }
+
+    #[test]
+    fn typeenv_nested_scopes() {
+        let mut env = TypeEnv::new();
+        env.insert("a".into(), Type::Int);
+
+        env.push_scope();
+        env.insert("b".into(), Type::Bool);
+
+        env.push_scope();
+        env.insert("c".into(), Type::String);
+
+        // All visible from innermost scope
+        assert_eq!(env.lookup("a"), Some(&Type::Int));
+        assert_eq!(env.lookup("b"), Some(&Type::Bool));
+        assert_eq!(env.lookup("c"), Some(&Type::String));
+        assert_eq!(env.depth(), 2);
+
+        env.pop_scope();
+        assert!(env.lookup("c").is_none());
+        assert_eq!(env.lookup("b"), Some(&Type::Bool));
+
+        env.pop_scope();
+        assert!(env.lookup("b").is_none());
+        assert_eq!(env.lookup("a"), Some(&Type::Int));
+    }
+
+    #[test]
+    fn typeenv_inner_binding_does_not_leak() {
+        let mut env = TypeEnv::new();
+        env.push_scope();
+        env.insert("local".into(), Type::Nat);
+        assert_eq!(env.lookup("local"), Some(&Type::Nat));
+        env.pop_scope();
+        assert!(env.lookup("local").is_none());
+    }
+
+    #[test]
+    fn typeenv_len_counts_all_scopes() {
+        let mut env = TypeEnv::new();
+        env.insert("x".into(), Type::Int);
+        env.push_scope();
+        env.insert("y".into(), Type::Bool);
+        assert_eq!(env.len(), 2);
+        env.pop_scope();
+        assert_eq!(env.len(), 1);
+    }
+
+    #[test]
+    fn typeenv_is_empty_across_scopes() {
+        let mut env = TypeEnv::new();
+        assert!(env.is_empty());
+        env.push_scope();
+        assert!(env.is_empty());
+        env.insert("x".into(), Type::Int);
+        assert!(!env.is_empty());
+        env.pop_scope();
+        assert!(env.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot pop the global scope")]
+    fn typeenv_pop_global_panics() {
+        let mut env = TypeEnv::new();
+        env.pop_scope(); // should panic
+    }
+
+    #[test]
+    fn typeenv_struct_fields_not_scope_dependent() {
+        let mut env = TypeEnv::new();
+        env.struct_fields
+            .insert("Point".into(), vec![("x".into(), Type::Float)]);
+        env.push_scope();
+        assert_eq!(
+            env.lookup_field("Point", "x"),
+            Some(&Type::Float)
+        );
+        env.pop_scope();
+        assert_eq!(
+            env.lookup_field("Point", "x"),
+            Some(&Type::Float)
+        );
     }
 }

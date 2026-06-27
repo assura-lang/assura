@@ -41,7 +41,7 @@ pub(crate) fn run_test_gen(filename: &str, output: Option<&str>, verbosity: Verb
                         let parsed = assura_parser::ast::extract_clause_params(&clause.body);
                         for p in parsed {
                             let ty = type_env
-                                .and_then(|env| env.bindings.get(&p.name))
+                                .and_then(|env| env.lookup(&p.name))
                                 .cloned()
                                 .unwrap_or(assura_types::Type::Unknown);
                             params.push((p.name, ty));

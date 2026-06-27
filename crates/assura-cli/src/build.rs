@@ -276,8 +276,7 @@ pub(crate) fn run_build(
                             for p in parsed {
                                 let ty = typed
                                     .type_env
-                                    .bindings
-                                    .get(&p.name)
+                                    .lookup(&p.name)
                                     .cloned()
                                     .unwrap_or(assura_types::Type::Unknown);
                                 params.push((p.name, ty));
