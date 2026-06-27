@@ -885,7 +885,7 @@ were structural stubs (wiring dead-ends returning `Vec::new()`). This
 happened because tasks were marked done based on "code compiles" without
 verifying the code actually produces correct output.
 
-**New rule**: Every task in MASTER-PLAN.md v3 has an `Acceptance Tests`
+**New rule**: Every task in MASTER-PLAN.md has an `Acceptance Tests`
 section with exact shell commands. These are not suggestions. They are
 mandatory verification steps. The mechanical process is:
 
