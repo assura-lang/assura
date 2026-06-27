@@ -103,6 +103,10 @@ fn extract_attr_clauses(attrs: &[syn::Attribute], source: &str) -> InlineContrac
                 Some(InlineClauseKind::Requires)
             } else if meta_list.path.is_ident("ensures") {
                 Some(InlineClauseKind::Ensures)
+            } else if meta_list.path.is_ident("ensures_ok") {
+                Some(InlineClauseKind::EnsuresOk)
+            } else if meta_list.path.is_ident("ensures_err") {
+                Some(InlineClauseKind::EnsuresErr)
             } else if meta_list.path.is_ident("invariant") {
                 Some(InlineClauseKind::Invariant)
             } else {

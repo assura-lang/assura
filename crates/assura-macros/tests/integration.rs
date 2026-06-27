@@ -1,6 +1,8 @@
 //! Integration tests for assura-macros proc macros.
 
-use assura_macros::{contract, ensures, invariant, requires, taint, trust};
+use assura_macros::{
+    contract, ensures, ensures_err, ensures_ok, invariant, requires, taint, trust,
+};
 
 // -- #[contract] tests --
 
@@ -350,4 +352,210 @@ fn contract_default_mode_works() {
 #[should_panic(expected = "assura: precondition failed")]
 fn contract_default_mode_panics() {
     contract_runtime_mode(0);
+}
+
+// -- #[ensures_ok] tests --
+
+#[ensures_ok(result > 0)]
+fn ok_positive(x: i32) -> Result<i32, String> {
+    if x > 0 {
+        Ok(x * 2)
+    } else {
+        Err("non-positive".to_string())
+    }
+}
+
+#[test]
+fn ensures_ok_passes_on_ok() {
+    assert_eq!(ok_positive(5).unwrap(), 10);
+}
+
+#[test]
+fn ensures_ok_skips_on_err() {
+    // Err path should NOT trigger the postcondition check
+    assert!(ok_positive(-1).is_err());
+}
+
+#[test]
+#[should_panic(expected = "assura: ensures_ok failed")]
+fn ensures_ok_fails_when_violated() {
+    // This function always returns Ok(0), which violates result > 0
+    #[ensures_ok(result > 0)]
+    fn always_zero() -> Result<i32, String> {
+        Ok(0)
+    }
+    let _ = always_zero();
+}
+
+// -- #[ensures_err] tests --
+
+#[ensures_err(!result.is_empty())]
+fn err_non_empty(x: i32) -> Result<i32, String> {
+    if x > 0 {
+        Ok(x)
+    } else {
+        Err("bad value".to_string())
+    }
+}
+
+#[test]
+fn ensures_err_passes_on_err() {
+    assert!(err_non_empty(-1).is_err());
+}
+
+#[test]
+fn ensures_err_skips_on_ok() {
+    // Ok path should NOT trigger the postcondition check
+    assert_eq!(err_non_empty(5).unwrap(), 5);
+}
+
+#[test]
+#[should_panic(expected = "assura: ensures_err failed")]
+fn ensures_err_fails_when_violated() {
+    #[ensures_err(!result.is_empty())]
+    fn empty_error() -> Result<i32, String> {
+        Err(String::new())
+    }
+    let _ = empty_error();
+}
+
+// Combined ensures_ok + requires
+#[requires(x != 0)]
+#[ensures_ok(result > 0)]
+fn divide_ten(x: i32) -> Result<i32, String> {
+    if x < 0 {
+        return Err("negative divisor".to_string());
+    }
+    Ok(10 / x)
+}
+
+#[test]
+fn ensures_ok_with_requires() {
+    assert_eq!(divide_ten(2).unwrap(), 5);
+    assert!(divide_ten(-1).is_err());
+}
+
+// -- old() expression tests --
+
+#[ensures(result == old(x) + 1)]
+fn increment(x: i32) -> i32 {
+    x + 1
+}
+
+#[test]
+fn old_captures_pre_state() {
+    assert_eq!(increment(5), 6);
+    assert_eq!(increment(0), 1);
+}
+
+#[ensures(result >= old(len))]
+fn grow(len: usize) -> usize {
+    len + 10
+}
+
+#[test]
+fn old_with_different_types() {
+    assert_eq!(grow(5), 15);
+}
+
+// old() with ensures_ok
+#[ensures_ok(result >= old(min))]
+fn parse_with_min(s: &str, min: i32) -> Result<i32, String> {
+    let val: i32 = s
+        .parse()
+        .map_err(|e: std::num::ParseIntError| e.to_string())?;
+    if val < min {
+        return Err("too small".to_string());
+    }
+    Ok(val)
+}
+
+#[test]
+fn old_in_ensures_ok() {
+    assert_eq!(parse_with_min("42", 10).unwrap(), 42);
+    assert!(parse_with_min("5", 10).is_err()); // Err path skips check
+}
+
+// -- #[invariant] on impl blocks --
+
+struct BoundedVec {
+    items: Vec<i32>,
+    capacity: usize,
+}
+
+impl BoundedVec {
+    fn new(capacity: usize) -> Self {
+        BoundedVec {
+            items: Vec::new(),
+            capacity,
+        }
+    }
+}
+
+#[invariant(self.items.len() <= self.capacity)]
+impl BoundedVec {
+    fn push(&mut self, item: i32) {
+        if self.items.len() < self.capacity {
+            self.items.push(item);
+        }
+    }
+
+    fn pop(&mut self) -> Option<i32> {
+        self.items.pop()
+    }
+
+    // &self method should NOT get invariant checks (no mutation)
+    fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    // Static method should NOT get invariant checks
+    fn max_capacity() -> usize {
+        1024
+    }
+}
+
+#[test]
+fn impl_invariant_passes() {
+    let mut v = BoundedVec::new(3);
+    v.push(1);
+    v.push(2);
+    v.push(3);
+    assert_eq!(v.len(), 3);
+    assert_eq!(v.pop(), Some(3));
+}
+
+#[test]
+fn impl_invariant_static_method_unaffected() {
+    assert_eq!(BoundedVec::max_capacity(), 1024);
+}
+
+#[test]
+#[should_panic(expected = "assura: invariant (exit) failed")]
+fn impl_invariant_detects_violation() {
+    struct BadVec {
+        items: Vec<i32>,
+        capacity: usize,
+    }
+
+    impl BadVec {
+        fn new(capacity: usize) -> Self {
+            BadVec {
+                items: Vec::new(),
+                capacity,
+            }
+        }
+    }
+
+    #[invariant(self.items.len() <= self.capacity)]
+    impl BadVec {
+        fn force_push(&mut self, item: i32) {
+            // Intentionally violates invariant: pushes past capacity
+            self.items.push(item);
+        }
+    }
+
+    let mut v = BadVec::new(1);
+    v.force_push(1); // ok: len=1, cap=1
+    v.force_push(2); // panic: len=2 > cap=1
 }
