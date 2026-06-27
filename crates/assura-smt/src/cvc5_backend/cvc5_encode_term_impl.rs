@@ -179,7 +179,9 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         body: cvc5::Term<'a>,
         _patterns: Vec<cvc5::Term<'a>>,
     ) -> cvc5::Term<'a> {
-        let var_list = self.tm.mk_term(cvc5::Kind::VariableList, std::slice::from_ref(bound));
+        let var_list = self
+            .tm
+            .mk_term(cvc5::Kind::VariableList, std::slice::from_ref(bound));
         self.tm.mk_term(cvc5::Kind::Forall, &[var_list, body])
     }
 
@@ -190,7 +192,9 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         body: cvc5::Term<'a>,
         _patterns: Vec<cvc5::Term<'a>>,
     ) -> cvc5::Term<'a> {
-        let var_list = self.tm.mk_term(cvc5::Kind::VariableList, std::slice::from_ref(bound));
+        let var_list = self
+            .tm
+            .mk_term(cvc5::Kind::VariableList, std::slice::from_ref(bound));
         self.tm.mk_term(cvc5::Kind::Exists, &[var_list, body])
     }
 
