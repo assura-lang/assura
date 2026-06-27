@@ -254,6 +254,9 @@ mod z3_backend;
 #[cfg(all(test, feature = "z3-verify"))]
 mod tests_z3;
 
+#[cfg(all(test, feature = "cvc5-verify"))]
+mod tests_cvc5_native;
+
 #[cfg(all(test, feature = "z3-verify"))]
 #[path = "tests_havoc_assume.rs"]
 mod tests_havoc_assume;

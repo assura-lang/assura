@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 fn load_demo(name: &str) -> String {
     std::fs::read_to_string(format!(
@@ -84,5 +84,11 @@ fn bench_format(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_parse, bench_compile, bench_codegen, bench_format);
+criterion_group!(
+    benches,
+    bench_parse,
+    bench_compile,
+    bench_codegen,
+    bench_format
+);
 criterion_main!(benches);

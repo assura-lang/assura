@@ -1566,7 +1566,7 @@ fn file_to_module_path_conversion() {
 
 #[test]
 fn build_module_graph_single_file() {
-    use project::build_module_graph;
+    use project::{DependencyMap, build_module_graph_with_deps};
     let dir = std::env::temp_dir().join("assura-test-graph-single");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -1576,7 +1576,7 @@ fn build_module_graph_single_file() {
     )
     .unwrap();
 
-    let graph = build_module_graph(&dir.join("main.assura"), &dir);
+    let graph = build_module_graph_with_deps(&dir.join("main.assura"), &dir, &DependencyMap::new());
     assert_eq!(graph.modules.len(), 1);
     assert_eq!(graph.order.len(), 1);
 
@@ -1585,7 +1585,7 @@ fn build_module_graph_single_file() {
 
 #[test]
 fn resolve_module_graph_produces_resolved_files() {
-    use project::{build_module_graph, resolve_module_graph};
+    use project::{DependencyMap, build_module_graph_with_deps, resolve_module_graph};
     let dir = std::env::temp_dir().join("assura-test-resolve-graph");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -1595,7 +1595,7 @@ fn resolve_module_graph_produces_resolved_files() {
     )
     .unwrap();
 
-    let graph = build_module_graph(&dir.join("main.assura"), &dir);
+    let graph = build_module_graph_with_deps(&dir.join("main.assura"), &dir, &DependencyMap::new());
     let (resolved, errs) = resolve_module_graph(&graph);
     // The single module may have resolution warnings but should produce a result
     assert!(!resolved.is_empty() || !errs.is_empty());

@@ -129,6 +129,4 @@ mod tests_cvc5_smtlib;
 #[path = "../tests_cvc5_shell.rs"]
 mod tests_cvc5_shell;
 
-#[cfg(all(test, feature = "cvc5-verify"))]
-#[path = "../tests_cvc5_native"]
-mod tests_cvc5_native;
+// CVC5 native tests moved to lib.rs as `mod tests_cvc5_native;`

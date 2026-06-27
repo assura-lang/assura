@@ -541,10 +541,10 @@ pub(crate) fn run_build_project(
         // Write sidecar metadata JSON
         if let Some(ref meta) = project.metadata {
             let json_path = out_dir.join("assura-contracts.json");
-            if let Ok(json) = serde_json::to_string_pretty(meta) {
-                if let Err(e) = fs::write(&json_path, json) {
-                    eprintln!("Warning: could not write {}: {e}", json_path.display());
-                }
+            if let Ok(json) = serde_json::to_string_pretty(meta)
+                && let Err(e) = fs::write(&json_path, json)
+            {
+                eprintln!("Warning: could not write {}: {e}", json_path.display());
             }
         }
     }

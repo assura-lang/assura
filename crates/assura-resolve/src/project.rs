@@ -77,14 +77,6 @@ pub(crate) struct ModuleGraph {
 /// 4. Detect circular imports via the visited set.
 /// 5. Return all modules in topological order (dependencies before
 ///    dependents).
-pub(crate) fn build_module_graph(
-    root_file: &std::path::Path,
-    project_root: &std::path::Path,
-) -> ModuleGraph {
-    build_module_graph_with_deps(root_file, project_root, &DependencyMap::new())
-}
-
-/// Build a module graph with external dependency support.
 pub(crate) fn build_module_graph_with_deps(
     root_file: &std::path::Path,
     project_root: &std::path::Path,
@@ -160,6 +152,7 @@ pub(crate) fn build_module_graph_with_deps(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn resolve_imports_recursive(
     module_path: &str,
     project_root: &std::path::Path,
@@ -732,8 +725,7 @@ mod tests {
         // Dependency name uses hyphens, import uses underscores
         deps.insert("dep_lib".to_string(), tmp.clone());
 
-        let result =
-            resolve_dep_module_path(&["dep_lib".into(), "math".into()], &deps);
+        let result = resolve_dep_module_path(&["dep_lib".into(), "math".into()], &deps);
         assert!(result.is_some());
         let (key, path) = result.unwrap();
         assert_eq!(key, "dep_lib.math");
@@ -751,8 +743,7 @@ mod tests {
         deps.insert("dep_lib".to_string(), tmp.clone());
 
         // Import uses underscores: dep_lib::utils
-        let result =
-            resolve_dep_module_path(&["dep_lib".into(), "utils".into()], &deps);
+        let result = resolve_dep_module_path(&["dep_lib".into(), "utils".into()], &deps);
         assert!(result.is_some());
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -766,8 +757,7 @@ mod tests {
         let mut deps = DependencyMap::new();
         deps.insert("dep_lib".to_string(), tmp.clone());
 
-        let result =
-            resolve_dep_module_path(&["dep_lib".into(), "nonexistent".into()], &deps);
+        let result = resolve_dep_module_path(&["dep_lib".into(), "nonexistent".into()], &deps);
         assert!(result.is_none());
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -791,12 +781,10 @@ mod tests {
                 let mut m = HashMap::new();
                 m.insert(
                     "my-dep".to_string(),
-                    assura_config::DependencySpec::Detailed(
-                        assura_config::DetailedDependency {
-                            path: Some("my-dep".to_string()),
-                            ..Default::default()
-                        },
-                    ),
+                    assura_config::DependencySpec::Detailed(assura_config::DetailedDependency {
+                        path: Some("my-dep".to_string()),
+                        ..Default::default()
+                    }),
                 );
                 m
             },
@@ -821,12 +809,10 @@ mod tests {
                 let mut m = HashMap::new();
                 m.insert(
                     "missing".to_string(),
-                    assura_config::DependencySpec::Detailed(
-                        assura_config::DetailedDependency {
-                            path: Some("does-not-exist".to_string()),
-                            ..Default::default()
-                        },
-                    ),
+                    assura_config::DependencySpec::Detailed(assura_config::DetailedDependency {
+                        path: Some("does-not-exist".to_string()),
+                        ..Default::default()
+                    }),
                 );
                 m
             },
@@ -858,20 +844,13 @@ mod tests {
         .unwrap();
 
         // Create a consumer that imports it (Assura uses dot-separated paths)
-        std::fs::write(
-            consumer_dir.join("main.assura"),
-            "import dep_lib.math\n",
-        )
-        .unwrap();
+        std::fs::write(consumer_dir.join("main.assura"), "import dep_lib.math\n").unwrap();
 
         let mut deps = DependencyMap::new();
         deps.insert("dep_lib".to_string(), dep_dir.clone());
 
-        let graph = build_module_graph_with_deps(
-            &consumer_dir.join("main.assura"),
-            &consumer_dir,
-            &deps,
-        );
+        let graph =
+            build_module_graph_with_deps(&consumer_dir.join("main.assura"), &consumer_dir, &deps);
 
         // The module map should contain both the consumer and the dep
         assert!(
