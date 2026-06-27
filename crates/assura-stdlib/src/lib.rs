@@ -319,4 +319,91 @@ mod tests {
             .count();
         assert_eq!(count, 14, "collections should have 14 contracts");
     }
+
+    #[test]
+    fn option_contracts_are_generic() {
+        let (parsed, errors) = assura_parser::parse(StdlibSources::option());
+        assert!(errors.is_empty(), "option.assura parse errors: {errors:?}");
+        let file = parsed.unwrap();
+        for decl in &file.decls {
+            if let Decl::Contract(c) = &decl.node {
+                assert!(
+                    !c.type_params.is_empty(),
+                    "contract {} should have type params",
+                    c.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn result_contracts_are_generic() {
+        let (parsed, errors) = assura_parser::parse(StdlibSources::results());
+        assert!(errors.is_empty(), "result.assura parse errors: {errors:?}");
+        let file = parsed.unwrap();
+        for decl in &file.decls {
+            if let Decl::Contract(c) = &decl.node {
+                assert!(
+                    !c.type_params.is_empty(),
+                    "contract {} should have type params",
+                    c.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn collections_contracts_are_generic() {
+        let (parsed, errors) = assura_parser::parse(StdlibSources::collections());
+        assert!(
+            errors.is_empty(),
+            "collections.assura parse errors: {errors:?}"
+        );
+        let file = parsed.unwrap();
+        for decl in &file.decls {
+            if let Decl::Contract(c) = &decl.node {
+                assert!(
+                    !c.type_params.is_empty(),
+                    "contract {} should have type params",
+                    c.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn generic_contracts_have_ensures_clauses() {
+        let key_contracts = ["list_push", "list_get", "map_insert", "map_get", "unwrap"];
+        let modules = parse_stdlib();
+        for (_, file) in &modules {
+            for decl in &file.decls {
+                if let Decl::Contract(c) = &decl.node {
+                    if key_contracts.contains(&c.name.as_str()) {
+                        let has_ensures = c
+                            .clauses
+                            .iter()
+                            .any(|cl| cl.kind == assura_parser::ast::ClauseKind::Ensures);
+                        assert!(
+                            has_ensures,
+                            "contract {} should have at least one ensures clause",
+                            c.name
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn result_module_name_is_std_results() {
+        // Module uses plural "results" because "result" is a keyword in Assura
+        let (parsed, _) = assura_parser::parse(StdlibSources::results());
+        let file = parsed.unwrap();
+        let module_path = file.module.as_ref().map(|m| m.path.join("."));
+        assert_eq!(
+            module_path.as_deref(),
+            Some("std.results"),
+            "module name should be std.results (result is a keyword)"
+        );
+    }
 }

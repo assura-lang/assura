@@ -1,89 +1,109 @@
 // Standard library: collection contracts
 module std.collections
 
-contract list_get {
-    input(list: List<Int>, index: Nat)
-    output(result: Int)
+contract list_get<T> {
+    input(list: List<T>, index: Nat)
+    output(result: T)
     requires { index < length(list) }
+    ensures { result == list_element(list, index) }
     effects { pure }
 }
 
-contract list_push {
-    input(list: List<Int>, item: Int)
-    output(result: List<Int>)
+contract list_push<T> {
+    input(list: List<T>, item: T)
+    output(result: List<T>)
+    ensures { length(result) == length(list) + 1 }
+    ensures { list_element(result, length(list)) == item }
     effects { pure }
 }
 
-contract list_length {
-    input(list: List<Int>)
+contract list_length<T> {
+    input(list: List<T>)
     output(result: Nat)
     ensures { result >= 0 }
     effects { pure }
 }
 
-contract map_get {
-    input(map: Map<String, Int>, key: String)
-    output(result: Int)
+contract map_get<K, V> {
+    input(map: Map<K, V>, key: K)
+    output(result: V)
+    requires { map_contains_key(map, key) == true }
+    ensures { result == map_value(map, key) }
     effects { pure }
 }
 
-contract set_contains {
-    input(set: Set<Int>, item: Int)
+contract set_contains<T> {
+    input(set: Set<T>, item: T)
     output(result: Bool)
+    ensures { result == true || result == false }
     effects { pure }
 }
 
-contract set_insert {
-    input(set: Set<Int>, item: Int)
-    output(result: Set<Int>)
+contract set_insert<T> {
+    input(set: Set<T>, item: T)
+    output(result: Set<T>)
+    ensures { set_contains(result, item) == true }
+    ensures { set_size(result) >= set_size(set) }
     effects { pure }
 }
 
-contract list_is_empty {
-    input(list: List<Int>)
+contract list_is_empty<T> {
+    input(list: List<T>)
     output(result: Bool)
+    ensures { result == true || result == false }
+    ensures { result == true || length(list) > 0 }
     effects { pure }
 }
 
-contract list_reverse {
-    input(list: List<Int>)
-    output(result: List<Int>)
+contract list_reverse<T> {
+    input(list: List<T>)
+    output(result: List<T>)
+    ensures { length(result) == length(list) }
     effects { pure }
 }
 
-contract list_sort {
-    input(list: List<Int>)
-    output(result: List<Int>)
+contract list_sort<T> {
+    input(list: List<T>)
+    output(result: List<T>)
+    ensures { length(result) == length(list) }
     effects { pure }
 }
 
-contract list_contains {
-    input(list: List<Int>, item: Int)
+contract list_contains<T> {
+    input(list: List<T>, item: T)
     output(result: Bool)
+    ensures { result == true || result == false }
     effects { pure }
 }
 
-contract list_remove {
-    input(list: List<Int>, index: Nat)
-    output(result: List<Int>)
+contract list_remove<T> {
+    input(list: List<T>, index: Nat)
+    output(result: List<T>)
     requires { index < length(list) }
+    ensures { length(result) == length(list) - 1 }
     effects { pure }
 }
 
-contract map_contains_key {
-    input(map: Map<String, Int>, key: String)
+contract map_contains_key<K, V> {
+    input(map: Map<K, V>, key: K)
     output(result: Bool)
+    ensures { result == true || result == false }
     effects { pure }
 }
 
-contract map_insert {
-    input(map: Map<String, Int>, key: String, value: Int)
-    output(result: Map<String, Int>)
+contract map_insert<K, V> {
+    input(map: Map<K, V>, key: K, value: V)
+    output(result: Map<K, V>)
+    ensures { map_contains_key(result, key) == true }
+    ensures { map_value(result, key) == value }
+    ensures { map_size(result) >= map_size(map) }
     effects { pure }
 }
 
-contract map_remove {
-    input(map: Map<String, Int>, key: String)
-    output(result: Map<String, Int>)
+contract map_remove<K, V> {
+    input(map: Map<K, V>, key: K)
+    output(result: Map<K, V>)
+    ensures { map_contains_key(result, key) == false }
+    ensures { map_size(result) <= map_size(map) }
     effects { pure }
 }

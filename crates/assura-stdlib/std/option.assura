@@ -1,45 +1,51 @@
 // Standard library: option type contracts
 module std.option
 
-contract is_some {
-    input(opt: Option<Int>)
+contract is_some<T> {
+    input(opt: Option<T>)
     output(result: Bool)
+    ensures { result == true || result == false }
     effects { pure }
 }
 
-contract is_none {
-    input(opt: Option<Int>)
+contract is_none<T> {
+    input(opt: Option<T>)
     output(result: Bool)
+    ensures { result == not is_some(opt) }
     effects { pure }
 }
 
-contract unwrap {
-    input(opt: Option<Int>)
-    output(result: Int)
+contract unwrap<T> {
+    input(opt: Option<T>)
+    output(result: T)
     requires { is_some(opt) == true }
+    ensures { result == unwrap_value(opt) }
     effects { pure }
 }
 
-contract unwrap_or {
-    input(opt: Option<Int>, default: Int)
-    output(result: Int)
+contract unwrap_or<T> {
+    input(opt: Option<T>, default: T)
+    output(result: T)
+    ensures { is_some(opt) == true || result == default }
     effects { pure }
 }
 
-contract option_map {
-    input(opt: Option<Int>, f: Int -> Int)
-    output(result: Option<Int>)
+contract option_map<T, U> {
+    input(opt: Option<T>, f: T -> U)
+    output(result: Option<U>)
+    ensures { is_none(opt) == true || is_some(result) == true }
     effects { pure }
 }
 
-contract flatten {
-    input(opt: Option<Option<Int>>)
-    output(result: Option<Int>)
+contract flatten<T> {
+    input(opt: Option<Option<T>>)
+    output(result: Option<T>)
     effects { pure }
 }
 
-contract option_filter {
-    input(opt: Option<Int>, pred: Int -> Bool)
-    output(result: Option<Int>)
+contract option_filter<T> {
+    input(opt: Option<T>, pred: T -> Bool)
+    output(result: Option<T>)
+    ensures { is_some(result) == true || is_none(result) == true }
     effects { pure }
 }

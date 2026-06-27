@@ -1,46 +1,54 @@
 // Standard library: result type contracts
+// Module name uses plural "results" because "result" is a keyword in Assura
 module std.results
 
-contract is_ok {
-    input(res: Result<Int, String>)
+contract is_ok<T, E> {
+    input(res: Result<T, E>)
     output(result: Bool)
+    ensures { result == true || result == false }
     effects { pure }
 }
 
-contract is_err {
-    input(res: Result<Int, String>)
+contract is_err<T, E> {
+    input(res: Result<T, E>)
     output(result: Bool)
+    ensures { result == not is_ok(res) }
     effects { pure }
 }
 
-contract unwrap {
-    input(res: Result<Int, String>)
-    output(result: Int)
+contract unwrap<T, E> {
+    input(res: Result<T, E>)
+    output(result: T)
     requires { is_ok(res) == true }
+    ensures { result == unwrap_value(res) }
     effects { pure }
 }
 
-contract unwrap_err {
-    input(res: Result<Int, String>)
-    output(result: String)
+contract unwrap_err<T, E> {
+    input(res: Result<T, E>)
+    output(result: E)
     requires { is_err(res) == true }
+    ensures { result == unwrap_err_value(res) }
     effects { pure }
 }
 
-contract unwrap_or {
-    input(res: Result<Int, String>, default: Int)
-    output(result: Int)
+contract unwrap_or<T, E> {
+    input(res: Result<T, E>, default: T)
+    output(result: T)
+    ensures { is_ok(res) == true || result == default }
     effects { pure }
 }
 
-contract result_map {
-    input(res: Result<Int, String>, f: Int -> Int)
-    output(result: Result<Int, String>)
+contract result_map<T, U, E> {
+    input(res: Result<T, E>, f: T -> U)
+    output(result: Result<U, E>)
+    ensures { is_err(res) == true || is_ok(result) == true }
     effects { pure }
 }
 
-contract result_map_err {
-    input(res: Result<Int, String>, f: String -> String)
-    output(result: Result<Int, String>)
+contract result_map_err<T, E, F> {
+    input(res: Result<T, E>, f: E -> F)
+    output(result: Result<T, F>)
+    ensures { is_ok(res) == true || is_err(result) == true }
     effects { pure }
 }
