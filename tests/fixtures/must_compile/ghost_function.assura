@@ -1,0 +1,7 @@
+// MUST COMPILE
+// Ghost function for specification logic only.
+module test.ghost_fn;
+
+ghost fn spec_helper(x: Int) -> Int
+    requires { x >= 0 }
+    ensures { result >= x }

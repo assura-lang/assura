@@ -1,0 +1,5 @@
+// MUST COMPILE
+// Function with strict input consumption semantics.
+fn consume(x: Int) -> Int
+    requires { x > 0 }
+    ensures { result > 0 }

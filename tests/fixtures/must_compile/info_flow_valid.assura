@@ -1,0 +1,5 @@
+// MUST COMPILE
+// Valid information flow: function with Bytes input and output.
+fn hash_data(data: Bytes) -> Bytes
+    requires { data.length() > 0 }
+    ensures { result.length() > 0 }

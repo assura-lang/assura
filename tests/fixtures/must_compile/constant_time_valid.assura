@@ -1,0 +1,8 @@
+// MUST COMPILE
+// Valid constant-time function annotation.
+module test.ct_valid;
+
+fn constant_add(x: Int, y: Int) -> Int
+    constant_time true
+    requires { y >= 0 }
+    ensures { result >= y }

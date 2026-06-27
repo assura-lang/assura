@@ -1,0 +1,8 @@
+// MUST COMPILE
+// Contract with match expression in clause body.
+contract Classifier {
+    input(x: Int)
+    output(result: Int)
+    requires { x >= 0 }
+    ensures { match x { 0 => result == 0, _ => result > 0 } }
+}

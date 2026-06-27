@@ -1,0 +1,7 @@
+// MUST COMPILE
+// Function processing untrusted string input with validation.
+module test.taint_valid;
+
+fn process_input(data: String) -> String
+    requires { data.length() > 0 }
+    ensures { result.length() > 0 }

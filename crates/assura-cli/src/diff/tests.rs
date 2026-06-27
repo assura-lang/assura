@@ -396,8 +396,8 @@ fn test_must_compile_fixtures() {
         tested += 1;
     }
     assert!(
-        tested >= 15,
-        "expected at least 15 MUST COMPILE fixtures, found {tested}"
+        tested >= 25,
+        "expected at least 25 MUST COMPILE fixtures, found {tested}"
     );
 }
 
