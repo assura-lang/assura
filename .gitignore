@@ -4,6 +4,7 @@
 .DS_Store
 /generated
 /demos/generated
+tests/fixtures/generated
 /fuzz/target
 /fuzz/corpus
 /fuzz/artifacts

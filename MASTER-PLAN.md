@@ -314,6 +314,19 @@ closed loop before measuring success rate).
 
 ## Progress Notes
 
+### 2026-06-27: Phase 12 completion (session 2)
+
+- Completed 12.03: Runtime contract monitoring (assura-runtime crate, codegen
+  integration, CLI --runtime-checks flag). PR #654 merged.
+- Completed 12.04: Stdlib contracts auto-import. PR #650 from prior session,
+  marked [x].
+- Completed 12.06: LLM verification success rate benchmark suite. 20 graded
+  contracts, 4 reference IRs, benchmark script with --dry-run/--live modes,
+  docs/LLM-BENCHMARK.md with methodology and initial results. PR #655.
+- Phase 12 status: 6/7 tasks complete. Only 12.07 (public launch) remains,
+  blocked on external actions (make repo public, publish crates.io).
+- Next session: 12.07 or start new phase based on user direction.
+
 ### 2026-06-27: v3 to v4 rewrite
 
 - Verified all 50 feature checkers have real logic (none are stubs).
