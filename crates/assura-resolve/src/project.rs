@@ -836,6 +836,39 @@ mod tests {
         assert!(resolve_dep_module_path(&[], &deps).is_none());
     }
 
+    #[test]
+    fn dep_module_single_segment_finds_lib() {
+        let tmp = std::env::temp_dir().join("assura_test_dep_single_lib");
+        let _ = std::fs::create_dir_all(&tmp);
+        std::fs::write(tmp.join("lib.assura"), "contract Lib {}").unwrap();
+
+        let mut deps = DependencyMap::new();
+        deps.insert("mylib".to_string(), tmp.clone());
+
+        let result = resolve_dep_module_path(&["mylib".into()], &deps);
+        let (key, path) = result.expect("bare import should find lib.assura");
+        assert_eq!(key, "mylib");
+        assert!(path.ends_with("lib.assura"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn dep_module_single_segment_no_lib() {
+        let tmp = std::env::temp_dir().join("assura_test_dep_single_nolib");
+        let _ = std::fs::create_dir_all(&tmp);
+        // No lib.assura in dep root
+
+        let mut deps = DependencyMap::new();
+        deps.insert("mylib".to_string(), tmp.clone());
+
+        let result = resolve_dep_module_path(&["mylib".into()], &deps);
+        assert!(
+            result.is_none(),
+            "should return None when lib.assura is missing"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     // ---- resolve_dependency_map ----
 
     #[test]
