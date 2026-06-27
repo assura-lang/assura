@@ -54,8 +54,9 @@ use assura_parser::features::FeatureCategory;
 /// A named, categorized checker entry in the pipeline.
 ///
 /// The `name` and `category` fields are metadata for error attribution,
-/// selective execution, and pipeline introspection. Currently read in
-/// tests; runtime use is a follow-up.
+/// selective execution, and pipeline introspection. `dispatch` is used at
+/// runtime; `name` and `category` are read in tests (uniqueness, non-empty,
+/// category coverage).
 #[allow(dead_code)]
 struct CheckerEntry {
     /// Human-readable name for error attribution and logging.

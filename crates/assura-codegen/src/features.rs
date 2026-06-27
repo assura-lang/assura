@@ -643,28 +643,25 @@ pub fn compile_time_frame(clause: &Clause, name: &str) -> String {
     use std::fmt::Write;
     let mut out = String::new();
     if fields.is_empty() {
-        writeln!(
+        let _ = writeln!(
             out,
             "    compile_error!(\"CORE.3: frame condition for `{name}` has no fields; \
              modifies clause must list at least one field\");"
-        )
-        .unwrap();
+        );
     } else {
-        writeln!(
+        let _ = writeln!(
             out,
             "    // compile_time_frame: `{name}` may only modify: {}",
             fields.join(", ")
-        )
-        .unwrap();
+        );
         for field in &fields {
             let safe_name = field.replace('.', "_");
-            writeln!(
+            let _ = writeln!(
                 out,
                 "    debug_assert_eq!({field}, {}{safe_name}, \
                  \"CORE.3: frame violation in `{name}`: `{field}` was not listed in modifies\");",
                 OLD_VAR_PREFIX
-            )
-            .unwrap();
+            );
         }
     }
     out

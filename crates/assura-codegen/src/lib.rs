@@ -420,19 +420,17 @@ fn generate_undefined_type_stubs(
                     .iter()
                     .map(|p| format!("std::marker::PhantomData<{p}>"))
                     .collect();
-                writeln!(
+                let _ = writeln!(
                     code,
                     "#[derive(Debug, Clone, PartialEq)]\npub struct {name}<{}>({});",
                     params.join(", "),
                     phantoms.join(", ")
-                )
-                .unwrap();
+                );
             } else {
-                writeln!(
+                let _ = writeln!(
                     code,
                     "#[derive(Debug, Clone, PartialEq)]\npub struct {name};"
-                )
-                .unwrap();
+                );
             }
         }
         code.push('\n');
@@ -578,10 +576,10 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
             // Will be emitted as a struct stub in Phase 4b.
             // Also emit a const with _VALUE suffix for any value-position uses.
             let value = find_feature_max_value(source, name);
-            writeln!(code, "pub const {name}_VALUE: {ty} = {value};").unwrap();
+            let _ = writeln!(code, "pub const {name}_VALUE: {ty} = {value};");
         } else {
             let value = find_feature_max_value(source, name);
-            writeln!(code, "pub const {name}: {ty} = {value};").unwrap();
+            let _ = writeln!(code, "pub const {name}: {ty} = {value};");
         }
     }
     if !feature_max_consts.is_empty() {
@@ -602,11 +600,10 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
     for name in &const_as_types {
         // Emit as a marker type (unit struct) rather than a const,
         // since the generic parameter positions use type params.
-        writeln!(
+        let _ = writeln!(
             code,
             "#[derive(Debug, Clone, PartialEq)]\npub struct {name}; // size param from another module"
-        )
-        .unwrap();
+        );
     }
     if !const_as_types.is_empty() {
         code.push('\n');

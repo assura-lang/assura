@@ -455,21 +455,20 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
 
     let mut test_body = String::new();
     for req in &unrefined_requires {
-        writeln!(test_body, "            prop_assume!({req});").unwrap();
+        let _ = writeln!(test_body, "            prop_assume!({req});");
     }
 
     let call_args: Vec<&str> = input_params.iter().map(|(n, _)| n.as_str()).collect();
-    writeln!(
+    let _ = writeln!(
         test_body,
         "            let result = {check_call_path}({});",
         call_args.join(", ")
-    )
-    .unwrap();
+    );
     if let Some(ref name) = output_name {
-        writeln!(test_body, "            let {name} = result.clone();").unwrap();
+        let _ = writeln!(test_body, "            let {name} = result.clone();");
     }
     for ens in &ensures_exprs {
-        writeln!(test_body, "            prop_assert!({ens});").unwrap();
+        let _ = writeln!(test_body, "            prop_assert!({ens});");
     }
 
     // Emit as a RustMod with #[cfg(test)] + raw proptest! macro inside
