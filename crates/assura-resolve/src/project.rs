@@ -272,7 +272,7 @@ fn resolve_imports_recursive(
 /// hyphens to underscores), look for the remaining segments inside
 /// that dependency's project root.
 ///
-/// Example: `dep_lib::math` with dependency `dep-lib = { path = "../dep" }`
+/// Example: `dep_lib.math` with dependency `dep-lib = { path = "../dep" }`
 /// resolves to `../dep/math.assura`.
 pub(crate) fn resolve_dep_module_path(
     module_path: &[String],
@@ -508,8 +508,10 @@ pub fn discover_and_resolve_project_with_deps(
         }
     }
 
-    // Also load modules from external dependencies that are imported
-    load_dep_modules_for_project(&all_modules, deps, &mut all_modules.clone(), &mut errors);
+    // Also load modules from external dependencies that are imported.
+    // Clone local modules as the read-only snapshot; insert deps into the real map.
+    let local_snapshot = all_modules.clone();
+    load_dep_modules_for_project(&local_snapshot, deps, &mut all_modules, &mut errors);
 
     // Resolve each module with access to the full module map
     let mut resolved = HashMap::new();
@@ -792,8 +794,7 @@ mod tests {
         deps.insert("dep_lib".to_string(), tmp.clone());
 
         let result = resolve_dep_module_path(&["dep_lib".into(), "math".into()], &deps);
-        assert!(result.is_some());
-        let (key, path) = result.unwrap();
+        let (key, path) = result.expect("dep_lib.math should resolve");
         assert_eq!(key, "dep_lib.math");
         assert!(path.to_string_lossy().contains("math.assura"));
         let _ = std::fs::remove_dir_all(&tmp);
@@ -808,9 +809,10 @@ mod tests {
         let mut deps = DependencyMap::new();
         deps.insert("dep_lib".to_string(), tmp.clone());
 
-        // Import uses underscores: dep_lib::utils
+        // Import uses underscores: dep_lib.utils
         let result = resolve_dep_module_path(&["dep_lib".into(), "utils".into()], &deps);
-        assert!(result.is_some());
+        let (key, _path) = result.expect("dep_lib.utils should resolve");
+        assert_eq!(key, "dep_lib.utils");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -832,6 +834,39 @@ mod tests {
     fn dep_module_empty_path() {
         let deps = DependencyMap::new();
         assert!(resolve_dep_module_path(&[], &deps).is_none());
+    }
+
+    #[test]
+    fn dep_module_single_segment_finds_lib() {
+        let tmp = std::env::temp_dir().join("assura_test_dep_single_lib");
+        let _ = std::fs::create_dir_all(&tmp);
+        std::fs::write(tmp.join("lib.assura"), "contract Lib {}").unwrap();
+
+        let mut deps = DependencyMap::new();
+        deps.insert("mylib".to_string(), tmp.clone());
+
+        let result = resolve_dep_module_path(&["mylib".into()], &deps);
+        let (key, path) = result.expect("bare import should find lib.assura");
+        assert_eq!(key, "mylib");
+        assert!(path.ends_with("lib.assura"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn dep_module_single_segment_no_lib() {
+        let tmp = std::env::temp_dir().join("assura_test_dep_single_nolib");
+        let _ = std::fs::create_dir_all(&tmp);
+        // No lib.assura in dep root
+
+        let mut deps = DependencyMap::new();
+        deps.insert("mylib".to_string(), tmp.clone());
+
+        let result = resolve_dep_module_path(&["mylib".into()], &deps);
+        assert!(
+            result.is_none(),
+            "should return None when lib.assura is missing"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     // ---- resolve_dependency_map ----
@@ -962,6 +997,20 @@ mod tests {
         let (resolved, _warnings) = result.unwrap();
         // Should resolve at least the consumer module
         assert!(!resolved.is_empty(), "expected resolved modules");
+        // The dep module must actually be resolved (not silently dropped)
+        assert!(
+            resolved.len() >= 2,
+            "dep module should be in resolved map, got keys: {:?}",
+            resolved.keys().collect::<Vec<_>>()
+        );
+        let has_dep = resolved
+            .keys()
+            .any(|k| k.contains("dep_lib") || k.contains("math"));
+        assert!(
+            has_dep,
+            "dep_lib.math should be resolved, got: {:?}",
+            resolved.keys().collect::<Vec<_>>()
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -977,10 +1026,8 @@ mod tests {
 
         let result1 = discover_and_resolve_project(&tmp);
         let result2 = discover_and_resolve_project_with_deps(&tmp, &DependencyMap::new());
-        assert!(result1.is_ok());
-        assert!(result2.is_ok());
-        let (r1, _) = result1.unwrap();
-        let (r2, _) = result2.unwrap();
+        let (r1, _) = result1.expect("discover_and_resolve_project should succeed");
+        let (r2, _) = result2.expect("discover_and_resolve_project_with_deps should succeed");
         assert_eq!(r1.len(), r2.len());
         let _ = std::fs::remove_dir_all(&tmp);
     }

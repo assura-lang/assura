@@ -12,23 +12,11 @@ pub(crate) fn run_check_project(
     _verbosity: Verbosity,
     config: &CompilerConfig,
 ) {
-    let project_root = if project_dir.join("assura.toml").exists() {
-        project_dir.to_path_buf()
-    } else {
-        assura_resolve::find_project_root(project_dir).unwrap_or_else(|| project_dir.to_path_buf())
-    };
+    let (project_root, dep_map, dep_warnings) = load_project_deps(project_dir);
 
     if output_mode == OutputMode::Human {
         eprintln!("Checking project at {}", project_root.display());
     }
-
-    // Load dependencies from assura.toml if present
-    let project_config = load_project_config(&project_root);
-    let (dep_map, dep_warnings) = if let Some((ref cfg, ref root)) = project_config {
-        assura_resolve::resolve_dependency_map(root, cfg)
-    } else {
-        (assura_resolve::DependencyMap::new(), vec![])
-    };
     for w in &dep_warnings {
         if output_mode == OutputMode::Human {
             eprintln!("Warning: {w}");

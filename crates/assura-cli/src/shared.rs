@@ -34,6 +34,33 @@ pub(crate) fn format_counterexample_summary(
     format!("counterexample: {}", pairs.join("; "))
 }
 
+/// Discover the project root, load config, and build the dependency map.
+///
+/// Returns `(project_root, dep_map, dep_warnings)`. If no `assura.toml`
+/// exists, `dep_map` is empty.
+pub(crate) fn load_project_deps(
+    project_dir: &Path,
+) -> (
+    std::path::PathBuf,
+    assura_resolve::DependencyMap,
+    Vec<String>,
+) {
+    let project_root = if project_dir.join("assura.toml").exists() {
+        project_dir.to_path_buf()
+    } else {
+        assura_resolve::find_project_root(project_dir).unwrap_or_else(|| project_dir.to_path_buf())
+    };
+
+    let config = load_project_config(&project_root);
+    let (dep_map, dep_warnings) = if let Some((ref cfg, ref root)) = config {
+        assura_resolve::resolve_dependency_map(root, cfg)
+    } else {
+        (assura_resolve::DependencyMap::new(), vec![])
+    };
+
+    (project_root, dep_map, dep_warnings)
+}
+
 /// Run lex -> parse -> resolve -> typecheck on source text, collecting all diagnostics.
 pub(crate) fn compile(source: &str, filename: &str) -> CompilationResult {
     assura_pipeline::compile(source, filename, &CompilerConfig::default())
