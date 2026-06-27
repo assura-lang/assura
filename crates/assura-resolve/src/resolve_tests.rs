@@ -119,14 +119,50 @@ output { state: String }
 fn empty_file_ok() {
     let file = parse_ok("");
     let resolved = resolve(&file).expect("empty file should resolve");
-    // Built-in types + stdlib prelude types (minus duplicates already in BUILTIN_TYPES)
+    // Built-in types + stdlib prelude types (minus duplicates) + prelude contracts
     let stdlib_extras = assura_stdlib::prelude_type_names()
         .iter()
         .filter(|name| !BUILTIN_TYPES.contains(name))
         .count();
+    let prelude_contracts = assura_stdlib::prelude_contract_names().len();
     assert_eq!(
         resolved.symbols.symbols.len(),
-        BUILTIN_TYPES.len() + stdlib_extras
+        BUILTIN_TYPES.len() + stdlib_extras + prelude_contracts
+    );
+}
+
+#[test]
+fn prelude_contracts_registered_as_contract_def() {
+    let file = parse_ok("");
+    let resolved = resolve(&file).expect("empty file should resolve");
+    for &name in &assura_stdlib::prelude_contract_names() {
+        let sym = resolved.symbols.symbols.iter().find(|s| s.name == name);
+        assert!(
+            sym.is_some(),
+            "prelude contract '{name}' not in symbol table"
+        );
+        assert_eq!(
+            sym.unwrap().kind,
+            SymbolKind::ContractDef,
+            "prelude contract '{name}' should be ContractDef"
+        );
+    }
+}
+
+#[test]
+fn clamp_resolves_without_import() {
+    let src = r#"
+contract BoundedValue {
+    input(x: Int)
+    output(result: Int)
+    ensures { clamp(x, 0, 100) >= 0 }
+}
+"#;
+    let file = parse_ok(src);
+    let resolved = resolve(&file);
+    assert!(
+        resolved.is_ok(),
+        "clamp should resolve without import: {resolved:?}"
     );
 }
 
