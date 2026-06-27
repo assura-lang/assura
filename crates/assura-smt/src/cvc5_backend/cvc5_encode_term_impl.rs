@@ -33,10 +33,10 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         if let Ok(n) = s.parse::<i64>() {
             self.tm.mk_integer(n)
         } else if let Some(rest) = s.strip_prefix('-') {
-            let abs = self.tm.mk_integer_from_string(rest);
+            let abs = self.tm.mk_integer_from_str(rest);
             self.tm.mk_term(cvc5::Kind::Neg, &[abs])
         } else {
-            self.tm.mk_integer_from_string(s)
+            self.tm.mk_integer_from_str(s)
         }
     }
 
@@ -49,12 +49,12 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
     }
 
     fn make_real_literal(&mut self, numer: i64, denom: i64) -> cvc5::Term<'a> {
-        self.tm.mk_real(numer, denom)
+        self.tm.mk_real_from_rational(numer, denom)
     }
 
     fn make_string_literal(&mut self, s: &str) -> cvc5::Term<'a> {
         if self.state.use_string_theory {
-            self.tm.mk_string(s)
+            self.tm.mk_string(s, false)
         } else {
             let const_name = crate::encode_atom_policy::string_literal_const_name(s);
             let v = self.tm.mk_const(self.tm.integer_sort(), &const_name);
