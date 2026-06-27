@@ -299,6 +299,28 @@ else
   jsec 9 "match decl.node counts" "ok" "all crates within baseline"
 fi
 
+# ---------------------------------------------------------------------------
+# 10) writeln!()/write!() .unwrap() on String is unnecessary (infallible Write)
+#     The fmt::Write impl for String never fails; .unwrap() is dead code.
+#     Use `let _ = writeln!(...)` or just `writeln!(...)` (ignore Result).
+# ---------------------------------------------------------------------------
+s_warn=0
+while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
+  file="${line%%:*}"
+  case "$file" in
+    *tests*|*test*.rs|*_test.rs) continue ;;
+  esac
+  warn "writeln!/write!().unwrap() on String (infallible; use let _ = writeln!): $line"
+  jfind 10 "$file" "writeln/write unwrap on String"
+  s_warn=1
+done < <(rg -n 'write(ln)?!\(.*\)\.unwrap\(\)' crates --glob '*.rs' 2>/dev/null || true)
+if [[ $s_warn -eq 1 ]]; then
+  jsec 10 "writeln/write unwrap" "warn" "writeln!/write!().unwrap() found (infallible on String; use let _ =)"
+else
+  jsec 10 "writeln/write unwrap" "ok" "no writeln/write unwrap violations"
+fi
+
 # ── Final output ─────────────────────────────────────────────────────────────
 if $json_mode; then
   python3 - "$_jdata" << 'PYEOF'
