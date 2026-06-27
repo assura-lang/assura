@@ -48,8 +48,7 @@ pub(crate) fn load_project_deps(
     let project_root = if project_dir.join("assura.toml").exists() {
         project_dir.to_path_buf()
     } else {
-        assura_resolve::find_project_root(project_dir)
-            .unwrap_or_else(|| project_dir.to_path_buf())
+        assura_resolve::find_project_root(project_dir).unwrap_or_else(|| project_dir.to_path_buf())
     };
 
     let config = load_project_config(&project_root);
