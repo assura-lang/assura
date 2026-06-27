@@ -136,12 +136,11 @@ fn prelude_contracts_registered_as_contract_def() {
     let file = parse_ok("");
     let resolved = resolve(&file).expect("empty file should resolve");
     for &name in &assura_stdlib::prelude_contract_names() {
-        let sym = resolved
-            .symbols
-            .symbols
-            .iter()
-            .find(|s| s.name == name);
-        assert!(sym.is_some(), "prelude contract '{name}' not in symbol table");
+        let sym = resolved.symbols.symbols.iter().find(|s| s.name == name);
+        assert!(
+            sym.is_some(),
+            "prelude contract '{name}' not in symbol table"
+        );
         assert_eq!(
             sym.unwrap().kind,
             SymbolKind::ContractDef,
@@ -161,7 +160,10 @@ contract BoundedValue {
 "#;
     let file = parse_ok(src);
     let resolved = resolve(&file);
-    assert!(resolved.is_ok(), "clamp should resolve without import: {resolved:?}");
+    assert!(
+        resolved.is_ok(),
+        "clamp should resolve without import: {resolved:?}"
+    );
 }
 
 #[test]
