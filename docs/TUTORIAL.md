@@ -67,6 +67,9 @@ output = "generated"
 smt-solver = "z3"       # "z3", "cvc5", or "portfolio"
 layer = 1               # 0 = structural only, 1 = SMT
 timeout = 1000          # SMT timeout in ms
+
+# [dependencies]         # Optional: import contracts from other projects
+# math-lib = { path = "../math-lib" }
 ```
 
 ## Step 2: Write a Contract
@@ -166,7 +169,75 @@ assura build contracts/lib.assura --target wasm
 This generates a project configured for `wasm32-wasip1`, including a
 `.cargo/config.toml` with the target pre-set.
 
-## Step 5: Understand Errors
+## Step 5: Multi-File Projects
+
+As your project grows, split contracts across multiple files and use
+imports to reference them.
+
+### Project layout
+
+```
+my-project/
+  assura.toml
+  contracts/
+    lib.assura          # Root contract
+    math.assura         # Imported by lib
+```
+
+### Importing local modules
+
+Use dot-separated paths. The path maps to the filesystem relative to
+the project root:
+
+```assura
+import contracts.math
+
+contract App {
+    input(x: Int)
+    requires { x >= 0 }
+}
+```
+
+`import contracts.math` loads `contracts/math.assura`.
+
+### External dependencies
+
+Add a `[dependencies]` section to `assura.toml` to import contracts
+from other projects:
+
+```toml
+[package]
+name = "my-project"
+version = "0.1.0"
+
+[dependencies]
+math-lib = { path = "../math-lib" }
+```
+
+Then import from the dependency using its name (hyphens become
+underscores in import paths):
+
+```assura
+import math_lib.core
+
+contract App {
+    input(x: Int)
+    requires { x >= 0 }
+}
+```
+
+### Checking a project
+
+Point `assura check` at the project directory (not a single file):
+
+```bash
+assura check .
+```
+
+This discovers all `.assura` files, resolves imports (including
+dependencies), and type-checks every module.
+
+## Step 6: Understand Errors
 
 When a contract fails verification, Assura shows a counterexample:
 
