@@ -3,12 +3,14 @@
 //! Takes a parsed `SourceFile` AST and produces well-formatted source text.
 
 use assura_ast::ExprFolder;
-#[allow(unused_imports)]
 use assura_parser::ast::{
     BinOp, BindDecl, BlockKind, Clause, ClauseKind, CodecRegistryDecl, ContractDecl, Decl, EnumDef,
-    Expr, ExternDecl, FnDef, Literal, MagicPattern, Pattern, ProphecyDecl, ServiceDecl,
-    ServiceItem, SourceFile, SpExpr, TypeBody, TypeDef, UnaryOp, extract_clause_params,
+    ExternDecl, FnDef, Literal, MagicPattern, Pattern, ProphecyDecl, ServiceDecl, ServiceItem,
+    SourceFile, SpExpr, TypeBody, TypeDef, UnaryOp, extract_clause_params,
 };
+// Re-exported for test module (format_tests.rs uses Expr via `use crate::*`).
+#[cfg(test)]
+use assura_parser::ast::Expr;
 
 /// Format a `SourceFile` AST back to well-formatted source text.
 pub fn format_source_file(file: &SourceFile) -> String {
