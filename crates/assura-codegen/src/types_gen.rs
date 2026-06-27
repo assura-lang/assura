@@ -112,12 +112,19 @@ pub(crate) fn map_type_tokens(tokens: &[String]) -> String {
         return "()".to_string();
     }
 
-    // Phase 1: Strip annotations and clause keywords that leak into type tokens
+    // Phase 1: Strip annotations, qualifiers, and clause keywords
     // Stops at: "@" (taint), "#" (attribute), "decreases", "where"
+    // Filters out type qualifiers with no Rust equivalent
     let clean: Vec<&str> = tokens
         .iter()
         .map(|s| s.as_str())
         .take_while(|t| !matches!(*t, "@" | "#" | "decreases" | "where"))
+        .filter(|t| {
+            !matches!(
+                *t,
+                "linear" | "secret" | "tainted" | "taint" | "untrusted" | "validated"
+            )
+        })
         .collect();
     if clean.is_empty() {
         return "()".to_string();
@@ -1279,5 +1286,37 @@ mod tests {
         let mut out = std::collections::HashSet::new();
         detect_feature_max_as_type_from_type_expr(Some(&te), &fm_set, &mut out);
         assert!(out.contains("MAX_SIZE"));
+    }
+
+    // ---- qualifier stripping in map_type_tokens ----
+
+    #[test]
+    fn map_type_tokens_strips_secret_qualifier() {
+        let tokens: Vec<String> = vec!["secret".into(), "Int".into()];
+        assert_eq!(map_type_tokens(&tokens), "i64");
+    }
+
+    #[test]
+    fn map_type_tokens_strips_tainted_qualifier() {
+        let tokens: Vec<String> = vec!["tainted".into(), "String".into()];
+        assert_eq!(map_type_tokens(&tokens), "String");
+    }
+
+    #[test]
+    fn map_type_tokens_strips_linear_qualifier() {
+        let tokens: Vec<String> = vec!["linear".into(), "Int".into()];
+        assert_eq!(map_type_tokens(&tokens), "i64");
+    }
+
+    #[test]
+    fn map_type_tokens_strips_untrusted_qualifier() {
+        let tokens: Vec<String> = vec!["untrusted".into(), "Bytes".into()];
+        assert_eq!(map_type_tokens(&tokens), "Vec<u8>");
+    }
+
+    #[test]
+    fn map_type_tokens_strips_validated_qualifier() {
+        let tokens: Vec<String> = vec!["validated".into(), "String".into()];
+        assert_eq!(map_type_tokens(&tokens), "String");
     }
 }

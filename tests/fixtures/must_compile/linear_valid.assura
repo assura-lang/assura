@@ -1,5 +1,5 @@
 // MUST COMPILE
-// Function with strict input consumption semantics.
-fn consume(x: Int) -> Int
+// Valid linear type usage: variable used exactly once.
+fn consume(x: linear Int) -> Int
     requires { x > 0 }
     ensures { result > 0 }

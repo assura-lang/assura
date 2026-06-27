@@ -1,8 +1,8 @@
 // MUST COMPILE
-// Valid constant-time function annotation.
+// Valid constant-time function with secret input.
 module test.ct_valid;
 
-fn constant_add(x: Int, y: Int) -> Int
+fn constant_add(x: secret Int, y: Int) -> Int
     constant_time true
     requires { y >= 0 }
     ensures { result >= y }

@@ -1,5 +1,5 @@
 // MUST COMPILE
-// Valid information flow: function with Bytes input and output.
-fn hash_data(data: Bytes) -> Bytes
+// Valid information flow: secret data stays in function scope.
+fn hash_secret(data: secret Bytes) -> Bytes
     requires { data.length() > 0 }
     ensures { result.length() > 0 }

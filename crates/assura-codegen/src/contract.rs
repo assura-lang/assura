@@ -553,11 +553,17 @@ pub(crate) fn extract_input_params(body: &SpExpr, params: &mut Vec<(String, Stri
         let rust_ty = if param.ty.is_none() {
             "i64".to_string()
         } else {
-            // Convert TypeExpr to tokens and filter out "linear" modifier
+            // Convert TypeExpr to tokens and filter out type qualifiers
+            // (linear, secret, tainted, etc.) that have no Rust equivalent
             let tokens = param.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
             let filtered: Vec<String> = tokens
                 .into_iter()
-                .filter(|t| t.as_str() != "linear")
+                .filter(|t| {
+                    !matches!(
+                        t.as_str(),
+                        "linear" | "secret" | "tainted" | "taint" | "untrusted" | "validated"
+                    )
+                })
                 .collect();
             if filtered.is_empty() {
                 "i64".to_string()
