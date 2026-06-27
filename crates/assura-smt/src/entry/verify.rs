@@ -33,6 +33,7 @@ use super::jobs::collect_verification_jobs;
 pub struct Verifier<'a> {
     typed: &'a TypedFile,
     source: Option<&'a std::path::Path>,
+    inline_extras: Option<&'a crate::ir_loader::LoadedVerifyExtras>,
     options: assura_config::VerifyOptions,
     cache: Option<&'a VerificationCache>,
     parallel: bool,
@@ -45,6 +46,7 @@ impl<'a> Verifier<'a> {
         Self {
             typed,
             source: None,
+            inline_extras: None,
             options: assura_config::VerifyOptions::default(),
             cache: None,
             parallel: false,
@@ -89,6 +91,15 @@ impl<'a> Verifier<'a> {
         self
     }
 
+    /// Inject pre-built IR extras (bypassing disk sidecar loading).
+    ///
+    /// Used by the AI verification loop (12.01) where IR text is submitted
+    /// inline via MCP/CLI rather than discovered as `.ir` sidecar files.
+    pub fn with_extras(mut self, extras: &'a crate::ir_loader::LoadedVerifyExtras) -> Self {
+        self.inline_extras = Some(extras);
+        self
+    }
+
     /// Include pending decrease (termination) checks from the type checker.
     pub fn with_decrease_checks(mut self) -> Self {
         self.include_decrease_checks = true;
@@ -108,10 +119,15 @@ impl<'a> Verifier<'a> {
 
     /// Run verification and return results.
     pub fn verify(self) -> Vec<VerificationResult> {
-        let loaded_storage = self
-            .source
-            .map(|path| crate::ir_loader::LoadedVerifyExtras::load(path, self.typed));
-        let extras = build_verify_extras(self.typed, loaded_storage.as_ref());
+        // Prefer inline extras (from AI verification loop) over disk sidecar loading.
+        let loaded_storage = if self.inline_extras.is_some() {
+            None
+        } else {
+            self.source
+                .map(|path| crate::ir_loader::LoadedVerifyExtras::load(path, self.typed))
+        };
+        let effective_loaded = self.inline_extras.or(loaded_storage.as_ref());
+        let extras = build_verify_extras(self.typed, effective_loaded);
 
         let enable_cache = self.options.enable_cache;
         let mut results = if self.parallel {

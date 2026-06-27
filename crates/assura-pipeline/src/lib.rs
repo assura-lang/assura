@@ -292,6 +292,303 @@ pub fn verification_strict_succeeded(results: &[assura_smt::VerificationResult])
 }
 
 // ---------------------------------------------------------------------------
+// IR Verification (AI verification loop, task 12.01)
+// ---------------------------------------------------------------------------
+
+/// Result of verifying IR implementation against a contract.
+///
+/// Contains per-clause verification results with progress tracking.
+/// This is the core output type for the AI verification loop.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct IrVerifyResult {
+    /// Overall status: "verified", "failed", "error".
+    pub status: String,
+    /// Human-readable progress: "3/4 clauses verified (75%)".
+    pub progress: String,
+    /// Per-clause verification results.
+    pub clauses: Vec<IrClauseResult>,
+    /// Aggregate counts.
+    pub summary: IrVerifySummary,
+    /// Contract compilation errors (empty when contract compiles cleanly).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub compile_errors: Vec<String>,
+    /// IR parse errors (empty when IR parses cleanly).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ir_errors: Vec<String>,
+    /// Structural validation errors (empty when IR matches contract).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub validation_errors: Vec<String>,
+}
+
+/// Per-clause verification result for the AI verification loop.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct IrClauseResult {
+    /// Clause descriptor: "ContractName::ensures[0]".
+    pub name: String,
+    /// Status: "verified", "counterexample", "timeout", "unknown".
+    pub status: String,
+    /// Counterexample model (for counterexample status).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub counterexample: Option<serde_json::Value>,
+    /// Reason (for unknown status).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// Summary counts for IR verification.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct IrVerifySummary {
+    pub verified: usize,
+    pub counterexample: usize,
+    pub timeout: usize,
+    pub unknown: usize,
+    pub total: usize,
+}
+
+impl IrVerifyResult {
+    fn from_results(results: Vec<assura_smt::VerificationResult>) -> Self {
+        let mut verified = 0usize;
+        let mut counterexample = 0usize;
+        let mut timeout = 0usize;
+        let mut unknown = 0usize;
+
+        let clauses: Vec<IrClauseResult> = results
+            .iter()
+            .map(|r| match r {
+                assura_smt::VerificationResult::Verified { clause_desc, .. } => {
+                    verified += 1;
+                    IrClauseResult {
+                        name: clause_desc.clone(),
+                        status: "verified".into(),
+                        counterexample: None,
+                        reason: None,
+                    }
+                }
+                assura_smt::VerificationResult::Counterexample {
+                    clause_desc,
+                    model,
+                    counter_model,
+                    ..
+                } => {
+                    counterexample += 1;
+                    let cex = counter_model.as_ref().map(|cm| {
+                        let vars: serde_json::Map<String, serde_json::Value> = cm
+                            .variables
+                            .iter()
+                            .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                            .collect();
+                        serde_json::json!({ "variables": vars, "raw_model": model })
+                    });
+                    IrClauseResult {
+                        name: clause_desc.clone(),
+                        status: "counterexample".into(),
+                        counterexample: cex,
+                        reason: None,
+                    }
+                }
+                assura_smt::VerificationResult::Timeout { clause_desc } => {
+                    timeout += 1;
+                    IrClauseResult {
+                        name: clause_desc.clone(),
+                        status: "timeout".into(),
+                        counterexample: None,
+                        reason: None,
+                    }
+                }
+                assura_smt::VerificationResult::Unknown {
+                    clause_desc,
+                    reason,
+                } => {
+                    unknown += 1;
+                    IrClauseResult {
+                        name: clause_desc.clone(),
+                        status: "unknown".into(),
+                        counterexample: None,
+                        reason: Some(reason.clone()),
+                    }
+                }
+            })
+            .collect();
+
+        let total = clauses.len();
+        let has_hard_failure = counterexample > 0 || timeout > 0;
+        let has_unknown_failure = unknown > 0
+            && !results.iter().all(|r| {
+                r.is_known_limitation()
+                    || matches!(r, assura_smt::VerificationResult::Verified { .. })
+            });
+        let status = if has_hard_failure || has_unknown_failure {
+            "failed"
+        } else {
+            "verified"
+        };
+
+        let pct = (verified * 100).checked_div(total).unwrap_or(0);
+        let progress = format!("{verified}/{total} clauses verified ({pct}%)");
+
+        Self {
+            status: status.into(),
+            progress,
+            clauses,
+            summary: IrVerifySummary {
+                verified,
+                counterexample,
+                timeout,
+                unknown,
+                total,
+            },
+            compile_errors: vec![],
+            ir_errors: vec![],
+            validation_errors: vec![],
+        }
+    }
+
+    fn compile_error(diagnostics: Vec<assura_diagnostics::Diagnostic>) -> Self {
+        Self {
+            status: "error".into(),
+            progress: "0/0 clauses verified (0%)".into(),
+            clauses: vec![],
+            summary: IrVerifySummary {
+                verified: 0,
+                counterexample: 0,
+                timeout: 0,
+                unknown: 0,
+                total: 0,
+            },
+            compile_errors: diagnostics.iter().map(|d| d.to_string()).collect(),
+            ir_errors: vec![],
+            validation_errors: vec![],
+        }
+    }
+
+    fn ir_parse_error(errors: Vec<String>) -> Self {
+        Self {
+            status: "error".into(),
+            progress: "0/0 clauses verified (0%)".into(),
+            clauses: vec![],
+            summary: IrVerifySummary {
+                verified: 0,
+                counterexample: 0,
+                timeout: 0,
+                unknown: 0,
+                total: 0,
+            },
+            compile_errors: vec![],
+            ir_errors: errors,
+            validation_errors: vec![],
+        }
+    }
+
+    fn validation_error(errors: Vec<String>) -> Self {
+        Self {
+            status: "error".into(),
+            progress: "0/0 clauses verified (0%)".into(),
+            clauses: vec![],
+            summary: IrVerifySummary {
+                verified: 0,
+                counterexample: 0,
+                timeout: 0,
+                unknown: 0,
+                total: 0,
+            },
+            compile_errors: vec![],
+            ir_errors: vec![],
+            validation_errors: errors,
+        }
+    }
+}
+
+/// Verify IR implementation text against an Assura contract source.
+///
+/// This is the core of the AI verification loop (task 12.01). It:
+/// 1. Compiles the contract (parse + resolve + typecheck)
+/// 2. Parses the IR text
+/// 3. Validates IR structure against the contract
+/// 4. Runs SMT verification with the IR body constraints
+/// 5. Returns per-clause results with progress tracking
+pub fn verify_ir(
+    contract_source: &str,
+    ir_source: &str,
+    config: &CompilerConfig,
+) -> IrVerifyResult {
+    // 1. Compile contract through the pipeline
+    let output = compile(contract_source, "<contract>", config);
+    if output.has_errors {
+        return IrVerifyResult::compile_error(output.diagnostics);
+    }
+    let typed = match output.typed {
+        Some(t) => t,
+        None => {
+            return IrVerifyResult::compile_error(vec![assura_diagnostics::Diagnostic::error(
+                "A01000",
+                "contract produced no typed output",
+                0..0,
+            )]);
+        }
+    };
+
+    // 2. Parse the IR text
+    let ir_module = match assura_smt::parse_ir_module(ir_source) {
+        Ok(m) => m,
+        Err(errors) => return IrVerifyResult::ir_parse_error(errors),
+    };
+
+    // 3. Structural validation: find the first contract decl and validate
+    let contract_decl = typed
+        .resolved
+        .source
+        .decls
+        .iter()
+        .find_map(|d| match &d.node {
+            Decl::Contract(c) => Some(c),
+            _ => None,
+        });
+
+    if let Some(contract) = contract_decl {
+        let validation = assura_smt::validate_ir_against_contract(&ir_module, contract);
+        if !validation.valid {
+            return IrVerifyResult::validation_error(validation.errors);
+        }
+    }
+
+    // 4. Build VerifyFileExtras from in-memory IR (mapped to the contract name)
+    let contract_name = contract_decl
+        .map(|c| c.name.as_str())
+        .unwrap_or(&ir_module.name);
+    let loaded = match assura_smt::LoadedVerifyExtras::from_ir_text(ir_source, contract_name) {
+        Ok(l) => l,
+        Err(errors) => return IrVerifyResult::ir_parse_error(errors),
+    };
+
+    // 5. Run SMT verification with the inline extras
+    if config.verify.layer < 1 {
+        // Layer 0 only: no SMT verification, just structural validation
+        return IrVerifyResult {
+            status: "verified".into(),
+            progress: "0/0 clauses verified (structural only)".into(),
+            clauses: vec![],
+            summary: IrVerifySummary {
+                verified: 0,
+                counterexample: 0,
+                timeout: 0,
+                unknown: 0,
+                total: 0,
+            },
+            compile_errors: vec![],
+            ir_errors: vec![],
+            validation_errors: vec![],
+        };
+    }
+
+    let results = assura_smt::Verifier::new(&typed)
+        .with_extras(&loaded)
+        .apply_options(config.verify.clone())
+        .verify();
+
+    IrVerifyResult::from_results(results)
+}
+
+// ---------------------------------------------------------------------------
 // PipelineResult: lightweight JSON-serializable summary (MCP compat)
 // ---------------------------------------------------------------------------
 

@@ -1,6 +1,6 @@
 use super::*;
 
-// `assura ir <file.ir>` — parse, validate, and codegen an Implementation IR file
+// `assura ir <file.ir>` — parse, validate, verify, and codegen an Implementation IR file
 // ---------------------------------------------------------------------------
 
 pub(crate) fn run_ir(
@@ -8,6 +8,9 @@ pub(crate) fn run_ir(
     contract_file: Option<&str>,
     output: Option<&str>,
     verbosity: Verbosity,
+    output_mode: OutputMode,
+    verify: bool,
+    verify_only: bool,
 ) {
     let ir_source = fs::read_to_string(ir_file).unwrap_or_else(|e| {
         eprintln!("Error: {ir_file}: {e}");
@@ -77,6 +80,56 @@ pub(crate) fn run_ir(
         } else {
             eprintln!("Warning: no contract found in {contract_path}, skipping validation");
         }
+
+        // --- SMT Verification (12.01 AI verification loop) ---
+        if verify {
+            let config = assura_config::CompilerConfig::default();
+            let result = assura_pipeline::verify_ir(&contract_source, &ir_source, &config);
+
+            if output_mode == OutputMode::Json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&result).unwrap_or_default()
+                );
+            } else {
+                // Human-readable output
+                eprintln!("Verification: {}", result.progress);
+                for clause in &result.clauses {
+                    let icon = match clause.status.as_str() {
+                        "verified" => "OK ",
+                        "counterexample" => "ERR",
+                        "timeout" => "TMO",
+                        _ => "UNK",
+                    };
+                    eprintln!("  {icon}  {}", clause.name);
+                    if let Some(ref cex) = clause.counterexample
+                        && let Some(vars) = cex.get("variables").and_then(|v| v.as_object())
+                    {
+                        for (k, v) in vars {
+                            eprintln!("        {k} = {v}");
+                        }
+                    }
+                    if let Some(ref reason) = clause.reason {
+                        eprintln!("        reason: {reason}");
+                    }
+                }
+            }
+
+            if result.status != "verified" {
+                process::exit(1);
+            }
+
+            if verify_only {
+                return;
+            }
+        }
+    } else if verify {
+        eprintln!("Error: --verify requires --contract <file>");
+        process::exit(2);
+    }
+
+    if verify_only {
+        return;
     }
 
     // Generate Rust code

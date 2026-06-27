@@ -72,6 +72,23 @@ fn default_ir_pattern() -> String {
     "auto".into()
 }
 
+/// Parameters for the `ir_verify` MCP tool (AI verification loop).
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct IrVerifyParams {
+    /// Assura contract source (inline). Provide either `source` or `file`.
+    #[serde(default)]
+    pub source: Option<String>,
+    /// Path to an .assura contract file. Provide either `source` or `file`.
+    #[serde(default)]
+    pub file: Option<String>,
+    /// Implementation IR source text (inline). Provide either `ir` or `ir_file`.
+    #[serde(default)]
+    pub ir: Option<String>,
+    /// Path to an .ir file. Provide either `ir` or `ir_file`.
+    #[serde(default)]
+    pub ir_file: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------
@@ -166,6 +183,23 @@ impl AssuraMcpServer {
             Err(e) => e,
         }
     }
+
+    #[tool(
+        description = "Verify an Implementation IR against an Assura contract using SMT solvers (Z3/CVC5). Returns per-clause verification results with counterexamples and progress tracking. The core tool for the AI verification loop: generate IR, submit for verification, read feedback, fix IR, resubmit until all clauses verify. Provide contract via `source`/`file` and IR via `ir`/`ir_file`."
+    )]
+    fn assura_ir_verify(&self, Parameters(params): Parameters<IrVerifyParams>) -> String {
+        let contract = match resolve_source_with_path(params.source, params.file) {
+            Ok((s, _)) => s,
+            Err(e) => return format!("{{\"status\":\"error\",\"compile_errors\":[\"{e}\"]}}"),
+        };
+        let ir = match resolve_source(params.ir, params.ir_file) {
+            Ok(s) => s,
+            Err(e) => return format!("{{\"status\":\"error\",\"ir_errors\":[\"{e}\"]}}"),
+        };
+        let config = assura_config::CompilerConfig::default();
+        let result = assura_pipeline::verify_ir(&contract, &ir, &config);
+        serde_json::to_string_pretty(&result).unwrap_or_default()
+    }
 }
 
 #[tool_handler]
@@ -174,8 +208,9 @@ impl ServerHandler for AssuraMcpServer {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
             "Assura contract-first AI-native language tools. Use assura_check to verify \
                  contracts, assura_infer to generate contracts from Rust code, assura_ir_prompt \
-                 to generate Implementation IR prompts, assura_explain to look up error codes, \
-                 and assura_type_map to convert Rust types.",
+                 to generate Implementation IR prompts, assura_ir_verify to verify IR \
+                 implementations against contracts (AI verification loop), assura_explain to \
+                 look up error codes, and assura_type_map to convert Rust types.",
         )
     }
 }
@@ -735,6 +770,72 @@ contract Bar {
         assert!(
             result.contains("contract double"),
             "should infer contract for double"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // assura_ir_verify tests (AI verification loop)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn tool_ir_verify_identity_verified() {
+        let server = AssuraMcpServer::new();
+        let params = IrVerifyParams {
+            source: Some(
+                "contract Echo {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n"
+                    .into(),
+            ),
+            file: None,
+            ir: Some(
+                "module Echo {\n  fn #0 : ($0: Int) -> Int ! pure\n  {\n    $result = load $0 : Int\n  }\n}\n"
+                    .into(),
+            ),
+            ir_file: None,
+        };
+        let result = server.assura_ir_verify(Parameters(params));
+        assert!(
+            result.contains("\"status\""),
+            "should return JSON with status field"
+        );
+        assert!(
+            result.contains("\"verified\""),
+            "identity IR should verify: {result}"
+        );
+        assert!(
+            result.contains("\"progress\""),
+            "should include progress field"
+        );
+    }
+
+    #[test]
+    fn tool_ir_verify_bad_ir() {
+        let server = AssuraMcpServer::new();
+        let params = IrVerifyParams {
+            source: Some("contract Echo {\n  input(x: Int)\n  output(result: Int)\n}\n".into()),
+            file: None,
+            ir: Some("not valid IR".into()),
+            ir_file: None,
+        };
+        let result = server.assura_ir_verify(Parameters(params));
+        assert!(
+            result.contains("error"),
+            "bad IR should produce error: {result}"
+        );
+    }
+
+    #[test]
+    fn tool_ir_verify_missing_params() {
+        let server = AssuraMcpServer::new();
+        let params = IrVerifyParams {
+            source: None,
+            file: None,
+            ir: Some("module X { }".into()),
+            ir_file: None,
+        };
+        let result = server.assura_ir_verify(Parameters(params));
+        assert!(
+            result.contains("error"),
+            "missing contract should produce error: {result}"
         );
     }
 }

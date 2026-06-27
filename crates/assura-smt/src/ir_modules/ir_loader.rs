@@ -22,6 +22,26 @@ impl LoadedVerifyExtras {
         Self { ir_map, block_map }
     }
 
+    /// Build extras from in-memory IR text, mapping the first function to
+    /// `contract_name`. Used by the AI verification loop (12.01) where IR
+    /// is submitted inline rather than loaded from sidecar files.
+    pub fn from_ir_text(ir_source: &str, contract_name: &str) -> Result<Self, Vec<String>> {
+        let module = parse_ir_module(ir_source)?;
+        let mut ir_map = HashMap::new();
+        let mut block_map_out = HashMap::new();
+        if let Some(func) = module.functions.first() {
+            ir_map.insert(contract_name.to_string(), func.clone());
+            let blocks = block_map_from_module(&module);
+            if !blocks.is_empty() {
+                block_map_out.insert(contract_name.to_string(), blocks);
+            }
+        }
+        Ok(Self {
+            ir_map,
+            block_map: block_map_out,
+        })
+    }
+
     /// Whether any sidecar IR bodies were discovered.
     pub fn is_empty(&self) -> bool {
         self.ir_map.is_empty()
@@ -277,6 +297,22 @@ module copy {
         let typed = typed_with_contract("MyContract");
         let names = collect_verification_job_names(&typed);
         assert_eq!(names, vec!["MyContract".to_string()]);
+    }
+
+    #[test]
+    fn from_ir_text_builds_extras() {
+        let ir = "module Echo {\n  fn #0 : ($0: Int) -> Int ! pure\n  {\n    $result = load $0 : Int\n  }\n}\n";
+        let loaded = LoadedVerifyExtras::from_ir_text(ir, "Echo").expect("should parse IR text");
+        assert!(!loaded.is_empty(), "should have loaded IR body");
+        assert_eq!(loaded.loaded_names(), vec!["Echo"]);
+        let extras = loaded.extras().expect("extras should be present");
+        assert!(extras.ir_bodies.is_some());
+    }
+
+    #[test]
+    fn from_ir_text_rejects_invalid_ir() {
+        let result = LoadedVerifyExtras::from_ir_text("not valid IR", "Foo");
+        assert!(result.is_err(), "invalid IR should produce errors");
     }
 
     #[test]
