@@ -4,6 +4,168 @@
 > proves it correct, returns counterexamples, AI fixes. This document
 > designs the closed loop.
 
+## User Flow
+
+### Who does what
+
+```mermaid
+graph LR
+    subgraph Human
+        H[Write .assura contracts]
+    end
+    subgraph AI Agent
+        A1[Generate IR implementation]
+        A2[Read feedback, fix IR]
+    end
+    subgraph Assura Compiler
+        C1[Verify IR against contracts]
+        C2[Return counterexamples]
+        C3[Build binary / WASM]
+    end
+
+    H -->|.assura file| C1
+    H -->|.assura file| A1
+    A1 -->|IR text| C1
+    C1 -->|verified| C3
+    C1 -->|counterexample + repair hint| A2
+    A2 -->|fixed IR| C1
+```
+
+### End-to-end walkthrough
+
+**Step 1: Human writes a contract** (what, not how)
+
+```assura
+contract SafeDivision {
+    input(a: Int, b: Int)
+    output(result: Int)
+    requires { b != 0 }
+    ensures  { result * b + (a mod b) == a }
+    effects  { pure }
+}
+```
+
+**Step 2: AI asks for a prompt** (MCP or CLI)
+
+```
+AI calls:  assura_ir_prompt(contract: "SafeDivision")
+AI gets:   Structured prompt with contract clauses, type map,
+           IR syntax reference, and pattern hints
+```
+
+**Step 3: AI generates IR** (typed slots, no proofs needed)
+
+```
+fn SafeDivision($0: Int, $1: Int) -> Int {
+    $2 = div($0, $1)
+    return $2
+}
+```
+
+**Step 4: AI submits IR for verification** (the new API)
+
+```
+AI calls:  assura_ir_verify(contract_source, ir_source)
+AI gets:
+  {
+    "status": "failed",
+    "progress": "1/2 clauses verified (50%)",
+    "clauses": [
+      { "name": "requires[0]: b != 0",
+        "status": "verified" },
+      { "name": "ensures[0]: result * b + (a mod b) == a",
+        "status": "counterexample",
+        "counterexample": { "a": 7, "b": 2, "result": 3 },
+        "repair_hint": "div(7,2)=3, but 3*2+(7 mod 2) = 7 ✓.
+                        Try a=-7, b=2: div(-7,2)=-3,
+                        -3*2+(-7 mod 2) = -6+(-1) = -7 ✓.
+                        Solver found a=..., b=... where it fails.
+                        Check truncation vs floor division." }
+    ]
+  }
+```
+
+**Step 5: AI fixes IR and resubmits**
+
+```
+fn SafeDivision($0: Int, $1: Int) -> Int {
+    $2 = ediv($0, $1)       // changed: euclidean division
+    return $2
+}
+```
+
+```
+AI calls:  assura_ir_verify(contract_source, fixed_ir_source)
+AI gets:   { "status": "verified", "progress": "2/2 (100%)" }
+```
+
+**Step 6: Build**
+
+```
+assura build SafeDivision.assura → compiled Rust binary or WASM
+```
+
+### The loop as a sequence diagram
+
+```mermaid
+sequenceDiagram
+    actor Human
+    participant AI as AI Agent
+    participant Assura as Assura Compiler
+
+    Human->>Assura: Write .assura contract
+    AI->>Assura: assura_ir_prompt(contract)
+    Assura-->>AI: Structured prompt + pattern hints
+
+    AI->>Assura: assura_ir_verify(contract, ir_v1)
+    Assura-->>AI: FAILED 1/2 clauses + counterexample + repair hint
+
+    AI->>Assura: assura_ir_verify(contract, ir_v2)
+    Assura-->>AI: FAILED 1/2 clauses + different counterexample
+
+    AI->>Assura: assura_ir_verify(contract, ir_v3)
+    Assura-->>AI: VERIFIED 2/2 clauses ✓
+
+    AI->>Assura: assura build
+    Assura-->>Human: Compiled binary / WASM
+```
+
+### Comparison: what happens today vs what 12.01 enables
+
+```mermaid
+graph TB
+    subgraph TODAY["Today (loop is open)"]
+        direction TB
+        T1[AI gets prompt] --> T2[AI generates IR]
+        T2 --> T3[Structural validation only]
+        T3 --> T4["'Looks valid' ✓"]
+        T4 --> T5[Codegen Rust]
+        T5 -.-> T6["Bug ships 💀<br/>(IR was never verified)"]
+    end
+
+    subgraph AFTER["After 12.01 (loop is closed)"]
+        direction TB
+        A1[AI gets prompt] --> A2[AI generates IR]
+        A2 --> A3[SMT verification]
+        A3 -->|counterexample| A2
+        A3 -->|verified| A4[Codegen Rust]
+        A4 --> A5["Correct by construction ✓"]
+    end
+```
+
+### Three ways to use it
+
+| Interface | Who uses it | Command |
+|-----------|-------------|---------|
+| **MCP tool** | AI agents (Grok, Cursor, Copilot) | `assura_ir_verify(contract, ir)` |
+| **CLI** | Developers, CI pipelines | `assura ir impl.ir --contract spec.assura --verify` |
+| **gRPC** | Services, orchestrators | `VerifyIR(request) → stream ClauseResult` |
+
+All three return the same structured JSON with per-clause results,
+counterexamples, root cause classification, and repair hints.
+
+---
+
 ## Competitor Landscape
 
 ### How competitors close the loop
