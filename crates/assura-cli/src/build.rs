@@ -225,6 +225,18 @@ pub(crate) fn run_build(
         }
     }
 
+    // Write sidecar metadata JSON
+    if let Some(ref meta) = project.metadata {
+        let json_path = out_dir.join("assura-contracts.json");
+        if let Ok(json) = serde_json::to_string_pretty(meta) {
+            if let Err(e) = fs::write(&json_path, &json) {
+                eprintln!("Warning: could not write {}: {e}", json_path.display());
+            } else if verbosity != Verbosity::Quiet {
+                println!("  wrote {}", json_path.display());
+            }
+        }
+    }
+
     // --- Generate .cargo/config.toml for WASM target ---
     if matches!(compile_target, assura_codegen::CompileTarget::Wasm) {
         let cargo_dir = out_dir.join(".cargo");
@@ -525,6 +537,16 @@ pub(crate) fn run_build_project(
                 process::exit(1);
             }
             generated_files += 1;
+        }
+
+        // Write sidecar metadata JSON
+        if let Some(ref meta) = project.metadata {
+            let json_path = out_dir.join("assura-contracts.json");
+            if let Ok(json) = serde_json::to_string_pretty(meta) {
+                if let Err(e) = fs::write(&json_path, json) {
+                    eprintln!("Warning: could not write {}: {e}", json_path.display());
+                }
+            }
         }
     }
 

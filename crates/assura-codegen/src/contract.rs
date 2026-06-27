@@ -173,6 +173,9 @@ pub(crate) fn generate_contract_contents(
         if let Some(ir) = ir_body {
             body.push(RustStmt::Raw(ir.clone()));
         } else {
+            body.push(RustStmt::Raw(
+                crate::metadata::implementation_guidance_comment(c),
+            ));
             body.push(RustStmt::Raw(format!(
                 "let {RESULT_VAR}: {output_type} = todo!(\"implementation provided by AI agent\");"
             )));

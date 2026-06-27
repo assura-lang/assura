@@ -21,6 +21,8 @@ mod decl;
 mod expr;
 /// Feature-specific code generation for all 50 verification features.
 pub mod features;
+/// Structured contract metadata for AI agent consumption.
+pub mod metadata;
 mod service;
 mod types_gen;
 
@@ -56,6 +58,9 @@ pub struct GeneratedProject {
     /// Generated source files as `(relative_path, rust_source)` pairs.
     /// Typically `[("src/lib.rs", "...")]`.
     pub files: Vec<(String, String)>,
+    /// Structured contract metadata for AI agent consumption.
+    /// Serializable to `assura-contracts.json`.
+    pub metadata: Option<metadata::ProjectMetadata>,
 }
 
 // ---------------------------------------------------------------------------
@@ -707,6 +712,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
         GeneratedProject {
             cargo_toml: cargo_toml.clone(),
             files,
+            metadata: None,
         }
     } else {
         // ------------------------------------------------------------------
@@ -747,8 +753,13 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
         GeneratedProject {
             cargo_toml,
             files: vec![("src/lib.rs".to_string(), formatted)],
+            metadata: None,
         }
     };
+
+    // Generate structured contract metadata
+    let source_name = project_name.clone() + ".assura";
+    project.metadata = Some(metadata::extract_metadata(typed, &source_name));
 
     // Add .cargo/config.toml for Cranelift backend
     if matches!(config.backend, CodegenBackend::Cranelift) {

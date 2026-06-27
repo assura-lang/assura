@@ -154,11 +154,14 @@ version = "0.1.0"
 dependencies = [
  "assura-ast",
  "assura-config",
+ "assura-parser",
  "assura-pipeline",
  "assura-resolve",
  "assura-test-support",
  "assura-types",
  "prettyplease",
+ "serde",
+ "serde_json",
  "syn",
 ]
 
