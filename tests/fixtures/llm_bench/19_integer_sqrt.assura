@@ -1,0 +1,10 @@
+// LLM Benchmark 19: Integer square root bound
+// Difficulty: hard (non-linear reasoning)
+// Expected: result * result <= n
+contract IntegerSqrt {
+    input(n: Int)
+    output(result: Int)
+    requires { n >= 0 }
+    ensures { result >= 0 }
+    ensures { result * result <= n }
+}

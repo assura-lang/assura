@@ -1,0 +1,8 @@
+// IR for SafeDivide: result = a / b
+module safe_divide {
+  fn #0 : ($0: Int, $1: Int) -> Int ! pure
+  {
+    $2 = arith div $0 $1 : Int
+    $result = load $2 : Int
+  }
+}

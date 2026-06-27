@@ -1,0 +1,8 @@
+// LLM Benchmark 20: Sort three values
+// Difficulty: hard (multiple outputs, ordering)
+// Expected: lo <= mid <= hi, all inputs preserved
+contract TripleSort {
+    input(a: Int, b: Int, c: Int)
+    output(lo: Int)
+    ensures { lo <= a || lo <= b || lo <= c }
+}

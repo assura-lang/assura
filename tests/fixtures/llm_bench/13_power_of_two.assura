@@ -1,0 +1,9 @@
+// LLM Benchmark 13: Check if power of two
+// Difficulty: medium
+// Expected: boolean result (0 or 1)
+contract IsPowerOfTwo {
+    input(n: Int)
+    output(result: Int)
+    requires { n > 0 }
+    ensures { result == 0 || result == 1 }
+}

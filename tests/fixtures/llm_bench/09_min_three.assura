@@ -1,0 +1,11 @@
+// LLM Benchmark 09: Minimum of three values
+// Difficulty: medium (nested conditionals)
+// Expected: result <= a, result <= b, result <= c, result is one of {a,b,c}
+contract MinThree {
+    input(a: Int, b: Int, c: Int)
+    output(result: Int)
+    ensures { result <= a }
+    ensures { result <= b }
+    ensures { result <= c }
+    ensures { result == a || result == b || result == c }
+}

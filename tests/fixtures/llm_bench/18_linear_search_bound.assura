@@ -1,0 +1,10 @@
+// LLM Benchmark 18: Search result bound
+// Difficulty: medium (array index reasoning)
+// Expected: result in [-1, len)
+contract LinearSearchBound {
+    input(len: Int)
+    output(result: Int)
+    requires { len >= 0 }
+    ensures { result >= -1 }
+    ensures { result < len || result == -1 }
+}

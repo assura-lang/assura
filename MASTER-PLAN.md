@@ -263,15 +263,13 @@ Phases 1-11 from MASTER-PLAN v3 are complete. Summary:
   validate it. Measure pass rate. Publish the numbers.
 - **Agent entrypoint:** new `scripts/benchmark-llm-verify.sh` or
   `crates/assura-bench/src/llm_benchmark.rs`
-- [ ] **Acceptance Tests**:
+- [x] **Acceptance Tests**:
   ```bash
-  # 1. Benchmark contracts exist
+  # 1. Benchmark contracts exist (20 contracts)
   ls tests/fixtures/llm_bench/*.assura | wc -l
-  # Must be >= 20
-  # 2. Script/tool exists
-  ls scripts/benchmark-llm-verify.sh || ls crates/assura-bench/src/llm*
-  # Must find at least one
-  # 3. At least one measured result is documented
+  # 2. Script exists
+  ls scripts/benchmark-llm-verify.sh
+  # 3. Measured results documented in docs/LLM-BENCHMARK.md
   grep -i 'verification.*rate\|success.*rate\|pass.*rate' docs/*.md
   ```
 

@@ -1,0 +1,8 @@
+// LLM Benchmark 12: Evenness check
+// Difficulty: easy
+// Expected: result == 0 or result == 1
+contract IsEven {
+    input(n: Int)
+    output(result: Int)
+    ensures { result == 0 || result == 1 }
+}

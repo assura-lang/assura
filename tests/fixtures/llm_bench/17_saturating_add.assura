@@ -1,0 +1,12 @@
+// LLM Benchmark 17: Saturating addition (caps at max)
+// Difficulty: medium
+// Expected: result <= max_val
+contract SaturatingAdd {
+    input(a: Int, b: Int, max_val: Int)
+    output(result: Int)
+    requires { a >= 0 }
+    requires { b >= 0 }
+    requires { max_val > 0 }
+    ensures { result >= 0 }
+    ensures { result <= max_val }
+}

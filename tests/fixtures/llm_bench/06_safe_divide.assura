@@ -1,0 +1,9 @@
+// LLM Benchmark 06: Safe integer division
+// Difficulty: easy (precondition guards)
+// Expected: result * b + (a % b) == a
+contract SafeDivide {
+    input(a: Int, b: Int)
+    output(result: Int)
+    requires { b != 0 }
+    ensures { result * b + a % b == a }
+}

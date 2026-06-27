@@ -1,0 +1,10 @@
+// LLM Benchmark 04: Maximum of two integers
+// Difficulty: easy
+// Expected: result >= a && result >= b && (result == a || result == b)
+contract MaxTwo {
+    input(a: Int, b: Int)
+    output(result: Int)
+    ensures { result >= a }
+    ensures { result >= b }
+    ensures { result == a || result == b }
+}

@@ -1,0 +1,8 @@
+// LLM Benchmark 02: Increment by one
+// Difficulty: trivial
+// Expected: result == x + 1
+contract Increment {
+    input(x: Int)
+    output(result: Int)
+    ensures { result == x + 1 }
+}

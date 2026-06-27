@@ -1,0 +1,8 @@
+// IR for BoundedAdd: result = a + b
+module bounded_add {
+  fn #0 : ($0: Int, $1: Int) -> Int ! pure
+  {
+    $2 = arith add $0 $1 : Int
+    $result = load $2 : Int
+  }
+}
