@@ -1,6 +1,5 @@
 use super::*;
 use assura_parser::ast::Spanned;
-use assura_parser::ast::*;
 
 fn span() -> Range<usize> {
     0..10

@@ -1,5 +1,4 @@
 use super::*;
-use assura_parser::ast::*;
 use assura_parser::ast::{BinOp, Expr, Literal, SpExpr, Spanned, UnaryOp};
 
 fn mk_int(s: &str) -> SpExpr {
