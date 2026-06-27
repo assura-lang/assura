@@ -116,6 +116,7 @@ dependencies = [
  "assura-resolve",
  "assura-rust-analyzer",
  "assura-smt",
+ "assura-test-support",
  "assura-types",
  "clap",
  "clap_complete",

@@ -30,11 +30,7 @@ fn sanitize(raw: Bytes) -> Bytes
 
 #[test]
 fn test_result_length_verifies() {
-    let fixture = format!(
-        "{}/../../tests/fixtures/test_sec.assura",
-        env!("CARGO_MANIFEST_DIR")
-    );
-    let src = std::fs::read_to_string(&fixture).expect("test_sec.assura fixture");
+    let src = assura_test_support::load_fixture("tests/fixtures/test_sec.assura");
     let typed = assura_test_support::typecheck_ok(&src);
     let results = verify(&typed);
     let sanitize_ensures = results.iter().find(|r| match r {

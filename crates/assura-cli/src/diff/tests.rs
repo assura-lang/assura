@@ -71,41 +71,31 @@ contract UsePoint {
 
 #[test]
 fn pipeline_demo_libwebp() {
-    let source = std::fs::read_to_string("../../demos/libwebp-huffman.assura")
-        .or_else(|_| std::fs::read_to_string("demos/libwebp-huffman.assura"))
-        .expect("cannot find libwebp demo");
+    let source = assura_test_support::load_fixture("demos/libwebp-huffman.assura");
     assert_pipeline_ok(&source);
 }
 
 #[test]
 fn pipeline_demo_zlib() {
-    let source = std::fs::read_to_string("../../demos/zlib-inflate.assura")
-        .or_else(|_| std::fs::read_to_string("demos/zlib-inflate.assura"))
-        .expect("cannot find zlib demo");
+    let source = assura_test_support::load_fixture("demos/zlib-inflate.assura");
     assert_pipeline_ok(&source);
 }
 
 #[test]
 fn pipeline_demo_mbedtls() {
-    let source = std::fs::read_to_string("../../demos/mbedtls-x509.assura")
-        .or_else(|_| std::fs::read_to_string("demos/mbedtls-x509.assura"))
-        .expect("cannot find mbedtls demo");
+    let source = assura_test_support::load_fixture("demos/mbedtls-x509.assura");
     assert_pipeline_ok(&source);
 }
 
 #[test]
 fn pipeline_test_basic() {
-    let source = std::fs::read_to_string("../../tests/fixtures/test_basic.assura")
-        .or_else(|_| std::fs::read_to_string("tests/fixtures/test_basic.assura"))
-        .expect("cannot find test_basic fixture");
+    let source = assura_test_support::load_fixture("tests/fixtures/test_basic.assura");
     assert_pipeline_ok(&source);
 }
 
 #[test]
 fn pipeline_advanced_patterns() {
-    let source = std::fs::read_to_string("../../tests/fixtures/advanced_patterns.assura")
-        .or_else(|_| std::fs::read_to_string("tests/fixtures/advanced_patterns.assura"))
-        .expect("cannot find advanced_patterns fixture");
+    let source = assura_test_support::load_fixture("tests/fixtures/advanced_patterns.assura");
     assert_pipeline_ok(&source);
 }
 
@@ -498,9 +488,7 @@ contract CraneliftTest {
 
 /// Helper: run the full pipeline on a demo file and return the generated project.
 fn roundtrip_demo(demo_name: &str) -> assura_codegen::GeneratedProject {
-    let source = std::fs::read_to_string(format!("../../demos/{demo_name}"))
-        .or_else(|_| std::fs::read_to_string(format!("demos/{demo_name}")))
-        .unwrap_or_else(|_| panic!("cannot find demo: {demo_name}"));
+    let source = assura_test_support::load_fixture(format!("demos/{demo_name}"));
     full_pipeline(&source).unwrap_or_else(|e| panic!("{demo_name}: pipeline failed: {e}"))
 }
 
