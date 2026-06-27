@@ -12,6 +12,7 @@ mod check_rust;
 mod project;
 mod report;
 mod run;
+mod suggest_crash;
 mod types;
 mod watch;
 
@@ -22,5 +23,6 @@ pub(crate) use check_rust::*;
 pub(crate) use project::*;
 pub(crate) use report::*;
 pub(crate) use run::*;
+pub(crate) use suggest_crash::*;
 pub(crate) use types::*;
 pub(crate) use watch::*;
