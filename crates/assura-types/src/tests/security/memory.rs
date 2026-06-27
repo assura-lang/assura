@@ -251,4 +251,3 @@ fn expr_references_var_in_binop() {
     assert!(expr_references_var(&expr, "buf"));
     assert!(!expr_references_var(&expr, "other"));
 }
-

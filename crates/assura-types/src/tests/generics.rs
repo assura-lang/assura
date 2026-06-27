@@ -323,10 +323,7 @@ fn substitute_in_refined_type() {
     bindings.insert("T".into(), Type::Int);
     let ty = Type::refined_from_str(Type::TypeParam("T".into()), "v", "v > 0");
     let result = substitute(&ty, &bindings);
-    assert_eq!(
-        result,
-        Type::refined_from_str(Type::Int, "v", "v > 0")
-    );
+    assert_eq!(result, Type::refined_from_str(Type::Int, "v", "v > 0"));
 }
 
 #[test]

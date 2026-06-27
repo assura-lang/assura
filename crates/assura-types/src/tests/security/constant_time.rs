@@ -87,4 +87,3 @@ fn ct_references_secret_field() {
     ));
     assert!(checker.references_secret(&expr));
 }
-

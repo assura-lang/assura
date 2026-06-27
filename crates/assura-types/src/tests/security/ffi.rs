@@ -102,4 +102,3 @@ fn ffi_file_check_multiple_externs() {
     let errors = checker.check_file(&externs);
     assert_eq!(errors.len(), 2); // A11002 for read, A11001 for unknown
 }
-

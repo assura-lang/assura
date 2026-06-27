@@ -106,4 +106,3 @@ type Marker {
     let lib = &project.files[0].1;
     assert!(lib.contains("Marker"), "should contain empty struct");
 }
-

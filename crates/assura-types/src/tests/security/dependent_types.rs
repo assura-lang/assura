@@ -176,4 +176,3 @@ fn dep_type_display() {
         "m: Mode"
     );
 }
-

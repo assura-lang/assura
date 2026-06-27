@@ -86,4 +86,3 @@ fn table_default() {
     let tc = PrecomputedTableChecker::default();
     assert!(tc.check_non_empty().is_empty());
 }
-

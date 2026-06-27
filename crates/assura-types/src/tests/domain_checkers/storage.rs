@@ -342,4 +342,3 @@ fn storage_failure_default() {
     let sf = StorageFailureChecker::default();
     assert!(sf.check_critical_coverage().is_empty());
 }
-

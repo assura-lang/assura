@@ -37,11 +37,11 @@ fn make_clause(kind: ClauseKind, body: Expr) -> Clause {
     }
 }
 
-mod native;
-mod match_patterns;
-mod frame;
-mod measures;
 mod batch2_policy;
 mod bitvector;
+mod frame;
+mod match_patterns;
+mod measures;
+mod native;
 mod parity_468;
 mod theory_parity;

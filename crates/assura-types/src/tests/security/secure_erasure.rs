@@ -62,4 +62,3 @@ fn secure_erasure_check_all_erased() {
     let errors = checker.check_all_erased(&(0..1));
     assert_eq!(errors.len(), 1); // key2 not zeroized
 }
-

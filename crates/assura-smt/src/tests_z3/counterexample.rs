@@ -254,4 +254,3 @@ fn test_nested_region_bounds() {
         results[0]
     );
 }
-

@@ -137,4 +137,3 @@ fn non_lemma_fn_still_generated() {
         "non-lemma fn should appear in generated Rust code"
     );
 }
-

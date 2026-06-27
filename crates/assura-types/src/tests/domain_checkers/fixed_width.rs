@@ -263,4 +263,3 @@ fn fixed_width_cast_non_fixed_width() {
     let err = FixedWidthChecker::check_cast_safety(&Type::Int, &Type::U32, &(0..1));
     assert!(err.is_none(), "non-fixed-width cast should be out of scope");
 }
-

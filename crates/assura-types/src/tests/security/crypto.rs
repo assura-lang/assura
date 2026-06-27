@@ -86,4 +86,3 @@ fn crypto_custom_spec() {
     let errors = checker.check_nonce_size("XSalsa20", 12, &(0..1));
     assert_eq!(errors.len(), 1);
 }
-

@@ -234,4 +234,3 @@ fn taint_checker_display() {
     assert_eq!(TaintLabel::Validated.to_string(), "validated");
     assert_eq!(TaintLabel::Trusted.to_string(), "trusted");
 }
-

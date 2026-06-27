@@ -608,10 +608,7 @@ fn parse_type_tokens_refinement_preserves_predicate() {
         .map(String::from)
         .collect();
     let ty = parse_type_tokens(&tokens);
-    assert_eq!(
-        ty,
-        Type::refined_from_str(Type::Int, "x", "x > 0")
-    );
+    assert_eq!(ty, Type::refined_from_str(Type::Int, "x", "x > 0"));
 }
 
 #[test]
@@ -638,10 +635,7 @@ fn parse_type_tokens_refinement_no_predicate() {
         .map(String::from)
         .collect();
     let ty = parse_type_tokens(&tokens);
-    assert_eq!(
-        ty,
-        Type::refined_from_str(Type::Bool, "x", "")
-    );
+    assert_eq!(ty, Type::refined_from_str(Type::Bool, "x", ""));
 }
 
 #[test]
@@ -699,7 +693,10 @@ fn refinement_predicate_with_less_than_in_multi_param() {
         assert_eq!(**base, Type::Int);
         // Predicate may be stored as "x < 10" (single token) or "x < 10" (split)
         let pred = ty_a.predicate_str().unwrap_or_default();
-        assert!(pred.contains("x") && pred.contains("10"), "expected x < 10, got {pred}");
+        assert!(
+            pred.contains("x") && pred.contains("10"),
+            "expected x < 10, got {pred}"
+        );
     } else {
         panic!("expected Refined, got {ty_a:?}");
     }

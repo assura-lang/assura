@@ -194,4 +194,3 @@ fn interface_unknown_interface_a13001() {
     assert_eq!(errors[0].code, "A13001");
     assert!(errors[0].message.contains("Unknown"));
 }
-

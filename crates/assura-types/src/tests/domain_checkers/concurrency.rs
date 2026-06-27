@@ -160,4 +160,3 @@ fn deadline_default() {
     let checker = TemporalDeadlineChecker::default();
     assert!(checker.current_deadline().is_none());
 }
-

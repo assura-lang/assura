@@ -57,11 +57,7 @@ impl ProphecyResolutionChecker {
     }
 }
 
-fn collect_ident_refs(
-    expr: &SpExpr,
-    prophecy_names: &HashSet<&str>,
-    found: &mut HashSet<String>,
-) {
+fn collect_ident_refs(expr: &SpExpr, prophecy_names: &HashSet<&str>, found: &mut HashSet<String>) {
     match &expr.node {
         Expr::Ident(name) => {
             if prophecy_names.contains(name.as_str()) {

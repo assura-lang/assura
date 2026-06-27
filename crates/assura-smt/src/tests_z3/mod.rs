@@ -26,12 +26,12 @@ fn int_lit(n: i64) -> SpExpr {
 }
 
 mod core;
+mod counterexample;
+mod encoding;
+mod frame;
 mod old_field;
 mod raw_ops;
-mod frame;
 mod refinement;
-mod counterexample;
-mod taint_measures;
 mod regressions;
-mod encoding;
+mod taint_measures;
 mod theory_verifiers;

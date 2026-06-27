@@ -83,4 +83,3 @@ fn allocator_bounded_no_error() {
     checker.mark_bounded("heap_buf");
     assert!(checker.check_unbounded().is_empty());
 }
-

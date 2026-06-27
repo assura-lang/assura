@@ -145,4 +145,3 @@ fn resource_default() {
     let rl = ResourceLimitChecker::default();
     assert!(rl.check_limits().is_empty());
 }
-

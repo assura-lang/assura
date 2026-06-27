@@ -1,9 +1,9 @@
 use assura_parser::ast::{ClauseKind, Expr};
 
+use crate::TypeError;
 use crate::checkers::{extract_ident, extract_int_literal, extract_kv_pairs};
 use crate::checks::clauses_contract_fn_block;
 use crate::types::{DEFAULT_PARAM_ONE, DEFAULT_PARAM_ZERO};
-use crate::TypeError;
 
 // ===========================================================================
 // T104: MISC.1 Incremental contracts

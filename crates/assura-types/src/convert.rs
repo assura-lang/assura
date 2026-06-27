@@ -482,10 +482,7 @@ mod tests {
             predicate: "x > 0".into(),
         };
         let result = type_from_expr(&expr);
-        assert_eq!(
-            result,
-            Type::refined_from_str(Type::Int, "x", "x > 0"),
-        );
+        assert_eq!(result, Type::refined_from_str(Type::Int, "x", "x > 0"),);
     }
 
     #[test]

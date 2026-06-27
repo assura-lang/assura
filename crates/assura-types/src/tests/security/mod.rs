@@ -1,16 +1,16 @@
 use super::*;
 
-mod memory;
-mod taint;
-mod dependent_types;
-mod ffi;
-mod interface;
 mod constant_time;
-mod structural_invariant;
-mod secure_erasure;
 mod crypto;
-mod shared_memory;
+mod dependent_types;
 mod determinism;
-mod lock_ordering;
+mod ffi;
 mod info_flow;
+mod interface;
+mod lock_ordering;
+mod memory;
+mod secure_erasure;
+mod shared_memory;
+mod structural_invariant;
+mod taint;
 mod totality;

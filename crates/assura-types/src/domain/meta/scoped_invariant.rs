@@ -1,8 +1,8 @@
 use assura_parser::ast::{ClauseKind, Expr};
 
+use crate::TypeError;
 use crate::checkers::collect_ident_references;
 use crate::checks::clauses_contract_fn_block;
-use crate::TypeError;
 
 // ===========================================================================
 // T105: MISC.2 Scoped invariant suspension

@@ -1,9 +1,9 @@
 use assura_parser::ast::{ClauseKind, Expr};
 
+use crate::TypeError;
 use crate::checkers::{extract_call, extract_ident, extract_int_literal, extract_kv_pairs};
 use crate::checks::clauses_contract_fn_block;
 use crate::types::DEFAULT_PARAM_ONE;
-use crate::TypeError;
 
 // ===========================================================================
 // T103: TEST.3 Multi-pass refinement

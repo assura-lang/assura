@@ -82,4 +82,3 @@ fn test_no_modifies_no_frame_axiom() {
         results[0]
     );
 }
-

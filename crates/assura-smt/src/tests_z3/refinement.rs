@@ -106,4 +106,3 @@ fn test_counterexample_json() {
     assert!(json.starts_with('{'), "JSON should start with open brace");
     assert!(json.ends_with('}'), "JSON should end with close brace");
 }
-

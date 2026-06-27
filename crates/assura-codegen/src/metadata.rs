@@ -4,9 +4,7 @@
 //! can parse to understand which contracts apply to which functions, what
 //! pre/post-conditions exist, and what types are involved.
 
-use assura_ast::{
-    Clause, ClauseKind, ContractDecl, Decl, ExternDecl, FnDef, expr_to_string,
-};
+use assura_ast::{Clause, ClauseKind, ContractDecl, Decl, ExternDecl, FnDef, expr_to_string};
 use assura_types::TypedFile;
 
 use serde::Serialize;
@@ -90,16 +88,14 @@ fn contract_meta(c: &ContractDecl) -> ContractMeta {
         .fn_params
         .iter()
         .map(|p| {
-            let assura_type = p
-                .ty
-                .as_ref()
-                .map(|t| t.to_string())
-                .unwrap_or_else(|| "?".to_string());
-            let rust_type = p
-                .ty
-                .as_ref()
-                .map(|t| map_type_token(&t.to_string()).to_string())
-                .unwrap_or_else(|| "?".to_string());
+            let assura_type =
+                p.ty.as_ref()
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| "?".to_string());
+            let rust_type =
+                p.ty.as_ref()
+                    .map(|t| map_type_token(&t.to_string()).to_string())
+                    .unwrap_or_else(|| "?".to_string());
             ParamMeta {
                 name: p.name.clone(),
                 assura_type,
@@ -131,16 +127,14 @@ fn extern_meta(ext: &ExternDecl) -> ContractMeta {
         .params
         .iter()
         .map(|p| {
-            let assura_type = p
-                .ty
-                .as_ref()
-                .map(|t| t.to_string())
-                .unwrap_or_else(|| "?".to_string());
-            let rust_type = p
-                .ty
-                .as_ref()
-                .map(|t| map_type_token(&t.to_string()).to_string())
-                .unwrap_or_else(|| "?".to_string());
+            let assura_type =
+                p.ty.as_ref()
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| "?".to_string());
+            let rust_type =
+                p.ty.as_ref()
+                    .map(|t| map_type_token(&t.to_string()).to_string())
+                    .unwrap_or_else(|| "?".to_string());
             ParamMeta {
                 name: p.name.clone(),
                 assura_type,
@@ -180,16 +174,14 @@ fn fndef_meta(f: &FnDef) -> ContractMeta {
         .params
         .iter()
         .map(|p| {
-            let assura_type = p
-                .ty
-                .as_ref()
-                .map(|t| t.to_string())
-                .unwrap_or_else(|| "?".to_string());
-            let rust_type = p
-                .ty
-                .as_ref()
-                .map(|t| map_type_token(&t.to_string()).to_string())
-                .unwrap_or_else(|| "?".to_string());
+            let assura_type =
+                p.ty.as_ref()
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| "?".to_string());
+            let rust_type =
+                p.ty.as_ref()
+                    .map(|t| map_type_token(&t.to_string()).to_string())
+                    .unwrap_or_else(|| "?".to_string());
             ParamMeta {
                 name: p.name.clone(),
                 assura_type,
@@ -272,11 +264,10 @@ pub fn implementation_guidance_comment(c: &ContractDecl) -> String {
         .fn_params
         .iter()
         .map(|p| {
-            let ty = p
-                .ty
-                .as_ref()
-                .map(|t| map_type_token(&t.to_string()).to_string())
-                .unwrap_or_else(|| "?".to_string());
+            let ty =
+                p.ty.as_ref()
+                    .map(|t| map_type_token(&t.to_string()).to_string())
+                    .unwrap_or_else(|| "?".to_string());
             format!("{}: {ty}", p.name)
         })
         .collect();

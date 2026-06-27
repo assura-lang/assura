@@ -202,4 +202,3 @@ fn test_index_bounds_axiom() {
         results[0]
     );
 }
-

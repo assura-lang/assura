@@ -1,7 +1,7 @@
 use assura_parser::ast::{ClauseKind, Expr};
 
-use crate::checks::clauses_contract_fn_block;
 use crate::TypeError;
+use crate::checks::clauses_contract_fn_block;
 
 // ===========================================================================
 // T102: TEST.2 Behavioral equivalence

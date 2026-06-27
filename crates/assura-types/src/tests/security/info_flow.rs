@@ -316,4 +316,3 @@ fn info_flow_checker_default() {
     let checker: InfoFlowChecker = Default::default();
     assert!(!checker.has_labels());
 }
-

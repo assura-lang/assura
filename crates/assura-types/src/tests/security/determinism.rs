@@ -51,4 +51,3 @@ fn determinism_random_a20001() {
     let errors = checker.check_fn_body("seed_fn", &["thread_rng".into()], &(0..1));
     assert_eq!(errors.len(), 1);
 }
-

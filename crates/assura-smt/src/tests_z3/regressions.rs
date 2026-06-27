@@ -848,4 +848,3 @@ fn test_feature_max_narrowing_derives_pairs() {
         "LIMIT should not produce narrowing"
     );
 }
-

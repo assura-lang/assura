@@ -147,7 +147,10 @@ impl Type {
         let tokens: Vec<String> = if predicate_text.is_empty() {
             vec![]
         } else {
-            predicate_text.split_whitespace().map(String::from).collect()
+            predicate_text
+                .split_whitespace()
+                .map(String::from)
+                .collect()
         };
         Type::Refined {
             base: Box::new(base),
@@ -877,15 +880,9 @@ mod tests {
         env.struct_fields
             .insert("Point".into(), vec![("x".into(), Type::Float)]);
         env.push_scope();
-        assert_eq!(
-            env.lookup_field("Point", "x"),
-            Some(&Type::Float)
-        );
+        assert_eq!(env.lookup_field("Point", "x"), Some(&Type::Float));
         env.pop_scope();
-        assert_eq!(
-            env.lookup_field("Point", "x"),
-            Some(&Type::Float)
-        );
+        assert_eq!(env.lookup_field("Point", "x"), Some(&Type::Float));
     }
 
     // ---- Refined type with Expr predicate ----

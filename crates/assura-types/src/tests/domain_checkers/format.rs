@@ -431,4 +431,3 @@ fn protocol_multi_state() {
     assert!(checker.transition("AUTH", &(0..1)).is_none());
     assert!(checker.transition("CLOSE", &(0..1)).is_none());
 }
-

@@ -1,7 +1,7 @@
 use assura_parser::ast::{ClauseKind, Expr};
 
-use crate::checks::clauses_contract_fn;
 use crate::TypeError;
+use crate::checks::clauses_contract_fn;
 
 // ===========================================================================
 // T101: PERF.2 Complexity bounds (AARA)

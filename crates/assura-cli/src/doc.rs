@@ -44,10 +44,7 @@ pub(crate) fn run_doc(
         let source = match std::fs::read_to_string(source_path) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!(
-                    "error: cannot read {}: {e}",
-                    source_path.display()
-                );
+                eprintln!("error: cannot read {}: {e}", source_path.display());
                 std::process::exit(2);
             }
         };
@@ -228,20 +225,12 @@ fn write_service_doc(doc: &mut String, service: &ServiceDecl) {
                     let _ = writeln!(doc);
                 }
                 ServiceItem::Invariant(expr) => {
-                    let _ = writeln!(
-                        doc,
-                        "### Invariant\n\n`{}`\n",
-                        expr_to_string(expr)
-                    );
+                    let _ = writeln!(doc, "### Invariant\n\n`{}`\n", expr_to_string(expr));
                 }
                 ServiceItem::TypeDef(td) => write_typedef_doc(doc, td),
                 ServiceItem::EnumDef(ed) => write_enum_doc(doc, ed),
                 ServiceItem::Other { kind, body } => {
-                    let _ = writeln!(
-                        doc,
-                        "### {kind}\n\n`{}`\n",
-                        expr_to_string(body)
-                    );
+                    let _ = writeln!(doc, "### {kind}\n\n`{}`\n", expr_to_string(body));
                 }
             }
         }
@@ -291,12 +280,7 @@ fn write_enum_doc(doc: &mut String, enum_def: &EnumDef) {
             if variant.fields.is_empty() {
                 let _ = writeln!(doc, "- `{}`", variant.name);
             } else {
-                let _ = writeln!(
-                    doc,
-                    "- `{}({})`",
-                    variant.name,
-                    variant.fields.join(", ")
-                );
+                let _ = writeln!(doc, "- `{}({})`", variant.name, variant.fields.join(", "));
             }
         }
         let _ = writeln!(doc);
@@ -441,11 +425,7 @@ fn write_clauses_section(doc: &mut String, clauses: &[Clause]) {
                 ClauseKind::Ordering => "ordering",
                 _ => "clause",
             };
-            let _ = writeln!(
-                doc,
-                "- **{kind}**: `{}`",
-                expr_to_string(&clause.body)
-            );
+            let _ = writeln!(doc, "- **{kind}**: `{}`", expr_to_string(&clause.body));
         }
         let _ = writeln!(doc);
     }
@@ -516,7 +496,10 @@ mod tests {
         let output = assura_pipeline::compile(&source, "heartbleed.assura", &Default::default());
         let doc = generate_file_doc("heartbleed.assura", &output.file, &None);
 
-        assert!(doc.contains("# heartbleed.assura"), "should have file header");
+        assert!(
+            doc.contains("# heartbleed.assura"),
+            "should have file header"
+        );
         assert!(
             doc.contains("HeartbeatSafeResponse"),
             "should document the contract"
@@ -537,7 +520,10 @@ contract Div {
         let doc = generate_file_doc("test.assura", &output.file, &None);
 
         assert!(doc.contains("b != 0"), "should show requires clause");
-        assert!(doc.contains("result == a / b"), "should show ensures clause");
+        assert!(
+            doc.contains("result == a / b"),
+            "should show ensures clause"
+        );
     }
 
     #[test]
@@ -551,7 +537,10 @@ service Counter {
         let output = assura_pipeline::compile(source, "test.assura", &Default::default());
         let doc = generate_file_doc("test.assura", &output.file, &None);
 
-        assert!(doc.contains("Service: `Counter`"), "should document service");
+        assert!(
+            doc.contains("Service: `Counter`"),
+            "should document service"
+        );
     }
 
     #[test]

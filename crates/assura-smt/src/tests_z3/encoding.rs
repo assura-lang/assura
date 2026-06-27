@@ -450,4 +450,3 @@ contract NoCrossContamination {
         results[1]
     );
 }
-

@@ -136,4 +136,3 @@ fn test_multiple_requires() {
         results[0]
     );
 }
-

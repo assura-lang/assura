@@ -75,4 +75,3 @@ fn shared_mem_access_mode_display() {
     assert_eq!(AccessMode::SharedRead.to_string(), "shared_read");
     assert_eq!(AccessMode::None.to_string(), "none");
 }
-

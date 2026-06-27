@@ -150,4 +150,3 @@ fn struct_inv_get_invariants() {
     assert_eq!(checker.get_invariants("AVL").len(), 2);
     assert!(checker.get_invariants("Unknown").is_empty());
 }
-

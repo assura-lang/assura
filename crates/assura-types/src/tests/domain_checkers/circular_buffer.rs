@@ -64,4 +64,3 @@ fn circ_buf_default() {
     let checker = CircularBufferChecker::default();
     assert!(checker.check_read("x", &(0..1)).is_none());
 }
-

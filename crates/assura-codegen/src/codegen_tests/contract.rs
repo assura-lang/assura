@@ -68,4 +68,3 @@ fn fn_result_maps_to_dunder_result() {
         "result keyword in ensures should map to result var"
     );
 }
-

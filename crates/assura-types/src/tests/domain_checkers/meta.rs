@@ -222,4 +222,3 @@ fn test_gen_default() {
     let tgen = TestGenerator::default();
     assert!(tgen.generate_all().is_empty());
 }
-

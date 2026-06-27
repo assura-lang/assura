@@ -211,4 +211,3 @@ fn test_old_unmodified_var_verified() {
         results[0]
     );
 }
-

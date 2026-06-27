@@ -652,4 +652,3 @@ contract DecreasesTest {
         "decreases n with requires n > 0 should verify non-negative, got: {results:?}"
     );
 }
-
