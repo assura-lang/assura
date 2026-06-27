@@ -272,7 +272,7 @@ fn resolve_imports_recursive(
 /// hyphens to underscores), look for the remaining segments inside
 /// that dependency's project root.
 ///
-/// Example: `dep_lib::math` with dependency `dep-lib = { path = "../dep" }`
+/// Example: `dep_lib.math` with dependency `dep-lib = { path = "../dep" }`
 /// resolves to `../dep/math.assura`.
 pub(crate) fn resolve_dep_module_path(
     module_path: &[String],
@@ -809,7 +809,7 @@ mod tests {
         let mut deps = DependencyMap::new();
         deps.insert("dep_lib".to_string(), tmp.clone());
 
-        // Import uses underscores: dep_lib::utils
+        // Import uses underscores: dep_lib.utils
         let result = resolve_dep_module_path(&["dep_lib".into(), "utils".into()], &deps);
         let (key, _path) = result.expect("dep_lib.utils should resolve");
         assert_eq!(key, "dep_lib.utils");
