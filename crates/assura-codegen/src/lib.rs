@@ -43,8 +43,7 @@ use assura_ast::{
 use assura_types::TypedFile;
 
 #[cfg(test)]
-#[path = "codegen_tests.rs"]
-mod tests;
+mod codegen_tests;
 
 // ---------------------------------------------------------------------------
 // Public output types
