@@ -1,0 +1,142 @@
+// Network protocol contracts
+
+contract Packet00 {
+  input { size: Int, header_len: Int, payload_len: Int }
+  output { result: Int }
+  requires { size > 0 }
+  requires { header_len >= 0 }
+  requires { payload_len >= 0 }
+  requires { header_len + payload_len <= size }
+  ensures { header_len + payload_len <= size }
+  ensures { size > 0 }
+}
+
+contract Packet01 {
+  input { size: Int, header_len: Int, payload_len: Int }
+  output { result: Int }
+  requires { size > 0 }
+  requires { header_len >= 0 }
+  requires { payload_len >= 0 }
+  requires { header_len + payload_len <= size }
+  ensures { header_len + payload_len <= size }
+  ensures { size > 0 }
+}
+
+contract Packet02 {
+  input { size: Int, header_len: Int, payload_len: Int }
+  output { result: Int }
+  requires { size > 0 }
+  requires { header_len >= 0 }
+  requires { payload_len >= 0 }
+  requires { header_len + payload_len <= size }
+  ensures { header_len + payload_len <= size }
+  ensures { size > 0 }
+}
+
+contract Packet03 {
+  input { size: Int, header_len: Int, payload_len: Int }
+  output { result: Int }
+  requires { size > 0 }
+  requires { header_len >= 0 }
+  requires { payload_len >= 0 }
+  requires { header_len + payload_len <= size }
+  ensures { header_len + payload_len <= size }
+  ensures { size > 0 }
+}
+
+contract Packet04 {
+  input { size: Int, header_len: Int, payload_len: Int }
+  output { result: Int }
+  requires { size > 0 }
+  requires { header_len >= 0 }
+  requires { payload_len >= 0 }
+  requires { header_len + payload_len <= size }
+  ensures { header_len + payload_len <= size }
+  ensures { size > 0 }
+}
+
+contract Packet05 {
+  input { size: Int, header_len: Int, payload_len: Int }
+  output { result: Int }
+  requires { size > 0 }
+  requires { header_len >= 0 }
+  requires { payload_len >= 0 }
+  requires { header_len + payload_len <= size }
+  ensures { header_len + payload_len <= size }
+  ensures { size > 0 }
+}
+
+contract Packet06 {
+  input { size: Int, header_len: Int, payload_len: Int }
+  output { result: Int }
+  requires { size > 0 }
+  requires { header_len >= 0 }
+  requires { payload_len >= 0 }
+  requires { header_len + payload_len <= size }
+  ensures { header_len + payload_len <= size }
+  ensures { size > 0 }
+}
+
+contract Packet07 {
+  input { size: Int, header_len: Int, payload_len: Int }
+  output { result: Int }
+  requires { size > 0 }
+  requires { header_len >= 0 }
+  requires { payload_len >= 0 }
+  requires { header_len + payload_len <= size }
+  ensures { header_len + payload_len <= size }
+  ensures { size > 0 }
+}
+
+contract Packet08 {
+  input { size: Int, header_len: Int, payload_len: Int }
+  output { result: Int }
+  requires { size > 0 }
+  requires { header_len >= 0 }
+  requires { payload_len >= 0 }
+  requires { header_len + payload_len <= size }
+  ensures { header_len + payload_len <= size }
+  ensures { size > 0 }
+}
+
+contract Packet09 {
+  input { size: Int, header_len: Int, payload_len: Int }
+  output { result: Int }
+  requires { size > 0 }
+  requires { header_len >= 0 }
+  requires { payload_len >= 0 }
+  requires { header_len + payload_len <= size }
+  ensures { header_len + payload_len <= size }
+  ensures { size > 0 }
+}
+
+extern fn send_packet_0(data: Int, port: Int) -> Int
+  requires { data >= 0 }
+  requires { port > 0 }
+  requires { port < 65536 }
+  ensures { port > 0 }
+
+extern fn send_packet_1(data: Int, port: Int) -> Int
+  requires { data >= 0 }
+  requires { port > 0 }
+  requires { port < 65536 }
+  ensures { port > 0 }
+
+extern fn send_packet_2(data: Int, port: Int) -> Int
+  requires { data >= 0 }
+  requires { port > 0 }
+  requires { port < 65536 }
+  ensures { port > 0 }
+
+extern fn send_packet_3(data: Int, port: Int) -> Int
+  requires { data >= 0 }
+  requires { port > 0 }
+  requires { port < 65536 }
+  ensures { port > 0 }
+
+extern fn send_packet_4(data: Int, port: Int) -> Int
+  requires { data >= 0 }
+  requires { port > 0 }
+  requires { port < 65536 }
+  ensures { port > 0 }
+

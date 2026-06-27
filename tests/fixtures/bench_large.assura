@@ -1,0 +1,833 @@
+// Large-scale benchmark fixture for Assura verification
+// Contains multiple contracts with varied clause types
+// Generated for benchmark task 12.05
+
+contract Contract00 {
+  input { a: Int, b: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { a + b >= 0 }
+}
+
+contract Contract01 {
+  input { a: Int, b: Int, c: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract02 {
+  input { a: Int, b: Int, c: Int, d: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract03 {
+  input { a: Int, b: Int, c: Int, d: Int, e: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { d + e > 3 }
+  requires { d < 1000000 }
+  requires { e >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract04 {
+  input { a: Int, b: Int, c: Int, d: Int, e: Int, f: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { d + e > 3 }
+  requires { d < 1000000 }
+  requires { e >= 0 }
+  requires { e + f > 4 }
+  requires { e < 1000000 }
+  requires { f >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract05 {
+  input { a: Int, b: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { a + b >= 0 }
+}
+
+contract Contract06 {
+  input { a: Int, b: Int, c: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract07 {
+  input { a: Int, b: Int, c: Int, d: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract08 {
+  input { a: Int, b: Int, c: Int, d: Int, e: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { d + e > 3 }
+  requires { d < 1000000 }
+  requires { e >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract09 {
+  input { a: Int, b: Int, c: Int, d: Int, e: Int, f: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { d + e > 3 }
+  requires { d < 1000000 }
+  requires { e >= 0 }
+  requires { e + f > 4 }
+  requires { e < 1000000 }
+  requires { f >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract10 {
+  input { a: Int, b: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { a + b >= 0 }
+}
+
+contract Contract11 {
+  input { a: Int, b: Int, c: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract12 {
+  input { a: Int, b: Int, c: Int, d: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract13 {
+  input { a: Int, b: Int, c: Int, d: Int, e: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { d + e > 3 }
+  requires { d < 1000000 }
+  requires { e >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract14 {
+  input { a: Int, b: Int, c: Int, d: Int, e: Int, f: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { d + e > 3 }
+  requires { d < 1000000 }
+  requires { e >= 0 }
+  requires { e + f > 4 }
+  requires { e < 1000000 }
+  requires { f >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract15 {
+  input { a: Int, b: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { a + b >= 0 }
+}
+
+contract Contract16 {
+  input { a: Int, b: Int, c: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract17 {
+  input { a: Int, b: Int, c: Int, d: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract18 {
+  input { a: Int, b: Int, c: Int, d: Int, e: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { d + e > 3 }
+  requires { d < 1000000 }
+  requires { e >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract19 {
+  input { a: Int, b: Int, c: Int, d: Int, e: Int, f: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { d + e > 3 }
+  requires { d < 1000000 }
+  requires { e >= 0 }
+  requires { e + f > 4 }
+  requires { e < 1000000 }
+  requires { f >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract20 {
+  input { a: Int, b: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { a + b >= 0 }
+}
+
+contract Contract21 {
+  input { a: Int, b: Int, c: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract22 {
+  input { a: Int, b: Int, c: Int, d: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract23 {
+  input { a: Int, b: Int, c: Int, d: Int, e: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { d + e > 3 }
+  requires { d < 1000000 }
+  requires { e >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract24 {
+  input { a: Int, b: Int, c: Int, d: Int, e: Int, f: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { d + e > 3 }
+  requires { d < 1000000 }
+  requires { e >= 0 }
+  requires { e + f > 4 }
+  requires { e < 1000000 }
+  requires { f >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract25 {
+  input { a: Int, b: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { a + b >= 0 }
+}
+
+contract Contract26 {
+  input { a: Int, b: Int, c: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract27 {
+  input { a: Int, b: Int, c: Int, d: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract28 {
+  input { a: Int, b: Int, c: Int, d: Int, e: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { d + e > 3 }
+  requires { d < 1000000 }
+  requires { e >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+contract Contract29 {
+  input { a: Int, b: Int, c: Int, d: Int, e: Int, f: Int }
+  output { result: Int }
+
+  requires { a >= 0 }
+  requires { a + b > 0 }
+  requires { a < 1000000 }
+  requires { b >= 0 }
+  requires { b + c > 1 }
+  requires { b < 1000000 }
+  requires { c >= 0 }
+  requires { c + d > 2 }
+  requires { c < 1000000 }
+  requires { d >= 0 }
+  requires { d + e > 3 }
+  requires { d < 1000000 }
+  requires { e >= 0 }
+  requires { e + f > 4 }
+  requires { e < 1000000 }
+  requires { f >= 0 }
+  requires { a + b + c < 2000000 }
+
+  ensures { a >= 0 }
+  ensures { b >= 0 }
+  ensures { c >= 0 }
+  ensures { d >= 0 }
+  ensures { a + b >= 0 }
+  ensures { a + b + c < 2000000 }
+}
+
+extern fn operation_00(p0: Int, p1: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_01(p0: Int, p1: Int, p2: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p2 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_02(p0: Int, p1: Int, p2: Int, p3: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p2 >= 0 }
+  requires { p3 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_03(p0: Int, p1: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_04(p0: Int, p1: Int, p2: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p2 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_05(p0: Int, p1: Int, p2: Int, p3: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p2 >= 0 }
+  requires { p3 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_06(p0: Int, p1: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_07(p0: Int, p1: Int, p2: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p2 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_08(p0: Int, p1: Int, p2: Int, p3: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p2 >= 0 }
+  requires { p3 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_09(p0: Int, p1: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_10(p0: Int, p1: Int, p2: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p2 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_11(p0: Int, p1: Int, p2: Int, p3: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p2 >= 0 }
+  requires { p3 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_12(p0: Int, p1: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_13(p0: Int, p1: Int, p2: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p2 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_14(p0: Int, p1: Int, p2: Int, p3: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p2 >= 0 }
+  requires { p3 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_15(p0: Int, p1: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_16(p0: Int, p1: Int, p2: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p2 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_17(p0: Int, p1: Int, p2: Int, p3: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p2 >= 0 }
+  requires { p3 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_18(p0: Int, p1: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+
+extern fn operation_19(p0: Int, p1: Int, p2: Int) -> Int
+  requires { p0 >= 0 }
+  requires { p1 >= 0 }
+  requires { p2 >= 0 }
+  requires { p0 + p1 < 1000000 }
+  ensures { p0 + p1 >= 0 }
+

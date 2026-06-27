@@ -1,0 +1,167 @@
+// Input validation contracts
+
+contract Validate00 {
+  input { data: Int, limit: Int, offset: Int }
+  output { result: Bool }
+  requires { data >= 0 }
+  requires { limit > 0 }
+  requires { offset >= 0 }
+  requires { offset < limit }
+  ensures { offset < limit }
+  ensures { data >= 0 }
+}
+
+contract Validate01 {
+  input { data: Int, limit: Int, offset: Int }
+  output { result: Bool }
+  requires { data >= 0 }
+  requires { limit > 0 }
+  requires { offset >= 0 }
+  requires { offset < limit }
+  ensures { offset < limit }
+  ensures { data >= 0 }
+}
+
+contract Validate02 {
+  input { data: Int, limit: Int, offset: Int }
+  output { result: Bool }
+  requires { data >= 0 }
+  requires { limit > 0 }
+  requires { offset >= 0 }
+  requires { offset < limit }
+  ensures { offset < limit }
+  ensures { data >= 0 }
+}
+
+contract Validate03 {
+  input { data: Int, limit: Int, offset: Int }
+  output { result: Bool }
+  requires { data >= 0 }
+  requires { limit > 0 }
+  requires { offset >= 0 }
+  requires { offset < limit }
+  ensures { offset < limit }
+  ensures { data >= 0 }
+}
+
+contract Validate04 {
+  input { data: Int, limit: Int, offset: Int }
+  output { result: Bool }
+  requires { data >= 0 }
+  requires { limit > 0 }
+  requires { offset >= 0 }
+  requires { offset < limit }
+  ensures { offset < limit }
+  ensures { data >= 0 }
+}
+
+contract Validate05 {
+  input { data: Int, limit: Int, offset: Int }
+  output { result: Bool }
+  requires { data >= 0 }
+  requires { limit > 0 }
+  requires { offset >= 0 }
+  requires { offset < limit }
+  ensures { offset < limit }
+  ensures { data >= 0 }
+}
+
+contract Validate06 {
+  input { data: Int, limit: Int, offset: Int }
+  output { result: Bool }
+  requires { data >= 0 }
+  requires { limit > 0 }
+  requires { offset >= 0 }
+  requires { offset < limit }
+  ensures { offset < limit }
+  ensures { data >= 0 }
+}
+
+contract Validate07 {
+  input { data: Int, limit: Int, offset: Int }
+  output { result: Bool }
+  requires { data >= 0 }
+  requires { limit > 0 }
+  requires { offset >= 0 }
+  requires { offset < limit }
+  ensures { offset < limit }
+  ensures { data >= 0 }
+}
+
+contract Validate08 {
+  input { data: Int, limit: Int, offset: Int }
+  output { result: Bool }
+  requires { data >= 0 }
+  requires { limit > 0 }
+  requires { offset >= 0 }
+  requires { offset < limit }
+  ensures { offset < limit }
+  ensures { data >= 0 }
+}
+
+contract Validate09 {
+  input { data: Int, limit: Int, offset: Int }
+  output { result: Bool }
+  requires { data >= 0 }
+  requires { limit > 0 }
+  requires { offset >= 0 }
+  requires { offset < limit }
+  ensures { offset < limit }
+  ensures { data >= 0 }
+}
+
+contract Validate10 {
+  input { data: Int, limit: Int, offset: Int }
+  output { result: Bool }
+  requires { data >= 0 }
+  requires { limit > 0 }
+  requires { offset >= 0 }
+  requires { offset < limit }
+  ensures { offset < limit }
+  ensures { data >= 0 }
+}
+
+contract Validate11 {
+  input { data: Int, limit: Int, offset: Int }
+  output { result: Bool }
+  requires { data >= 0 }
+  requires { limit > 0 }
+  requires { offset >= 0 }
+  requires { offset < limit }
+  ensures { offset < limit }
+  ensures { data >= 0 }
+}
+
+contract Validate12 {
+  input { data: Int, limit: Int, offset: Int }
+  output { result: Bool }
+  requires { data >= 0 }
+  requires { limit > 0 }
+  requires { offset >= 0 }
+  requires { offset < limit }
+  ensures { offset < limit }
+  ensures { data >= 0 }
+}
+
+contract Validate13 {
+  input { data: Int, limit: Int, offset: Int }
+  output { result: Bool }
+  requires { data >= 0 }
+  requires { limit > 0 }
+  requires { offset >= 0 }
+  requires { offset < limit }
+  ensures { offset < limit }
+  ensures { data >= 0 }
+}
+
+contract Validate14 {
+  input { data: Int, limit: Int, offset: Int }
+  output { result: Bool }
+  requires { data >= 0 }
+  requires { limit > 0 }
+  requires { offset >= 0 }
+  requires { offset < limit }
+  ensures { offset < limit }
+  ensures { data >= 0 }
+}
+
