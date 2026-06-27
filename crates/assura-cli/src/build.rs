@@ -364,9 +364,7 @@ pub(crate) fn run_build(
                             println!("OK  {filename} -> {} ({} bytes)", nf.display(), size);
                         }
                     } else if verbosity != Verbosity::Quiet {
-                        println!(
-                            "OK  {filename} -> {out_dir_str}/ (native build succeeded)"
-                        );
+                        println!("OK  {filename} -> {out_dir_str}/ (native build succeeded)");
                     }
                 }
             }
