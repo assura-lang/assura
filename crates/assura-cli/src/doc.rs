@@ -127,13 +127,13 @@ fn generate_file_doc(
         let _ = writeln!(doc, "**Project:** {}\n", proj.name);
     }
     if let Some(module) = &parsed.module {
-        let path_str = module.path.join("::");
+        let path_str = module.path.join(".");
         let _ = writeln!(doc, "**Module:** {path_str}\n");
     }
     if !parsed.imports.is_empty() {
         let _ = writeln!(doc, "**Imports:**\n");
         for imp in &parsed.imports {
-            let path_str = imp.path.join("::");
+            let path_str = imp.path.join(".");
             let _ = writeln!(doc, "- `{path_str}`");
         }
         let _ = writeln!(doc);
@@ -568,5 +568,61 @@ enum Color {
 
         assert!(doc.contains("Type: `Point`"), "should document type");
         assert!(doc.contains("Enum: `Color`"), "should document enum");
+    }
+
+    #[test]
+    fn doc_generates_extern_fn_bind_sections() {
+        let source = r#"
+extern sha256(data: Bytes) -> Bytes
+
+fn add(a: Int, b: Int) -> Int {
+    requires { a >= 0 }
+    ensures { result == a + b }
+}
+
+bind Logger {
+    input(msg: String)
+    output(ok: Bool)
+}
+"#;
+        let output = assura_pipeline::compile(source, "test.assura", &Default::default());
+        let doc = generate_file_doc("test.assura", &output.file, &None);
+
+        assert!(
+            doc.contains("Extern: `sha256`"),
+            "should document extern, got: {doc}"
+        );
+        assert!(
+            doc.contains("Function: `add`"),
+            "should document fn, got: {doc}"
+        );
+        assert!(
+            doc.contains("Bind: `Logger`"),
+            "should document bind, got: {doc}"
+        );
+    }
+
+    #[test]
+    fn doc_uses_dot_separated_paths() {
+        let source = "module std.math\nimport std.core\ncontract X { input(x: Int) }\n";
+        let output = assura_pipeline::compile(source, "test.assura", &Default::default());
+        let doc = generate_file_doc("test.assura", &output.file, &None);
+
+        assert!(
+            doc.contains("std.math"),
+            "module path should use dots, got: {doc}"
+        );
+        assert!(
+            !doc.contains("std::math"),
+            "should NOT use Rust :: syntax for module paths"
+        );
+        assert!(
+            doc.contains("std.core"),
+            "import path should use dots, got: {doc}"
+        );
+        assert!(
+            !doc.contains("std::core"),
+            "should NOT use Rust :: syntax for import paths"
+        );
     }
 }
