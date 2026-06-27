@@ -794,8 +794,7 @@ mod tests {
         deps.insert("dep_lib".to_string(), tmp.clone());
 
         let result = resolve_dep_module_path(&["dep_lib".into(), "math".into()], &deps);
-        assert!(result.is_some());
-        let (key, path) = result.unwrap();
+        let (key, path) = result.expect("dep_lib.math should resolve");
         assert_eq!(key, "dep_lib.math");
         assert!(path.to_string_lossy().contains("math.assura"));
         let _ = std::fs::remove_dir_all(&tmp);
@@ -812,7 +811,8 @@ mod tests {
 
         // Import uses underscores: dep_lib::utils
         let result = resolve_dep_module_path(&["dep_lib".into(), "utils".into()], &deps);
-        assert!(result.is_some());
+        let (key, _path) = result.expect("dep_lib.utils should resolve");
+        assert_eq!(key, "dep_lib.utils");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -993,10 +993,8 @@ mod tests {
 
         let result1 = discover_and_resolve_project(&tmp);
         let result2 = discover_and_resolve_project_with_deps(&tmp, &DependencyMap::new());
-        assert!(result1.is_ok());
-        assert!(result2.is_ok());
-        let (r1, _) = result1.unwrap();
-        let (r2, _) = result2.unwrap();
+        let (r1, _) = result1.expect("discover_and_resolve_project should succeed");
+        let (r2, _) = result2.expect("discover_and_resolve_project_with_deps should succeed");
         assert_eq!(r1.len(), r2.len());
         let _ = std::fs::remove_dir_all(&tmp);
     }
