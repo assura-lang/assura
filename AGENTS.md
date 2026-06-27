@@ -1,5 +1,34 @@
 # Assura Compiler - Agent Instructions
 
+## Quick Start (read this first, skip nothing)
+
+1. **Use the pipeline.** All code paths go through
+   `assura_pipeline::{compile, compile_full, verify_typed}`.
+   Never re-chain parse/resolve/type_check in CLI/LSP/MCP/tests.
+2. **Register new checkers.** Every `run_*_checks` function must appear
+   in `CHECKER_PIPELINE` in `pipeline.rs`. Scaffold with
+   `bash scripts/agent-new-checker.sh <name>`.
+   `bash scripts/agent-guards.sh` fails on orphans.
+3. **Use visitors.** Prefer `DeclVisitor`/`ExprVisitor`/`ExprFolder`
+   over raw `match &decl.node` blocks. Accessors: `Decl::name()`,
+   `Decl::clauses()`.
+4. **Run guards after every edit to types/SMT.**
+   `bash scripts/agent-guards.sh` catches orphan checkers, unwired
+   SMT methods, open-coded limitation markers, and `Type::Unknown ==`
+   comparisons.
+5. **Look up error codes first.** Check `docs/error-codes-agent.md`
+   for `Axxxxx` phase and crate before editing. Wrong-phase edits
+   (e.g. fixing an A02 in assura-smt) waste entire sessions.
+6. **Test helpers.** Use `assura_test_support::{typecheck_ok, verify_ok,
+   compile_result}` in tests, not hand-rolled pipelines. Exception:
+   `assura-types` and `assura-codegen` unit tests (type instance
+   mismatch; use `resolve_ok` or local `codegen` instead).
+7. **Preflight before commit.** `bash scripts/agent-preflight.sh`
+   runs fmt + guards + clippy on key crates.
+
+For the full decision tree, entrypoint tables, and invariants, read
+the sections below.
+
 ## LLM / agent: read this first (ergonomics map)
 
 Skim this section before changing compiler code. It encodes the patterns that
