@@ -1,4 +1,8 @@
 // Standard library: I/O contracts
+//
+// Taint policy: read operations produce @taint:untrusted output (external
+// data enters the trust boundary). Write operations require
+// @taint:validated input to prevent untrusted data from reaching sinks.
 module std.io
 
 contract read_bytes {
@@ -6,10 +10,11 @@ contract read_bytes {
     output(result: Bytes)
     requires { count > 0 }
     effects { io }
+    boundary { untrusted }
 }
 
 contract write_bytes {
-    input(handle: Int, data: Bytes)
+    input(handle: Int, data: Bytes @taint:validated)
     output(result: Nat)
     requires { data.length() > 0 }
     effects { io }

@@ -1,4 +1,8 @@
 // Standard library: filesystem contracts
+//
+// Taint policy: read operations produce @taint:untrusted output. File
+// content from disk is external data that must be validated before use
+// in sensitive positions.
 module std.fs
 
 contract read_file {
@@ -7,10 +11,11 @@ contract read_file {
     requires { path.length() > 0 }
     ensures { result.length() >= 0 }
     effects { fs }
+    boundary { untrusted }
 }
 
 contract write_file {
-    input(path: String, data: Bytes)
+    input(path: String, data: Bytes @taint:validated)
     output(result: Bool)
     requires { path.length() > 0 }
     effects { fs }

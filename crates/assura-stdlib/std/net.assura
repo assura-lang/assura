@@ -1,4 +1,8 @@
 // Standard library: network contracts
+//
+// Taint policy: recv produces @taint:untrusted output (network data is
+// external). send requires @taint:validated input to prevent untrusted
+// data from reaching network sinks without validation.
 module std.net
 
 contract connect {
@@ -17,7 +21,7 @@ contract listen {
 }
 
 contract send {
-    input(handle: Int, data: Bytes)
+    input(handle: Int, data: Bytes @taint:validated)
     output(result: Nat)
     requires { data.length() > 0 }
     effects { net }
@@ -28,6 +32,7 @@ contract recv {
     output(result: Bytes)
     requires { max_bytes > 0 }
     effects { net }
+    boundary { untrusted }
 }
 
 contract close_connection {
