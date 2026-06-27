@@ -9,6 +9,7 @@
 //! `match &decl.node { Decl::Contract(c) => &c.clauses, ... }` in every
 //! checker. That pattern misses new `Decl` variants and duplicates boilerplate.
 
+mod clause_quality;
 mod concurrency;
 mod core;
 mod effects;
@@ -24,6 +25,7 @@ mod platform;
 mod safety;
 mod storage;
 
+pub(crate) use clause_quality::*;
 pub(crate) use concurrency::*;
 pub(crate) use core::*;
 pub(crate) use effects::*;

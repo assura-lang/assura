@@ -747,6 +747,31 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Simplify the refinement predicate, add intermediate lemmas, \
                  or increase the solver timeout in assura.toml.",
         },
+        // -- A04008-A04009: Verification clause quality warnings --
+        ErrorInfo {
+            code: "A04008",
+            name: "Ensures references unconstrained output",
+            description: "An ensures clause references `result` or an output parameter. \
+                          These are free variables in SMT; the solver can assign them \
+                          any value, causing spurious counterexamples.",
+            example: r#"  contract safe_add(x: Int, y: Int) -> Int
+    requires { x >= 0 }
+    ensures  { result >= 0 }    // result is unconstrained"#,
+            fix: "Write ensures clauses that reference only input variables: \
+                 ensures { x + y >= 0 }. For extern functions returning Bytes/String, \
+                 result.length() >= 0 is safe (background axiom).",
+        },
+        ErrorInfo {
+            code: "A04009",
+            name: "Feature_max constant in verification clause",
+            description: "A feature_max constant is used in a requires, ensures, or \
+                          invariant clause. The SMT encoder treats feature_max constants \
+                          as unconstrained integer variables, not their defined values.",
+            example: r#"  feature_max HEADER_SIZE: Nat = 3
+  contract check(data: Bytes)
+    requires { data.length() >= HEADER_SIZE }  // SMT sees 0, not 3"#,
+            fix: "Inline the value directly: requires { data.length() >= 3 }.",
+        },
         // -- A06005: Typestate --
         ErrorInfo {
             code: "A06005",

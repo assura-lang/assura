@@ -125,7 +125,14 @@ pub fn compile(source: &str, filename: &str, config: &CompilerConfig) -> Compila
             .config(config.type_check.clone())
             .check(res)
         {
-            Ok(t) => Some(t),
+            Ok(t) => {
+                for w in &t.warnings {
+                    let mut d: assura_diagnostics::Diagnostic = w.clone().into();
+                    d.severity = assura_diagnostics::Severity::Warning;
+                    diagnostics.push(d.with_file(filename));
+                }
+                Some(t)
+            }
             Err(errs) => {
                 has_errors = true;
                 for e in &errs {

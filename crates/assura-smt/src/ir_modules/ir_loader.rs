@@ -235,6 +235,7 @@ mod tests {
             type_env: TypeEnv::new(),
             pending_decrease_checks: vec![],
             generated_tests: vec![],
+            warnings: vec![],
         }
     }
 
@@ -399,6 +400,7 @@ module copy {
             type_env: TypeEnv::new(),
             pending_decrease_checks: vec![],
             generated_tests: vec![],
+            warnings: vec![],
         };
 
         let loaded = LoadedVerifyExtras::load(&assura_path, &typed);

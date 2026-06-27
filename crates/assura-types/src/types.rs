@@ -243,6 +243,9 @@ pub struct TypedFile {
     /// Generated tests from contracts (TEST.1). Populated by the type
     /// checking pipeline when contracts have testable constraints.
     pub generated_tests: Vec<crate::GeneratedTest>,
+    /// Non-fatal warnings from type checking (e.g., unconstrained output
+    /// references in ensures clauses, feature_max in verification clauses).
+    pub warnings: Vec<TypeError>,
 }
 
 // ---------------------------------------------------------------------------
