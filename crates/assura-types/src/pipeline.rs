@@ -49,71 +49,332 @@ enum CheckerDispatch {
     Totality,
 }
 
+use assura_parser::features::FeatureCategory;
+
+/// A named, categorized checker entry in the pipeline.
+///
+/// The `name` and `category` fields are metadata for error attribution,
+/// selective execution, and pipeline introspection. Currently read in
+/// tests; runtime use is a follow-up.
+#[allow(dead_code)]
+struct CheckerEntry {
+    /// Human-readable name for error attribution and logging.
+    name: &'static str,
+    /// Feature category this checker belongs to.
+    category: FeatureCategory,
+    /// The actual checker dispatch.
+    dispatch: CheckerDispatch,
+}
+
 /// Ordered checker registry (order matches original `run_all_checks` wiring).
 ///
 /// **Agent rule:** every new `run_*_checks` in `checks/` must appear here in
 /// the same PR, or it is dead code. `checker_pipeline_has_expected_breadth`
 /// below guards against accidental empty registries. Run
 /// `bash scripts/agent-guards.sh` after adding a checker.
-const CHECKER_PIPELINE: &[CheckerDispatch] = &[
-    CheckerDispatch::Symbols(run_axiomatic_checks),
-    CheckerDispatch::Source(run_liveness_checks),
-    CheckerDispatch::Source(run_crud_auth_checks),
-    CheckerDispatch::Source(run_linearity_checks),
-    CheckerDispatch::Source(run_typestate_checks),
-    CheckerDispatch::Effects,
-    CheckerDispatch::Source(run_taint_checks),
-    CheckerDispatch::Source(run_info_flow_checks),
-    CheckerDispatch::Source(run_ffi_checks),
-    CheckerDispatch::Source(run_error_propagation_checks),
-    CheckerDispatch::EnvSymbols(run_frame_checks),
-    CheckerDispatch::Totality,
-    CheckerDispatch::Env(run_fixed_width_checks),
-    CheckerDispatch::Source(run_collection_contract_checks),
-    CheckerDispatch::Symbols(run_match_exhaustiveness_checks),
-    CheckerDispatch::Source(run_constant_time_checks),
-    CheckerDispatch::Source(run_determinism_checks),
-    CheckerDispatch::Source(run_memory_checks),
-    CheckerDispatch::Source(run_secure_erasure_checks),
-    CheckerDispatch::Source(run_interface_checks),
-    CheckerDispatch::Source(run_structural_invariant_checks),
-    CheckerDispatch::Source(run_shared_mem_checks),
-    CheckerDispatch::Source(run_lock_order_checks),
-    CheckerDispatch::Source(run_weak_memory_checks),
-    CheckerDispatch::Source(run_allocator_checks),
-    CheckerDispatch::Source(run_circular_buffer_checks),
-    CheckerDispatch::Source(run_callback_reentrancy_checks),
-    CheckerDispatch::Source(run_temporal_deadline_checks),
-    CheckerDispatch::Source(run_binary_format_checks),
-    CheckerDispatch::Source(run_bit_level_checks),
-    CheckerDispatch::Source(run_string_encoding_checks),
-    CheckerDispatch::Source(run_checksum_checks),
-    CheckerDispatch::Source(run_protocol_grammar_checks),
-    CheckerDispatch::Source(run_opaque_function_checks),
-    CheckerDispatch::Source(run_crash_recovery_checks),
-    CheckerDispatch::Source(run_page_cache_checks),
-    CheckerDispatch::Source(run_mvcc_checks),
-    CheckerDispatch::Source(run_rollback_checks),
-    CheckerDispatch::Source(run_monotonic_state_checks),
-    CheckerDispatch::Source(run_storage_failure_checks),
-    CheckerDispatch::Source(run_numerical_precision_checks),
-    CheckerDispatch::Source(run_precomputed_table_checks),
-    CheckerDispatch::Source(run_platform_abstraction_checks),
-    CheckerDispatch::Source(run_feature_flag_checks),
-    CheckerDispatch::Source(run_resource_limit_checks),
-    CheckerDispatch::Source(run_unsafe_escape_checks),
-    CheckerDispatch::Source(run_complexity_bound_checks),
-    CheckerDispatch::Source(run_behavioral_equivalence_checks),
-    CheckerDispatch::Source(run_multi_pass_refinement_checks),
-    CheckerDispatch::Source(run_incremental_contract_checks),
-    CheckerDispatch::Source(run_scoped_invariant_checks),
-    CheckerDispatch::Source(run_contract_composition_checks),
-    CheckerDispatch::Source(run_contract_library_checks),
-    CheckerDispatch::Source(run_crypto_conformance_checks),
-    CheckerDispatch::Source(run_codec_registry_checks),
-    CheckerDispatch::Source(run_generic_instantiation_checks),
-    CheckerDispatch::Source(run_quantifier_trigger_checks),
-    CheckerDispatch::Source(run_prophecy_resolution_checks),
+const CHECKER_PIPELINE: &[CheckerEntry] = &[
+    // -- CORE --
+    CheckerEntry {
+        name: "axiomatic",
+        category: FeatureCategory::Core,
+        dispatch: CheckerDispatch::Symbols(run_axiomatic_checks),
+    },
+    CheckerEntry {
+        name: "liveness",
+        category: FeatureCategory::Core,
+        dispatch: CheckerDispatch::Source(run_liveness_checks),
+    },
+    CheckerEntry {
+        name: "frame",
+        category: FeatureCategory::Core,
+        dispatch: CheckerDispatch::EnvSymbols(run_frame_checks),
+    },
+    CheckerEntry {
+        name: "opaque_function",
+        category: FeatureCategory::Core,
+        dispatch: CheckerDispatch::Source(run_opaque_function_checks),
+    },
+    CheckerEntry {
+        name: "quantifier_trigger",
+        category: FeatureCategory::Core,
+        dispatch: CheckerDispatch::Source(run_quantifier_trigger_checks),
+    },
+    CheckerEntry {
+        name: "prophecy_resolution",
+        category: FeatureCategory::Core,
+        dispatch: CheckerDispatch::Source(run_prophecy_resolution_checks),
+    },
+    CheckerEntry {
+        name: "totality",
+        category: FeatureCategory::Core,
+        dispatch: CheckerDispatch::Totality,
+    },
+    CheckerEntry {
+        name: "generic_instantiation",
+        category: FeatureCategory::Core,
+        dispatch: CheckerDispatch::Source(run_generic_instantiation_checks),
+    },
+    // -- MEM --
+    CheckerEntry {
+        name: "memory",
+        category: FeatureCategory::Mem,
+        dispatch: CheckerDispatch::Source(run_memory_checks),
+    },
+    CheckerEntry {
+        name: "fixed_width",
+        category: FeatureCategory::Mem,
+        dispatch: CheckerDispatch::Env(run_fixed_width_checks),
+    },
+    CheckerEntry {
+        name: "allocator",
+        category: FeatureCategory::Mem,
+        dispatch: CheckerDispatch::Source(run_allocator_checks),
+    },
+    CheckerEntry {
+        name: "circular_buffer",
+        category: FeatureCategory::Mem,
+        dispatch: CheckerDispatch::Source(run_circular_buffer_checks),
+    },
+    // -- TYPE --
+    CheckerEntry {
+        name: "linearity",
+        category: FeatureCategory::Type,
+        dispatch: CheckerDispatch::Source(run_linearity_checks),
+    },
+    CheckerEntry {
+        name: "typestate",
+        category: FeatureCategory::Type,
+        dispatch: CheckerDispatch::Source(run_typestate_checks),
+    },
+    CheckerEntry {
+        name: "interface",
+        category: FeatureCategory::Type,
+        dispatch: CheckerDispatch::Source(run_interface_checks),
+    },
+    CheckerEntry {
+        name: "structural_invariant",
+        category: FeatureCategory::Type,
+        dispatch: CheckerDispatch::Source(run_structural_invariant_checks),
+    },
+    CheckerEntry {
+        name: "error_propagation",
+        category: FeatureCategory::Type,
+        dispatch: CheckerDispatch::Source(run_error_propagation_checks),
+    },
+    CheckerEntry {
+        name: "match_exhaustiveness",
+        category: FeatureCategory::Type,
+        dispatch: CheckerDispatch::Symbols(run_match_exhaustiveness_checks),
+    },
+    CheckerEntry {
+        name: "collection_contract",
+        category: FeatureCategory::Type,
+        dispatch: CheckerDispatch::Source(run_collection_contract_checks),
+    },
+    // -- SEC --
+    CheckerEntry {
+        name: "taint",
+        category: FeatureCategory::Sec,
+        dispatch: CheckerDispatch::Source(run_taint_checks),
+    },
+    CheckerEntry {
+        name: "info_flow",
+        category: FeatureCategory::Sec,
+        dispatch: CheckerDispatch::Source(run_info_flow_checks),
+    },
+    CheckerEntry {
+        name: "constant_time",
+        category: FeatureCategory::Sec,
+        dispatch: CheckerDispatch::Source(run_constant_time_checks),
+    },
+    CheckerEntry {
+        name: "secure_erasure",
+        category: FeatureCategory::Sec,
+        dispatch: CheckerDispatch::Source(run_secure_erasure_checks),
+    },
+    CheckerEntry {
+        name: "crypto_conformance",
+        category: FeatureCategory::Sec,
+        dispatch: CheckerDispatch::Source(run_crypto_conformance_checks),
+    },
+    CheckerEntry {
+        name: "ffi",
+        category: FeatureCategory::Sec,
+        dispatch: CheckerDispatch::Source(run_ffi_checks),
+    },
+    // -- CONC --
+    CheckerEntry {
+        name: "shared_mem",
+        category: FeatureCategory::Conc,
+        dispatch: CheckerDispatch::Source(run_shared_mem_checks),
+    },
+    CheckerEntry {
+        name: "callback_reentrancy",
+        category: FeatureCategory::Conc,
+        dispatch: CheckerDispatch::Source(run_callback_reentrancy_checks),
+    },
+    CheckerEntry {
+        name: "determinism",
+        category: FeatureCategory::Conc,
+        dispatch: CheckerDispatch::Source(run_determinism_checks),
+    },
+    CheckerEntry {
+        name: "lock_order",
+        category: FeatureCategory::Conc,
+        dispatch: CheckerDispatch::Source(run_lock_order_checks),
+    },
+    CheckerEntry {
+        name: "temporal_deadline",
+        category: FeatureCategory::Conc,
+        dispatch: CheckerDispatch::Source(run_temporal_deadline_checks),
+    },
+    CheckerEntry {
+        name: "weak_memory",
+        category: FeatureCategory::Conc,
+        dispatch: CheckerDispatch::Source(run_weak_memory_checks),
+    },
+    // -- STOR --
+    CheckerEntry {
+        name: "crash_recovery",
+        category: FeatureCategory::Stor,
+        dispatch: CheckerDispatch::Source(run_crash_recovery_checks),
+    },
+    CheckerEntry {
+        name: "page_cache",
+        category: FeatureCategory::Stor,
+        dispatch: CheckerDispatch::Source(run_page_cache_checks),
+    },
+    CheckerEntry {
+        name: "mvcc",
+        category: FeatureCategory::Stor,
+        dispatch: CheckerDispatch::Source(run_mvcc_checks),
+    },
+    CheckerEntry {
+        name: "rollback",
+        category: FeatureCategory::Stor,
+        dispatch: CheckerDispatch::Source(run_rollback_checks),
+    },
+    CheckerEntry {
+        name: "monotonic_state",
+        category: FeatureCategory::Stor,
+        dispatch: CheckerDispatch::Source(run_monotonic_state_checks),
+    },
+    CheckerEntry {
+        name: "storage_failure",
+        category: FeatureCategory::Stor,
+        dispatch: CheckerDispatch::Source(run_storage_failure_checks),
+    },
+    // -- FMT --
+    CheckerEntry {
+        name: "binary_format",
+        category: FeatureCategory::Fmt,
+        dispatch: CheckerDispatch::Source(run_binary_format_checks),
+    },
+    CheckerEntry {
+        name: "bit_level",
+        category: FeatureCategory::Fmt,
+        dispatch: CheckerDispatch::Source(run_bit_level_checks),
+    },
+    CheckerEntry {
+        name: "string_encoding",
+        category: FeatureCategory::Fmt,
+        dispatch: CheckerDispatch::Source(run_string_encoding_checks),
+    },
+    CheckerEntry {
+        name: "codec_registry",
+        category: FeatureCategory::Fmt,
+        dispatch: CheckerDispatch::Source(run_codec_registry_checks),
+    },
+    CheckerEntry {
+        name: "checksum",
+        category: FeatureCategory::Fmt,
+        dispatch: CheckerDispatch::Source(run_checksum_checks),
+    },
+    CheckerEntry {
+        name: "protocol_grammar",
+        category: FeatureCategory::Fmt,
+        dispatch: CheckerDispatch::Source(run_protocol_grammar_checks),
+    },
+    // -- NUM --
+    CheckerEntry {
+        name: "numerical_precision",
+        category: FeatureCategory::Num,
+        dispatch: CheckerDispatch::Source(run_numerical_precision_checks),
+    },
+    CheckerEntry {
+        name: "precomputed_table",
+        category: FeatureCategory::Num,
+        dispatch: CheckerDispatch::Source(run_precomputed_table_checks),
+    },
+    // -- PLAT --
+    CheckerEntry {
+        name: "platform_abstraction",
+        category: FeatureCategory::Plat,
+        dispatch: CheckerDispatch::Source(run_platform_abstraction_checks),
+    },
+    CheckerEntry {
+        name: "feature_flag",
+        category: FeatureCategory::Plat,
+        dispatch: CheckerDispatch::Source(run_feature_flag_checks),
+    },
+    CheckerEntry {
+        name: "resource_limit",
+        category: FeatureCategory::Plat,
+        dispatch: CheckerDispatch::Source(run_resource_limit_checks),
+    },
+    // -- PERF --
+    CheckerEntry {
+        name: "unsafe_escape",
+        category: FeatureCategory::Perf,
+        dispatch: CheckerDispatch::Source(run_unsafe_escape_checks),
+    },
+    CheckerEntry {
+        name: "complexity_bound",
+        category: FeatureCategory::Perf,
+        dispatch: CheckerDispatch::Source(run_complexity_bound_checks),
+    },
+    // -- TEST --
+    CheckerEntry {
+        name: "behavioral_equivalence",
+        category: FeatureCategory::Test,
+        dispatch: CheckerDispatch::Source(run_behavioral_equivalence_checks),
+    },
+    CheckerEntry {
+        name: "multi_pass_refinement",
+        category: FeatureCategory::Test,
+        dispatch: CheckerDispatch::Source(run_multi_pass_refinement_checks),
+    },
+    // -- MISC --
+    CheckerEntry {
+        name: "effects",
+        category: FeatureCategory::Misc,
+        dispatch: CheckerDispatch::Effects,
+    },
+    CheckerEntry {
+        name: "crud_auth",
+        category: FeatureCategory::Misc,
+        dispatch: CheckerDispatch::Source(run_crud_auth_checks),
+    },
+    CheckerEntry {
+        name: "incremental_contract",
+        category: FeatureCategory::Misc,
+        dispatch: CheckerDispatch::Source(run_incremental_contract_checks),
+    },
+    CheckerEntry {
+        name: "scoped_invariant",
+        category: FeatureCategory::Misc,
+        dispatch: CheckerDispatch::Source(run_scoped_invariant_checks),
+    },
+    CheckerEntry {
+        name: "contract_composition",
+        category: FeatureCategory::Misc,
+        dispatch: CheckerDispatch::Source(run_contract_composition_checks),
+    },
+    CheckerEntry {
+        name: "contract_library",
+        category: FeatureCategory::Misc,
+        dispatch: CheckerDispatch::Source(run_contract_library_checks),
+    },
 ];
 
 /// Number of entries in [`CHECKER_PIPELINE`] (for tests / agent guards).
@@ -147,8 +408,8 @@ fn run_all_checks(
     let mut errors = Vec::new();
     let mut pending_decrease_checks = Vec::new();
 
-    for dispatch in CHECKER_PIPELINE {
-        match dispatch {
+    for entry in CHECKER_PIPELINE {
+        match &entry.dispatch {
             CheckerDispatch::Source(f) => errors.extend(f(source)),
             CheckerDispatch::Symbols(f) => errors.extend(f(source, symbols)),
             CheckerDispatch::Env(f) => errors.extend(f(source, type_env)),
@@ -477,6 +738,47 @@ mod tests {
             "CHECKER_PIPELINE has only {} entries; new run_*_checks must be registered here",
             checker_pipeline_len()
         );
+    }
+
+    #[test]
+    fn checker_entries_have_non_empty_names() {
+        for entry in CHECKER_PIPELINE {
+            assert!(
+                !entry.name.is_empty(),
+                "CheckerEntry has empty name (index in pipeline)"
+            );
+        }
+    }
+
+    #[test]
+    fn checker_entries_have_unique_names() {
+        let mut seen = std::collections::HashSet::new();
+        for entry in CHECKER_PIPELINE {
+            assert!(
+                seen.insert(entry.name),
+                "duplicate checker name: {:?}",
+                entry.name
+            );
+        }
+    }
+
+    #[test]
+    fn checker_pipeline_covers_all_categories() {
+        let cats: std::collections::HashSet<_> =
+            CHECKER_PIPELINE.iter().map(|e| e.category).collect();
+        // Every FeatureCategory should have at least one checker
+        assert!(cats.contains(&FeatureCategory::Core), "missing Core");
+        assert!(cats.contains(&FeatureCategory::Mem), "missing Mem");
+        assert!(cats.contains(&FeatureCategory::Type), "missing Type");
+        assert!(cats.contains(&FeatureCategory::Sec), "missing Sec");
+        assert!(cats.contains(&FeatureCategory::Conc), "missing Conc");
+        assert!(cats.contains(&FeatureCategory::Stor), "missing Stor");
+        assert!(cats.contains(&FeatureCategory::Fmt), "missing Fmt");
+        assert!(cats.contains(&FeatureCategory::Num), "missing Num");
+        assert!(cats.contains(&FeatureCategory::Plat), "missing Plat");
+        assert!(cats.contains(&FeatureCategory::Perf), "missing Perf");
+        assert!(cats.contains(&FeatureCategory::Test), "missing Test");
+        assert!(cats.contains(&FeatureCategory::Misc), "missing Misc");
     }
 
     #[test]

@@ -73,7 +73,7 @@ pub enum Feature {
 }
 
 /// Feature category grouping.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FeatureCategory {
     Core,
     Mem,
