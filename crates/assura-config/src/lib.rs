@@ -291,7 +291,6 @@ impl CompilerConfig {
             output_mode,
             verbosity,
             type_check: TypeCheckConfig {
-                strict_effects: true,
                 warn_unused_imports: true,
                 allowed_effects: project.effects.allowed.clone(),
                 denied_effects: project.effects.denied.clone(),
@@ -325,8 +324,6 @@ impl CompilerConfig {
 pub struct TypeCheckConfig {
     /// Whether to emit warnings for unused imports.
     pub warn_unused_imports: bool,
-    /// Whether to perform strict mode checking (reject unknown effects).
-    pub strict_effects: bool,
     /// Effects allowed by the project config. Empty means all are allowed.
     pub allowed_effects: Vec<String>,
     /// Effects denied by the project config.
@@ -339,7 +336,6 @@ impl Default for TypeCheckConfig {
     fn default() -> Self {
         Self {
             warn_unused_imports: true,
-            strict_effects: true,
             allowed_effects: Vec::new(),
             denied_effects: Vec::new(),
             default_effect: "pure".to_string(),

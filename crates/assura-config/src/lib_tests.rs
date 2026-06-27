@@ -23,7 +23,6 @@ fn compiler_config_defaults() {
     assert_eq!(config.codegen.target, "native");
     assert!(config.codegen.run_cargo_check);
     assert!(config.type_check.warn_unused_imports);
-    assert!(config.type_check.strict_effects);
 }
 
 #[test]
@@ -196,7 +195,6 @@ fn codegen_config_defaults() {
 fn type_check_config_defaults() {
     let config = TypeCheckConfig::default();
     assert!(config.warn_unused_imports);
-    assert!(config.strict_effects);
 }
 
 #[test]

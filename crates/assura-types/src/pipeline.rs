@@ -128,14 +128,7 @@ fn run_effect_checks_filtered(
     if !config.allowed_effects.is_empty() || !config.denied_effects.is_empty() {
         effect_errors.retain(|e| !config.allowed_effects.iter().any(|a| e.message.contains(a)));
     }
-    if config.strict_effects {
-        effect_errors
-    } else {
-        effect_errors
-            .into_iter()
-            .filter(|e| e.code != "A07003")
-            .collect()
-    }
+    effect_errors
 }
 
 /// Run all domain and structural checkers on the source AST.
@@ -524,7 +517,6 @@ mod tests {
 
         // Strict config: only "database" allowed
         let strict_config = assura_config::TypeCheckConfig {
-            strict_effects: true,
             allowed_effects: vec!["database".to_string()],
             ..Default::default()
         };
