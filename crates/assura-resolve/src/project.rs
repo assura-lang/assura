@@ -344,11 +344,9 @@ pub fn resolve_dependency_map(
                 }
             }
             None => {
-                if spec.local_path().is_none() {
-                    warnings.push(format!(
-                        "dependency '{name}': only path dependencies are supported (git/version coming in Phase 2/3)"
-                    ));
-                }
+                warnings.push(format!(
+                    "dependency '{name}': only path dependencies are supported (git/version coming in Phase 2/3)"
+                ));
             }
         }
     }

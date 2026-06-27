@@ -309,10 +309,6 @@ pub use ir::{
     IrNode, IrParser, IrPred, IrPredArg, IrSlotDecl, IrValidation, parse_ir_module,
     validate_ir_against_contract,
 };
-#[cfg(test)]
-pub(crate) use ir::{parse_arith_op, parse_cmp_op, parse_ir_pred_str};
-#[cfg(test)]
-pub(crate) use ir_codegen::ir_type_to_rust;
 pub use ir_codegen::{
     ir_function_body_to_rust, ir_module_to_body_map, ir_to_rust, stub_ir_sidecar_text,
 };

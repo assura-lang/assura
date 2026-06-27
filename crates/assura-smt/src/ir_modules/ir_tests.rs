@@ -1,5 +1,10 @@
 use super::*;
+// This test file is included via #[path] from both ir.rs and ir_codegen.rs.
+// Each inclusion makes one of these imports redundant (super::* covers it),
+// but the other is needed. Suppress the warning rather than split the file.
+#[allow(unused_imports)]
 use crate::ir::*;
+#[allow(unused_imports)]
 use crate::ir_codegen::*;
 
 // -------------------------------------------------------------------
