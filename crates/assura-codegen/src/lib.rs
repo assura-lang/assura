@@ -40,14 +40,6 @@ use assura_ast::{
 };
 use assura_types::TypedFile;
 
-/// Convert an `Option<TypeExpr>` to a `Vec<String>` of type tokens.
-///
-/// Bridge helper used during codegen to pass structured types to functions
-/// that still work on raw token slices (e.g., `map_type_tokens`, `collect_type_refs_from_tokens`).
-fn type_expr_to_token_vec(te: Option<&assura_ast::TypeExpr>) -> Vec<String> {
-    te.map(|t| t.to_tokens()).unwrap_or_default()
-}
-
 #[cfg(test)]
 #[path = "codegen_tests.rs"]
 mod tests;
@@ -162,10 +154,7 @@ impl DeclVisitor for TypeCollectVisitor<'_> {
         self.defined_types.insert(t.name.clone());
         if let TypeBody::Struct(fields) = &t.body {
             for f in fields {
-                collect_type_refs_from_tokens(
-                    &type_expr_to_token_vec(f.ty.as_ref()),
-                    self.referenced_types,
-                );
+                collect_type_refs_from_type_expr(f.ty.as_ref(), self.referenced_types);
             }
         }
     }
@@ -194,27 +183,15 @@ impl DeclVisitor for TypeCollectVisitor<'_> {
         }
     }
     fn visit_fn_def(&mut self, f: &FnDef) {
-        collect_type_refs_from_tokens(
-            &type_expr_to_token_vec(f.return_ty.as_ref()),
-            self.referenced_types,
-        );
+        collect_type_refs_from_type_expr(f.return_ty.as_ref(), self.referenced_types);
         for p in &f.params {
-            collect_type_refs_from_tokens(
-                &type_expr_to_token_vec(p.ty.as_ref()),
-                self.referenced_types,
-            );
+            collect_type_refs_from_type_expr(p.ty.as_ref(), self.referenced_types);
         }
     }
     fn visit_extern(&mut self, ex: &ExternDecl) {
-        collect_type_refs_from_tokens(
-            &type_expr_to_token_vec(ex.return_ty.as_ref()),
-            self.referenced_types,
-        );
+        collect_type_refs_from_type_expr(ex.return_ty.as_ref(), self.referenced_types);
         for p in &ex.params {
-            collect_type_refs_from_tokens(
-                &type_expr_to_token_vec(p.ty.as_ref()),
-                self.referenced_types,
-            );
+            collect_type_refs_from_type_expr(p.ty.as_ref(), self.referenced_types);
         }
     }
     fn visit_contract(&mut self, c: &ContractDecl) {
@@ -241,15 +218,9 @@ impl DeclVisitor for TypeCollectVisitor<'_> {
         }
     }
     fn visit_bind(&mut self, b: &BindDecl) {
-        collect_type_refs_from_tokens(
-            &type_expr_to_token_vec(b.return_ty.as_ref()),
-            self.referenced_types,
-        );
+        collect_type_refs_from_type_expr(b.return_ty.as_ref(), self.referenced_types);
         for p in &b.params {
-            collect_type_refs_from_tokens(
-                &type_expr_to_token_vec(p.ty.as_ref()),
-                self.referenced_types,
-            );
+            collect_type_refs_from_type_expr(p.ty.as_ref(), self.referenced_types);
         }
     }
     // Prophecy / CodecRegistry: default no-op
@@ -290,33 +261,33 @@ fn collect_type_names(
     (defined_types, feature_max_consts, referenced_types)
 }
 
-/// Visitor that collects type token lists from FnDef/Extern/Bind params and
-/// return types, and optionally from TypeDef struct fields.
-struct TypeTokenCollectVisitor<'a> {
-    token_lists: &'a mut Vec<Vec<String>>,
+/// Visitor that walks all type expressions in FnDef/Extern/Bind params and
+/// return types, and optionally TypeDef struct fields, applying a callback
+/// to each `TypeExpr`. Used for generic arity detection and feature_max-as-type
+/// detection without token roundtrip.
+struct TypeExprWalkVisitor<'a, F> {
+    visit: F,
     include_typedef_fields: bool,
+    _marker: std::marker::PhantomData<&'a ()>,
 }
 
-impl DeclVisitor for TypeTokenCollectVisitor<'_> {
+impl<F: FnMut(Option<&assura_ast::TypeExpr>)> DeclVisitor for TypeExprWalkVisitor<'_, F> {
     fn visit_fn_def(&mut self, f: &FnDef) {
-        self.token_lists
-            .push(type_expr_to_token_vec(f.return_ty.as_ref()));
+        (self.visit)(f.return_ty.as_ref());
         for p in &f.params {
-            self.token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
+            (self.visit)(p.ty.as_ref());
         }
     }
     fn visit_extern(&mut self, ex: &ExternDecl) {
-        self.token_lists
-            .push(type_expr_to_token_vec(ex.return_ty.as_ref()));
+        (self.visit)(ex.return_ty.as_ref());
         for p in &ex.params {
-            self.token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
+            (self.visit)(p.ty.as_ref());
         }
     }
     fn visit_bind(&mut self, b: &BindDecl) {
-        self.token_lists
-            .push(type_expr_to_token_vec(b.return_ty.as_ref()));
+        (self.visit)(b.return_ty.as_ref());
         for p in &b.params {
-            self.token_lists.push(type_expr_to_token_vec(p.ty.as_ref()));
+            (self.visit)(p.ty.as_ref());
         }
     }
     fn visit_type_def(&mut self, t: &TypeDef) {
@@ -324,60 +295,39 @@ impl DeclVisitor for TypeTokenCollectVisitor<'_> {
             && let TypeBody::Struct(fields) = &t.body
         {
             for f in fields {
-                self.token_lists.push(type_expr_to_token_vec(f.ty.as_ref()));
+                (self.visit)(f.ty.as_ref());
             }
         }
     }
     // Contract, Service, EnumDef, Prophecy, CodecRegistry, Block: default no-op
 }
 
-/// Collect all type token lists from FnDef/Extern/Bind params and return types.
-///
-/// Phases 3, 4, and 4b all need this same walk. The `include_typedef_fields`
-/// flag controls whether TypeDef struct fields are included (Phase 4 needs them;
-/// Phases 3 and 4b do not).
-fn collect_all_type_token_lists(
+/// Phase 3: Detect feature_max names used as type arguments, working directly
+/// on `TypeExpr` instead of token vectors.
+fn detect_feature_max_as_type_direct(
     decls: &[Spanned<Decl>],
-    include_typedef_fields: bool,
-) -> Vec<Vec<String>> {
-    let mut token_lists: Vec<Vec<String>> = Vec::new();
-    let mut visitor = TypeTokenCollectVisitor {
-        token_lists: &mut token_lists,
-        include_typedef_fields,
-    };
-    assura_ast::walk_decls(&mut visitor, decls);
-    token_lists
-}
-
-/// Phase 3: Detect feature_max names used as type arguments inside `<>`.
-fn detect_feature_max_as_type(
-    token_lists: &[Vec<String>],
     feature_max_consts: &[(String, String)],
 ) -> std::collections::HashSet<String> {
     let fm_set: std::collections::HashSet<&str> =
         feature_max_consts.iter().map(|(n, _)| n.as_str()).collect();
     let mut result = std::collections::HashSet::new();
-    for tokens in token_lists {
-        let mut in_angle = 0i32;
-        for tok in tokens {
-            match tok.as_str() {
-                "<" => in_angle += 1,
-                ">" if in_angle > 0 => in_angle -= 1,
-                name if in_angle > 0 && fm_set.contains(name) => {
-                    result.insert(name.to_string());
-                }
-                _ => {}
-            }
-        }
-    }
+    let mut visitor = TypeExprWalkVisitor {
+        visit: |te: Option<&assura_ast::TypeExpr>| {
+            detect_feature_max_as_type_from_type_expr(te, &fm_set, &mut result);
+        },
+        include_typedef_fields: false,
+        _marker: std::marker::PhantomData,
+    };
+    assura_ast::walk_decls(&mut visitor, decls);
     result
 }
 
-/// Phase 4: Detect generic arity for type references and collect const-generic names.
+/// Phase 4: Detect generic arity for type references and collect const-generic
+/// names, working directly on `TypeExpr`.
 ///
 /// Returns `(type_generic_params, const_generic_names)`.
-fn detect_generic_arities(
-    token_lists: &[Vec<String>],
+fn detect_generic_arities_direct(
+    decls: &[Spanned<Decl>],
 ) -> (
     std::collections::HashMap<String, Vec<GenericParamKind>>,
     std::collections::HashSet<String>,
@@ -385,36 +335,43 @@ fn detect_generic_arities(
     let mut type_generic_params: std::collections::HashMap<String, Vec<GenericParamKind>> =
         std::collections::HashMap::new();
     let mut const_generic_names = std::collections::HashSet::new();
-    for tokens in token_lists {
-        detect_generic_arity(tokens, &mut type_generic_params, &mut const_generic_names);
-    }
+    let mut visitor = TypeExprWalkVisitor {
+        visit: |te: Option<&assura_ast::TypeExpr>| {
+            detect_generic_arity_from_type_expr(
+                te,
+                &mut type_generic_params,
+                &mut const_generic_names,
+            );
+        },
+        include_typedef_fields: true,
+        _marker: std::marker::PhantomData,
+    };
+    assura_ast::walk_decls(&mut visitor, decls);
     (type_generic_params, const_generic_names)
 }
 
-/// Phase 4b: Collect SCREAMING_SNAKE_CASE names used as type arguments inside `<>`,
-/// combining const_generic_names from Phase 4 with feature_max names found in type positions.
-fn detect_const_type_stubs(
-    token_lists: &[Vec<String>],
+/// Phase 4b: Collect SCREAMING_SNAKE_CASE names used as type arguments,
+/// combining const_generic_names from Phase 4 with feature_max names in type positions.
+fn detect_const_type_stubs_direct(
+    decls: &[Spanned<Decl>],
     const_generic_names: &std::collections::HashSet<String>,
     feature_max_consts: &[(String, String)],
     defined_types: &std::collections::HashSet<String>,
 ) -> Vec<String> {
     let mut all_const_as_types = const_generic_names.clone();
-    let feature_max_set: std::collections::HashSet<String> =
-        feature_max_consts.iter().map(|(n, _)| n.clone()).collect();
-    for tokens in token_lists {
-        let mut in_angle = 0i32;
-        for tok in tokens {
-            match tok.as_str() {
-                "<" => in_angle += 1,
-                ">" if in_angle > 0 => in_angle -= 1,
-                name if in_angle > 0 && feature_max_set.contains(name) => {
-                    all_const_as_types.insert(name.to_string());
-                }
-                _ => {}
-            }
-        }
-    }
+    let fm_set: std::collections::HashSet<&str> =
+        feature_max_consts.iter().map(|(n, _)| n.as_str()).collect();
+    let mut extra = std::collections::HashSet::new();
+    let mut visitor = TypeExprWalkVisitor {
+        visit: |te: Option<&assura_ast::TypeExpr>| {
+            detect_feature_max_as_type_from_type_expr(te, &fm_set, &mut extra);
+        },
+        include_typedef_fields: false,
+        _marker: std::marker::PhantomData,
+    };
+    assura_ast::walk_decls(&mut visitor, decls);
+    all_const_as_types.extend(extra);
+
     let mut const_as_types: Vec<String> = all_const_as_types
         .iter()
         .filter(|n| !defined_types.contains(*n))
@@ -613,13 +570,9 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
     // Phase 1+2: Collect defined types, feature_max consts, and referenced types.
     let (defined_types, feature_max_consts, referenced_types) = collect_type_names(&source.decls);
 
-    // Collect type token lists once for Phases 3 and 4b (FnDef/Extern/Bind only).
-    let fn_token_lists = collect_all_type_token_lists(&source.decls, false);
-    // Phase 4 also needs TypeDef struct fields.
-    let all_token_lists = collect_all_type_token_lists(&source.decls, true);
-
-    // Phase 3: Detect feature_max names used as type arguments inside `<>`.
-    let feature_max_used_as_type = detect_feature_max_as_type(&fn_token_lists, &feature_max_consts);
+    // Phase 3: Detect feature_max names used as type arguments (direct TypeExpr walk).
+    let feature_max_used_as_type =
+        detect_feature_max_as_type_direct(&source.decls, &feature_max_consts);
     for (name, ty) in &feature_max_consts {
         if feature_max_used_as_type.contains(name) {
             // Will be emitted as a struct stub in Phase 4b.
@@ -636,12 +589,12 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
     }
 
     // Phase 4: Detect generic arity for type references and collect const-generic names.
-    let (type_generic_params, const_generic_names) = detect_generic_arities(&all_token_lists);
+    let (type_generic_params, const_generic_names) = detect_generic_arities_direct(&source.decls);
 
     // Phase 4b: Generate marker type stubs for SCREAMING_SNAKE_CASE names
     // used as generic arguments.
-    let const_as_types = detect_const_type_stubs(
-        &fn_token_lists,
+    let const_as_types = detect_const_type_stubs_direct(
+        &source.decls,
         &const_generic_names,
         &feature_max_consts,
         &defined_types,

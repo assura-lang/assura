@@ -89,14 +89,14 @@ pub(crate) use policy::verify_labels;
 // IR modules (implementation IR, organized in ir_modules/)
 // ---------------------------------------------------------------------------
 pub(crate) mod ir_modules;
+pub(crate) use ir_modules::ir_codegen;
 pub(crate) use ir_modules::ir_encode;
 pub(crate) use ir_modules::ir_exec;
 pub(crate) use ir_modules::ir_generate;
+pub(crate) use ir_modules::ir_loader;
 pub(crate) use ir_modules::ir_lower;
 pub(crate) use ir_modules::ir_templates;
 pub(crate) use ir_modules::ir_type_ctx;
-pub(crate) use ir_modules::ir_codegen;
-pub(crate) use ir_modules::ir_loader;
 
 /// Public entry point functions for SMT verification.
 mod entry;

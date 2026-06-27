@@ -236,6 +236,10 @@ pub(crate) enum GenericParamKind {
 /// Scan a type token sequence for `TypeName<Arg1, Arg2, ...>` patterns.
 /// Records the generic params (type vs const) for each type name, and
 /// collects names that appear as const-generic arguments.
+///
+/// Superseded in production by `detect_generic_arity_from_type_expr` which
+/// operates directly on `TypeExpr`. Retained for unit tests.
+#[cfg(test)]
 pub(crate) fn detect_generic_arity(
     tokens: &[String],
     param_map: &mut std::collections::HashMap<String, Vec<GenericParamKind>>,
@@ -345,6 +349,10 @@ pub(crate) fn is_user_type_name(tok: &str) -> bool {
 }
 
 /// Collect user-defined type names from a type token sequence.
+///
+/// Superseded in production by `collect_type_refs_from_type_expr`. Retained
+/// for unit tests.
+#[cfg(test)]
 pub(crate) fn collect_type_refs_from_tokens(
     tokens: &[String],
     out: &mut std::collections::HashSet<String>,
@@ -380,6 +388,156 @@ pub(crate) fn collect_type_refs_from_tokens(
         if is_user_type_name(tok) {
             out.insert(tok.clone());
         }
+    }
+}
+
+/// Collect user-defined type names directly from a `TypeExpr`, avoiding the
+/// token roundtrip through `type_expr_to_token_vec`.
+pub(crate) fn collect_type_refs_from_type_expr(
+    te: Option<&assura_ast::TypeExpr>,
+    out: &mut std::collections::HashSet<String>,
+) {
+    let Some(te) = te else { return };
+    match te {
+        assura_ast::TypeExpr::Named(name) => {
+            // Named may contain spaces from fallback join; check each word.
+            for word in name.split_whitespace() {
+                if is_user_type_name(word) {
+                    out.insert(word.to_string());
+                }
+            }
+        }
+        assura_ast::TypeExpr::Generic(name, args) => {
+            if is_user_type_name(name) {
+                out.insert(name.clone());
+            }
+            for arg in args {
+                collect_type_refs_from_type_expr(Some(arg), out);
+            }
+        }
+        assura_ast::TypeExpr::Tuple(items) => {
+            for item in items {
+                collect_type_refs_from_type_expr(Some(item), out);
+            }
+        }
+        assura_ast::TypeExpr::Fn { params, ret } => {
+            for p in params {
+                collect_type_refs_from_type_expr(Some(p), out);
+            }
+            collect_type_refs_from_type_expr(Some(ret), out);
+        }
+        assura_ast::TypeExpr::Refined { base, .. } => {
+            collect_type_refs_from_type_expr(Some(base), out);
+        }
+        assura_ast::TypeExpr::Unit => {}
+    }
+}
+
+/// Detect generic arity directly from `TypeExpr`, replacing the token-based
+/// `detect_generic_arity` for codegen purposes.
+///
+/// Walks the type expression tree looking for `Generic(name, args)` nodes.
+/// Each arg is classified as `Const` (SCREAMING_SNAKE_CASE or numeric literal)
+/// or `Type` (otherwise). The widest arity seen for each type name wins.
+pub(crate) fn detect_generic_arity_from_type_expr(
+    te: Option<&assura_ast::TypeExpr>,
+    param_map: &mut std::collections::HashMap<String, Vec<GenericParamKind>>,
+    const_names: &mut std::collections::HashSet<String>,
+) {
+    let Some(te) = te else { return };
+    match te {
+        assura_ast::TypeExpr::Generic(name, args) => {
+            if is_user_type_name(name) {
+                let params: Vec<GenericParamKind> = args
+                    .iter()
+                    .map(|arg| {
+                        if is_const_type_expr_arg(arg) {
+                            // Collect the const name if it's a named constant
+                            if let assura_ast::TypeExpr::Named(n) = arg
+                                && is_const_name(n)
+                            {
+                                const_names.insert(n.clone());
+                            }
+                            GenericParamKind::Const
+                        } else {
+                            GenericParamKind::Type
+                        }
+                    })
+                    .collect();
+                let existing_len = param_map.get(name).map_or(0, |v| v.len());
+                if params.len() > existing_len {
+                    param_map.insert(name.clone(), params);
+                }
+            }
+            // Recurse into args
+            for arg in args {
+                detect_generic_arity_from_type_expr(Some(arg), param_map, const_names);
+            }
+        }
+        assura_ast::TypeExpr::Tuple(items) => {
+            for item in items {
+                detect_generic_arity_from_type_expr(Some(item), param_map, const_names);
+            }
+        }
+        assura_ast::TypeExpr::Fn { params, ret } => {
+            for p in params {
+                detect_generic_arity_from_type_expr(Some(p), param_map, const_names);
+            }
+            detect_generic_arity_from_type_expr(Some(ret), param_map, const_names);
+        }
+        assura_ast::TypeExpr::Refined { base, .. } => {
+            detect_generic_arity_from_type_expr(Some(base), param_map, const_names);
+        }
+        assura_ast::TypeExpr::Named(_) | assura_ast::TypeExpr::Unit => {}
+    }
+}
+
+/// Check if a `TypeExpr` argument to a generic looks like a const (SCREAMING_SNAKE_CASE
+/// or numeric literal embedded in a Named).
+fn is_const_type_expr_arg(te: &assura_ast::TypeExpr) -> bool {
+    match te {
+        assura_ast::TypeExpr::Named(n) => {
+            is_const_name(n) || (!n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+        }
+        _ => false,
+    }
+}
+
+/// Detect feature_max names used as type arguments directly from `TypeExpr`.
+pub(crate) fn detect_feature_max_as_type_from_type_expr(
+    te: Option<&assura_ast::TypeExpr>,
+    feature_max_set: &std::collections::HashSet<&str>,
+    out: &mut std::collections::HashSet<String>,
+) {
+    let Some(te) = te else { return };
+    match te {
+        assura_ast::TypeExpr::Generic(_, args) => {
+            for arg in args {
+                // Each arg is in a type-argument position (inside `<>`)
+                if let assura_ast::TypeExpr::Named(n) = arg
+                    && feature_max_set.contains(n.as_str())
+                {
+                    out.insert(n.clone());
+                }
+                // Recurse for nested generics
+                detect_feature_max_as_type_from_type_expr(Some(arg), feature_max_set, out);
+            }
+        }
+        assura_ast::TypeExpr::Tuple(items) => {
+            for item in items {
+                detect_feature_max_as_type_from_type_expr(Some(item), feature_max_set, out);
+            }
+        }
+        assura_ast::TypeExpr::Fn { params, ret } => {
+            for p in params {
+                detect_feature_max_as_type_from_type_expr(Some(p), feature_max_set, out);
+            }
+            detect_feature_max_as_type_from_type_expr(Some(ret), feature_max_set, out);
+        }
+        assura_ast::TypeExpr::Refined { base, .. } => {
+            detect_feature_max_as_type_from_type_expr(Some(base), feature_max_set, out);
+        }
+        assura_ast::TypeExpr::Named(_) | assura_ast::TypeExpr::Unit => {}
     }
 }
 
@@ -972,5 +1130,154 @@ mod tests {
     fn static_raw_eq_value() {
         let e = Spanned::no_span(Expr::Raw(vec!["=".into(), "100".into()]));
         assert_eq!(expr_to_rust_static(&e), "100");
+    }
+
+    // ---- collect_type_refs_from_type_expr ----
+
+    #[test]
+    fn collect_type_refs_type_expr_named() {
+        let mut out = std::collections::HashSet::new();
+        let te = assura_ast::TypeExpr::Named("MyStruct".into());
+        collect_type_refs_from_type_expr(Some(&te), &mut out);
+        assert!(out.contains("MyStruct"));
+    }
+
+    #[test]
+    fn collect_type_refs_type_expr_named_builtin() {
+        let mut out = std::collections::HashSet::new();
+        let te = assura_ast::TypeExpr::Named("Int".into());
+        collect_type_refs_from_type_expr(Some(&te), &mut out);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn collect_type_refs_type_expr_generic() {
+        let mut out = std::collections::HashSet::new();
+        let te = assura_ast::TypeExpr::Generic(
+            "List".into(),
+            vec![assura_ast::TypeExpr::Named("Point".into())],
+        );
+        collect_type_refs_from_type_expr(Some(&te), &mut out);
+        assert!(out.contains("Point"));
+        assert!(!out.contains("List")); // built-in
+    }
+
+    #[test]
+    fn collect_type_refs_type_expr_none() {
+        let mut out = std::collections::HashSet::new();
+        collect_type_refs_from_type_expr(None, &mut out);
+        assert!(out.is_empty());
+    }
+
+    // ---- detect_generic_arity_from_type_expr ----
+
+    #[test]
+    fn detect_generic_arity_type_expr_one_type_param() {
+        let te = assura_ast::TypeExpr::Generic(
+            "Buffer".into(),
+            vec![assura_ast::TypeExpr::Named("Byte".into())],
+        );
+        let mut map = std::collections::HashMap::new();
+        let mut consts = std::collections::HashSet::new();
+        detect_generic_arity_from_type_expr(Some(&te), &mut map, &mut consts);
+        assert_eq!(map.get("Buffer").map(|v| v.len()), Some(1));
+        assert!(matches!(
+            map.get("Buffer").and_then(|v| v.first()),
+            Some(GenericParamKind::Type)
+        ));
+    }
+
+    #[test]
+    fn detect_generic_arity_type_expr_const_param() {
+        let te = assura_ast::TypeExpr::Generic(
+            "Buffer".into(),
+            vec![assura_ast::TypeExpr::Named("MAX_SIZE".into())],
+        );
+        let mut map = std::collections::HashMap::new();
+        let mut consts = std::collections::HashSet::new();
+        detect_generic_arity_from_type_expr(Some(&te), &mut map, &mut consts);
+        assert!(consts.contains("MAX_SIZE"));
+        assert!(matches!(
+            map.get("Buffer").and_then(|v| v.first()),
+            Some(GenericParamKind::Const)
+        ));
+    }
+
+    #[test]
+    fn detect_generic_arity_type_expr_mixed() {
+        let te = assura_ast::TypeExpr::Generic(
+            "Table".into(),
+            vec![
+                assura_ast::TypeExpr::Named("Entry".into()),
+                assura_ast::TypeExpr::Named("MAX_ENTRIES".into()),
+            ],
+        );
+        let mut map = std::collections::HashMap::new();
+        let mut consts = std::collections::HashSet::new();
+        detect_generic_arity_from_type_expr(Some(&te), &mut map, &mut consts);
+        assert_eq!(map.get("Table").map(|v| v.len()), Some(2));
+        assert!(consts.contains("MAX_ENTRIES"));
+    }
+
+    #[test]
+    fn detect_generic_arity_type_expr_widest_wins() {
+        // First usage with 1 param
+        let te1 = assura_ast::TypeExpr::Generic(
+            "Container".into(),
+            vec![assura_ast::TypeExpr::Named("Foo".into())],
+        );
+        // Second usage with 2 params
+        let te2 = assura_ast::TypeExpr::Generic(
+            "Container".into(),
+            vec![
+                assura_ast::TypeExpr::Named("Foo".into()),
+                assura_ast::TypeExpr::Named("Bar".into()),
+            ],
+        );
+        let mut map = std::collections::HashMap::new();
+        let mut consts = std::collections::HashSet::new();
+        detect_generic_arity_from_type_expr(Some(&te1), &mut map, &mut consts);
+        detect_generic_arity_from_type_expr(Some(&te2), &mut map, &mut consts);
+        assert_eq!(map.get("Container").map(|v| v.len()), Some(2));
+    }
+
+    // ---- detect_feature_max_as_type_from_type_expr ----
+
+    #[test]
+    fn feature_max_as_type_expr_found() {
+        let te = assura_ast::TypeExpr::Generic(
+            "Buffer".into(),
+            vec![assura_ast::TypeExpr::Named("MAX_BUF_SIZE".into())],
+        );
+        let fm_set: std::collections::HashSet<&str> = ["MAX_BUF_SIZE"].iter().copied().collect();
+        let mut out = std::collections::HashSet::new();
+        detect_feature_max_as_type_from_type_expr(Some(&te), &fm_set, &mut out);
+        assert!(out.contains("MAX_BUF_SIZE"));
+    }
+
+    #[test]
+    fn feature_max_as_type_expr_not_in_generic() {
+        // Named at top level (not inside Generic args) should NOT be found
+        let te = assura_ast::TypeExpr::Named("MAX_BUF_SIZE".into());
+        let fm_set: std::collections::HashSet<&str> = ["MAX_BUF_SIZE"].iter().copied().collect();
+        let mut out = std::collections::HashSet::new();
+        detect_feature_max_as_type_from_type_expr(Some(&te), &fm_set, &mut out);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn feature_max_as_type_expr_nested() {
+        // List<Buffer<MAX_SIZE>> should find MAX_SIZE
+        let te = assura_ast::TypeExpr::Generic(
+            "List".into(),
+            vec![assura_ast::TypeExpr::Generic(
+                "Buffer".into(),
+                vec![assura_ast::TypeExpr::Named("MAX_SIZE".into())],
+            )],
+        );
+        let fm_set: std::collections::HashSet<&str> = ["MAX_SIZE"].iter().copied().collect();
+        let mut out = std::collections::HashSet::new();
+        detect_feature_max_as_type_from_type_expr(Some(&te), &fm_set, &mut out);
+        assert!(out.contains("MAX_SIZE"));
     }
 }
