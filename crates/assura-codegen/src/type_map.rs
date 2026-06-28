@@ -197,6 +197,83 @@ fn map_type_arg_list(args: &[&str]) -> String {
         .join(", ")
 }
 
+/// Like [`rust_type_to_assura`], but maps unrecognized Rust types to `Unknown`
+/// instead of passing them through. Also handles `impl Trait`, `dyn Trait`,
+/// `Self`, and lifetime annotations that the standard mapper does not.
+///
+/// Used by `assura audit` where unknown Rust types would cause A02001
+/// resolution errors that prevent verification from running.
+pub fn rust_type_to_assura_lenient(rust_type: &str) -> String {
+    let ty = rust_type.trim();
+    // Unmappable Rust type syntax: return Unknown directly
+    if ty.starts_with("impl ") || ty.starts_with("dyn ") || ty == "Self" {
+        return "Unknown".to_string();
+    }
+    if ty.starts_with("Pin<") || ty.starts_with("PhantomData") {
+        return "Unknown".to_string();
+    }
+    // Strip lifetime from references: &'a T -> &T, &'_ T -> &T
+    let cleaned = if ty.starts_with("&'") {
+        if let Some(space_idx) = ty[1..].find(' ') {
+            format!("&{}", &ty[2 + space_idx..])
+        } else {
+            ty.to_string()
+        }
+    } else {
+        ty.to_string()
+    };
+    let mapped = rust_type_to_assura(&cleaned);
+    sanitize_mapped_type(&mapped)
+}
+
+/// Recursively replace type names that are not valid Assura types with `Unknown`.
+fn sanitize_mapped_type(ty: &str) -> String {
+    let ty = ty.trim();
+    if ty.is_empty() {
+        return "Unknown".to_string();
+    }
+    // Optional: T?
+    if let Some(inner) = ty.strip_suffix('?') {
+        let s = sanitize_mapped_type(inner);
+        return format!("{s}?");
+    }
+    // Tuple: (T, U, ...)
+    if ty.starts_with('(') && ty.ends_with(')') {
+        let inner = &ty[1..ty.len() - 1];
+        if inner.is_empty() {
+            return "Unit".to_string();
+        }
+        let parts = split_type_args(inner);
+        let sanitized: Vec<String> = parts
+            .iter()
+            .map(|p| sanitize_mapped_type(p.trim()))
+            .collect();
+        return format!("({})", sanitized.join(", "));
+    }
+    // Known generic bases: List<...>, Map<...>, Set<...>, Result<...>
+    if let Some((base, args)) = split_generic(ty) {
+        let base = base.trim();
+        match base {
+            "List" | "Map" | "Set" | "Result" => {
+                let parts = split_type_args(args);
+                let sanitized: Vec<String> = parts
+                    .iter()
+                    .map(|p| sanitize_mapped_type(p.trim()))
+                    .collect();
+                return format!("{base}<{}>", sanitized.join(", "));
+            }
+            _ => return "Unknown".to_string(),
+        }
+    }
+    // Known Assura primitive types
+    match ty {
+        "Int" | "Nat" | "Float" | "Bool" | "String" | "Bytes" | "Unit" | "Never" | "Unknown" => {
+            ty.to_string()
+        }
+        _ => "Unknown".to_string(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -341,5 +418,77 @@ mod tests {
             rust_type_to_assura("Result<i64, String>"),
             "Result<Int, String>"
         );
+    }
+
+    // --- Lenient mapping (for audit) ---
+
+    #[test]
+    fn lenient_primitives_pass_through() {
+        assert_eq!(rust_type_to_assura_lenient("i64"), "Int");
+        assert_eq!(rust_type_to_assura_lenient("u32"), "Nat");
+        assert_eq!(rust_type_to_assura_lenient("bool"), "Bool");
+        assert_eq!(rust_type_to_assura_lenient("String"), "String");
+        assert_eq!(rust_type_to_assura_lenient("f64"), "Float");
+    }
+
+    #[test]
+    fn lenient_unknown_types_become_unknown() {
+        assert_eq!(rust_type_to_assura_lenient("Config"), "Unknown");
+        assert_eq!(rust_type_to_assura_lenient("PathBuf"), "Unknown");
+        assert_eq!(rust_type_to_assura_lenient("MyStruct"), "Unknown");
+    }
+
+    #[test]
+    fn lenient_unknown_generics_become_unknown() {
+        assert_eq!(rust_type_to_assura_lenient("MyGeneric<i64>"), "Unknown");
+        assert_eq!(rust_type_to_assura_lenient("Foo<Bar, Baz>"), "Unknown");
+    }
+
+    #[test]
+    fn lenient_known_generics_preserve_structure() {
+        assert_eq!(rust_type_to_assura_lenient("Vec<i64>"), "List<Int>");
+        assert_eq!(
+            rust_type_to_assura_lenient("HashMap<String, i64>"),
+            "Map<String, Int>"
+        );
+        assert_eq!(rust_type_to_assura_lenient("Option<bool>"), "Bool?");
+    }
+
+    #[test]
+    fn lenient_nested_unknown_in_known_generic() {
+        assert_eq!(rust_type_to_assura_lenient("Vec<Config>"), "List<Unknown>");
+        assert_eq!(
+            rust_type_to_assura_lenient("Result<i64, MyError>"),
+            "Result<Int, Unknown>"
+        );
+    }
+
+    #[test]
+    fn lenient_impl_dyn_self() {
+        assert_eq!(rust_type_to_assura_lenient("impl Iterator"), "Unknown");
+        assert_eq!(rust_type_to_assura_lenient("dyn Trait"), "Unknown");
+        assert_eq!(rust_type_to_assura_lenient("Self"), "Unknown");
+    }
+
+    #[test]
+    fn lenient_lifetime_references() {
+        assert_eq!(rust_type_to_assura_lenient("&'a str"), "String");
+        assert_eq!(rust_type_to_assura_lenient("&'_ i64"), "Int");
+    }
+
+    #[test]
+    fn lenient_pin_phantomdata() {
+        assert_eq!(
+            rust_type_to_assura_lenient("Pin<Box<dyn Future>>"),
+            "Unknown"
+        );
+        assert_eq!(rust_type_to_assura_lenient("PhantomData<T>"), "Unknown");
+    }
+
+    #[test]
+    fn lenient_wrapper_erasure_then_sanitize() {
+        assert_eq!(rust_type_to_assura_lenient("Box<i64>"), "Int");
+        assert_eq!(rust_type_to_assura_lenient("Arc<String>"), "String");
+        assert_eq!(rust_type_to_assura_lenient("Arc<Config>"), "Unknown");
     }
 }
