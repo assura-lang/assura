@@ -1,7 +1,7 @@
 //! Core `verify()` / `Verifier` / contract and standalone verification APIs.
 
 use assura_ast::{
-    BindDecl, BlockKind, Clause, ClauseKind, ContractDecl, Expr, ExternDecl, FnDef, SpExpr,
+    BindDecl, BlockKind, Clause, ClauseKind, ContractDecl, ExternDecl, FnDef, SpExpr,
 };
 use assura_types::TypedFile;
 
@@ -267,37 +267,9 @@ pub fn has_verifiable_clauses(source: &assura_ast::SourceFile) -> bool {
 }
 
 /// Check if an expression references the `result` identifier.
+/// Delegates to the canonical shared implementation in `assura-ast`.
 pub(crate) fn expr_references_result(expr: &assura_ast::SpExpr) -> bool {
-    match &expr.node {
-        Expr::Ident(name) => name == "result",
-        Expr::BinOp { lhs, rhs, .. } => expr_references_result(lhs) || expr_references_result(rhs),
-        Expr::UnaryOp { expr: e, .. }
-        | Expr::Old(e)
-        | Expr::Cast { expr: e, .. }
-        | Expr::Ghost(e) => expr_references_result(e),
-        Expr::Call { func, args } => {
-            expr_references_result(func) || args.iter().any(expr_references_result)
-        }
-        Expr::MethodCall { receiver, args, .. } => {
-            expr_references_result(receiver) || args.iter().any(expr_references_result)
-        }
-        Expr::Field(recv, _) => expr_references_result(recv),
-        Expr::Index { expr: e, index } => {
-            expr_references_result(e) || expr_references_result(index)
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            expr_references_result(cond)
-                || expr_references_result(then_branch)
-                || else_branch
-                    .as_ref()
-                    .is_some_and(|e| expr_references_result(e))
-        }
-        _ => false,
-    }
+    assura_ast::expr_references_result(expr)
 }
 
 /// When IR loading was attempted but no body exists for a contract,
@@ -395,7 +367,9 @@ pub(crate) fn verify_parallel_with_solver(
                     };
                     let mut results = verify_contract_with_types_and_solver(&ctx, solver);
                     results.extend(skip_results);
-                    cache.put(name, clauses, ir_fp, &results);
+                    // No cache.put: same clauses will always retake the skip
+                    // path (unconstrained result with no IR), so cached results
+                    // would never be read back (#712).
                     return results;
                 }
                 return skip_results;

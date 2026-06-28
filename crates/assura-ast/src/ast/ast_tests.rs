@@ -450,3 +450,126 @@ fn negate_expr_bool_literal() {
         other => panic!("expected true, got {other:?}"),
     }
 }
+
+// ---------------------------------------------------------------------------
+// expr_references_result (#707)
+// ---------------------------------------------------------------------------
+
+fn sp(e: Expr) -> SpExpr {
+    Spanned::no_span(e)
+}
+
+#[test]
+fn expr_references_result_ident() {
+    assert!(expr_references_result(&sp(Expr::Ident("result".into()))));
+}
+
+#[test]
+fn expr_references_result_other_ident() {
+    assert!(!expr_references_result(&sp(Expr::Ident("x".into()))));
+}
+
+#[test]
+fn expr_references_result_in_forall() {
+    let expr = sp(Expr::Forall {
+        var: "i".into(),
+        domain: Box::new(sp(Expr::Ident("xs".into()))),
+        body: Box::new(sp(Expr::BinOp {
+            lhs: Box::new(sp(Expr::Ident("result".into()))),
+            op: BinOp::Gte,
+            rhs: Box::new(sp(Expr::Ident("i".into()))),
+        })),
+    });
+    assert!(expr_references_result(&expr));
+}
+
+#[test]
+fn expr_references_result_in_exists() {
+    let expr = sp(Expr::Exists {
+        var: "i".into(),
+        domain: Box::new(sp(Expr::Ident("xs".into()))),
+        body: Box::new(sp(Expr::Ident("result".into()))),
+    });
+    assert!(expr_references_result(&expr));
+}
+
+#[test]
+fn expr_references_result_in_let() {
+    let expr = sp(Expr::Let {
+        name: "tmp".into(),
+        value: Box::new(sp(Expr::Ident("result".into()))),
+        body: Box::new(sp(Expr::Ident("tmp".into()))),
+    });
+    assert!(expr_references_result(&expr));
+}
+
+#[test]
+fn expr_references_result_in_let_body() {
+    let expr = sp(Expr::Let {
+        name: "tmp".into(),
+        value: Box::new(sp(Expr::Ident("x".into()))),
+        body: Box::new(sp(Expr::Ident("result".into()))),
+    });
+    assert!(expr_references_result(&expr));
+}
+
+#[test]
+fn expr_references_result_in_match_arm() {
+    let expr = sp(Expr::Match {
+        scrutinee: Box::new(sp(Expr::Ident("x".into()))),
+        arms: vec![MatchArm {
+            pattern: Pattern::Wildcard,
+            body: sp(Expr::Ident("result".into())),
+        }],
+    });
+    assert!(expr_references_result(&expr));
+}
+
+#[test]
+fn expr_references_result_in_tuple() {
+    let expr = sp(Expr::Tuple(vec![
+        sp(Expr::Ident("x".into())),
+        sp(Expr::Ident("result".into())),
+    ]));
+    assert!(expr_references_result(&expr));
+}
+
+#[test]
+fn expr_references_result_in_list() {
+    let expr = sp(Expr::List(vec![sp(Expr::Ident("result".into()))]));
+    assert!(expr_references_result(&expr));
+}
+
+#[test]
+fn expr_references_result_in_block() {
+    let expr = sp(Expr::Block(vec![sp(Expr::Ident("result".into()))]));
+    assert!(expr_references_result(&expr));
+}
+
+#[test]
+fn expr_references_result_in_raw() {
+    let expr = sp(Expr::Raw(vec!["foo".into(), "result".into()]));
+    assert!(expr_references_result(&expr));
+}
+
+#[test]
+fn expr_references_result_raw_without() {
+    let expr = sp(Expr::Raw(vec!["foo".into(), "bar".into()]));
+    assert!(!expr_references_result(&expr));
+}
+
+#[test]
+fn expr_references_result_literal_false() {
+    assert!(!expr_references_result(&sp(Expr::Literal(Literal::Int(
+        "42".into()
+    )))));
+}
+
+#[test]
+fn expr_references_result_apply_false() {
+    let expr = sp(Expr::Apply {
+        lemma_name: "lem".into(),
+        args: vec![],
+    });
+    assert!(!expr_references_result(&expr));
+}

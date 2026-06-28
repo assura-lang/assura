@@ -83,7 +83,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
         matches!(
             r,
             assura_smt::VerificationResult::Verified { clause_desc, .. }
-                if clause_desc.contains("ensures")
+                if clause_desc.ends_with("::ensures")
         )
     });
     if has_verified_ensures {

@@ -1142,6 +1142,60 @@ pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
 }
 
 // ---------------------------------------------------------------------------
+// Expression helpers
+// ---------------------------------------------------------------------------
+
+/// Check if an expression references the `result` identifier.
+///
+/// Used by both the type checker (clause quality warnings) and the SMT
+/// verifier (unconstrained-result skip logic).  Lives here so every
+/// downstream crate shares a single exhaustive implementation.
+pub fn expr_references_result(expr: &SpExpr) -> bool {
+    match &expr.node {
+        Expr::Ident(name) => name == "result",
+        Expr::BinOp { lhs, rhs, .. } => expr_references_result(lhs) || expr_references_result(rhs),
+        Expr::UnaryOp { expr: e, .. }
+        | Expr::Old(e)
+        | Expr::Cast { expr: e, .. }
+        | Expr::Ghost(e) => expr_references_result(e),
+        Expr::Call { func, args } => {
+            expr_references_result(func) || args.iter().any(expr_references_result)
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            expr_references_result(receiver) || args.iter().any(expr_references_result)
+        }
+        Expr::Field(recv, _) => expr_references_result(recv),
+        Expr::Index { expr: e, index } => {
+            expr_references_result(e) || expr_references_result(index)
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_references_result(cond)
+                || expr_references_result(then_branch)
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|e| expr_references_result(e))
+        }
+        Expr::Forall { body, .. } | Expr::Exists { body, .. } => expr_references_result(body),
+        Expr::Let { value, body, .. } => {
+            expr_references_result(value) || expr_references_result(body)
+        }
+        Expr::Match { scrutinee, arms } => {
+            expr_references_result(scrutinee)
+                || arms.iter().any(|a| expr_references_result(&a.body))
+        }
+        Expr::Tuple(items) | Expr::List(items) | Expr::Block(items) => {
+            items.iter().any(expr_references_result)
+        }
+        Expr::Raw(tokens) => tokens.iter().any(|t| t == "result"),
+        Expr::Literal(_) | Expr::Apply { .. } => false,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Shared clause parameter extraction
 // ---------------------------------------------------------------------------
 

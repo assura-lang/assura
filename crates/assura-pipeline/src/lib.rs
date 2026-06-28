@@ -257,7 +257,7 @@ pub fn compile_full(source: &str, filename: &str, config: &CompilerConfig) -> Co
             matches!(
                 r,
                 assura_smt::VerificationResult::Verified { clause_desc, .. }
-                    if clause_desc.contains("ensures")
+                    if clause_desc.ends_with("::ensures")
             )
         });
         if has_verified_ensures {

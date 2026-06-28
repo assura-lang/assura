@@ -204,36 +204,36 @@ fn bound_non_binop_returns_none() {
 
 #[test]
 fn param_range_both_bounds_merged() {
-    // requires { x >= 0 } + requires { x <= 1000 } -> 0i64..=1000i64
+    // requires { x >= 0 } + requires { x <= 1000 } -> (0i64..=1000i64)
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::GteVal(0));
     range.apply(&ParamBound::LteVal(1000));
-    assert_eq!(range.to_strategy(), "0i64..=1000i64");
+    assert_eq!(range.to_strategy(), "(0i64..=1000i64)");
 }
 
 #[test]
 fn param_range_lower_only() {
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::GteVal(5));
-    assert_eq!(range.to_strategy(), "5i64..=i64::MAX");
+    assert_eq!(range.to_strategy(), "(5i64..=i64::MAX)");
 }
 
 #[test]
 fn param_range_upper_only() {
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::LteVal(100));
-    assert_eq!(range.to_strategy(), "i64::MIN..=100i64");
+    assert_eq!(range.to_strategy(), "(i64::MIN..=100i64)");
 }
 
 #[test]
 fn param_range_tightest_bounds_win() {
-    // x >= 0, x >= 10, x <= 1000, x <= 500 -> 10..=500
+    // x >= 0, x >= 10, x <= 1000, x <= 500 -> (10..=500)
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::GteVal(0));
     range.apply(&ParamBound::GteVal(10));
     range.apply(&ParamBound::LteVal(1000));
     range.apply(&ParamBound::LteVal(500));
-    assert_eq!(range.to_strategy(), "10i64..=500i64");
+    assert_eq!(range.to_strategy(), "(10i64..=500i64)");
 }
 
 #[test]
@@ -241,7 +241,7 @@ fn param_range_gt_exclusive_becomes_inclusive() {
     // x > 0 -> lower bound is 1
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::GtVal(0));
-    assert_eq!(range.to_strategy(), "1i64..=i64::MAX");
+    assert_eq!(range.to_strategy(), "(1i64..=i64::MAX)");
 }
 
 #[test]
@@ -249,23 +249,69 @@ fn param_range_lt_exclusive_becomes_inclusive() {
     // x < 100 -> upper bound is 99
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::LtVal(100));
-    assert_eq!(range.to_strategy(), "i64::MIN..=99i64");
+    assert_eq!(range.to_strategy(), "(i64::MIN..=99i64)");
 }
 
 #[test]
-fn param_range_neq_zero_sets_lower_1() {
+fn param_range_neq_zero_uses_filter() {
+    // #710: x != 0 preserves negative domain via prop_filter
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::NeqZero);
-    assert_eq!(range.to_strategy(), "1i64..=i64::MAX");
+    let s = range.to_strategy();
+    assert!(s.contains("prop_filter"), "expected prop_filter, got: {s}");
+    assert!(s.contains("!= 0"), "expected != 0 in filter, got: {s}");
 }
 
 #[test]
 fn param_range_neq_zero_with_upper() {
-    // x != 0 + x <= 50 -> 1..=50
+    // x != 0 + x <= 50 -> range with filter preserving negatives
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::NeqZero);
     range.apply(&ParamBound::LteVal(50));
-    assert_eq!(range.to_strategy(), "1i64..=50i64");
+    let s = range.to_strategy();
+    assert!(s.contains("50i64"), "expected upper bound 50, got: {s}");
+    assert!(s.contains("prop_filter"), "expected prop_filter, got: {s}");
+}
+
+#[test]
+fn param_range_neq_zero_with_negative_lower() {
+    // #710: x >= -100 + x != 0 -> (-100..=MAX) with filter
+    let mut range = super::ParamRange::default();
+    range.apply(&ParamBound::GteVal(-100));
+    range.apply(&ParamBound::NeqZero);
+    let s = range.to_strategy();
+    assert!(s.contains("-100i64"), "expected lower bound -100, got: {s}");
+    assert!(s.contains("prop_filter"), "expected prop_filter, got: {s}");
+}
+
+#[test]
+fn param_range_contradictory_bounds_fallback() {
+    // #709: x >= 10 + x <= 5 -> contradictory, fall back to any()
+    let mut range = super::ParamRange::default();
+    range.apply(&ParamBound::GteVal(10));
+    range.apply(&ParamBound::LteVal(5));
+    assert_eq!(range.to_strategy(), "proptest::prelude::any::<i64>()");
+}
+
+#[test]
+fn param_range_contradictory_bounds_with_neq_zero() {
+    // #709 + #710: contradictory + neq_zero -> any() with filter
+    let mut range = super::ParamRange::default();
+    range.apply(&ParamBound::GteVal(10));
+    range.apply(&ParamBound::LteVal(5));
+    range.apply(&ParamBound::NeqZero);
+    let s = range.to_strategy();
+    assert!(s.contains("any::<i64>()"), "expected fallback, got: {s}");
+    assert!(s.contains("prop_filter"), "expected filter, got: {s}");
+}
+
+#[test]
+fn param_range_has_bounds_neq_zero() {
+    // neq_zero alone counts as having bounds
+    let mut range = super::ParamRange::default();
+    assert!(!range.has_bounds());
+    range.apply(&ParamBound::NeqZero);
+    assert!(range.has_bounds());
 }
 
 // ---- contract_is_testable ----

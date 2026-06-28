@@ -425,6 +425,7 @@ pub(crate) fn try_extract_bound(requires_expr: &SpExpr) -> Option<(String, Param
 struct ParamRange {
     lower: Option<i64>,
     upper: Option<i64>,
+    neq_zero: bool,
 }
 
 impl ParamRange {
@@ -445,24 +446,30 @@ impl ParamRange {
                 self.upper = Some(self.upper.map_or(inclusive, |cur| cur.min(inclusive)));
             }
             ParamBound::NeqZero => {
-                // If no lower bound yet, set to 1; if lower is already > 0, keep it
-                let new_lower = 1i64;
-                self.lower = Some(self.lower.map_or(new_lower, |cur| cur.max(new_lower)));
+                self.neq_zero = true;
             }
         }
     }
 
     fn to_strategy(&self) -> String {
-        match (self.lower, self.upper) {
-            (Some(lo), Some(hi)) => format!("{lo}i64..={hi}i64"),
-            (Some(lo), None) => format!("{lo}i64..=i64::MAX"),
-            (None, Some(hi)) => format!("i64::MIN..={hi}i64"),
+        // #709: contradictory bounds (lo > hi) fall back to any()
+        let base = match (self.lower, self.upper) {
+            (Some(lo), Some(hi)) if lo > hi => "proptest::prelude::any::<i64>()".to_string(),
+            (Some(lo), Some(hi)) => format!("({lo}i64..={hi}i64)"),
+            (Some(lo), None) => format!("({lo}i64..=i64::MAX)"),
+            (None, Some(hi)) => format!("(i64::MIN..={hi}i64)"),
             (None, None) => "proptest::prelude::any::<i64>()".to_string(),
+        };
+        // #710: neq_zero uses a filter to preserve both positive and negative domain
+        if self.neq_zero {
+            format!("{base}.prop_filter(\"!= 0\", |&v| v != 0)")
+        } else {
+            base
         }
     }
 
     fn has_bounds(&self) -> bool {
-        self.lower.is_some() || self.upper.is_some()
+        self.lower.is_some() || self.upper.is_some() || self.neq_zero
     }
 }
 

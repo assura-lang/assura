@@ -207,49 +207,9 @@ pub(crate) fn run_unconstrained_output_checks(
 }
 
 /// Check if `result` appears in an expression.
+/// Delegates to the canonical shared implementation in `assura-ast`.
 fn expr_references_result(expr: &SpExpr) -> bool {
-    match &expr.node {
-        Expr::Ident(name) => name == "result",
-        Expr::BinOp { lhs, rhs, .. } => expr_references_result(lhs) || expr_references_result(rhs),
-        Expr::UnaryOp { expr: e, .. }
-        | Expr::Old(e)
-        | Expr::Cast { expr: e, .. }
-        | Expr::Ghost(e) => expr_references_result(e),
-        Expr::Call { func, args } => {
-            expr_references_result(func) || args.iter().any(expr_references_result)
-        }
-        Expr::MethodCall { receiver, args, .. } => {
-            expr_references_result(receiver) || args.iter().any(expr_references_result)
-        }
-        Expr::Field(recv, _) => expr_references_result(recv),
-        Expr::Index { expr: e, index } => {
-            expr_references_result(e) || expr_references_result(index)
-        }
-        Expr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            expr_references_result(cond)
-                || expr_references_result(then_branch)
-                || else_branch
-                    .as_ref()
-                    .is_some_and(|e| expr_references_result(e))
-        }
-        Expr::Forall { body, .. } | Expr::Exists { body, .. } => expr_references_result(body),
-        Expr::Let { value, body, .. } => {
-            expr_references_result(value) || expr_references_result(body)
-        }
-        Expr::Match { scrutinee, arms } => {
-            expr_references_result(scrutinee)
-                || arms.iter().any(|a| expr_references_result(&a.body))
-        }
-        Expr::Tuple(items) | Expr::List(items) | Expr::Block(items) => {
-            items.iter().any(expr_references_result)
-        }
-        Expr::Raw(tokens) => tokens.iter().any(|t| t == "result"),
-        Expr::Literal(_) | Expr::Apply { .. } => false,
-    }
+    assura_parser::ast::expr_references_result(expr)
 }
 
 /// Check if an identifier is declared as an output parameter.

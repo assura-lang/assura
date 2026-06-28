@@ -1103,11 +1103,10 @@ contract Div {
 "#,
     );
     let lib = &project.files[0].1;
-    // b != 0 should be refined to a range strategy, not prop_assume
-    // prettyplease may break the range across lines, so check components
+    // #710: b != 0 should use prop_filter to preserve negative domain
     assert!(
-        lib.contains("1i64") && lib.contains("i64::MAX"),
-        "b != 0 should refine to positive range: {lib}"
+        lib.contains("prop_filter") && lib.contains("!= 0"),
+        "b != 0 should use prop_filter for full signed domain: {lib}"
     );
     // Should NOT have prop_assume for b since it was refined
     assert!(
