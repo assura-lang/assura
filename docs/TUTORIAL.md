@@ -32,8 +32,8 @@ CVC5 is an optional alternative solver. Install it if you want portfolio
 mode (tries both solvers):
 
 ```bash
-# macOS
-brew install cvc5
+bash scripts/setup-cvc5.sh
+# paste the printed export lines (CVC5_LIB_DIR, CVC5_INCLUDE_DIR)
 ```
 
 ## Step 1: Create a Project
