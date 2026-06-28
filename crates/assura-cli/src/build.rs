@@ -340,6 +340,9 @@ pub(crate) fn run_build(
 
         let mut cmd = process::Command::new("cargo");
         cmd.arg("build").current_dir(out_dir);
+        // Clear RUSTC_WRAPPER so inner cargo build is not affected by
+        // the outer build environment (e.g. sccache instability on CI).
+        cmd.env_remove("RUSTC_WRAPPER");
         if let Some(triple) = compile_target.rust_target() {
             cmd.arg("--target").arg(triple);
         }
@@ -595,6 +598,7 @@ pub(crate) fn run_build_project(
         let status = std::process::Command::new("cargo")
             .arg("build")
             .current_dir(out_dir)
+            .env_remove("RUSTC_WRAPPER")
             .status();
         match status {
             Ok(s) if s.success() => {
