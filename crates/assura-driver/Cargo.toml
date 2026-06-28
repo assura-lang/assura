@@ -1,0 +1,18 @@
+[package]
+name = "assura-driver"
+description = "Custom rustc driver for compiler-level contract verification (exploratory)"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# This crate is excluded from the main workspace because it depends on
+# rustc-private sysroot crates (only available with nightly + rustc-dev).
+#
+# Build with:
+#   rustup component add rustc-dev --toolchain nightly
+#   cargo +nightly build -p assura-driver
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

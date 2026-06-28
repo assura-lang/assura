@@ -128,6 +128,10 @@ enum Commands {
         /// Only suggest for unsafe functions (with --suggest)
         #[arg(long)]
         unsafe_only: bool,
+
+        /// Enable Level 2 LLM lemma verification (requires --llm)
+        #[arg(long)]
+        llm_verify: bool,
     },
 
     /// Suggest contracts from cargo-fuzz crash artifacts
@@ -427,6 +431,7 @@ pub fn run() {
             llm_model,
             public_only,
             unsafe_only,
+            llm_verify,
         } => run_check_rust(
             &path,
             output_mode,
@@ -440,6 +445,7 @@ pub fn run() {
                 model: llm_model.as_deref(),
                 public_only,
                 unsafe_only,
+                llm_verify,
             },
         ),
         Commands::SuggestFromCrash {

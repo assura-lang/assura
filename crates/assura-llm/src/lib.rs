@@ -11,6 +11,7 @@
 pub mod cache;
 pub mod contract_db;
 pub mod fuzz;
+pub mod lemma;
 pub mod prompt;
 pub mod provider;
 pub mod suggest;
