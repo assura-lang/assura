@@ -800,7 +800,8 @@ mod tests {
         };
         let json = serde_json::to_string(&label).unwrap();
         assert!(json.contains("declared here"));
-        assert!(json.contains("10"));
+        assert!(json.contains("\"start\":10"), "span start: {json}");
+        assert!(json.contains("\"end\":20"), "span end: {json}");
     }
 
     // ---- Suggestion ----
