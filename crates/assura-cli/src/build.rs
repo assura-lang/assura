@@ -3,51 +3,49 @@ use super::*;
 // `assura build <file.assura>` — codegen to generated/
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn run_build(
+/// Resolved build configuration from CLI flags and assura.toml.
+struct BuildConfig<'a> {
+    out_dir_str: &'a str,
+    solver: assura_smt::SolverChoice,
+    compile_target: assura_codegen::CompileTarget,
+    compiler_config: CompilerConfig,
+    project: Option<(assura_config::ProjectConfig, std::path::PathBuf)>,
+}
+
+fn resolve_build_config<'a>(
     filename: &str,
-    _output_mode: OutputMode,
+    output_mode: OutputMode,
     verbosity: Verbosity,
-    cli_output: &str,
+    cli_output: &'a str,
     cli_target: Option<assura_codegen::CompileTarget>,
-    no_check: bool,
     cli_solver: Option<assura_smt::SolverChoice>,
-    runtime_checks: bool,
-) {
-    // Load project config (assura.toml) if available
+    config_output_buf: &'a mut String,
+) -> BuildConfig<'a> {
     let project = load_project_config(Path::new(filename));
-    let config_output = project
+    *config_output_buf = project
         .as_ref()
         .map(|(c, _)| c.build.output.clone())
         .unwrap_or_else(|| "generated".to_string());
-
-    // Output directory: CLI flag (non-default) > config file > default "generated"
-    let out_dir_str = resolve_output_dir(cli_output, config_output.as_str());
-
-    // Solver choice: CLI flag > config file > default (Z3)
-    let build_solver = resolve_solver(
+    let out_dir_str = resolve_output_dir(cli_output, config_output_buf.as_str());
+    let solver = resolve_solver(
         cli_solver,
         project.as_ref().map(|(c, _)| c.verify.smt_solver),
     );
-
-    // Target: CLI flag > config file > default (native)
     let compile_target = resolve_target(
         cli_target,
         project.as_ref().map(|(c, _)| c.build.target.as_str()),
     );
-
-    // Build unified compiler config
     let compiler_config = if let Some((ref proj, _)) = project {
-        let mut cc = CompilerConfig::from_project(proj, _output_mode, verbosity);
-        cc.verify.solver = build_solver;
+        let mut cc = CompilerConfig::from_project(proj, output_mode, verbosity);
+        cc.verify.solver = solver;
         cc.codegen.output_dir = out_dir_str.to_string();
         cc
     } else {
         CompilerConfig {
-            output_mode: _output_mode,
+            output_mode,
             verbosity,
             verify: assura_config::VerifyOptions {
-                solver: build_solver,
+                solver,
                 ..Default::default()
             },
             codegen: assura_config::CodegenConfig {
@@ -57,18 +55,78 @@ pub(crate) fn run_build(
             ..Default::default()
         }
     };
-    let config = project;
+    BuildConfig { out_dir_str, solver, compile_target, compiler_config, project }
+}
 
-    // --- Project mode: detect directory ---
-    let path = Path::new(filename);
-    if path.is_dir() {
+/// Run verification on a typed file and print results. Returns the verification
+/// results and elapsed time in milliseconds.
+fn verify_and_print(
+    typed: &assura_types::TypedFile,
+    filename: &str,
+    solver: assura_smt::SolverChoice,
+    verbosity: Verbosity,
+) -> (Vec<assura_smt::VerificationResult>, f64) {
+    let qwarnings = assura_smt::validate_quantifier_bounds(typed);
+    if verbosity != Verbosity::Quiet {
+        for w in &qwarnings {
+            eprintln!(
+                "warning: unbounded quantifier in {}: {} ({})",
+                w.context, w.domain_desc, w.reason
+            );
+        }
+    }
+
+    let verify_start = Instant::now();
+    let verify_config = assura_config::CompilerConfig {
+        verify: assura_config::VerifyOptions {
+            solver,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let results = assura_pipeline::verify_typed(typed, filename, &verify_config);
+    let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
+
+    if verbosity == Verbosity::Verbose {
+        eprintln!(
+            "  verify:    {} clause(s) ({verify_ms:.2}ms)",
+            results.len()
+        );
+    }
+    if verbosity != Verbosity::Quiet && !results.is_empty() {
+        eprintln!();
+        eprintln!("Verification ({} clause(s)):", results.len());
+        let _ = assura_smt::display::write_grouped_verification(
+            &mut std::io::stderr(),
+            &results,
+            "  ",
+        );
+    }
+    (results, verify_ms)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_build(
+    filename: &str,
+    output_mode: OutputMode,
+    verbosity: Verbosity,
+    cli_output: &str,
+    cli_target: Option<assura_codegen::CompileTarget>,
+    no_check: bool,
+    cli_solver: Option<assura_smt::SolverChoice>,
+    runtime_checks: bool,
+) {
+    let mut config_output_buf = String::new();
+    let bc = resolve_build_config(
+        filename, output_mode, verbosity, cli_output, cli_target,
+        cli_solver, &mut config_output_buf,
+    );
+
+    // Project mode: detect directory
+    if Path::new(filename).is_dir() {
         run_build_project(
-            path,
-            verbosity,
-            out_dir_str,
-            compile_target,
-            no_check,
-            runtime_checks,
+            Path::new(filename), verbosity, bc.out_dir_str,
+            bc.compile_target, no_check, runtime_checks,
         );
         return;
     }
@@ -78,22 +136,18 @@ pub(crate) fn run_build(
         process::exit(2);
     });
 
-    // --- Run shared pipeline ---
-    let output = compile_with_config(&source, filename, &compiler_config);
+    // Pipeline + timing
+    let output = compile_with_config(&source, filename, &bc.compiler_config);
     crate::timing::print_pipeline_timing(
         &output,
         crate::timing::TimingOptions {
             filename,
             output_mode: OutputMode::Human,
             verbosity,
-            project: config.as_ref().map(|(cfg, root)| {
-                (
-                    cfg.package.name.as_str(),
-                    cfg.package.version.as_str(),
-                    root.as_path(),
-                )
+            project: bc.project.as_ref().map(|(cfg, root)| {
+                (cfg.package.name.as_str(), cfg.package.version.as_str(), root.as_path())
             }),
-            config_line: config.as_ref().map(|(cfg, _)| {
+            config_line: bc.project.as_ref().map(|(cfg, _)| {
                 format!(
                     "config: output={}, target={}, solver={}, timeout={}ms",
                     cfg.build.output, cfg.build.target, cfg.verify.smt_solver, cfg.verify.timeout
@@ -104,96 +158,64 @@ pub(crate) fn run_build(
             show_phase_failures: false,
         },
     );
-    let CompilationResult {
-        diagnostics,
-        has_errors,
-        typed,
-        timing: phase_timing,
-        file: parsed_file,
-        ..
-    } = output;
 
-    // Report errors in human mode
+    let CompilationResult { diagnostics, has_errors, typed, timing: phase_timing, file: parsed_file, .. } = output;
     if has_errors {
         assura_diagnostics::report_diagnostics_human(&diagnostics, filename, &source);
         eprintln!("{filename}: {} error(s) found", diagnostics.len());
         process::exit(1);
     }
-
     let typed = typed.expect("type check should succeed if has_errors is false");
 
-    // --- Quantifier bound validation ---
-    let qwarnings = assura_smt::validate_quantifier_bounds(&typed);
-    if verbosity != Verbosity::Quiet {
-        for w in &qwarnings {
-            eprintln!(
-                "warning: unbounded quantifier in {}: {} ({})",
-                w.context, w.domain_desc, w.reason
-            );
-        }
-    }
+    // Verify
+    let (verification_results, verify_ms) = verify_and_print(&typed, filename, bc.solver, verbosity);
 
-    // --- Verify ---
-    let verify_start = Instant::now();
-    let verify_config = assura_config::CompilerConfig {
-        verify: assura_config::VerifyOptions {
-            solver: build_solver,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let verification_results = assura_pipeline::verify_typed(&typed, filename, &verify_config);
-    let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
-
-    if verbosity == Verbosity::Verbose {
-        eprintln!(
-            "  verify:    {} clause(s) ({verify_ms:.2}ms)",
-            verification_results.len()
-        );
-    }
-
-    if verbosity != Verbosity::Quiet && !verification_results.is_empty() {
-        eprintln!();
-        eprintln!("Verification ({} clause(s)):", verification_results.len());
-        let _ = assura_smt::display::write_grouped_verification(
-            &mut std::io::stderr(),
-            &verification_results,
-            "  ",
-        );
-    }
-
-    // --- Codegen ---
+    // Codegen
     let codegen_start = Instant::now();
     let backend_config = assura_codegen::BackendConfig {
-        target: compile_target.clone(),
+        target: bc.compile_target.clone(),
         runtime_checks,
         ..assura_codegen::BackendConfig::default()
     };
     let project = assura_codegen::codegen_with_config(&typed, &backend_config);
 
-    // --- Write to output directory ---
-    let out_dir = Path::new(out_dir_str);
+    // Write output
+    let out_dir = Path::new(bc.out_dir_str);
     fs::create_dir_all(out_dir).unwrap_or_else(|e| {
-        eprintln!("Error: cannot create {out_dir_str}/ directory: {e}");
+        eprintln!("Error: cannot create {}/ directory: {e}", bc.out_dir_str);
         process::exit(1);
     });
-
     let codegen_ms = codegen_start.elapsed().as_secs_f64() * 1000.0;
     if verbosity == Verbosity::Verbose {
-        eprintln!(
-            "  codegen:   {} file(s) ({codegen_ms:.2}ms)",
-            project.files.len()
-        );
+        eprintln!("  codegen:   {} file(s) ({codegen_ms:.2}ms)", project.files.len());
         let total = phase_timing.parse_ms
             + phase_timing.resolve_ms.unwrap_or(0.0)
             + phase_timing.typecheck_ms.unwrap_or(0.0)
-            + verify_ms
-            + codegen_ms;
+            + verify_ms + codegen_ms;
         eprintln!("  total:     {total:.2}ms");
         eprintln!();
     }
 
-    // Write Cargo.toml
+    write_generated_project(filename, out_dir, &project, &typed, &bc.compile_target, verbosity);
+    write_unresolved_tests(out_dir, &verification_results, parsed_file.as_ref(), &typed, verbosity);
+    run_cargo_build(filename, bc.out_dir_str, out_dir, &bc.compile_target, no_check, verbosity);
+}
+
+// ---------------------------------------------------------------------------
+// Extracted subfunctions for run_build
+// ---------------------------------------------------------------------------
+
+/// Write the generated Rust project to the output directory: Cargo.toml,
+/// source files, IR sidecars, metadata JSON, and .cargo/config.toml for WASM.
+fn write_generated_project(
+    filename: &str,
+    out_dir: &Path,
+    project: &assura_codegen::GeneratedProject,
+    typed: &assura_types::TypedFile,
+    compile_target: &assura_codegen::CompileTarget,
+    verbosity: Verbosity,
+) {
+    // Cargo.toml
     let cargo_path = out_dir.join("Cargo.toml");
     fs::write(&cargo_path, &project.cargo_toml).unwrap_or_else(|e| {
         eprintln!("Error: cannot write {}: {e}", cargo_path.display());
@@ -203,13 +225,13 @@ pub(crate) fn run_build(
         println!("  wrote {}", cargo_path.display());
     }
 
-    // Write stub IR sidecars next to source ({parent}/generated/{Name}.ir)
+    // Stub IR sidecars next to source ({parent}/generated/{Name}.ir)
     let ir_dir = std::path::Path::new(filename)
         .parent()
         .unwrap_or(std::path::Path::new("."))
         .join("generated");
     if fs::create_dir_all(&ir_dir).is_ok() {
-        for (name, ir_text) in assura_smt::stub_ir_sidecars_for_typed(&typed) {
+        for (name, ir_text) in assura_smt::stub_ir_sidecars_for_typed(typed) {
             let ir_path = ir_dir.join(format!("{name}.ir"));
             if fs::write(&ir_path, ir_text).is_ok() && verbosity != Verbosity::Quiet {
                 println!("  wrote {}", ir_path.display());
@@ -217,7 +239,7 @@ pub(crate) fn run_build(
         }
     }
 
-    // Write source files
+    // Source files
     for (rel_path, content) in &project.files {
         let full_path = out_dir.join(rel_path);
         if let Some(parent) = full_path.parent() {
@@ -235,7 +257,7 @@ pub(crate) fn run_build(
         }
     }
 
-    // Write sidecar metadata JSON
+    // Sidecar metadata JSON
     if let Some(ref meta) = project.metadata {
         let json_path = out_dir.join("assura-contracts.json");
         if let Ok(json) = serde_json::to_string_pretty(meta) {
@@ -247,7 +269,7 @@ pub(crate) fn run_build(
         }
     }
 
-    // --- Generate .cargo/config.toml for WASM target ---
+    // .cargo/config.toml for WASM target
     if matches!(compile_target, assura_codegen::CompileTarget::Wasm) {
         let cargo_dir = out_dir.join(".cargo");
         fs::create_dir_all(&cargo_dir).unwrap_or_else(|e| {
@@ -263,8 +285,17 @@ pub(crate) fn run_build(
             println!("  wrote {}", config_toml.display());
         }
     }
+}
 
-    // --- Auto-generate tests for timeout/unknown verification results ---
+/// Auto-generate proptest tests for contracts whose verification was
+/// timeout or unknown.
+fn write_unresolved_tests(
+    out_dir: &Path,
+    verification_results: &[assura_smt::VerificationResult],
+    parsed_file: Option<&assura_parser::ast::SourceFile>,
+    typed: &assura_types::TypedFile,
+    verbosity: Verbosity,
+) {
     let has_unresolved = verification_results.iter().any(|r| {
         matches!(
             r,
@@ -272,145 +303,158 @@ pub(crate) fn run_build(
                 | assura_smt::VerificationResult::Unknown { .. }
         )
     });
-    if has_unresolved && let Some(ref pf) = parsed_file {
-        let mut test_gen = assura_types::TestGenerator::new();
-        for spanned in &pf.decls {
-            if let Decl::Contract(c) = &spanned.node {
-                let mut params = Vec::new();
-                let mut requires = Vec::new();
-                let mut ensures = Vec::new();
-                for clause in &c.clauses {
-                    match &clause.kind {
-                        ClauseKind::Input => {
-                            let parsed = assura_parser::ast::extract_clause_params(&clause.body);
-                            for p in parsed {
-                                let ty = typed
-                                    .type_env
-                                    .lookup(&p.name)
-                                    .cloned()
-                                    .unwrap_or(assura_types::Type::Unknown);
-                                params.push((p.name, ty));
-                            }
+    let Some(pf) = parsed_file else { return };
+    if !has_unresolved {
+        return;
+    }
+
+    let mut test_gen = assura_types::TestGenerator::new();
+    for spanned in &pf.decls {
+        if let Decl::Contract(c) = &spanned.node {
+            let mut params = Vec::new();
+            let mut requires = Vec::new();
+            let mut ensures = Vec::new();
+            for clause in &c.clauses {
+                match &clause.kind {
+                    ClauseKind::Input => {
+                        let parsed = assura_parser::ast::extract_clause_params(&clause.body);
+                        for p in parsed {
+                            let ty = typed
+                                .type_env
+                                .lookup(&p.name)
+                                .cloned()
+                                .unwrap_or(assura_types::Type::Unknown);
+                            params.push((p.name, ty));
                         }
-                        ClauseKind::Requires => {
-                            requires.push(assura_codegen::expr_to_rust_static(&clause.body));
-                        }
-                        ClauseKind::Ensures => {
-                            ensures.push(assura_codegen::expr_to_rust_static(&clause.body));
-                        }
-                        _ => {}
                     }
+                    ClauseKind::Requires => {
+                        requires.push(assura_codegen::expr_to_rust_static(&clause.body));
+                    }
+                    ClauseKind::Ensures => {
+                        ensures.push(assura_codegen::expr_to_rust_static(&clause.body));
+                    }
+                    _ => {}
                 }
-                if !params.is_empty() || !ensures.is_empty() {
-                    test_gen.add_contract(assura_types::TestableContract {
-                        name: c.name.clone(),
-                        params,
-                        requires,
-                        ensures,
-                    });
-                }
+            }
+            if !params.is_empty() || !ensures.is_empty() {
+                test_gen.add_contract(assura_types::TestableContract {
+                    name: c.name.clone(),
+                    params,
+                    requires,
+                    ensures,
+                });
             }
         }
-        let tests = test_gen.generate_all();
-        if !tests.is_empty() {
-            let tests_dir = out_dir.join("tests");
-            fs::create_dir_all(&tests_dir).ok();
-            let test_file = tests_dir.join("generated_tests.rs");
-            let mut content = String::from(
-                "// Auto-generated tests (SMT verification returned timeout/unknown)\nuse proptest::prelude::*;\n\n",
+    }
+    let tests = test_gen.generate_all();
+    if !tests.is_empty() {
+        let tests_dir = out_dir.join("tests");
+        fs::create_dir_all(&tests_dir).ok();
+        let test_file = tests_dir.join("generated_tests.rs");
+        let mut content = String::from(
+            "// Auto-generated tests (SMT verification returned timeout/unknown)\nuse proptest::prelude::*;\n\n",
+        );
+        for t in &tests {
+            content.push_str(&t.body);
+            content.push_str("\n\n");
+        }
+        if fs::write(&test_file, &content).is_ok() && verbosity != Verbosity::Quiet {
+            println!(
+                "  wrote {} ({} tests for unresolved contracts)",
+                test_file.display(),
+                tests.len()
             );
-            for t in &tests {
-                content.push_str(&t.body);
-                content.push_str("\n\n");
+        }
+    }
+}
+
+/// Run `cargo build` on the generated project and report results.
+fn run_cargo_build(
+    filename: &str,
+    out_dir_str: &str,
+    out_dir: &Path,
+    compile_target: &assura_codegen::CompileTarget,
+    no_check: bool,
+    verbosity: Verbosity,
+) {
+    if no_check {
+        if verbosity != Verbosity::Quiet {
+            println!("OK  {filename} -> {out_dir_str}/ (check skipped)");
+        }
+        return;
+    }
+
+    let is_wasm = matches!(compile_target, assura_codegen::CompileTarget::Wasm);
+    let mut cmd = process::Command::new("cargo");
+    cmd.arg("build").current_dir(out_dir);
+    cmd.env_remove("RUSTC_WRAPPER");
+    cmd.env_remove("CARGO_TARGET_DIR");
+    if let Some(triple) = compile_target.rust_target() {
+        cmd.arg("--target").arg(triple);
+    }
+    let cargo_result = cmd
+        .stdout(process::Stdio::piped())
+        .stderr(process::Stdio::piped())
+        .output();
+
+    match cargo_result {
+        Ok(output) if output.status.success() => {
+            report_build_success(filename, out_dir, out_dir_str, is_wasm, verbosity);
+        }
+        Ok(output) => {
+            if verbosity != Verbosity::Quiet {
+                println!("OK  {filename} -> {out_dir_str}/");
             }
-            if fs::write(&test_file, &content).is_ok() && verbosity != Verbosity::Quiet {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            eprintln!();
+            eprintln!("warning: generated Rust does not compile:");
+            for line in stderr.lines() {
+                if line.starts_with("error") || line.contains("-->") {
+                    eprintln!("  {line}");
+                }
+            }
+            eprintln!();
+            eprintln!("  Run `cd {out_dir_str} && cargo build` to see full errors.");
+            eprintln!("  Use `--no-check` to skip this validation.");
+        }
+        Err(_) => {
+            if verbosity != Verbosity::Quiet {
                 println!(
-                    "  wrote {} ({} tests for unresolved contracts)",
-                    test_file.display(),
-                    tests.len()
+                    "OK  {filename} -> {out_dir_str}/ (cargo build skipped: cargo not found)"
                 );
             }
         }
     }
+}
 
-    // --- Build or check the generated Rust project ---
-    let skip_check = no_check;
-    if !skip_check {
-        let is_wasm = matches!(compile_target, assura_codegen::CompileTarget::Wasm);
-
-        let mut cmd = process::Command::new("cargo");
-        cmd.arg("build").current_dir(out_dir);
-        // Clear build-environment vars so the inner cargo build uses its
-        // own defaults (e.g. CI sets CARGO_TARGET_DIR=target/ci-test and
-        // RUSTC_WRAPPER=sccache which misdirect or destabilize the build).
-        cmd.env_remove("RUSTC_WRAPPER");
-        cmd.env_remove("CARGO_TARGET_DIR");
-        if let Some(triple) = compile_target.rust_target() {
-            cmd.arg("--target").arg(triple);
+fn report_build_success(
+    filename: &str,
+    out_dir: &Path,
+    out_dir_str: &str,
+    is_wasm: bool,
+    verbosity: Verbosity,
+) {
+    if verbosity == Verbosity::Quiet {
+        return;
+    }
+    if is_wasm {
+        let wasm_dir = out_dir.join("target/wasm32-wasip1/debug");
+        if let Some(ref wf) = find_wasm_artifact(&wasm_dir) {
+            let size = fs::metadata(wf).map(|m| m.len()).unwrap_or(0);
+            println!("OK  {filename} -> {} ({} bytes)", wf.display(), size);
+        } else {
+            println!(
+                "OK  {filename} -> {out_dir_str}/ (WASM build succeeded, artifact in target/)"
+            );
         }
-        let cargo_result = cmd
-            .stdout(process::Stdio::piped())
-            .stderr(process::Stdio::piped())
-            .output();
-
-        match cargo_result {
-            Ok(output) if output.status.success() => {
-                if is_wasm {
-                    // Report the .wasm artifact path
-                    let wasm_dir = out_dir.join("target/wasm32-wasip1/debug");
-                    let wasm_file = find_wasm_artifact(&wasm_dir);
-                    if let Some(ref wf) = wasm_file {
-                        let size = fs::metadata(wf).map(|m| m.len()).unwrap_or(0);
-                        if verbosity != Verbosity::Quiet {
-                            println!("OK  {filename} -> {} ({} bytes)", wf.display(), size);
-                        }
-                    } else if verbosity != Verbosity::Quiet {
-                        println!(
-                            "OK  {filename} -> {out_dir_str}/ (WASM build succeeded, artifact in target/)"
-                        );
-                    }
-                } else {
-                    // Report the native library artifact path
-                    let native_dir = out_dir.join("target/debug");
-                    let native_file = find_native_artifact(&native_dir);
-                    if let Some(ref nf) = native_file {
-                        let size = fs::metadata(nf).map(|m| m.len()).unwrap_or(0);
-                        if verbosity != Verbosity::Quiet {
-                            println!("OK  {filename} -> {} ({} bytes)", nf.display(), size);
-                        }
-                    } else if verbosity != Verbosity::Quiet {
-                        println!("OK  {filename} -> {out_dir_str}/ (native build succeeded)");
-                    }
-                }
-            }
-            Ok(output) => {
-                if verbosity != Verbosity::Quiet {
-                    println!("OK  {filename} -> {out_dir_str}/");
-                }
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                eprintln!();
-                eprintln!("warning: generated Rust does not compile:");
-                // Show only the error lines, not the full cargo output
-                for line in stderr.lines() {
-                    if line.starts_with("error") || line.contains("-->") {
-                        eprintln!("  {line}");
-                    }
-                }
-                eprintln!();
-                eprintln!("  Run `cd {out_dir_str} && cargo build` to see full errors.");
-                eprintln!("  Use `--no-check` to skip this validation.");
-            }
-            Err(_) => {
-                // cargo not found or other OS error; skip silently
-                if verbosity != Verbosity::Quiet {
-                    println!(
-                        "OK  {filename} -> {out_dir_str}/ (cargo build skipped: cargo not found)"
-                    );
-                }
-            }
+    } else {
+        let native_dir = out_dir.join("target/debug");
+        if let Some(ref nf) = find_native_artifact(&native_dir) {
+            let size = fs::metadata(nf).map(|m| m.len()).unwrap_or(0);
+            println!("OK  {filename} -> {} ({} bytes)", nf.display(), size);
+        } else {
+            println!("OK  {filename} -> {out_dir_str}/ (native build succeeded)");
         }
-    } else if verbosity != Verbosity::Quiet {
-        println!("OK  {filename} -> {out_dir_str}/ (check skipped)");
     }
 }
 
