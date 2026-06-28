@@ -21,9 +21,9 @@ struct SmtlibIrBuilder<'a, 'b> {
     script: &'a mut String,
     vars: &'a mut HashSet<String>,
     /// Retained so field/construct helpers match Z3/CVC5 builder shape (ctx uses copies).
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     slot_to_name: &'b HashMap<usize, String>,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     slot_types: &'b HashMap<usize, String>,
     enc_ctx: IrEncodeContext<'b>,
 }
