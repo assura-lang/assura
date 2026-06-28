@@ -885,3 +885,46 @@ service Counter {
     let out = parse_and_format(src);
     assert!(out.contains("invariant"), "got: {out}");
 }
+
+// ----- Formatter idempotency and raw-token edge cases -----
+
+#[test]
+fn test_join_raw_tokens_ellipsis_stays_glued() {
+    // Three consecutive dots (ellipsis) should not get spaces inserted
+    let tokens: Vec<String> = vec![".".into(), ".".into(), ".".into()];
+    assert_eq!(join_raw_tokens(&tokens), "...");
+}
+
+#[test]
+fn test_join_raw_tokens_parens_no_inner_space() {
+    // Unit type "()" should not become "( )"
+    let tokens: Vec<String> = vec!["(".into(), ")".into()];
+    assert_eq!(join_raw_tokens(&tokens), "()");
+}
+
+#[test]
+fn test_join_raw_tokens_paren_with_content() {
+    // "(x)" should not become "( x )"
+    let tokens: Vec<String> = vec!["(".into(), "x".into(), ")".into()];
+    assert_eq!(join_raw_tokens(&tokens), "(x)");
+}
+
+#[test]
+fn test_join_raw_tokens_brackets_no_inner_space() {
+    let tokens: Vec<String> = vec!["[".into(), "]".into()];
+    assert_eq!(join_raw_tokens(&tokens), "[]");
+}
+
+#[test]
+fn test_idempotent_fn_with_unit_return() {
+    assert_idempotent(
+        "fn check_bounds(size: Nat, max_len: Nat) -> ()\n    requires { size <= max_len }\n",
+    );
+}
+
+#[test]
+fn test_idempotent_fn_with_refinement_param() {
+    assert_idempotent(
+        "fn read_bits(br: Nat, n_bits: { Nat | n_bits > 0 }) -> Nat\n    requires { br >= 0 }\n",
+    );
+}

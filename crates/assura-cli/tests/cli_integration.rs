@@ -2288,3 +2288,161 @@ fn build_output_includes_artifact_size() {
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+// =======================================================================
+// CLI subcommand smoke tests (fmt, doc, test-gen, agent-instructions, doctor)
+// =======================================================================
+
+#[test]
+fn fmt_formats_valid_file() {
+    let tmp = unique_temp("assura_fmt_ok");
+    let file = tmp.join("test.assura");
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::copy(
+        format!("{}/demos/libwebp-huffman.assura", workspace_root()),
+        &file,
+    )
+    .unwrap();
+    // Format in-place first
+    let out = Command::new(assura_bin())
+        .args(["fmt", file.to_str().unwrap()])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura fmt");
+    assert!(
+        out.status.success(),
+        "fmt should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // --check on the already-formatted file should succeed
+    let out2 = Command::new(assura_bin())
+        .args(["fmt", file.to_str().unwrap(), "--check"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura fmt --check");
+    assert!(
+        out2.status.success(),
+        "fmt --check should succeed on already-formatted file: {}",
+        String::from_utf8_lossy(&out2.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn fmt_rejects_unparseable_input() {
+    let tmp = unique_temp("assura_fmt_bad");
+    let bad_file = tmp.join("bad.assura");
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(&bad_file, "@@@ not valid syntax").unwrap();
+    let out = Command::new(assura_bin())
+        .args(["fmt", bad_file.to_str().unwrap(), "--check"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura fmt");
+    assert!(
+        !out.status.success(),
+        "fmt --check should fail on unparseable input"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("parse error"),
+        "stderr should mention parse error: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn doc_generates_markdown_for_demo() {
+    let tmp = unique_temp("assura_doc_output");
+    let _ = std::fs::remove_dir_all(&tmp);
+    let out = Command::new(assura_bin())
+        .args([
+            "doc",
+            "demos/libwebp-huffman.assura",
+            "--output",
+            tmp.to_str().unwrap(),
+        ])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura doc");
+    assert!(
+        out.status.success(),
+        "doc should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // Should have created at least one .md file in the output dir
+    let has_md = tmp.exists()
+        && std::fs::read_dir(&tmp)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .any(|e| e.path().extension().is_some_and(|x| x == "md"))
+            })
+            .unwrap_or(false);
+    assert!(has_md, "doc should produce .md files in output dir");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_gen_produces_output_for_demo() {
+    let out = Command::new(assura_bin())
+        .args(["test-gen", "demos/heartbleed.assura"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura test-gen");
+    assert!(
+        out.status.success(),
+        "test-gen should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // Generated tests should contain Rust test markers
+    assert!(
+        stdout.contains("#[test]") && stdout.contains("fn "),
+        "test-gen should produce Rust test code: {stdout}"
+    );
+}
+
+#[test]
+fn agent_instructions_prints_reference() {
+    let out = Command::new(assura_bin())
+        .args(["agent-instructions"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura agent-instructions");
+    assert!(
+        out.status.success(),
+        "agent-instructions should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // Should contain the type mapping table and basic reference info
+    assert!(
+        stdout.contains("Int") && stdout.contains("Bool"),
+        "agent-instructions should print type mappings: {stdout}"
+    );
+}
+
+#[test]
+fn doctor_checks_installation() {
+    let out = Command::new(assura_bin())
+        .args(["doctor"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura doctor");
+    // doctor should succeed (rustc and cargo are available in test env)
+    assert!(
+        out.status.success(),
+        "doctor should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("Assura Doctor"),
+        "doctor should print header: {stdout}"
+    );
+    assert!(
+        stdout.contains("rustc:") && stdout.contains("cargo:"),
+        "doctor should check rustc and cargo: {stdout}"
+    );
+}

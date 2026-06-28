@@ -1047,7 +1047,14 @@ pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
         return Some(TypeExpr::Unit);
     }
     if tokens.len() == 1 {
+        if tokens[0] == "()" {
+            return Some(TypeExpr::Unit);
+        }
         return Some(TypeExpr::Named(tokens[0].clone()));
+    }
+    // "(", ")" as two separate tokens -> Unit
+    if tokens.len() == 2 && tokens[0] == "(" && tokens[1] == ")" {
+        return Some(TypeExpr::Unit);
     }
 
     // Strip taint annotations: `T @ taint : label` -> just parse `T`
@@ -1056,9 +1063,31 @@ pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
         return try_parse_type_tokens(&tokens[..at_pos]);
     }
 
-    // Refinement type: `{ v : T | predicate }` -> Refined { base: T, predicate }
+    // Refinement type: `{ v : T | predicate }` or `{ T | predicate }` -> Refined
     if tokens.first().map(|s| s.as_str()) == Some("{") {
-        // Find the colon after the binder variable
+        // Try short form first: `{ T | predicate }` (no binder variable / colon)
+        // This form is produced by TypeExpr::to_display_string
+        if let Some(pipe_pos) = tokens.iter().position(|t| t == "|") {
+            let has_colon_before_pipe = tokens[1..pipe_pos].iter().any(|t| t == ":");
+            if !has_colon_before_pipe {
+                // No colon before the pipe: short form `{ T | ... }`
+                let base_tokens = &tokens[1..pipe_pos];
+                let base = try_parse_type_tokens(base_tokens)
+                    .unwrap_or_else(|| TypeExpr::Named("Unknown".into()));
+                let pred_end = tokens.len()
+                    - if tokens.last().map(|s| s.as_str()) == Some("}") {
+                        1
+                    } else {
+                        0
+                    };
+                let pred = tokens[pipe_pos + 1..pred_end].join(" ");
+                return Some(TypeExpr::Refined {
+                    base: Box::new(base),
+                    predicate: pred,
+                });
+            }
+        }
+        // Long form: `{ v : T | predicate }` (with binder variable and colon)
         if let Some(colon_pos) = tokens.iter().position(|t| t == ":") {
             // Find the pipe separating type from predicate
             let mut base_end = colon_pos + 1;
