@@ -47,6 +47,20 @@ fn compiler_config_from_project() {
     assert_eq!(config.verify.timeout_ms, 5000);
     assert_eq!(config.codegen.output_dir, "out");
     assert_eq!(config.codegen.target, "wasm");
+    // Empty default_effect in ProjectConfig should become "pure"
+    assert_eq!(
+        config.type_check.default_effect, "pure",
+        "empty default_effect should fall back to pure"
+    );
+    // VerifyOptions defaults should be preserved
+    assert!(
+        config.verify.parallel,
+        "parallel should default to true from VerifyOptions"
+    );
+    assert!(
+        config.verify.decrease_checks,
+        "decrease_checks should default to true from VerifyOptions"
+    );
 }
 
 #[test]

@@ -1200,3 +1200,43 @@ fn verify_ir_validation_error_slot_gap() {
         result.validation_errors
     );
 }
+
+// ---------------------------------------------------------------------------
+// compile_full: early-return on resolution and type errors
+// ---------------------------------------------------------------------------
+
+#[test]
+fn compile_full_skips_verify_and_codegen_on_resolution_error() {
+    // Duplicate contract names trigger A02003 resolution error
+    let source = "contract Dup { requires { true } }\ncontract Dup { requires { true } }\n";
+    let config = CompilerConfig::default();
+    let output = compile_full(source, "<test>", &config);
+
+    assert!(output.has_errors, "duplicate name should produce errors");
+    assert!(
+        output.verification.is_empty(),
+        "verification should be skipped on resolution error"
+    );
+    assert!(
+        output.generated.is_none(),
+        "codegen should be skipped on resolution error"
+    );
+}
+
+#[test]
+fn compile_full_skips_verify_and_codegen_on_type_error() {
+    // Type mismatch: comparing Int to String triggers type error
+    let source = "contract Bad {\n  input(x: Int)\n  requires { x == \"hello\" }\n}\n";
+    let config = CompilerConfig::default();
+    let output = compile_full(source, "<test>", &config);
+
+    assert!(output.has_errors, "type mismatch should produce errors");
+    assert!(
+        output.verification.is_empty(),
+        "verification should be skipped on type error"
+    );
+    assert!(
+        output.generated.is_none(),
+        "codegen should be skipped on type error"
+    );
+}
