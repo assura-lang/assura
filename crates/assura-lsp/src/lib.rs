@@ -104,11 +104,21 @@ impl AssuraLanguageServer {
             })
             .collect();
 
+        // On successful type check, resolved is consumed into typed.resolved (Arc).
+        // Extract it from there; fall back to the direct field on error paths.
+        let (resolved, type_env) = match output.typed {
+            Some(t) => {
+                let r = std::sync::Arc::try_unwrap(t.resolved)
+                    .unwrap_or_else(|arc| (*arc).clone());
+                (Some(r), Some(t.type_env))
+            }
+            None => (output.resolved, None),
+        };
         let state = DocumentState {
             rope,
             ast: output.file,
-            resolved: output.resolved,
-            type_env: output.typed.map(|t| t.type_env),
+            resolved,
+            type_env,
         };
         self.documents.insert(uri.clone(), state);
 

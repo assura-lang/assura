@@ -13,7 +13,7 @@ contract SafeDiv {
 }
 "#;
     let resolved = resolve_ok(src);
-    let typed = type_check(&resolved).expect("should type check");
+    let typed = type_check(resolved).expect("should type check");
     assert!(
         !typed.generated_tests.is_empty(),
         "TypedFile should contain generated tests for a contract with requires/ensures"
@@ -44,7 +44,7 @@ contract Empty {
 }
 "#;
     let resolved = resolve_ok(src);
-    let typed = type_check(&resolved).expect("should type check");
+    let typed = type_check(resolved).expect("should type check");
     assert!(
         typed.generated_tests.is_empty(),
         "contract with no requires/ensures should produce no tests"

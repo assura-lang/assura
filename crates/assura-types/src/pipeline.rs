@@ -30,8 +30,10 @@ use crate::{Type, TypeEnv, TypeError, TypedFile};
 ///
 /// Convenience wrapper around [`TypeChecker`]. For custom configuration
 /// or cross-module type checking, use the builder directly.
-pub fn type_check(resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> {
-    TypeChecker::new().check(resolved)
+pub fn type_check(resolved: ResolvedFile) -> Result<TypedFile, Vec<TypeError>> {
+    TypeChecker::new()
+        .check(resolved)
+        .map_err(|(errs, _)| errs)
 }
 
 type SourceChecker = fn(&assura_parser::ast::SourceFile) -> Vec<TypeError>;
@@ -649,7 +651,7 @@ fn inject_imported_types(
 /// TypeChecker::new()
 ///     .config(my_config)
 ///     .modules(dep_map)
-///     .check(&resolved)
+///     .check(resolved)
 /// ```
 pub struct TypeChecker {
     config: assura_config::TypeCheckConfig,
@@ -678,7 +680,10 @@ impl TypeChecker {
     }
 
     /// Type-check from a resolved AST file.
-    pub fn check(self, resolved: &ResolvedFile) -> Result<TypedFile, Vec<TypeError>> {
+    pub fn check(
+        self,
+        resolved: ResolvedFile,
+    ) -> Result<TypedFile, (Vec<TypeError>, ResolvedFile)> {
         let mut type_env = build_type_env(&resolved.symbols, &resolved.source);
 
         // Inject type information from imported modules if provided
@@ -700,7 +705,7 @@ impl TypeChecker {
         errors.extend(check_errors);
 
         if !errors.is_empty() {
-            return Err(errors);
+            return Err((errors, resolved));
         }
 
         let generated_tests = generate_tests_from_contracts(&resolved.source);
@@ -710,7 +715,7 @@ impl TypeChecker {
         warnings.extend(run_feature_max_in_clause_checks(&resolved.source));
 
         Ok(TypedFile {
-            resolved: Arc::new(resolved.clone()),
+            resolved: Arc::new(resolved),
             pending_decrease_checks,
             type_env,
             generated_tests,
@@ -801,7 +806,7 @@ mod tests {
         // Keep legacy shape check for type_check direct path (errors vec)
         let file = assura_parser::parse_unwrap(src);
         let resolved = assura_resolve::resolve(&file).expect("resolve failed");
-        let result = type_check(&resolved);
+        let result = type_check(resolved);
         match result {
             Err(errors) => {
                 assert!(
@@ -832,7 +837,7 @@ mod tests {
         );
         let file = assura_parser::parse_unwrap(src);
         let resolved = assura_resolve::resolve(&file).expect("resolve failed");
-        let result = type_check(&resolved);
+        let result = type_check(resolved);
         assert!(
             result.is_ok(),
             "valid contract should type-check: {result:?}"
@@ -856,9 +861,9 @@ mod tests {
             allowed_effects: vec!["database".to_string()],
             ..Default::default()
         };
-        let strict_result = TypeChecker::new().config(strict_config).check(&resolved);
+        let strict_result = TypeChecker::new().config(strict_config).check(resolved);
         match strict_result {
-            Err(errors) => {
+            Err((errors, _)) => {
                 assert!(
                     errors.iter().any(|e| e.code == "A07003"),
                     "strict mode should reject 'io' not in allowed list, got: {errors:?}"

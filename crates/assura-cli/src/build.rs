@@ -520,7 +520,7 @@ pub(crate) fn run_build_project(
     let mut all_typed = Vec::new();
     let mut has_errors = false;
 
-    for (module_path, resolved) in &resolved_files {
+    for (module_path, resolved) in resolved_files {
         match assura_types::type_check(resolved) {
             Ok(typed) => {
                 all_typed.push((module_path.clone(), typed));

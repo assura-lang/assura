@@ -254,7 +254,7 @@ contract Bad {
 }
 "#;
     let resolved = resolve_ok(src);
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     assert!(result.is_err());
     let errors = result.unwrap_err();
     assert!(errors.iter().any(|e| e.code == "A03006"));
@@ -269,7 +269,7 @@ contract Good {
 }
 "#;
     let resolved = resolve_ok(src);
-    type_check(&resolved).expect("should type-check successfully");
+    type_check(resolved).expect("should type-check successfully");
 }
 
 #[test]
@@ -309,7 +309,7 @@ fn demo_files_type_check() {
         let file = file.unwrap_or_else(|| panic!("{path}: parse returned None"));
         let resolved = assura_resolve::resolve(&file)
             .unwrap_or_else(|e| panic!("{path}: resolve errors: {e:?}"));
-        type_check(&resolved).unwrap_or_else(|e| panic!("{path}: type_check errors: {e:?}"));
+        type_check(resolved).unwrap_or_else(|e| panic!("{path}: type_check errors: {e:?}"));
     }
 }
 

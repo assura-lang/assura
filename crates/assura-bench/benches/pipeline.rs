@@ -69,7 +69,7 @@ fn bench_codegen(c: &mut Criterion) {
         let (file, _) = assura_parser::parse(demo.source);
         let file = file.expect("demo should parse");
         let resolved = assura_resolve::resolve(&file).expect("demo should resolve");
-        let typed = assura_types::type_check(&resolved).expect("demo should typecheck");
+        let typed = assura_types::type_check(resolved).expect("demo should typecheck");
         group.bench_with_input(
             BenchmarkId::new("codegen", demo.name),
             &typed,
@@ -88,7 +88,7 @@ fn bench_smt_verify(c: &mut Criterion) {
         let (file, _) = assura_parser::parse(demo.source);
         let file = file.expect("demo should parse");
         let resolved = assura_resolve::resolve(&file).expect("demo should resolve");
-        let typed = assura_types::type_check(&resolved).expect("demo should typecheck");
+        let typed = assura_types::type_check(resolved).expect("demo should typecheck");
         let demo_path = format!("demos/{}.assura", demo.name);
         group.bench_with_input(
             BenchmarkId::new("verify", demo.name),
@@ -153,7 +153,7 @@ fn bench_scaling(c: &mut Criterion) {
             |b, file| {
                 b.iter(|| {
                     let resolved = assura_resolve::resolve(file).expect("resolve");
-                    assura_types::type_check(&resolved)
+                    assura_types::type_check(resolved)
                 });
             },
         );
@@ -193,7 +193,7 @@ fn bench_large_scaling(c: &mut Criterion) {
             |b, file| {
                 b.iter(|| {
                     let resolved = assura_resolve::resolve(file).expect("resolve");
-                    assura_types::type_check(&resolved)
+                    assura_types::type_check(resolved)
                 });
             },
         );
@@ -218,7 +218,7 @@ fn bench_multi_contract(c: &mut Criterion) {
             |b, file| {
                 b.iter(|| {
                     let resolved = assura_resolve::resolve(file).expect("resolve");
-                    assura_types::type_check(&resolved)
+                    assura_types::type_check(resolved)
                 });
             },
         );
@@ -238,9 +238,9 @@ fn bench_large_fixture(c: &mut Criterion) {
     let file = file.expect("should parse");
     let resolved = assura_resolve::resolve(&file).expect("should resolve");
     group.bench_function("typecheck", |b| {
-        b.iter(|| assura_types::type_check(&resolved));
+        b.iter(|| assura_types::type_check(resolved.clone()));
     });
-    let typed = assura_types::type_check(&resolved).expect("should typecheck");
+    let typed = assura_types::type_check(resolved).expect("should typecheck");
     group.bench_function("codegen", |b| {
         b.iter(|| assura_codegen::codegen(&typed));
     });
@@ -292,7 +292,7 @@ fn bench_multi_file_project(c: &mut Criterion) {
         b.iter(|| {
             for (_, file) in &parsed {
                 let resolved = assura_resolve::resolve(file).expect("resolve");
-                let _ = assura_types::type_check(&resolved);
+                let _ = assura_types::type_check(resolved);
             }
         });
     });

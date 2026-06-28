@@ -32,7 +32,7 @@ fn codegen_with_config_ok(source: &str, config: super::BackendConfig) -> super::
     );
     let file = out.file.expect("parse");
     let resolved = assura_resolve::resolve(&file).expect("resolve failed");
-    let typed = assura_types::type_check(&resolved).expect("type check failed");
+    let typed = assura_types::type_check(resolved).expect("type check failed");
     super::codegen_with_config(&typed, &config)
 }
 
@@ -273,7 +273,7 @@ fn codegen_with_config_produces_profile() {
             assura_pipeline::compile("", "test.assura", &assura_config::CompilerConfig::default());
         let file = out.file.expect("parse");
         let resolved = assura_resolve::resolve(&file).expect("resolve failed");
-        let typed = assura_types::type_check(&resolved).expect("type check failed");
+        let typed = assura_types::type_check(resolved).expect("type check failed");
         super::codegen_with_config(&typed, &config)
     };
     assert!(project.cargo_toml.contains("opt-level = 3"));
@@ -1569,7 +1569,7 @@ fn codegen_wasm(source: &str) -> GeneratedProject {
     );
     let file = out.file.expect("parse");
     let resolved = assura_resolve::resolve(&file).expect("resolve failed");
-    let typed = assura_types::type_check(&resolved).expect("type check failed");
+    let typed = assura_types::type_check(resolved).expect("type check failed");
     let config = BackendConfig {
         target: CompileTarget::Wasm,
         ..BackendConfig::default()

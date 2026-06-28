@@ -120,7 +120,8 @@ pub fn compile(source: &str, filename: &str, config: &CompilerConfig) -> Compila
 
     // --- Type check ---
     let typecheck_start = Instant::now();
-    let typed = if let Some(ref res) = resolved {
+    let had_resolved = resolved.is_some();
+    let (typed, resolved) = if let Some(res) = resolved {
         match assura_types::TypeChecker::new()
             .config(config.type_check.clone())
             .check(res)
@@ -131,21 +132,22 @@ pub fn compile(source: &str, filename: &str, config: &CompilerConfig) -> Compila
                     d.severity = assura_diagnostics::Severity::Warning;
                     diagnostics.push(d.with_file(filename));
                 }
-                Some(t)
+                // resolved is now inside typed.resolved (Arc)
+                (Some(t), None)
             }
-            Err(errs) => {
+            Err((errs, returned_resolved)) => {
                 has_errors = true;
                 for e in &errs {
                     let d: assura_diagnostics::Diagnostic = e.clone().into();
                     diagnostics.push(d.with_file(filename));
                 }
-                None
+                (None, Some(returned_resolved))
             }
         }
     } else {
-        None
+        (None, None)
     };
-    let typecheck_ms = if resolved.is_some() {
+    let typecheck_ms = if had_resolved {
         Some(typecheck_start.elapsed().as_secs_f64() * 1000.0)
     } else {
         None

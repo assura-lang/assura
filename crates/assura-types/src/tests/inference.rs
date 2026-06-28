@@ -474,7 +474,7 @@ contract Bad {
 }
 "#;
     let resolved = resolve_ok(src);
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     assert!(
         result.is_err(),
         "cross-type comparison should produce a type error"

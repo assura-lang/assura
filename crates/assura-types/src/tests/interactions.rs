@@ -1162,7 +1162,7 @@ effects: pure
 ensures { result == true }
 "#;
     let resolved = resolve_ok(src);
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     assert!(
         result.is_ok(),
         "ghost fn with pure effects should pass: {result:?}"
@@ -1177,7 +1177,7 @@ ghost fn spec_helper(x: Int) -> Bool
 ensures { result == true }
 "#;
     let resolved = resolve_ok(src);
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     assert!(
         result.is_ok(),
         "ghost fn without effects clause should pass: {result:?}"
@@ -1193,7 +1193,7 @@ effects: io
 ensures { result == true }
 "#;
     let resolved = resolve_ok(src);
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     assert!(result.is_err(), "ghost fn with io effects should fail");
     let errors = result.unwrap_err();
     assert!(
@@ -1266,7 +1266,7 @@ fn lemma_fn_pure_effects_passes() {
     "#;
     let file = assura_parser::parse_unwrap(src);
     let resolved = assura_resolve::resolve(&file).unwrap();
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     assert!(
         result.is_ok(),
         "lemma with pure effects should pass type check"
@@ -1282,7 +1282,7 @@ fn lemma_fn_no_effects_clause_passes() {
     "#;
     let file = assura_parser::parse_unwrap(src);
     let resolved = assura_resolve::resolve(&file).unwrap();
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     assert!(result.is_ok(), "lemma with no effects clause should pass");
 }
 
@@ -1296,7 +1296,7 @@ fn lemma_fn_non_pure_effects_a55001() {
     "#;
     let file = assura_parser::parse_unwrap(src);
     let resolved = assura_resolve::resolve(&file).unwrap();
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     assert!(result.is_err(), "lemma with io effects should fail");
     let errors = result.unwrap_err();
     assert!(
