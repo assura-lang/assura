@@ -1,586 +1,453 @@
 use super::*;
-use assura_parser::ast::Spanned;
 
-/// Helper: parse source, assert no errors, format, return formatted string.
-fn parse_and_format(source: &str) -> String {
-    let (file, errs) = assura_parser::parse(source);
-    assert!(errs.is_empty(), "unexpected parse errors: {errs:?}");
-    let file = file.expect("parse returned None");
-    format_source_file(&file)
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Format via the public API and return the result.
+fn fmt(source: &str) -> String {
+    format_source(source)
 }
 
-/// Helper: assert that formatting is idempotent (format(format(x)) == format(x)).
+/// Assert formatting is idempotent: format(format(x)) == format(x).
 fn assert_idempotent(source: &str) {
-    let first = parse_and_format(source);
-    let second = parse_and_format(&first);
+    let first = fmt(source);
+    let second = fmt(&first);
     assert_eq!(first, second, "formatting is not idempotent");
 }
 
-// ----- 1. Minimal contract -----
+// ---------------------------------------------------------------------------
+// 1. Comment preservation (core feature of #702)
+// ---------------------------------------------------------------------------
 
 #[test]
-fn test_format_minimal_contract() {
-    let src = "contract Foo { requires { x > 0 } }";
-    let out = parse_and_format(src);
-    assert!(out.contains("contract Foo {"));
+fn comment_preserved_single_line() {
+    let src = "// This is a comment\ncontract Foo { requires { x > 0 } }\n";
+    let out = fmt(src);
+    assert!(out.contains("// This is a comment"), "comment lost: {out}");
+}
+
+#[test]
+fn comment_preserved_inline() {
+    let src = "contract Foo { // inline comment\n    requires { x > 0 }\n}\n";
+    let out = fmt(src);
+    assert!(
+        out.contains("// inline comment"),
+        "inline comment lost: {out}"
+    );
+}
+
+#[test]
+fn comment_preserved_between_declarations() {
+    let src = "contract A { requires { x > 0 } }\n\n// Separator comment\n\ncontract B { requires { y > 0 } }\n";
+    let out = fmt(src);
+    assert!(
+        out.contains("// Separator comment"),
+        "separator comment lost: {out}"
+    );
+}
+
+#[test]
+fn comment_preserved_inside_braces() {
+    let src = "contract Foo {\n    // This clause checks positivity\n    requires { x > 0 }\n}\n";
+    let out = fmt(src);
+    assert!(
+        out.contains("// This clause checks positivity"),
+        "inner comment lost: {out}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 2. Declaration preservation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn contract_preserved() {
+    let src = "contract Foo { requires { x > 0 } }\n";
+    let out = fmt(src);
+    assert!(out.contains("contract Foo"));
     assert!(out.contains("requires"));
     assert!(out.contains("x > 0"));
 }
 
 #[test]
-fn test_format_contract_with_ensures() {
-    let src = "contract Bar { requires { x > 0 } ensures { result > 0 } }";
-    let out = parse_and_format(src);
-    assert!(out.contains("contract Bar {"));
+fn contract_with_ensures() {
+    let src = "contract Bar { requires { x > 0 } ensures { result > 0 } }\n";
+    let out = fmt(src);
     assert!(out.contains("requires"));
     assert!(out.contains("ensures"));
 }
 
 #[test]
-fn test_format_contract_with_type_params() {
-    let src = "contract Generic<T> { requires { x > 0 } }";
-    let out = parse_and_format(src);
-    assert!(out.contains("contract Generic<T> {"));
+fn contract_with_type_params() {
+    let src = "contract Generic<T> { requires { x > 0 } }\n";
+    let out = fmt(src);
+    assert!(out.contains("Generic<T>"));
 }
-
-// ----- 2. Service declaration -----
 
 #[test]
-fn test_format_service_with_operation() {
-    let src = r#"
-service OrderService {
-    states: Created -> Paid -> Shipped
-    operation pay {
-        requires { amount > 0 }
-        ensures { state == Paid }
-    }
-}
-"#;
-    let out = parse_and_format(src);
-    assert!(out.contains("service OrderService {"));
+fn service_preserved() {
+    let src = "service OrderService {\n    states: Created -> Paid -> Shipped\n    operation pay {\n        requires { amount > 0 }\n        ensures { state == Paid }\n    }\n}\n";
+    let out = fmt(src);
+    assert!(out.contains("service OrderService"));
     assert!(out.contains("states:"));
-    assert!(out.contains("operation pay {"));
+    assert!(out.contains("operation pay"));
 }
 
 #[test]
-fn test_format_service_with_query() {
-    let src = r#"
-service DataService {
-    query getItem {
-        requires { id > 0 }
-        ensures { result > 0 }
-    }
+fn service_with_query() {
+    let src = "service DataService {\n    query getItem {\n        requires { id > 0 }\n        ensures { result > 0 }\n    }\n}\n";
+    let out = fmt(src);
+    assert!(out.contains("service DataService"));
+    assert!(out.contains("query getItem"));
 }
-"#;
-    let out = parse_and_format(src);
-    assert!(out.contains("service DataService {"));
-    assert!(out.contains("query getItem {"));
-}
-
-// ----- 3. Type and enum definitions -----
 
 #[test]
-fn test_format_struct_type() {
-    let src = r#"
-type Point {
-    pub x: Int;
-    pub y: Int;
-}
-"#;
-    let out = parse_and_format(src);
-    assert!(out.contains("type Point {"));
+fn type_struct_preserved() {
+    let src = "type Point {\n    pub x: Int;\n    pub y: Int;\n}\n";
+    let out = fmt(src);
+    assert!(out.contains("type Point"));
     assert!(out.contains("pub x: Int;"));
     assert!(out.contains("pub y: Int;"));
 }
 
 #[test]
-fn test_format_alias_type() {
+fn type_alias_preserved() {
     let src = "type Age = Int;\n";
-    let out = parse_and_format(src);
+    let out = fmt(src);
     assert!(out.contains("type Age = Int;"));
 }
 
 #[test]
-fn test_format_enum() {
-    let src = r#"
-enum Color {
-    Red
-    Green
-    Blue
-}
-"#;
-    let out = parse_and_format(src);
-    assert!(out.contains("enum Color {"));
+fn enum_preserved() {
+    let src = "enum Color {\n    Red\n    Green\n    Blue\n}\n";
+    let out = fmt(src);
+    assert!(out.contains("enum Color"));
     assert!(out.contains("Red"));
     assert!(out.contains("Green"));
     assert!(out.contains("Blue"));
 }
 
 #[test]
-fn test_format_enum_with_fields() {
-    let src = r#"
-enum Shape {
-    Circle(Int)
-    Rect(Int, Int)
-}
-"#;
-    let out = parse_and_format(src);
+fn enum_with_fields_preserved() {
+    let src = "enum Shape {\n    Circle(Int)\n    Rect(Int, Int)\n}\n";
+    let out = fmt(src);
     assert!(out.contains("Circle(Int)"));
-    // The parser stores field types as raw tokens which may include trailing spaces;
-    // the formatter joins them with ", " so the output may have extra spaces.
     assert!(out.contains("Rect("));
-    assert!(out.contains("Int"));
 }
 
 #[test]
-fn test_format_generic_type() {
-    let src = r#"
-type Pair<A, B> {
-    pub first: A;
-    pub second: B;
+fn generic_type_preserved() {
+    let src = "type Pair<A, B> {\n    pub first: A;\n    pub second: B;\n}\n";
+    let out = fmt(src);
+    assert!(out.contains("Pair<A, B>"));
 }
-"#;
-    let out = parse_and_format(src);
-    assert!(out.contains("type Pair<A, B> {"));
-}
-
-// ----- 4. Extern functions -----
 
 #[test]
-fn test_format_extern_fn() {
+fn extern_fn_preserved() {
     let src = "extern fn read_file(path: String) -> String\n";
-    let out = parse_and_format(src);
+    let out = fmt(src);
     assert!(out.contains("extern fn read_file(path: String) -> String"));
 }
 
 #[test]
-fn test_format_extern_fn_with_clauses() {
-    let src = r#"
-extern fn divide(a: Int, b: Int) -> Int
-    requires { b != 0 }
-    ensures { result * b == a }
-"#;
-    let out = parse_and_format(src);
-    assert!(out.contains("extern fn divide(a: Int, b: Int) -> Int"));
+fn extern_fn_with_clauses_preserved() {
+    let src = "extern fn divide(a: Int, b: Int) -> Int\n    requires { b != 0 }\n    ensures { result * b == a }\n";
+    let out = fmt(src);
+    assert!(out.contains("extern fn divide"));
     assert!(out.contains("requires"));
     assert!(out.contains("ensures"));
 }
 
-// ----- 5. Bind declarations -----
-
 #[test]
-fn test_format_bind_decl() {
-    let src = r#"
-bind "libc::malloc" as safe_alloc {
-    input(size: Nat)
-    output(result: Bytes)
-    requires { size > 0 }
-}
-"#;
-    let out = parse_and_format(src);
-    assert!(out.contains("bind \"libc::malloc\" as safe_alloc {"));
+fn bind_preserved() {
+    let src = "bind \"libc::malloc\" as safe_alloc {\n    input(size: Nat)\n    output(result: Bytes)\n    requires { size > 0 }\n}\n";
+    let out = fmt(src);
+    assert!(out.contains("bind"));
+    assert!(out.contains("safe_alloc"));
     assert!(out.contains("input(size: Nat)"));
-    assert!(out.contains("output(result: Bytes)"));
-}
-
-// ----- 6. Multiple contracts (ordering) -----
-
-#[test]
-fn test_format_multiple_contracts() {
-    let src = r#"
-contract First {
-    requires { a > 0 }
-}
-
-contract Second {
-    requires { b > 0 }
-}
-
-contract Third {
-    requires { c > 0 }
-}
-"#;
-    let out = parse_and_format(src);
-    let first_pos = out.find("contract First").unwrap();
-    let second_pos = out.find("contract Second").unwrap();
-    let third_pos = out.find("contract Third").unwrap();
-    assert!(first_pos < second_pos, "First should come before Second");
-    assert!(second_pos < third_pos, "Second should come before Third");
-}
-
-// ----- 7. Deeply nested expressions in clauses -----
-
-#[test]
-fn test_format_nested_binary_ops() {
-    let src = "contract Nested { requires { a + b * c > d - e } }";
-    let out = parse_and_format(src);
-    assert!(out.contains("a + b * c > d - e"));
 }
 
 #[test]
-fn test_format_nested_logical_ops() {
-    let src = "contract Logic { requires { a > 0 && b > 0 || c == 0 } }";
-    let out = parse_and_format(src);
-    assert!(out.contains("&&"));
-    assert!(out.contains("||"));
-}
-
-#[test]
-fn test_format_quantifier_expression() {
-    let src = "contract Quant { requires { forall i in items: i > 0 } }";
-    let out = parse_and_format(src);
-    assert!(out.contains("forall i in items: i > 0"));
-}
-
-#[test]
-fn test_format_if_then_else_expression() {
-    let src = "contract Cond { ensures { if x > 0 then result > 0 else result == 0 } }";
-    let out = parse_and_format(src);
-    assert!(out.contains("if x > 0 then result > 0 else result == 0"));
-}
-
-#[test]
-fn test_format_old_expression() {
-    let src = "contract OldExpr { ensures { result > old(x) } }";
-    let out = parse_and_format(src);
-    assert!(out.contains("old(x)"));
-}
-
-// ----- 8. All clause kinds -----
-
-#[test]
-fn test_format_requires_clause() {
-    let src = "contract C { requires { x > 0 } }";
-    let out = parse_and_format(src);
-    assert!(out.contains("requires"));
-}
-
-#[test]
-fn test_format_ensures_clause() {
-    let src = "contract C { ensures { result > 0 } }";
-    let out = parse_and_format(src);
-    assert!(out.contains("ensures"));
-}
-
-#[test]
-fn test_format_invariant_clause() {
-    let src = "contract C { invariant { x >= 0 } }";
-    let out = parse_and_format(src);
-    assert!(out.contains("invariant"));
-}
-
-#[test]
-fn test_format_effects_clause() {
-    let src = "contract C { effects { io } }";
-    let out = parse_and_format(src);
-    assert!(out.contains("effects"));
-}
-
-#[test]
-fn test_format_input_clause() {
-    let src = r#"
-contract C {
-    input(x: Int, y: Bool)
-    requires { x > 0 }
-}
-"#;
-    let out = parse_and_format(src);
-    assert!(out.contains("input(x: Int, y: Bool)"));
-}
-
-#[test]
-fn test_format_output_clause() {
-    let src = r#"
-contract C {
-    output(result: Int)
-    ensures { result > 0 }
-}
-"#;
-    let out = parse_and_format(src);
-    assert!(out.contains("output(result: Int)"));
-}
-
-#[test]
-fn test_format_modifies_clause() {
-    let src = "contract C { modifies { state } }";
-    let out = parse_and_format(src);
-    assert!(out.contains("modifies"));
-}
-
-#[test]
-fn test_format_decreases_clause() {
-    let src = r#"
-fn factorial(n: Int) -> Int
-    requires { n >= 0 }
-    decreases { n }
-"#;
-    let out = parse_and_format(src);
-    assert!(out.contains("decreases"));
-}
-
-// ----- 9. Idempotency tests -----
-
-#[test]
-fn test_idempotent_contract() {
-    assert_idempotent("contract Foo { requires { x > 0 } ensures { result > 0 } }");
-}
-
-#[test]
-fn test_idempotent_service() {
-    assert_idempotent(
-        r#"
-service S {
-    states: A -> B -> C
-    operation go {
-        requires { x > 0 }
-    }
-}
-"#,
-    );
-}
-
-#[test]
-fn test_idempotent_type_and_enum() {
-    assert_idempotent(
-        r#"
-type Point {
-    pub x: Int;
-    pub y: Int;
-}
-
-enum Color {
-    Red
-    Green
-    Blue
-}
-"#,
-    );
-}
-
-#[test]
-fn test_idempotent_extern() {
-    assert_idempotent("extern fn do_thing(a: Int) -> Bool\n");
-}
-
-#[test]
-fn test_idempotent_bind() {
-    assert_idempotent(
-        r#"
-bind "lib::func" as wrapper {
-    input(x: Int)
-    output(result: Bool)
-    requires { x >= 0 }
-}
-"#,
-    );
-}
-
-// ----- 10. Edge case: empty source -----
-
-#[test]
-fn test_format_empty_source() {
-    let src = "";
-    let out = parse_and_format(src);
-    assert_eq!(out, "");
-}
-
-// ----- 11. Edge case: file with only imports -----
-
-#[test]
-fn test_format_only_imports() {
-    let src = "import std.math;\nimport std.collections;\n";
-    let out = parse_and_format(src);
-    assert!(out.contains("import std.math;"));
-    assert!(out.contains("import std.collections;"));
-    assert!(!out.contains("contract"));
-    assert!(!out.contains("service"));
-}
-
-#[test]
-fn test_format_import_with_alias() {
-    let src = "import std.math as m;\n";
-    let out = parse_and_format(src);
-    assert!(out.contains("import std.math as m;"));
-}
-
-#[test]
-fn test_format_import_with_items() {
-    let src = "import std.math { abs, max };\n";
-    let out = parse_and_format(src);
-    assert!(out.contains("import std.math { abs, max };"));
-}
-
-// ----- 12. Edge case: file with project declaration -----
-
-#[test]
-fn test_format_project_declaration() {
-    let src = "project MyProject { profile: [safety, security] }\n";
-    let out = parse_and_format(src);
-    assert!(out.contains("project MyProject { profile: [safety, security] }"));
-}
-
-// ----- Additional tests for coverage -----
-
-#[test]
-fn test_format_fn_def() {
-    let src = r#"
-fn add(a: Int, b: Int) -> Int
-    requires { a >= 0 }
-    ensures { result == a + b }
-"#;
-    let out = parse_and_format(src);
+fn fn_def_preserved() {
+    let src =
+        "fn add(a: Int, b: Int) -> Int\n    requires { a >= 0 }\n    ensures { result == a + b }\n";
+    let out = fmt(src);
     assert!(out.contains("fn add(a: Int, b: Int) -> Int"));
     assert!(out.contains("requires"));
     assert!(out.contains("ensures"));
 }
 
 #[test]
-fn test_format_module_declaration() {
+fn ghost_fn_preserved() {
+    let src = "ghost fn helper(x: Int) -> Bool\n    requires { x >= 0 }\n";
+    let out = fmt(src);
+    assert!(out.contains("ghost fn helper"));
+}
+
+#[test]
+fn prophecy_preserved() {
+    let src = "prophecy future_val: Int\ncontract X { requires { true } }\n";
+    let out = fmt(src);
+    assert!(out.contains("prophecy"));
+    assert!(out.contains("future_val"));
+}
+
+#[test]
+fn import_preserved() {
+    let src = "import std.math;\nimport std.collections;\n";
+    let out = fmt(src);
+    assert!(out.contains("import std.math;"));
+    assert!(out.contains("import std.collections;"));
+}
+
+#[test]
+fn import_with_alias() {
+    let src = "import std.math as m;\n";
+    let out = fmt(src);
+    assert!(out.contains("import std.math as m;"));
+}
+
+#[test]
+fn import_with_items() {
+    let src = "import std.math { abs, max };\n";
+    let out = fmt(src);
+    assert!(out.contains("import std.math"));
+    assert!(out.contains("abs"));
+    assert!(out.contains("max"));
+}
+
+#[test]
+fn module_preserved() {
     let src = "module test.basic;\n";
-    let out = parse_and_format(src);
+    let out = fmt(src);
     assert!(out.contains("module test.basic;"));
 }
 
 #[test]
-fn test_join_raw_tokens_dotted_path() {
-    let tokens: Vec<String> = vec!["io".into(), ".".into(), "read".into()];
-    assert_eq!(join_raw_tokens(&tokens), "io.read");
+fn project_preserved() {
+    let src = "project MyProject { profile: [safety, security] }\n";
+    let out = fmt(src);
+    assert!(out.contains("project MyProject"));
+}
+
+// ---------------------------------------------------------------------------
+// 3. Expressions and clauses preserved
+// ---------------------------------------------------------------------------
+
+#[test]
+fn nested_binary_ops_preserved() {
+    let src = "contract N { requires { a + b * c > d - e } }\n";
+    let out = fmt(src);
+    assert!(out.contains("a + b * c > d - e"));
 }
 
 #[test]
-fn test_join_raw_tokens_simple() {
-    let tokens: Vec<String> = vec!["hello".into(), "world".into()];
-    assert_eq!(join_raw_tokens(&tokens), "hello world");
+fn logical_ops_preserved() {
+    let src = "contract L { requires { a > 0 && b > 0 || c == 0 } }\n";
+    let out = fmt(src);
+    assert!(out.contains("&&"));
+    assert!(out.contains("||"));
 }
 
 #[test]
-fn test_join_raw_tokens_empty() {
-    let tokens: Vec<String> = vec![];
-    assert_eq!(join_raw_tokens(&tokens), "");
+fn quantifier_preserved() {
+    let src = "contract Q { requires { forall i in items: i > 0 } }\n";
+    let out = fmt(src);
+    assert!(out.contains("forall i in items: i > 0"));
 }
 
 #[test]
-fn test_format_literal_int() {
-    let mut out = String::new();
-    format_literal(&Literal::Int("42".to_string()), &mut out);
-    assert_eq!(out, "42");
+fn if_then_else_preserved() {
+    let src = "contract C { ensures { if x > 0 then result > 0 else result == 0 } }\n";
+    let out = fmt(src);
+    assert!(out.contains("if x > 0 then result > 0 else result == 0"));
 }
 
 #[test]
-fn test_format_literal_bool() {
-    let mut out = String::new();
-    format_literal(&Literal::Bool(true), &mut out);
-    assert_eq!(out, "true");
-
-    let mut out2 = String::new();
-    format_literal(&Literal::Bool(false), &mut out2);
-    assert_eq!(out2, "false");
+fn old_expression_preserved() {
+    let src = "contract O { ensures { result > old(x) } }\n";
+    let out = fmt(src);
+    assert!(out.contains("old(x)"));
 }
 
 #[test]
-fn test_format_literal_string() {
-    let mut out = String::new();
-    format_literal(&Literal::Str("hello".to_string()), &mut out);
-    assert_eq!(out, "\"hello\"");
-}
-
-/// Shorthand to wrap an `Expr` in a `Spanned` with a dummy span.
-fn sp(e: Expr) -> SpExpr {
-    Spanned::no_span(e)
-}
-
-/// Shorthand to wrap an `Expr` in a `Box<SpExpr>` with a dummy span.
-fn bsp(e: Expr) -> Box<SpExpr> {
-    Box::new(sp(e))
+fn exists_quantifier_preserved() {
+    let src = "contract E { requires { exists x in items: x == target } }\n";
+    let out = fmt(src);
+    assert!(out.contains("exists x in items: x == target"));
 }
 
 #[test]
-fn test_format_unary_neg() {
-    let mut out = String::new();
-    let expr = sp(Expr::UnaryOp {
-        op: UnaryOp::Neg,
-        expr: bsp(Expr::Ident("x".to_string())),
-    });
-    format_expr(&expr, &mut out);
-    assert_eq!(out, "-x");
+fn all_clause_kinds_preserved() {
+    let src = "contract Full {\n    input(x: Int, y: Int)\n    output(result: Int)\n    requires { x > 0 }\n    ensures { result > 0 }\n    invariant { x >= 0 }\n    effects { io }\n    modifies { state }\n}\n";
+    let out = fmt(src);
+    assert!(out.contains("input(x: Int, y: Int)"));
+    assert!(out.contains("output(result: Int)"));
+    assert!(out.contains("requires"));
+    assert!(out.contains("ensures"));
+    assert!(out.contains("invariant"));
+    assert!(out.contains("effects"));
+    assert!(out.contains("modifies"));
 }
 
 #[test]
-fn test_format_unary_not() {
-    let mut out = String::new();
-    let expr = sp(Expr::UnaryOp {
-        op: UnaryOp::Not,
-        expr: bsp(Expr::Ident("flag".to_string())),
-    });
-    format_expr(&expr, &mut out);
-    assert_eq!(out, "!flag");
+fn decreases_clause_preserved() {
+    let src = "fn factorial(n: Int) -> Int\n    requires { n >= 0 }\n    decreases { n }\n";
+    let out = fmt(src);
+    assert!(out.contains("decreases"));
+}
+
+// ---------------------------------------------------------------------------
+// 4. Indentation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn indentation_inside_braces() {
+    let src = "contract Foo {\nrequires { x > 0 }\n}\n";
+    let out = fmt(src);
+    for line in out.lines() {
+        if line.trim_start().starts_with("requires") {
+            assert!(
+                line.starts_with("    "),
+                "requires should be indented: '{line}'"
+            );
+        }
+    }
 }
 
 #[test]
-fn test_format_list_expr() {
-    let mut out = String::new();
-    let expr = sp(Expr::List(vec![
-        sp(Expr::Literal(Literal::Int("1".into()))),
-        sp(Expr::Literal(Literal::Int("2".into()))),
-        sp(Expr::Literal(Literal::Int("3".into()))),
-    ]));
-    format_expr(&expr, &mut out);
-    assert_eq!(out, "[1, 2, 3]");
-}
-
-#[test]
-fn test_format_pattern_wildcard() {
-    let mut out = String::new();
-    format_pattern(&Pattern::Wildcard, &mut out);
-    assert_eq!(out, "_");
-}
-
-#[test]
-fn test_format_pattern_constructor() {
-    let mut out = String::new();
-    format_pattern(
-        &Pattern::Constructor {
-            name: "Some".to_string(),
-            fields: vec![Pattern::Ident("x".to_string())],
-        },
-        &mut out,
+fn closing_brace_dedented() {
+    let src = "contract Foo {\n    requires { x > 0 }\n}\n";
+    let out = fmt(src);
+    let last_brace_line = out.lines().rev().find(|l| l.trim() == "}");
+    assert_eq!(
+        last_brace_line,
+        Some("}"),
+        "closing brace should be at column 0"
     );
-    assert_eq!(out, "Some(x)");
 }
 
 #[test]
-fn test_binop_str_all_ops() {
-    assert_eq!(binop_str(&BinOp::Add), "+");
-    assert_eq!(binop_str(&BinOp::Sub), "-");
-    assert_eq!(binop_str(&BinOp::Mul), "*");
-    assert_eq!(binop_str(&BinOp::Div), "/");
-    assert_eq!(binop_str(&BinOp::Mod), "%");
-    assert_eq!(binop_str(&BinOp::Eq), "==");
-    assert_eq!(binop_str(&BinOp::Neq), "!=");
-    assert_eq!(binop_str(&BinOp::Lt), "<");
-    assert_eq!(binop_str(&BinOp::Lte), "<=");
-    assert_eq!(binop_str(&BinOp::Gt), ">");
-    assert_eq!(binop_str(&BinOp::Gte), ">=");
-    assert_eq!(binop_str(&BinOp::And), "&&");
-    assert_eq!(binop_str(&BinOp::Or), "||");
-    assert_eq!(binop_str(&BinOp::Implies), "==>");
-    assert_eq!(binop_str(&BinOp::In), "in");
-    assert_eq!(binop_str(&BinOp::NotIn), "not in");
-    assert_eq!(binop_str(&BinOp::Concat), "++");
-    assert_eq!(binop_str(&BinOp::Range), "..");
+fn nested_indentation() {
+    let src = "service S {\noperation op {\nrequires { x > 0 }\n}\n}\n";
+    let out = fmt(src);
+    for line in out.lines() {
+        if line.trim_start().starts_with("requires") {
+            assert!(
+                line.starts_with("        "),
+                "nested requires should be double-indented: '{line}'"
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 5. Idempotency
+// ---------------------------------------------------------------------------
+
+#[test]
+fn idempotent_contract() {
+    assert_idempotent("contract Foo { requires { x > 0 } ensures { result > 0 } }\n");
 }
 
 #[test]
-fn test_format_reparseable() {
-    let src = r#"
-contract SafeDivide {
-    input(a: Int, b: Int)
-    output(result: Int)
-    requires { b != 0 }
-    ensures { result == a / b }
+fn idempotent_service() {
+    assert_idempotent(
+        "service S {\n    states: A -> B -> C\n    operation go {\n        requires { x > 0 }\n    }\n}\n",
+    );
 }
-"#;
-    let formatted = parse_and_format(src);
+
+#[test]
+fn idempotent_type_and_enum() {
+    assert_idempotent(
+        "type Point {\n    pub x: Int;\n    pub y: Int;\n}\n\nenum Color {\n    Red\n    Green\n    Blue\n}\n",
+    );
+}
+
+#[test]
+fn idempotent_extern() {
+    assert_idempotent("extern fn do_thing(a: Int) -> Bool\n");
+}
+
+#[test]
+fn idempotent_bind() {
+    assert_idempotent(
+        "bind \"lib::func\" as wrapper {\n    input(x: Int)\n    output(result: Bool)\n    requires { x >= 0 }\n}\n",
+    );
+}
+
+#[test]
+fn idempotent_all_clauses() {
+    assert_idempotent(
+        "contract Full {\n    input(x: Int, y: Int)\n    output(result: Int)\n    requires { x > 0 }\n    ensures { result > 0 }\n    invariant { x >= 0 }\n    effects { io }\n}\n",
+    );
+}
+
+#[test]
+fn idempotent_with_comments() {
+    assert_idempotent(
+        "// Top-level comment\ncontract Foo {\n    // Inner comment\n    requires { x > 0 }\n}\n",
+    );
+}
+
+#[test]
+fn idempotent_fn_with_effects() {
+    assert_idempotent("fn read_data(path: String) -> Bytes\n    effects { io }\n");
+}
+
+// ---------------------------------------------------------------------------
+// 6. Edge cases
+// ---------------------------------------------------------------------------
+
+#[test]
+fn empty_source() {
+    let out = fmt("");
+    assert!(
+        out.len() <= 1,
+        "empty source should produce minimal output: '{out}'"
+    );
+}
+
+#[test]
+fn parse_error_returns_original() {
+    let src = "contract { missing name and stuff ???";
+    let out = fmt(src);
+    assert_eq!(out, src, "parse errors should return source unchanged");
+}
+
+#[test]
+fn trailing_newline_normalized() {
+    let src = "contract Foo { requires { x > 0 } }\n\n\n";
+    let out = fmt(src);
+    assert!(out.ends_with('\n'), "should end with newline");
+    assert!(
+        !out.ends_with("\n\n"),
+        "should not end with multiple newlines"
+    );
+}
+
+#[test]
+fn no_trailing_whitespace() {
+    let src = "contract Foo {   \n    requires { x > 0 }   \n}   \n";
+    let out = fmt(src);
+    for (i, line) in out.lines().enumerate() {
+        assert_eq!(
+            line,
+            line.trim_end(),
+            "trailing whitespace on line {i}: '{line}'"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 7. Re-parseability
+// ---------------------------------------------------------------------------
+
+#[test]
+fn formatted_output_reparses() {
+    let src = "contract SafeDivide {\n    input(a: Int, b: Int)\n    output(result: Int)\n    requires { b != 0 }\n    ensures { result == a / b }\n}\n";
+    let formatted = fmt(src);
     let (file2, errs2) = assura_parser::parse(&formatted);
     assert!(
         errs2.is_empty(),
@@ -592,447 +459,42 @@ contract SafeDivide {
     );
 }
 
-#[test]
-fn test_format_exists_quantifier() {
-    let src = "contract Ex { requires { exists x in items: x == target } }";
-    let out = parse_and_format(src);
-    assert!(out.contains("exists x in items: x == target"));
-}
+// ---------------------------------------------------------------------------
+// 8. Multiple declarations ordering
+// ---------------------------------------------------------------------------
 
 #[test]
-fn test_format_field_access() {
-    let mut out = String::new();
-    let expr = sp(Expr::Field(
-        bsp(Expr::Ident("point".to_string())),
-        "x".to_string(),
-    ));
-    format_expr(&expr, &mut out);
-    assert_eq!(out, "point.x");
+fn multiple_declarations_order_preserved() {
+    let src = "contract First { requires { a > 0 } }\n\ncontract Second { requires { b > 0 } }\n\ncontract Third { requires { c > 0 } }\n";
+    let out = fmt(src);
+    let first_pos = out.find("contract First").unwrap();
+    let second_pos = out.find("contract Second").unwrap();
+    let third_pos = out.find("contract Third").unwrap();
+    assert!(first_pos < second_pos);
+    assert!(second_pos < third_pos);
 }
+
+// ---------------------------------------------------------------------------
+// 9. Blank line capping
+// ---------------------------------------------------------------------------
 
 #[test]
-fn test_format_index_expr() {
-    let mut out = String::new();
-    let expr = sp(Expr::Index {
-        expr: bsp(Expr::Ident("arr".to_string())),
-        index: bsp(Expr::Literal(Literal::Int("0".into()))),
-    });
-    format_expr(&expr, &mut out);
-    assert_eq!(out, "arr[0]");
-}
-
-// ----- Expression coverage: cast, ghost, apply, let, match, tuple -----
-
-#[test]
-fn test_format_cast_expr() {
-    let mut out = String::new();
-    let expr = sp(Expr::Cast {
-        expr: bsp(Expr::Ident("x".to_string())),
-        ty: "Int".to_string(),
-    });
-    format_expr(&expr, &mut out);
-    assert_eq!(out, "x as Int");
-}
-
-#[test]
-fn test_format_ghost_expr() {
-    let mut out = String::new();
-    let expr = sp(Expr::Ghost(bsp(Expr::Literal(Literal::Bool(true)))));
-    format_expr(&expr, &mut out);
-    assert_eq!(out, "ghost { true }");
-}
-
-#[test]
-fn test_format_apply_expr() {
-    let mut out = String::new();
-    let expr = sp(Expr::Apply {
-        lemma_name: "div_pos".to_string(),
-        args: vec![
-            sp(Expr::Ident("a".to_string())),
-            sp(Expr::Ident("b".to_string())),
-        ],
-    });
-    format_expr(&expr, &mut out);
-    assert_eq!(out, "apply div_pos(a, b)");
-}
-
-#[test]
-fn test_format_let_expr() {
-    let mut out = String::new();
-    let expr = sp(Expr::Let {
-        name: "tmp".to_string(),
-        value: bsp(Expr::Literal(Literal::Int("5".into()))),
-        body: bsp(Expr::Ident("tmp".to_string())),
-    });
-    format_expr(&expr, &mut out);
-    assert_eq!(out, "let tmp = 5 in tmp");
-}
-
-#[test]
-fn test_format_match_expr() {
-    use assura_parser::ast::MatchArm;
-    let mut out = String::new();
-    let expr = sp(Expr::Match {
-        scrutinee: bsp(Expr::Ident("x".to_string())),
-        arms: vec![
-            MatchArm {
-                pattern: Pattern::Constructor {
-                    name: "Some".to_string(),
-                    fields: vec![Pattern::Ident("v".to_string())],
-                },
-                body: sp(Expr::Ident("v".to_string())),
-            },
-            MatchArm {
-                pattern: Pattern::Wildcard,
-                body: sp(Expr::Literal(Literal::Int("0".into()))),
-            },
-        ],
-    });
-    format_expr(&expr, &mut out);
-    assert!(out.contains("match x"), "got: {out}");
-    assert!(out.contains("Some(v) => v"), "got: {out}");
-    assert!(out.contains("_ => 0"), "got: {out}");
-}
-
-#[test]
-fn test_format_tuple_expr() {
-    let mut out = String::new();
-    let expr = sp(Expr::Tuple(vec![
-        sp(Expr::Ident("a".to_string())),
-        sp(Expr::Literal(Literal::Int("1".into()))),
-    ]));
-    format_expr(&expr, &mut out);
-    assert_eq!(out, "(a, 1)");
-}
-
-#[test]
-fn test_format_block_expr() {
-    let mut out = String::new();
-    let expr = sp(Expr::Block(vec![
-        sp(Expr::Ident("a".to_string())),
-        sp(Expr::Ident("b".to_string())),
-    ]));
-    format_expr(&expr, &mut out);
-    assert_eq!(out, "a b");
-}
-
-#[test]
-fn test_format_method_call_expr() {
-    let mut out = String::new();
-    let expr = sp(Expr::MethodCall {
-        receiver: bsp(Expr::Ident("vec".to_string())),
-        method: "push".to_string(),
-        args: vec![sp(Expr::Literal(Literal::Int("42".into())))],
-    });
-    format_expr(&expr, &mut out);
-    assert_eq!(out, "vec.push(42)");
-}
-
-#[test]
-fn test_format_call_expr() {
-    let mut out = String::new();
-    let expr = sp(Expr::Call {
-        func: bsp(Expr::Ident("max".to_string())),
-        args: vec![
-            sp(Expr::Ident("a".to_string())),
-            sp(Expr::Ident("b".to_string())),
-        ],
-    });
-    format_expr(&expr, &mut out);
-    assert_eq!(out, "max(a, b)");
-}
-
-#[test]
-fn test_format_old_expr_direct() {
-    let mut out = String::new();
-    let expr = sp(Expr::Old(bsp(Expr::Ident("counter".to_string()))));
-    format_expr(&expr, &mut out);
-    assert_eq!(out, "old(counter)");
-}
-
-// ----- Pattern coverage: tuple and literal -----
-
-#[test]
-fn test_format_pattern_tuple() {
-    let mut out = String::new();
-    format_pattern(
-        &Pattern::Tuple(vec![Pattern::Ident("a".to_string()), Pattern::Wildcard]),
-        &mut out,
-    );
-    assert_eq!(out, "(a, _)");
-}
-
-#[test]
-fn test_format_pattern_literal() {
-    let mut out = String::new();
-    format_pattern(&Pattern::Literal(Literal::Int("42".into())), &mut out);
-    assert_eq!(out, "42");
-}
-
-// ----- is_braced_kind coverage -----
-
-#[test]
-fn test_is_braced_kind() {
-    assert!(is_braced_kind(&ClauseKind::Requires));
-    assert!(is_braced_kind(&ClauseKind::Ensures));
-    assert!(is_braced_kind(&ClauseKind::Invariant));
-    assert!(is_braced_kind(&ClauseKind::Decreases));
-    assert!(is_braced_kind(&ClauseKind::Rule));
-    assert!(is_braced_kind(&ClauseKind::MustNot));
-    assert!(is_braced_kind(&ClauseKind::Effects));
-    assert!(is_braced_kind(&ClauseKind::Modifies));
-    // Non-braced kinds
-    assert!(!is_braced_kind(&ClauseKind::Input));
-    assert!(!is_braced_kind(&ClauseKind::Output));
-    assert!(!is_braced_kind(&ClauseKind::Errors));
-    assert!(!is_braced_kind(&ClauseKind::Ordering));
-    assert!(!is_braced_kind(&ClauseKind::Other("custom".into())));
-}
-
-// ----- Prophecy and FnDef coverage -----
-
-#[test]
-fn test_format_prophecy() {
-    let src = "prophecy future_val: Int\ncontract X { requires { true } }";
-    let out = parse_and_format(src);
-    assert!(out.contains("prophecy"), "got: {out}");
-    assert!(out.contains("future_val"), "got: {out}");
-}
-
-#[test]
-fn test_format_ghost_fn() {
-    let src = "ghost fn helper(x: Int) -> Bool\n    requires { x >= 0 }\n";
-    let out = parse_and_format(src);
-    assert!(out.contains("ghost fn helper"), "got: {out}");
-}
-
-#[test]
-fn test_format_lemma_fn_direct() {
-    // Test the formatter's handling of is_lemma flag directly
-    use assura_parser::ast::FnDef;
-    let f = FnDef {
-        name: "div_pos".to_string(),
-        is_ghost: false,
-        is_lemma: true,
-        params: vec![],
-        return_ty: Some(assura_parser::ast::TypeExpr::Named("Bool".into())),
-        clauses: vec![],
-    };
-    let mut out = String::new();
-    format_fndef(&f, &mut out);
-    assert!(out.contains("lemma fn div_pos"), "got: {out}");
-    assert!(out.contains("-> Bool"), "got: {out}");
-}
-
-// ----- Idempotency: more complex features -----
-
-#[test]
-fn test_idempotent_contract_with_all_clauses() {
-    assert_idempotent(
-        r#"
-contract Full {
-    input(x: Int, y: Int)
-    output(result: Int)
-    requires { x > 0 }
-    ensures { result > 0 }
-    invariant { x >= 0 }
-    effects { io }
-}
-"#,
+fn excessive_blank_lines_capped() {
+    let src = "contract A { requires { x > 0 } }\n\n\n\n\n\ncontract B { requires { y > 0 } }\n";
+    let out = fmt(src);
+    assert!(
+        !out.contains("\n\n\n\n"),
+        "too many consecutive blank lines in: {out}"
     );
 }
 
-#[test]
-fn test_idempotent_fn_with_effects() {
-    assert_idempotent("fn read_data(path: String) -> Bytes\n    effects { io }\n");
-}
-
-// ----- join_raw_tokens edge cases -----
+// ---------------------------------------------------------------------------
+// 10. Service with invariant
+// ---------------------------------------------------------------------------
 
 #[test]
-fn test_join_raw_tokens_multiple_dots() {
-    let tokens: Vec<String> = vec![
-        "std".into(),
-        ".".into(),
-        "collections".into(),
-        ".".into(),
-        "HashMap".into(),
-    ];
-    assert_eq!(join_raw_tokens(&tokens), "std.collections.HashMap");
-}
-
-#[test]
-fn test_join_raw_tokens_single_token() {
-    let tokens: Vec<String> = vec!["hello".into()];
-    assert_eq!(join_raw_tokens(&tokens), "hello");
-}
-
-// ----- Service with invariant and other items -----
-
-#[test]
-fn test_format_service_with_invariant() {
-    let src = r#"
-service Counter {
-    states: Zero -> Positive
-
-    invariant { count >= 0 }
-
-    operation increment {
-        ensures { count > 0 }
-    }
-}
-"#;
-    let out = parse_and_format(src);
+fn service_with_invariant() {
+    let src = "service Counter {\n    states: Zero -> Positive\n\n    invariant { count >= 0 }\n\n    operation increment {\n        ensures { count > 0 }\n    }\n}\n";
+    let out = fmt(src);
     assert!(out.contains("invariant"), "got: {out}");
-}
-
-// ----- Formatter idempotency and raw-token edge cases -----
-
-#[test]
-fn test_join_raw_tokens_ellipsis_stays_glued() {
-    // Three consecutive dots (ellipsis) should not get spaces inserted
-    let tokens: Vec<String> = vec![".".into(), ".".into(), ".".into()];
-    assert_eq!(join_raw_tokens(&tokens), "...");
-}
-
-#[test]
-fn test_join_raw_tokens_parens_no_inner_space() {
-    // Unit type "()" should not become "( )"
-    let tokens: Vec<String> = vec!["(".into(), ")".into()];
-    assert_eq!(join_raw_tokens(&tokens), "()");
-}
-
-#[test]
-fn test_join_raw_tokens_paren_with_content() {
-    // "(x)" should not become "( x )"
-    let tokens: Vec<String> = vec!["(".into(), "x".into(), ")".into()];
-    assert_eq!(join_raw_tokens(&tokens), "(x)");
-}
-
-#[test]
-fn test_join_raw_tokens_brackets_no_inner_space() {
-    let tokens: Vec<String> = vec!["[".into(), "]".into()];
-    assert_eq!(join_raw_tokens(&tokens), "[]");
-}
-
-#[test]
-fn test_idempotent_fn_with_unit_return() {
-    assert_idempotent(
-        "fn check_bounds(size: Nat, max_len: Nat) -> ()\n    requires { size <= max_len }\n",
-    );
-}
-
-#[test]
-fn test_idempotent_fn_with_refinement_param() {
-    assert_idempotent(
-        "fn read_bits(br: Nat, n_bits: { Nat | n_bits > 0 }) -> Nat\n    requires { br >= 0 }\n",
-    );
-}
-
-// ----- format_clause direct coverage (closes #687) -----
-
-/// Helper to build a Clause with no effect variables.
-fn make_clause(kind: ClauseKind, body: Expr) -> Clause {
-    Clause {
-        kind,
-        body: Spanned::no_span(body),
-        effect_variables: vec![],
-    }
-}
-
-#[test]
-fn test_format_clause_requires_braced() {
-    let clause = make_clause(ClauseKind::Requires, Expr::Ident("x".into()));
-    let mut out = String::new();
-    format_clause(&clause, &mut out);
-    assert_eq!(out, "requires { x }");
-}
-
-#[test]
-fn test_format_clause_ensures_braced() {
-    let clause = make_clause(
-        ClauseKind::Ensures,
-        Expr::BinOp {
-            op: BinOp::Gt,
-            lhs: bsp(Expr::Ident("result".into())),
-            rhs: bsp(Expr::Literal(Literal::Int("0".into()))),
-        },
-    );
-    let mut out = String::new();
-    format_clause(&clause, &mut out);
-    assert_eq!(out, "ensures { result > 0 }");
-}
-
-#[test]
-fn test_format_clause_effects_braced() {
-    let clause = make_clause(ClauseKind::Effects, Expr::Raw(vec!["io".into()]));
-    let mut out = String::new();
-    format_clause(&clause, &mut out);
-    assert_eq!(out, "effects { io }");
-}
-
-#[test]
-fn test_format_clause_input_with_params() {
-    // input(x: Int) — Cast expr triggers the param extraction path
-    let clause = make_clause(
-        ClauseKind::Input,
-        Expr::Cast {
-            expr: bsp(Expr::Ident("x".into())),
-            ty: "Int".into(),
-        },
-    );
-    let mut out = String::new();
-    format_clause(&clause, &mut out);
-    assert_eq!(out, "input(x: Int)");
-}
-
-#[test]
-fn test_format_clause_output_with_params() {
-    let clause = make_clause(
-        ClauseKind::Output,
-        Expr::Cast {
-            expr: bsp(Expr::Ident("result".into())),
-            ty: "Bool".into(),
-        },
-    );
-    let mut out = String::new();
-    format_clause(&clause, &mut out);
-    assert_eq!(out, "output(result: Bool)");
-}
-
-#[test]
-fn test_format_clause_other_colon_syntax() {
-    let clause = make_clause(
-        ClauseKind::Other("custom_check".into()),
-        Expr::Ident("valid".into()),
-    );
-    let mut out = String::new();
-    format_clause(&clause, &mut out);
-    assert_eq!(out, "custom_check: valid");
-}
-
-#[test]
-fn test_format_clause_ordering_colon_syntax() {
-    let clause = make_clause(
-        ClauseKind::Ordering,
-        Expr::Raw(vec!["a".into(), "<".into(), "b".into()]),
-    );
-    let mut out = String::new();
-    format_clause(&clause, &mut out);
-    assert_eq!(out, "ordering: a < b");
-}
-
-#[test]
-fn test_format_clause_invariant_braced() {
-    let clause = make_clause(
-        ClauseKind::Invariant,
-        Expr::BinOp {
-            op: BinOp::Gte,
-            lhs: bsp(Expr::Ident("count".into())),
-            rhs: bsp(Expr::Literal(Literal::Int("0".into()))),
-        },
-    );
-    let mut out = String::new();
-    format_clause(&clause, &mut out);
-    assert_eq!(out, "invariant { count >= 0 }");
 }

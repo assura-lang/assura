@@ -76,11 +76,9 @@ fn bench_codegen(c: &mut Criterion) {
 
 fn bench_format(c: &mut Criterion) {
     let src = load_demo("heartbleed.assura");
-    let (file, _) = assura_parser::parse(&src);
-    let file = file.expect("heartbleed should parse");
 
     c.bench_function("format_heartbleed", |b| {
-        b.iter(|| assura_fmt::format_source_file(&file))
+        b.iter(|| assura_fmt::format_source(&src))
     });
 }
 

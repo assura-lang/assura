@@ -694,20 +694,17 @@ fn roundtrip_project_has_valid_cargo_toml() {
 // Formatter tests
 // ---------------------------------------------------------------------------
 
-/// Parse source, format it, re-parse, re-format, and assert idempotency.
+/// Format source, re-format, and assert idempotency.
 fn assert_format_idempotent(source: &str) {
-    let file = assura_parser::parse_unwrap(source);
+    let formatted1 = assura_fmt::format_source(source);
 
-    let formatted1 = assura_fmt::format_source_file(&file);
-
-    let (file2, errs2) = assura_parser::parse(&formatted1);
+    let (_, errs2) = assura_parser::parse(&formatted1);
     assert!(
         errs2.is_empty(),
         "parse errors on formatted output: {errs2:?}\nformatted:\n{formatted1}"
     );
-    let file2 = file2.expect("re-parse returned None");
 
-    let formatted2 = assura_fmt::format_source_file(&file2);
+    let formatted2 = assura_fmt::format_source(&formatted1);
     assert_eq!(
         formatted1, formatted2,
         "formatter is not idempotent:\n--- pass 1 ---\n{formatted1}\n--- pass 2 ---\n{formatted2}"
@@ -822,9 +819,7 @@ feature_max MAX_SIZE: Nat = 256
 fn fmt_produces_parseable_output() {
     // Verify that formatting a contract produces valid parseable output
     let source = "contract Foo {\n  input(x: Int)\n  requires { x > 0 }\n}\n";
-    let (file, _) = assura_parser::parse(source);
-    let file = file.unwrap();
-    let formatted = assura_fmt::format_source_file(&file);
+    let formatted = assura_fmt::format_source(source);
     // Must contain the contract name
     assert!(
         formatted.contains("contract Foo"),

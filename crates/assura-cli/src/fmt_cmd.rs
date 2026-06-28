@@ -9,28 +9,15 @@ pub(crate) fn run_fmt(filename: &str, check_only: bool) {
         process::exit(2);
     });
 
-    let (file, errors) = assura_parser::parse(&source);
-
-    if !errors.is_empty() {
-        eprintln!(
-            "Error: cannot format {filename}: {} parse error(s)",
-            errors.len()
-        );
-        for e in &errors {
-            eprintln!("  {e}");
-        }
-        process::exit(1);
-    }
-
-    let file = match file {
-        Some(f) => f,
-        None => {
-            eprintln!("Error: cannot format {filename}: parse returned no AST");
+    let formatted = match assura_fmt::try_format_source(&source) {
+        Ok(f) => f,
+        Err(errors) => {
+            for e in &errors {
+                eprintln!("{filename}: parse error: {}", e.message);
+            }
             process::exit(1);
         }
     };
-
-    let formatted = assura_fmt::format_source_file(&file);
 
     if check_only {
         if formatted == source {

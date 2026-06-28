@@ -188,8 +188,8 @@ dependencies = [
 name = "assura-fmt"
 version = "0.1.0"
 dependencies = [
- "assura-ast",
  "assura-parser",
+ "rowan",
 ]
 
 [[package]]

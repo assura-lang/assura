@@ -459,18 +459,7 @@ impl LanguageServer for AssuraLanguageServer {
 
         let source = state.rope.to_string();
 
-        // Parse the document; if parsing fails, return no edits to avoid breaking the document
-        let (ast, errors) = assura_parser::parse(&source);
-        if !errors.is_empty() {
-            return Ok(Some(Vec::new()));
-        }
-
-        let ast = match ast {
-            Some(a) => a,
-            None => return Ok(Some(Vec::new())),
-        };
-
-        let formatted = assura_fmt::format_source_file(&ast);
+        let formatted = assura_fmt::format_source(&source);
 
         // If already formatted, return no edits
         if formatted == source {

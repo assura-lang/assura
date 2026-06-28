@@ -165,6 +165,43 @@ pub fn parse_full(source: &str) -> ParseResult {
     }
 }
 
+/// Parse source text to a lossless CST (concrete syntax tree).
+///
+/// Returns the root `SyntaxNode` and any parse errors. Unlike [`parse`],
+/// this does NOT lower to AST. Every character of the source is
+/// represented as a token in the tree (including comments and whitespace).
+///
+/// Primary use: the formatter, which needs all tokens to avoid destroying
+/// comments and content that the AST does not preserve.
+pub fn parse_cst(source: &str) -> (syntax_kind::SyntaxNode, Vec<ParseError>) {
+    use logos::Logos;
+
+    let lex = lexer::Token::lexer(source);
+
+    let mut tokens = Vec::new();
+    let mut spans = Vec::new();
+
+    for (tok, span) in lex.spanned() {
+        if let Ok(t) = tok {
+            let kind = syntax_kind::SyntaxKind::from(&t);
+            let text = source[span.clone()].to_string();
+            tokens.push(cst::LexedToken { kind, text });
+            spans.push(cst::TokenSpan {
+                start: span.start,
+                end: span.end,
+            });
+        }
+    }
+
+    let mut parser = cst::Parser::new(tokens, spans);
+    grammar::source_file(&mut parser);
+    let (events, toks, errors) = parser.finish();
+
+    let green = cst::build_tree(events, &toks);
+    let root = syntax_kind::SyntaxNode::new_root(green);
+    (root, errors)
+}
+
 /// Parse source text, panicking on errors. Convenience for tests.
 ///
 /// Returns the parsed `SourceFile`. Panics if the source has parse errors
