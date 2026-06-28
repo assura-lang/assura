@@ -1,0 +1,17 @@
+// Demo: clamping contract with ensures referencing result (#703).
+//
+// `assura check demos/ir-clamp.assura` loads `demos/Clamp.ir` via the
+// IR sidecar mechanism and constrains `result` through havoc+assume.
+// Both `ensures` clauses verify because the IR body implements:
+//   result = if val < lo then lo, else if val > hi then hi, else val
+//
+// Without the sidecar, the ensures clauses are skipped with
+// "no implementation body" warnings (exit 0, not counterexamples).
+
+module demo.ir_clamp;
+
+fn Clamp(val: Int, lo: Int, hi: Int) -> Int
+  requires { lo <= hi }
+  ensures  { result >= lo }
+  ensures  { result <= hi }
+  effects  { pure }

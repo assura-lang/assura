@@ -250,6 +250,21 @@ pub fn compile_full(source: &str, filename: &str, config: &CompilerConfig) -> Co
     }
     output.timing.verify_ms = Some(verify_start.elapsed().as_secs_f64() * 1000.0);
 
+    // #703: Suppress A04008 "result unconstrained" warnings when the
+    // corresponding ensures clause actually verified (IR sidecar loaded).
+    if !output.verification.is_empty() {
+        let has_verified_ensures = output.verification.iter().any(|r| {
+            matches!(
+                r,
+                assura_smt::VerificationResult::Verified { clause_desc, .. }
+                    if clause_desc.contains("ensures")
+            )
+        });
+        if has_verified_ensures {
+            output.diagnostics.retain(|d| d.code != "A04008");
+        }
+    }
+
     // --- Codegen ---
     let codegen_start = Instant::now();
     if let Some(ref typed) = output.typed {

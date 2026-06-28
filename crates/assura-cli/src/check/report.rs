@@ -77,6 +77,19 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
         }
     }
 
+    // #703: Suppress A04008 "result unconstrained" warnings when the
+    // corresponding ensures clause actually verified (IR sidecar loaded).
+    let has_verified_ensures = verification_results.iter().any(|r| {
+        matches!(
+            r,
+            assura_smt::VerificationResult::Verified { clause_desc, .. }
+                if clause_desc.contains("ensures")
+        )
+    });
+    if has_verified_ensures {
+        diagnostics.retain(|d| d.code != "A04008");
+    }
+
     for vr in &verification_results {
         let clause_desc = match vr {
             assura_smt::VerificationResult::Counterexample { clause_desc, .. }

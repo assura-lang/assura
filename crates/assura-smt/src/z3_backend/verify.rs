@@ -470,6 +470,50 @@ pub(crate) fn verify_impl_with_timeout(
     for (name, clauses, params, return_ty) in crate::entry::collect_verification_jobs(typed) {
         let ir_body = ir_bodies.and_then(|m| m.get(name.as_str()));
         let ir_blocks = ir_block_maps.and_then(|m| m.get(name.as_str()));
+
+        // #703: Skip ensures clauses referencing result when no IR body
+        // is loaded. Emit Unknown instead of producing spurious counterexamples.
+        let has_ir = ir_body.is_some();
+        let skip = crate::entry::verify::unconstrained_result_unknowns(&name, &clauses, has_ir);
+        if !skip.is_empty() {
+            let filtered: Vec<assura_ast::Clause> = clauses
+                .iter()
+                .filter(|c| {
+                    !(c.kind == assura_ast::ClauseKind::Ensures
+                        && crate::entry::verify::expr_references_result(&c.body))
+                })
+                .cloned()
+                .collect();
+            if filtered.iter().any(|c| {
+                matches!(
+                    c.kind,
+                    assura_ast::ClauseKind::Ensures | assura_ast::ClauseKind::Invariant
+                )
+            }) {
+                let types = TypeConstraints {
+                    params: &params,
+                    return_ty: &return_ty,
+                    constants: &constants,
+                    narrowings: &narrowings,
+                    ir_body,
+                    ir_blocks,
+                    ir_bodies,
+                    type_env: file_type_env,
+                    ..Default::default()
+                };
+                verify_clauses_with_types(
+                    &name,
+                    &filtered,
+                    &lemma_defs,
+                    &mut cache,
+                    &mut results,
+                    &types,
+                );
+            }
+            results.extend(skip);
+            continue;
+        }
+
         let types = TypeConstraints {
             params: &params,
             return_ty: &return_ty,

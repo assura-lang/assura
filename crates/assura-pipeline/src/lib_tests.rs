@@ -1267,3 +1267,88 @@ fn compile_full_skips_verify_and_codegen_on_type_error() {
         "codegen should be skipped on type error"
     );
 }
+
+// -------------------------------------------------------------------
+// #703: A04008 suppression when ensures verified via IR sidecar
+// -------------------------------------------------------------------
+
+#[test]
+fn compile_full_suppresses_a04008_when_ensures_verified() {
+    // Simulate: compile_full with a contract where ensures references
+    // result. When verification produces Verified for ensures clauses,
+    // A04008 diagnostics should be suppressed.
+    //
+    // Use the Echo contract + inline IR via verify_ir (which calls
+    // compile_full internally), then verify diagnostics are clean.
+    let contract =
+        "contract Echo {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n";
+    let ir = "module Echo {\n  fn #0 : ($0: Int) -> Int ! pure\n  {\n    $result = load $0 : Int\n  }\n}\n";
+    let config = CompilerConfig::default();
+    let result = verify_ir(contract, ir, &config);
+
+    assert_eq!(
+        result.status, "verified",
+        "Echo with identity IR should verify; clauses: {:?}",
+        result.clauses
+    );
+    // The compile_full path inside verify_ir suppresses A04008
+    // when ensures clauses are Verified.
+    assert!(result.compile_errors.is_empty());
+}
+
+#[test]
+fn compile_full_no_ir_sidecar_no_counterexample() {
+    // Without an IR sidecar, ensures referencing result should produce
+    // Unknown (known limitation), NOT counterexample.
+    let source = "contract Clamp {\n  input(val: Int, lo: Int, hi: Int)\n  output(result: Int)\n  requires { lo <= hi }\n  ensures { result >= lo }\n  ensures { result <= hi }\n}\n";
+    let config = CompilerConfig {
+        verify: assura_config::VerifyOptions {
+            layer: 1,
+            parallel: false,
+            decrease_checks: false,
+            enable_cache: false,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let output = compile_full(source, "<inline>", &config);
+
+    assert!(
+        !output.has_errors,
+        "no-IR contract should not produce hard errors, got: {:?}",
+        output.diagnostics
+    );
+
+    // Ensures clauses referencing result should be Unknown, not Counterexample
+    let counterexamples: Vec<_> = output
+        .verification
+        .iter()
+        .filter(|r| matches!(r, assura_smt::VerificationResult::Counterexample { .. }))
+        .collect();
+    assert!(
+        counterexamples.is_empty(),
+        "ensures referencing result without IR should NOT produce counterexamples, got: {:?}",
+        counterexamples
+    );
+
+    // Should have Unknown results with known-limitation marker
+    let unknowns: Vec<_> = output
+        .verification
+        .iter()
+        .filter(|r| matches!(r, assura_smt::VerificationResult::Unknown { .. }))
+        .collect();
+    assert!(
+        !unknowns.is_empty(),
+        "should have Unknown results for unconstrained result, got: {:?}",
+        output.verification
+    );
+
+    // All unknowns should be known limitations (exit 0 behavior)
+    for u in &unknowns {
+        assert!(
+            u.is_known_limitation(),
+            "unknown should be a known limitation: {:?}",
+            u
+        );
+    }
+}

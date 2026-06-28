@@ -1,6 +1,8 @@
 //! Core `verify()` / `Verifier` / contract and standalone verification APIs.
 
-use assura_ast::{BindDecl, BlockKind, Clause, ContractDecl, ExternDecl, FnDef, SpExpr};
+use assura_ast::{
+    BindDecl, BlockKind, Clause, ClauseKind, ContractDecl, Expr, ExternDecl, FnDef, SpExpr,
+};
 use assura_types::TypedFile;
 
 use crate::SolverChoice;
@@ -263,6 +265,67 @@ pub fn has_verifiable_clauses(source: &assura_ast::SourceFile) -> bool {
     v.0
 }
 
+/// Check if an expression references the `result` identifier.
+pub(crate) fn expr_references_result(expr: &assura_ast::SpExpr) -> bool {
+    match &expr.node {
+        Expr::Ident(name) => name == "result",
+        Expr::BinOp { lhs, rhs, .. } => expr_references_result(lhs) || expr_references_result(rhs),
+        Expr::UnaryOp { expr: e, .. }
+        | Expr::Old(e)
+        | Expr::Cast { expr: e, .. }
+        | Expr::Ghost(e) => expr_references_result(e),
+        Expr::Call { func, args } => {
+            expr_references_result(func) || args.iter().any(expr_references_result)
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            expr_references_result(receiver) || args.iter().any(expr_references_result)
+        }
+        Expr::Field(recv, _) => expr_references_result(recv),
+        Expr::Index { expr: e, index } => {
+            expr_references_result(e) || expr_references_result(index)
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_references_result(cond)
+                || expr_references_result(then_branch)
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|e| expr_references_result(e))
+        }
+        _ => false,
+    }
+}
+
+/// When no IR body is loaded for a contract, ensures clauses referencing
+/// `result` cannot be verified (Z3 treats result as unconstrained). Emit
+/// `Unknown` for those clauses so users see "no implementation" instead
+/// of spurious counterexamples (#703).
+pub(crate) fn unconstrained_result_unknowns(
+    name: &str,
+    clauses: &[Clause],
+    has_ir: bool,
+) -> Vec<VerificationResult> {
+    if has_ir {
+        return Vec::new();
+    }
+    clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Ensures && expr_references_result(&c.body))
+        .map(|_| {
+            VerificationResult::unknown_not_encoded(
+                format!("{name}::ensures"),
+                format!(
+                    "no implementation body for `{name}`; \
+                     result is unconstrained (provide a .ir sidecar to verify)"
+                ),
+            )
+        })
+        .collect()
+}
+
 /// Verify all declarations in parallel using the specified solver.
 pub(crate) fn verify_parallel_with_solver(
     typed: &TypedFile,
@@ -281,11 +344,52 @@ pub(crate) fn verify_parallel_with_solver(
     let per_job_results: Vec<Vec<VerificationResult>> = jobs
         .par_iter()
         .map(|(name, clauses, params, return_ty)| {
+            let has_ir = extras
+                .and_then(|e| e.ir_bodies)
+                .is_some_and(|m| m.contains_key(name.as_str()));
             let ir_fp_owned = extras
                 .and_then(|e| e.ir_bodies)
                 .and_then(|m| m.get(name.as_str()))
                 .map(|f| format!("{f:?}"));
             let ir_fp = ir_fp_owned.as_deref();
+
+            // #703: Skip ensures clauses referencing result when no IR body
+            // is loaded. Emit Unknown instead of sending to Z3 where result
+            // is unconstrained and produces spurious counterexamples.
+            let skip_results = unconstrained_result_unknowns(name, clauses, has_ir);
+            if !skip_results.is_empty() {
+                // Filter out ensures-with-result clauses so the solver only
+                // sees clauses it can meaningfully verify.
+                let filtered: Vec<Clause> = clauses
+                    .iter()
+                    .filter(|c| !(c.kind == ClauseKind::Ensures && expr_references_result(&c.body)))
+                    .cloned()
+                    .collect();
+                if filtered
+                    .iter()
+                    .any(|c| matches!(c.kind, ClauseKind::Ensures | ClauseKind::Invariant))
+                {
+                    // Still have verifiable clauses after filtering
+                    let ctx = ContractVerifyContext {
+                        contract_name: name,
+                        clauses: &filtered,
+                        params,
+                        return_ty,
+                        constants: &constants,
+                        ir: crate::verify_context::LoadedIrContext::for_contract(
+                            name,
+                            extras,
+                            Some(&typed.type_env),
+                        ),
+                    };
+                    let mut results = verify_contract_with_types_and_solver(&ctx, solver);
+                    results.extend(skip_results);
+                    cache.put(name, clauses, ir_fp, &results);
+                    return results;
+                }
+                return skip_results;
+            }
+
             // Check cache first (IR fingerprint prevents stale hits when only
             // the `.ir` sidecar changed, not the contract clauses).
             if let Some(cached) = cache.get(name, clauses, ir_fp) {
@@ -1006,5 +1110,147 @@ mod tests {
             }
             other => panic!("expected Verified, got {other:?}"),
         }
+    }
+
+    // -- expr_references_result (#703) --
+
+    use super::{expr_references_result, unconstrained_result_unknowns};
+    use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, Spanned};
+
+    fn sp(e: Expr) -> assura_ast::SpExpr {
+        Spanned::no_span(e)
+    }
+
+    #[test]
+    fn expr_references_result_ident() {
+        assert!(expr_references_result(&sp(Expr::Ident("result".into()))));
+    }
+
+    #[test]
+    fn expr_references_result_other_ident() {
+        assert!(!expr_references_result(&sp(Expr::Ident("x".into()))));
+    }
+
+    #[test]
+    fn expr_references_result_in_binop() {
+        let expr = sp(Expr::BinOp {
+            lhs: Box::new(sp(Expr::Ident("result".into()))),
+            op: BinOp::Gte,
+            rhs: Box::new(sp(Expr::Literal(Literal::Int("0".into())))),
+        });
+        assert!(expr_references_result(&expr));
+    }
+
+    #[test]
+    fn expr_references_result_nested_field() {
+        // result.length()
+        let expr = sp(Expr::MethodCall {
+            receiver: Box::new(sp(Expr::Ident("result".into()))),
+            method: "length".into(),
+            args: vec![],
+        });
+        assert!(expr_references_result(&expr));
+    }
+
+    #[test]
+    fn expr_references_result_absent() {
+        let expr = sp(Expr::BinOp {
+            lhs: Box::new(sp(Expr::Ident("x".into()))),
+            op: BinOp::Add,
+            rhs: Box::new(sp(Expr::Ident("y".into()))),
+        });
+        assert!(!expr_references_result(&expr));
+    }
+
+    #[test]
+    fn expr_references_result_in_if() {
+        let expr = sp(Expr::If {
+            cond: Box::new(sp(Expr::Ident("flag".into()))),
+            then_branch: Box::new(sp(Expr::Ident("result".into()))),
+            else_branch: None,
+        });
+        assert!(expr_references_result(&expr));
+    }
+
+    // -- unconstrained_result_unknowns (#703) --
+
+    fn ensures_clause(body: assura_ast::SpExpr) -> Clause {
+        Clause {
+            kind: ClauseKind::Ensures,
+            body,
+            effect_variables: vec![],
+        }
+    }
+
+    fn requires_clause(body: assura_ast::SpExpr) -> Clause {
+        Clause {
+            kind: ClauseKind::Requires,
+            body,
+            effect_variables: vec![],
+        }
+    }
+
+    #[test]
+    fn unconstrained_result_unknowns_no_ir_emits_unknown() {
+        let clauses = vec![
+            requires_clause(sp(Expr::Literal(Literal::Bool(true)))),
+            ensures_clause(sp(Expr::BinOp {
+                lhs: Box::new(sp(Expr::Ident("result".into()))),
+                op: BinOp::Gte,
+                rhs: Box::new(sp(Expr::Literal(Literal::Int("0".into())))),
+            })),
+        ];
+        let unknowns = unconstrained_result_unknowns("Clamp", &clauses, false);
+        assert_eq!(unknowns.len(), 1);
+        assert!(unknowns[0].is_known_limitation());
+        assert!(unknowns[0].clause_desc().contains("ensures"));
+    }
+
+    #[test]
+    fn unconstrained_result_unknowns_with_ir_returns_empty() {
+        let clauses = vec![ensures_clause(sp(Expr::BinOp {
+            lhs: Box::new(sp(Expr::Ident("result".into()))),
+            op: BinOp::Gte,
+            rhs: Box::new(sp(Expr::Literal(Literal::Int("0".into())))),
+        }))];
+        let unknowns = unconstrained_result_unknowns("Clamp", &clauses, true);
+        assert!(unknowns.is_empty());
+    }
+
+    #[test]
+    fn unconstrained_result_unknowns_skips_non_result_ensures() {
+        // ensures { x >= 0 } does not reference result, should not be skipped
+        let clauses = vec![ensures_clause(sp(Expr::BinOp {
+            lhs: Box::new(sp(Expr::Ident("x".into()))),
+            op: BinOp::Gte,
+            rhs: Box::new(sp(Expr::Literal(Literal::Int("0".into())))),
+        }))];
+        let unknowns = unconstrained_result_unknowns("Test", &clauses, false);
+        assert!(unknowns.is_empty());
+    }
+
+    #[test]
+    fn unconstrained_result_unknowns_multiple_ensures() {
+        let clauses = vec![
+            ensures_clause(sp(Expr::BinOp {
+                lhs: Box::new(sp(Expr::Ident("result".into()))),
+                op: BinOp::Gte,
+                rhs: Box::new(sp(Expr::Ident("lo".into()))),
+            })),
+            ensures_clause(sp(Expr::BinOp {
+                lhs: Box::new(sp(Expr::Ident("result".into()))),
+                op: BinOp::Lte,
+                rhs: Box::new(sp(Expr::Ident("hi".into()))),
+            })),
+            // This one does not reference result
+            ensures_clause(sp(Expr::BinOp {
+                lhs: Box::new(sp(Expr::Ident("lo".into()))),
+                op: BinOp::Lte,
+                rhs: Box::new(sp(Expr::Ident("hi".into()))),
+            })),
+        ];
+        // Should emit 2 unknowns (the two ensures referencing result)
+        let unknowns = unconstrained_result_unknowns("Clamp", &clauses, false);
+        assert_eq!(unknowns.len(), 2);
     }
 }
