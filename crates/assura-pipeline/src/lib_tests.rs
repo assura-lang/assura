@@ -757,16 +757,31 @@ fn diagnostics_classified_as_parse_errors() {
 
 #[test]
 fn diagnostics_classified_as_resolution_errors() {
-    // Use an unknown import to trigger a resolution error (A02xxx)
-    let result = run("import nonexistent.module\ncontract T {\n  requires { true }\n}");
-    // Resolution errors go into resolution_errors bucket
-    let has_resolution = !result.resolution_errors.is_empty();
-    let has_type = !result.type_errors.is_empty();
-    // At least one error should be classified (may be resolution or type depending on phase)
+    // Duplicate contract names trigger A02003 (resolution phase)
+    let result = run("contract Dup {\n  requires { true }\n}\ncontract Dup {\n  requires { true }\n}");
     assert!(
-        has_resolution || has_type,
-        "should have resolution or type errors for unknown import"
+        !result.resolution_errors.is_empty(),
+        "duplicate names should produce resolution errors (A02xxx), got: parse={:?}, resolve={:?}, type={:?}",
+        result.parse_errors, result.resolution_errors, result.type_errors
     );
+    assert!(
+        result.resolution_errors.iter().all(|e| e.code.as_str().starts_with("A02")),
+        "all resolution errors should have A02 prefix: {:?}",
+        result.resolution_errors
+    );
+    assert!(result.parse_errors.is_empty(), "no parse errors expected for valid syntax");
+}
+
+#[test]
+fn diagnostics_classified_as_type_errors() {
+    // Type mismatch: comparing Int to String triggers A03xxx
+    let result = run("contract T {\n  input(x: Int)\n  requires { x == \"hello\" }\n}");
+    assert!(
+        !result.type_errors.is_empty(),
+        "type mismatch should produce type errors (A03xxx), got: parse={:?}, resolve={:?}, type={:?}",
+        result.parse_errors, result.resolution_errors, result.type_errors
+    );
+    assert!(result.parse_errors.is_empty(), "no parse errors expected");
 }
 
 // -------------------------------------------------------------------
@@ -775,15 +790,10 @@ fn diagnostics_classified_as_resolution_errors() {
 
 #[test]
 fn pipeline_result_has_errors_on_type_errors() {
-    // Using an invalid type should produce a type error
-    let result = run("contract T {\n  input(x: NonexistentType)\n  requires { true }\n}");
-    // Depending on the error phase, has_errors should be true
-    if !result.parse_errors.is_empty()
-        || !result.resolution_errors.is_empty()
-        || !result.type_errors.is_empty()
-    {
-        assert!(result.has_errors());
-    }
+    // Type mismatch should trigger has_errors
+    let result = run("contract T {\n  input(x: Int)\n  requires { x == \"hello\" }\n}");
+    assert!(result.has_errors(), "type mismatch should make has_errors() true");
+    assert!(!result.type_errors.is_empty(), "should have type errors");
 }
 
 #[test]
