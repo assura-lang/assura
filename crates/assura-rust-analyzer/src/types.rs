@@ -342,6 +342,7 @@ pub enum AnnotatedItemKind {
         return_type: Option<String>,
         is_unsafe: bool,
         is_async: bool,
+        is_public: bool,
     },
     /// A struct definition.
     Struct {

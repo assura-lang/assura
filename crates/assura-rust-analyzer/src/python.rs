@@ -95,6 +95,7 @@ fn parse_python_source(source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyzerE
 
             if let Some(func_info) = parse_python_function_def(trimmed) {
                 let byte_offset = source_line_offset(source, i);
+                let is_public = !func_info.0.starts_with('_');
                 items.push(AnnotatedItem {
                     contract,
                     kind: AnnotatedItemKind::Function {
@@ -103,6 +104,7 @@ fn parse_python_source(source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyzerE
                         return_type: func_info.2,
                         is_unsafe: false,
                         is_async: func_info.3,
+                        is_public,
                     },
                     line: i + 1, // 1-based
                     offset: byte_offset,

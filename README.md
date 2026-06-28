@@ -111,6 +111,27 @@ cargo run -- fmt demos/libwebp-huffman.assura
 # Infer contracts from Rust source
 cargo run -- infer src/main.rs
 
+# Verify inline contract annotations in Rust source files
+cargo run -- check-rust src/
+
+# Check Rust source with LLM-powered analysis
+cargo run -- check-rust src/ --llm
+
+# Suggest contracts for unannotated functions
+cargo run -- check-rust src/ --suggest
+
+# Suggest contracts for public functions only
+cargo run -- check-rust src/ --suggest --public-only
+
+# Suggest contracts for unsafe functions only
+cargo run -- check-rust src/ --suggest --unsafe-only
+
+# Use a specific LLM provider and model
+cargo run -- check-rust src/ --llm --llm-provider anthropic --llm-model claude-sonnet-4-20250514
+
+# Enable Level 2 LLM lemma verification
+cargo run -- check-rust src/ --llm --llm-verify
+
 # Print AI agent instructions (for setting up AI coding assistants)
 cargo run -- agent-instructions
 ```

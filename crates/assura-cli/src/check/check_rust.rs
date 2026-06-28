@@ -122,13 +122,16 @@ pub(crate) fn run_check_rust(
                 let param_strs: Vec<String> = params
                     .iter()
                     .filter(|p| p.name != "self")
-                    .map(|p| format!("{}: {}", p.name, rust_type_to_assura(&p.ty)))
+                    .map(|p| {
+                        let assura_ty = assura_codegen::type_map::rust_type_to_assura(&p.ty);
+                        format!("{}: {assura_ty}", p.name)
+                    })
                     .collect();
                 if !param_strs.is_empty() {
                     contract_source.push_str(&format!("  requires({})\n", param_strs.join(", ")));
                 }
                 if let Some(ret) = return_type {
-                    let assura_ret = rust_type_to_assura(ret);
+                    let assura_ret = assura_codegen::type_map::rust_type_to_assura(ret);
                     contract_source.push_str(&format!("  output(result: {assura_ret})\n"));
                 }
             }
@@ -277,7 +280,7 @@ fn run_llm_analysis(
     let provider_name = opts.provider;
     let model_override = opts.model;
     let unsafe_only = opts.unsafe_only;
-    let _public_only = opts.public_only; // TODO: needs visibility in AnnotatedItemKind
+    let public_only = opts.public_only;
     use assura_llm::{
         ContractDatabase,
         cache::LlmCache,
@@ -608,6 +611,7 @@ fn run_llm_analysis(
                     return_type: _,
                     is_unsafe,
                     is_async,
+                    is_public,
                 } = &item.kind
                 {
                     // Skip already-annotated functions
@@ -620,6 +624,9 @@ fn run_llm_analysis(
 
                     // Apply filters
                     if unsafe_only && !is_unsafe {
+                        continue;
+                    }
+                    if public_only && !is_public {
                         continue;
                     }
 
@@ -680,20 +687,6 @@ fn run_llm_analysis(
                 }
             }
         }
-    }
-}
-
-/// Map common Rust types to Assura types for synthetic contracts.
-pub(crate) fn rust_type_to_assura(ty: &str) -> &str {
-    let trimmed = ty.trim();
-    match trimmed {
-        "i8" | "i16" | "i32" | "i64" | "i128" | "isize" => "Int",
-        "u8" | "u16" | "u32" | "u64" | "u128" | "usize" => "Nat",
-        "f32" | "f64" => "Float",
-        "bool" => "Bool",
-        "String" | "&str" | "& str" => "String",
-        "()" => "Unit",
-        _ => "Int", // Default fallback
     }
 }
 
