@@ -708,3 +708,62 @@ fn count_input_params_tuple() {
         "Tuple of 2 idents should count as 2 params"
     );
 }
+
+// --- Clamp conditional IR end-to-end (#704) ---
+
+#[test]
+fn clamp_conditional_ir_parses_and_codegen() {
+    // A Clamp contract: result = if val < lo then lo, else if val > hi then hi, else val
+    // Expressed as nested if with block references.
+    let source = r#"
+module Clamp {
+  fn #0 : ($0: Int, $1: Int, $2: Int) -> Int ! pure
+  {
+    $3 = cmp lt $0 $1 : Bool
+    $4 = if $3 then #1 else #2 : Int
+    $result = load $4 : Int
+  }
+  fn #1 : () -> Int ! pure
+  {
+    $result = load $1 : Int
+  }
+  fn #2 : () -> Int ! pure
+  {
+    $5 = cmp gt $0 $2 : Bool
+    $6 = if $5 then #3 else #4 : Int
+    $result = load $6 : Int
+  }
+  fn #3 : () -> Int ! pure
+  {
+    $result = load $2 : Int
+  }
+  fn #4 : () -> Int ! pure
+  {
+    $result = load $0 : Int
+  }
+}
+"#;
+    let module = parse_ir_module(source).expect("Clamp IR should parse");
+    assert_eq!(module.name, "Clamp");
+    assert_eq!(module.functions.len(), 5, "5 functions: #0 + 4 blocks");
+
+    // The main function's body should have cmp, if, load
+    let main_fn = &module.functions[0];
+    assert!(matches!(main_fn.body[0].expr, IrExprKind::Cmp { .. }));
+    assert!(matches!(main_fn.body[1].expr, IrExprKind::If { .. }));
+
+    // Rust codegen should produce if-else blocks
+    let rust = ir_to_rust(&module);
+    assert!(
+        rust.contains("if slot_3"),
+        "Rust codegen should produce if condition: {rust}"
+    );
+    assert!(
+        rust.contains("block_1()"),
+        "Rust codegen should reference then block: {rust}"
+    );
+    assert!(
+        rust.contains("block_2()"),
+        "Rust codegen should reference else block: {rust}"
+    );
+}
