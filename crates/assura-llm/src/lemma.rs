@@ -824,4 +824,92 @@ mod tests {
         let smt = assertion_to_smtlib("a > 0 implies b > 0 and c > 0").unwrap();
         assert_eq!(smt, "(=> (> a 0) (and (> b 0) (> c 0)))");
     }
+
+    #[test]
+    fn assertion_empty_input() {
+        let result = assertion_to_smtlib("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn assertion_unbalanced_parens() {
+        let result = assertion_to_smtlib("(a + b");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn assertion_unicode_rejected() {
+        let result = assertion_to_smtlib("α > 0");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn assertion_unary_minus() {
+        let smt = assertion_to_smtlib("-x + 1").unwrap();
+        assert_eq!(smt, "(+ (- x) 1)");
+    }
+
+    #[test]
+    fn assertion_mod_operator() {
+        let smt = assertion_to_smtlib("x mod 2 == 0").unwrap();
+        assert_eq!(smt, "(= (mod x 2) 0)");
+    }
+
+    #[test]
+    fn assertion_not_equals() {
+        let smt = assertion_to_smtlib("x != y").unwrap();
+        assert_eq!(smt, "(distinct x y)");
+    }
+
+    #[test]
+    fn verify_empty_lemma_chain() {
+        let chain = LemmaChain {
+            lemmas: vec![],
+            chain_complete: true,
+        };
+        let v = verify_lemma_chain(&["x > 0".to_string()], &["x >= 0".to_string()], &chain);
+        assert_eq!(v.total_count, 0);
+        assert_eq!(v.valid_count, 0);
+    }
+
+    #[test]
+    fn verify_chain_with_parse_error() {
+        let chain = LemmaChain {
+            lemmas: vec![LlmLemma {
+                label: "bad".to_string(),
+                assertion: "α ≥ 0".to_string(), // unparseable
+                justification: "test".to_string(),
+                depends_on: vec![],
+            }],
+            chain_complete: false,
+        };
+        let v = verify_lemma_chain(&["x > 0".to_string()], &[], &chain);
+        assert_eq!(v.total_count, 1);
+        assert_eq!(v.valid_count, 0);
+        assert!(matches!(v.lemmas[0].result, LemmaResult::ParseError { .. }));
+    }
+
+    #[test]
+    fn parse_lemma_response_invalid_json() {
+        let result = parse_lemma_response("not json");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn tokenize_empty() {
+        let tokens = tokenize("").unwrap();
+        assert!(tokens.is_empty());
+    }
+
+    #[test]
+    fn tokenize_operators() {
+        let tokens = tokenize("!= <= >= == < >").unwrap();
+        assert_eq!(tokens.len(), 6);
+        assert!(matches!(&tokens[0], Token::Op(s) if s == "!="));
+        assert!(matches!(&tokens[1], Token::Op(s) if s == "<="));
+        assert!(matches!(&tokens[2], Token::Op(s) if s == ">="));
+        assert!(matches!(&tokens[3], Token::Op(s) if s == "=="));
+        assert!(matches!(&tokens[4], Token::Op(s) if s == "<"));
+        assert!(matches!(&tokens[5], Token::Op(s) if s == ">"));
+    }
 }

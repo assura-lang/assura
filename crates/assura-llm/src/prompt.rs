@@ -285,4 +285,23 @@ mod tests {
         let raw = "Here is the JSON:\n```json\n{\"a\":1}\n```\nDone.";
         assert_eq!(extract_json(raw), "{\"a\":1}");
     }
+
+    #[test]
+    fn parse_analysis_invalid_json() {
+        let result = parse_analysis_response("this is not json");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), LlmError::Parse(_)));
+    }
+
+    #[test]
+    fn parse_suggestion_invalid_json() {
+        let result = parse_suggestion_response("not json at all");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn extract_json_no_braces() {
+        let result = extract_json("no json here");
+        assert_eq!(result, "no json here");
+    }
 }
