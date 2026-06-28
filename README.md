@@ -83,62 +83,67 @@ sudo apt-get install -y libz3-dev
 git clone https://github.com/assura-lang/assura.git
 cd assura
 cargo build
+
+# Install the CLI to your PATH
+cargo install --path crates/assura-cli
 ```
 
 ### Usage
 
 ```bash
 # Initialize a new project
-cargo run -- init my-project
+assura init my-project
 
 # Check a contract file
-cargo run -- check demos/libwebp-huffman.assura
+assura check demos/libwebp-huffman.assura
 
 # Check with JSON output
-cargo run -- check demos/libwebp-huffman.assura --json
+assura check demos/libwebp-huffman.assura --json
 
 # Check with verbose timing info
-cargo run -- check demos/libwebp-huffman.assura --verbose
+assura check demos/libwebp-huffman.assura --verbose
 
 # Check with verification statistics
-cargo run -- check demos/libwebp-huffman.assura --stats
+assura check demos/libwebp-huffman.assura --stats
 
 # Explain an error code
-cargo run -- explain A03001
+assura explain A03001
 
 # Build and generate Rust code
-cargo run -- build demos/libwebp-huffman.assura
+assura build demos/libwebp-huffman.assura
 
 # Format a contract file
-cargo run -- fmt demos/libwebp-huffman.assura
+assura fmt demos/libwebp-huffman.assura
 
 # Infer contracts from Rust source
-cargo run -- infer src/main.rs
+assura infer src/main.rs
 
 # Verify inline contract annotations in Rust source files
-cargo run -- check-rust src/
+assura check-rust src/
 
 # Check Rust source with LLM-powered analysis
-cargo run -- check-rust src/ --llm
+assura check-rust src/ --llm
 
 # Suggest contracts for unannotated functions
-cargo run -- check-rust src/ --suggest
+assura check-rust src/ --suggest
 
 # Suggest contracts for public functions only
-cargo run -- check-rust src/ --suggest --public-only
+assura check-rust src/ --suggest --public-only
 
 # Suggest contracts for unsafe functions only
-cargo run -- check-rust src/ --suggest --unsafe-only
+assura check-rust src/ --suggest --unsafe-only
 
 # Use a specific LLM provider and model
-cargo run -- check-rust src/ --llm --llm-provider anthropic --llm-model claude-sonnet-4-20250514
+assura check-rust src/ --llm --llm-provider anthropic --llm-model claude-sonnet-4-20250514
 
 # Enable Level 2 LLM lemma verification
-cargo run -- check-rust src/ --llm --llm-verify
+assura check-rust src/ --llm --llm-verify
 
 # Print AI agent instructions (for setting up AI coding assistants)
-cargo run -- agent-instructions
+assura agent-instructions
 ```
+
+> **Tip:** If running from source without installing, prefix commands with `cargo run --`, e.g. `cargo run -- check demos/libwebp-huffman.assura`.
 
 ## Example: CVE Prevention
 
