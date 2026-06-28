@@ -12,7 +12,6 @@ need to set up, build, test, and submit changes.
 ```bash
 # macOS
 brew install z3
-brew install cvc5   # optional
 
 # Ubuntu/Debian
 sudo apt-get install -y libz3-dev
@@ -20,6 +19,14 @@ sudo apt-get install -y libz3-dev
 # Verify
 z3 --version
 assura doctor       # checks all dependencies
+```
+
+CVC5 is optional (portfolio solver mode). It is not in Homebrew; use the
+setup script instead:
+
+```bash
+bash scripts/setup-cvc5.sh
+# paste the printed export lines (CVC5_LIB_DIR, CVC5_INCLUDE_DIR)
 ```
 
 ## Getting Started
