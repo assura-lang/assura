@@ -254,9 +254,10 @@ mod tests {
         let scan = vec![(PathBuf::from("src/lib.rs"), vec![impl_item, method_item])];
         let db = ContractDatabase::from_scan(&scan);
 
-        let found = db.lookup_method_by_name("do_thing");
-        assert!(found.is_some());
-        assert_eq!(found.unwrap().name, "do_thing");
+        let found = db
+            .lookup_method_by_name("do_thing")
+            .expect("should find method by name");
+        assert_eq!(found.name, "do_thing");
     }
 
     #[test]
@@ -275,7 +276,7 @@ mod tests {
         let db = ContractDatabase::from_scan(&scan);
 
         let found = db.lookup_method("Counter", "increment");
-        assert!(found.is_some());
+        assert!(found.is_some(), "should find method via self_type lookup");
 
         let not_found = db.lookup_method("WrongType", "increment");
         assert!(not_found.is_none());

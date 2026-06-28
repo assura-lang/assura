@@ -692,9 +692,8 @@ mod tests {
         let deps = dir.path().join("deps");
         fs::create_dir_all(&deps).unwrap();
         fs::write(deps.join("libmy_crate-abc123.rlib"), b"fake rlib").unwrap();
-        let result = find_native_artifact(dir.path());
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().extension().unwrap(), "rlib");
+        let result = find_native_artifact(dir.path()).expect("should find native artifact");
+        assert_eq!(result.extension().unwrap(), "rlib");
     }
 
     #[test]

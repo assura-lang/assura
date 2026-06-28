@@ -810,7 +810,7 @@ mod tests_z3_encode_term {
             let mut enc = Encoder::new();
             let expr = Spanned::no_span(Expr::Literal(Literal::Bool(true)));
             let result = encode_expr_shared(&mut enc, &expr);
-            assert!(result.is_some());
+            assert!(result.is_some(), "bool literal should encode");
         });
     }
 
@@ -820,7 +820,7 @@ mod tests_z3_encode_term {
             let mut enc = Encoder::new();
             let expr = Spanned::no_span(Expr::Ident("x".into()));
             let result = encode_expr_shared(&mut enc, &expr);
-            assert!(result.is_some());
+            assert!(result.is_some(), "ident should encode");
             // Variable should be registered
             assert!(enc.vars.contains_key("x"));
         });

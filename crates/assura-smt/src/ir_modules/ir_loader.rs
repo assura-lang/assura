@@ -306,7 +306,10 @@ module copy {
         assert!(!loaded.is_empty(), "should have loaded IR body");
         assert_eq!(loaded.loaded_names(), vec!["Echo"]);
         let extras = loaded.extras().expect("extras should be present");
-        assert!(extras.ir_bodies.is_some());
+        assert!(
+            extras.ir_bodies.is_some(),
+            "extras should contain IR bodies"
+        );
     }
 
     #[test]
