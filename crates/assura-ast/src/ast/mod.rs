@@ -1179,7 +1179,9 @@ pub fn expr_references_result(expr: &SpExpr) -> bool {
                     .as_ref()
                     .is_some_and(|e| expr_references_result(e))
         }
-        Expr::Forall { body, .. } | Expr::Exists { body, .. } => expr_references_result(body),
+        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+            expr_references_result(domain) || expr_references_result(body)
+        }
         Expr::Let { value, body, .. } => {
             expr_references_result(value) || expr_references_result(body)
         }

@@ -484,6 +484,34 @@ fn expr_references_result_in_forall() {
 }
 
 #[test]
+fn expr_references_result_in_forall_domain() {
+    // forall i in result.items : i > 0  -- result is in the domain, not the body
+    let expr = sp(Expr::Forall {
+        var: "i".into(),
+        domain: Box::new(sp(Expr::Field(
+            Box::new(sp(Expr::Ident("result".into()))),
+            "items".into(),
+        ))),
+        body: Box::new(sp(Expr::BinOp {
+            lhs: Box::new(sp(Expr::Ident("i".into()))),
+            op: BinOp::Gt,
+            rhs: Box::new(sp(Expr::Literal(Literal::Int("0".into())))),
+        })),
+    });
+    assert!(expr_references_result(&expr));
+}
+
+#[test]
+fn expr_references_result_in_exists_domain() {
+    let expr = sp(Expr::Exists {
+        var: "i".into(),
+        domain: Box::new(sp(Expr::Ident("result".into()))),
+        body: Box::new(sp(Expr::Ident("i".into()))),
+    });
+    assert!(expr_references_result(&expr));
+}
+
+#[test]
 fn expr_references_result_in_exists() {
     let expr = sp(Expr::Exists {
         var: "i".into(),
