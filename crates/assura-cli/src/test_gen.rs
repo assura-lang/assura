@@ -3,6 +3,67 @@ use super::*;
 // `assura test-gen <file.assura>` -- generate tests from contracts
 // ---------------------------------------------------------------------------
 
+/// Extract a `TestableContract` from any declaration that has clauses.
+/// Works for `Decl::Contract`, `Decl::FnDef`, `Decl::Extern`, `Decl::Bind`, etc.
+fn extract_testable(
+    name: Option<&str>,
+    fn_params: &[assura_parser::ast::Param],
+    clauses: &[assura_parser::ast::Clause],
+    type_env: Option<&assura_types::TypeEnv>,
+) -> Option<assura_types::TestableContract> {
+    let name = name?;
+
+    let mut params = Vec::new();
+    let mut requires = Vec::new();
+    let mut ensures = Vec::new();
+
+    // First, collect params from the function's explicit param list (for Decl::FnDef)
+    for p in fn_params {
+        let ty = type_env
+            .and_then(|env| env.lookup(&p.name))
+            .cloned()
+            .unwrap_or(assura_types::Type::Unknown);
+        params.push((p.name.clone(), ty));
+    }
+
+    // Then, walk clauses for input/requires/ensures
+    for clause in clauses {
+        match &clause.kind {
+            ClauseKind::Input => {
+                let parsed = assura_parser::ast::extract_clause_params(&clause.body);
+                for p in parsed {
+                    // Avoid duplicating params already added from fn_params
+                    if !params.iter().any(|(n, _)| n == &p.name) {
+                        let ty = type_env
+                            .and_then(|env| env.lookup(&p.name))
+                            .cloned()
+                            .unwrap_or(assura_types::Type::Unknown);
+                        params.push((p.name, ty));
+                    }
+                }
+            }
+            ClauseKind::Requires => {
+                requires.push(assura_codegen::expr_to_rust_static(&clause.body));
+            }
+            ClauseKind::Ensures => {
+                ensures.push(assura_codegen::expr_to_rust_static(&clause.body));
+            }
+            _ => {}
+        }
+    }
+
+    if params.is_empty() && ensures.is_empty() {
+        return None;
+    }
+
+    Some(assura_types::TestableContract {
+        name: name.to_string(),
+        params,
+        requires,
+        ensures,
+    })
+}
+
 pub(crate) fn run_test_gen(filename: &str, output: Option<&str>, verbosity: Verbosity) {
     let source = match fs::read_to_string(filename) {
         Ok(s) => s,
@@ -29,41 +90,44 @@ pub(crate) fn run_test_gen(filename: &str, output: Option<&str>, verbosity: Verb
 
     let mut test_gen = assura_types::TestGenerator::new();
 
+    // Extract testable contracts from ALL declaration types, not just Decl::Contract.
+    // Uses Decl::name() and Decl::clauses() accessors (recommended by AGENTS.md).
     for spanned in &file.decls {
-        if let Decl::Contract(c) = &spanned.node {
-            let mut params = Vec::new();
-            let mut requires = Vec::new();
-            let mut ensures = Vec::new();
+        let decl = &spanned.node;
 
+        // Get params from FnDef's explicit param list, or from input clauses
+        let fn_params = match decl {
+            Decl::FnDef(f) => &f.params,
+            _ => &[] as &[assura_parser::ast::Param],
+        };
+
+        if let Some(contract) = extract_testable(decl.name(), fn_params, decl.clauses(), type_env) {
+            test_gen.add_contract(contract);
+        }
+
+        // For contracts with nested fn definitions (ClauseKind::Other("fn")):
+        // extract params from the fn clause body so the contract is testable
+        if let Decl::Contract(c) = decl {
             for clause in &c.clauses {
-                match &clause.kind {
-                    ClauseKind::Input => {
-                        let parsed = assura_parser::ast::extract_clause_params(&clause.body);
-                        for p in parsed {
-                            let ty = type_env
-                                .and_then(|env| env.lookup(&p.name))
-                                .cloned()
-                                .unwrap_or(assura_types::Type::Unknown);
-                            params.push((p.name, ty));
-                        }
+                if matches!(&clause.kind, ClauseKind::Other(s) if s == "fn") {
+                    let nested_params = assura_parser::ast::extract_clause_params(&clause.body);
+                    let mut params = Vec::new();
+                    for p in nested_params {
+                        let ty = type_env
+                            .and_then(|env| env.lookup(&p.name))
+                            .cloned()
+                            .unwrap_or(assura_types::Type::Unknown);
+                        params.push((p.name, ty));
                     }
-                    ClauseKind::Requires => {
-                        requires.push(assura_codegen::expr_to_rust_static(&clause.body));
+                    if !params.is_empty() {
+                        test_gen.add_contract(assura_types::TestableContract {
+                            name: c.name.clone(),
+                            params,
+                            requires: vec![],
+                            ensures: vec![],
+                        });
                     }
-                    ClauseKind::Ensures => {
-                        ensures.push(assura_codegen::expr_to_rust_static(&clause.body));
-                    }
-                    _ => {}
                 }
-            }
-
-            if !params.is_empty() || !ensures.is_empty() {
-                test_gen.add_contract(assura_types::TestableContract {
-                    name: c.name.clone(),
-                    params,
-                    requires,
-                    ensures,
-                });
             }
         }
     }
@@ -161,6 +225,70 @@ mod tests {
         assert!(
             has_name,
             "at least one test name should reference the contract name"
+        );
+    }
+
+    #[test]
+    fn extract_testable_from_fn_def_params() {
+        let params = vec![assura_parser::ast::Param {
+            name: "x".to_string(),
+            ty: None,
+        }];
+        let clauses = vec![assura_parser::ast::Clause {
+            kind: assura_parser::ast::ClauseKind::Requires,
+            body: assura_parser::ast::Spanned::no_span(assura_parser::ast::Expr::Raw(vec![
+                "x".to_string(),
+                ">".to_string(),
+                "0".to_string(),
+            ])),
+            effect_variables: vec![],
+        }];
+        let result = super::extract_testable(Some("my_fn"), &params, &clauses, None);
+        assert!(result.is_some(), "fn with params should be testable");
+        let tc = result.unwrap();
+        assert_eq!(tc.name, "my_fn");
+        assert_eq!(tc.params.len(), 1);
+        assert_eq!(tc.requires.len(), 1);
+    }
+
+    #[test]
+    fn extract_testable_skips_empty_decl() {
+        let result = super::extract_testable(Some("empty"), &[], &[], None);
+        assert!(
+            result.is_none(),
+            "decl with no params or ensures should not be testable"
+        );
+    }
+
+    #[test]
+    fn test_gen_produces_tests_for_fn_decls() {
+        // Simulate a file with a standalone fn that has requires
+        let source = r#"
+fn check_bounds(size: Nat)
+    requires { size >= 0 }
+    ensures { size >= 0 }
+"#;
+        let (file, _) = assura_parser::parse(source);
+        let file = file.expect("should parse");
+
+        let mut tg = assura_types::TestGenerator::new();
+        for spanned in &file.decls {
+            let decl = &spanned.node;
+            let fn_params = match decl {
+                assura_parser::ast::Decl::FnDef(f) => &f.params[..],
+                _ => &[],
+            };
+            if let Some(contract) =
+                super::extract_testable(decl.name(), fn_params, decl.clauses(), None)
+            {
+                tg.add_contract(contract);
+            }
+        }
+
+        let tests = tg.generate_all();
+        assert!(
+            !tests.is_empty(),
+            "standalone fn with requires/ensures should produce tests"
         );
     }
 }
