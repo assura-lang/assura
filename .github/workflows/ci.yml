@@ -29,11 +29,15 @@ concurrency:
 # sccache caches compiler outputs across runs on the persistent local disk.
 # Per-job CARGO_TARGET_DIR prevents cache thrashing between clippy/test/codegen.
 # CARGO_INCREMENTAL=0 ensures all compilation goes through sccache.
-# CARGO_BUILD_JOBS=6 limits parallel rustc processes per job so 3
-# concurrent jobs (one per runner) stay within RAM (48 GB total).
-# 3 runners x 6 jobs = 18 processes, ~18 GB peak, well within budget.
+# CARGO_BUILD_JOBS=4 limits parallel rustc processes per job so 3
+# concurrent jobs (one per runner) stay within RAM on the shared Mac.
+# 3 runners x 4 jobs = 12 processes peak. Reduced from 6 (18 peak)
+# after repeated OOM SIGKILL failures under memory pressure (#615).
 # Without this limit, cargo defaults to num_cpus (8-12 on Apple
 # Silicon) x 3 runners = 24-36 processes.
+#
+# benchmark and cvc5 are serialized after clippy/test respectively
+# to reduce concurrent RAM pressure (at most 3 heavy jobs at once).
 #
 # Filter groups:
 #   rust           - any Rust crate or workspace file changed
@@ -110,10 +114,7 @@ jobs:
       CARGO_TARGET_DIR: target/ci-clippy
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
-      # All 3 self-hosted runners share the same physical Mac.
-      # Limit parallel rustc processes per job so 3 concurrent jobs
-      # stay within RAM (3 runners x 3 jobs = 9 processes max).
-      CARGO_BUILD_JOBS: '6'
+      CARGO_BUILD_JOBS: '4'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -191,7 +192,7 @@ jobs:
       CARGO_TARGET_DIR: target/ci-test
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
-      CARGO_BUILD_JOBS: '6'
+      CARGO_BUILD_JOBS: '4'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -255,17 +256,18 @@ jobs:
   # ── Pipeline benchmarks (compile + smoke run; no timing thresholds) ─────
   benchmark:
     name: Pipeline benchmarks
-    needs: changes
+    needs: [changes, clippy]
+    # Serialized after clippy to reduce concurrent RAM pressure on the
+    # shared Mac (#615). Benchmark gets warm sccache from clippy.
     # Only run on codegen/tooling changes (incl. assura-bench) or manual dispatch.
-    # Avoids running on every Rust change (e.g. pure parser tweaks).
-    if: ${{ needs.changes.outputs.codegen == 'true' || needs.changes.outputs.tooling-only == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ always() && !failure() && !cancelled() && (needs.changes.outputs.codegen == 'true' || needs.changes.outputs.tooling-only == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     env:
       CARGO_TARGET_DIR: target/ci-bench
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
-      CARGO_BUILD_JOBS: '6'
+      CARGO_BUILD_JOBS: '4'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -342,7 +344,7 @@ jobs:
       CARGO_TARGET_DIR: target/ci-codegen
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
-      CARGO_BUILD_JOBS: '6'
+      CARGO_BUILD_JOBS: '4'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -443,15 +445,17 @@ jobs:
   # ── CVC5 native integration tests ───────────────────────────────────────
   cvc5:
     name: CVC5 native tests
-    needs: changes
-    if: ${{ needs.changes.outputs.smt == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    needs: [changes, test]
+    # Serialized after test to reduce concurrent RAM pressure on the
+    # shared Mac (#615). CVC5 gets warm sccache from test.
+    if: ${{ always() && !failure() && !cancelled() && (needs.changes.outputs.smt == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
       CARGO_TARGET_DIR: target/ci-cvc5
       RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
-      CARGO_BUILD_JOBS: '6'
+      CARGO_BUILD_JOBS: '4'
     steps:
       - uses: actions/checkout@v7
         with:
