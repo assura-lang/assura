@@ -300,6 +300,70 @@ mod tests {
     }
 
     #[test]
+    fn parse_analysis_uncertain() {
+        let raw = r#"{"verdict":"uncertain","confidence":0.3,"paths":[],"reasoning":"complex control flow"}"#;
+        let resp = parse_analysis_response(raw).unwrap();
+        assert!((resp.confidence - 0.3).abs() < 0.01);
+        match &resp.verdict {
+            Verdict::Uncertain { reason } => {
+                assert_eq!(reason, "complex control flow");
+            }
+            _ => panic!("expected Uncertain verdict"),
+        }
+    }
+
+    #[test]
+    fn parse_analysis_missing_fields_uses_defaults() {
+        let raw = r#"{"verdict":"pass"}"#;
+        let resp = parse_analysis_response(raw).unwrap();
+        assert!(matches!(resp.verdict, Verdict::Pass));
+        assert!((resp.confidence - 0.5).abs() < 0.01); // default
+        assert!(resp.paths.is_empty());
+    }
+
+    #[test]
+    fn analysis_user_prompt_includes_sections() {
+        let req = AnalysisRequest {
+            function_name: "add".to_string(),
+            function_body: "a + b".to_string(),
+            function_signature: "fn add(a: i32, b: i32) -> i32".to_string(),
+            contracts: vec![ContractClauseInfo {
+                kind: "ensures".to_string(),
+                expression: "result == a + b".to_string(),
+            }],
+            params: vec![],
+            return_type: Some("i32".to_string()),
+            context: AnalysisContext::default(),
+        };
+        let prompt = analysis_user_prompt(&req);
+        assert!(prompt.contains("## Function"));
+        assert!(prompt.contains("## Contracts"));
+        assert!(prompt.contains("fn add(a: i32, b: i32) -> i32"));
+        assert!(prompt.contains("#[ensures(result == a + b)]"));
+    }
+
+    #[test]
+    fn suggestion_user_prompt_includes_metadata() {
+        let req = SuggestionRequest {
+            function_name: "process".to_string(),
+            function_signature: "pub async unsafe fn process(x: i32)".to_string(),
+            function_body: "x * 2".to_string(),
+            doc_comments: "Process a value".to_string(),
+            impl_type: Some("MyStruct".to_string()),
+            visibility: "pub".to_string(),
+            is_unsafe: true,
+            is_async: true,
+            context: SuggestionContext::default(),
+        };
+        let prompt = suggestion_user_prompt(&req);
+        assert!(prompt.contains("## Function"));
+        assert!(prompt.contains("method on `MyStruct`"));
+        assert!(prompt.contains("`unsafe`"));
+        assert!(prompt.contains("`async`"));
+        assert!(prompt.contains("/// Process a value"));
+    }
+
+    #[test]
     fn extract_json_no_braces() {
         let result = extract_json("no json here");
         assert_eq!(result, "no json here");

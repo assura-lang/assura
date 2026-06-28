@@ -196,6 +196,51 @@ mod tests {
     }
 
     #[test]
+    fn context_hash_deterministic() {
+        let called = vec![CalledFunctionContract {
+            name: "helper".to_string(),
+            signature: "fn helper(x: i32) -> i32".to_string(),
+            requires: vec!["x > 0".to_string()],
+            ensures: vec!["result >= x".to_string()],
+            source_file: "lib.rs".to_string(),
+        }];
+        let h1 = context_hash(&called);
+        let h2 = context_hash(&called);
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn context_hash_changes_with_contract() {
+        let c1 = vec![CalledFunctionContract {
+            name: "f".to_string(),
+            signature: "fn f()".to_string(),
+            requires: vec!["true".to_string()],
+            ensures: vec![],
+            source_file: "a.rs".to_string(),
+        }];
+        let c2 = vec![CalledFunctionContract {
+            name: "f".to_string(),
+            signature: "fn f()".to_string(),
+            requires: vec!["false".to_string()],
+            ensures: vec![],
+            source_file: "a.rs".to_string(),
+        }];
+        assert_ne!(context_hash(&c1), context_hash(&c2));
+    }
+
+    #[test]
+    fn context_hash_empty() {
+        let h = context_hash(&[]);
+        assert!(!h.is_empty());
+    }
+
+    #[test]
+    fn hex_encode_works() {
+        assert_eq!(hex::encode([0xde, 0xad, 0xbe, 0xef]), "deadbeef");
+        assert_eq!(hex::encode([]), "");
+    }
+
+    #[test]
     fn get_nonexistent_returns_none() {
         let dir = std::env::temp_dir().join("assura-llm-test-miss");
         let _ = std::fs::remove_dir_all(&dir);

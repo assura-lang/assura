@@ -194,6 +194,7 @@ mod tests {
                 return_type: Some("i32".to_string()),
                 is_unsafe: false,
                 is_async: false,
+                is_public: true,
             },
             line: 1,
             offset: 0,

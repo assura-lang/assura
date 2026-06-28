@@ -243,3 +243,103 @@ pub enum LlmError {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verdict_pass_roundtrip() {
+        let v = Verdict::Pass;
+        let json = serde_json::to_string(&v).unwrap();
+        let back: Verdict = serde_json::from_str(&json).unwrap();
+        assert!(matches!(back, Verdict::Pass));
+    }
+
+    #[test]
+    fn verdict_fail_roundtrip() {
+        let v = Verdict::Fail {
+            violations: vec![Violation {
+                clause_kind: "ensures".to_string(),
+                clause_expression: "result > 0".to_string(),
+                description: "returns negative".to_string(),
+                evidence_line: Some(10),
+            }],
+        };
+        let json = serde_json::to_string(&v).unwrap();
+        let back: Verdict = serde_json::from_str(&json).unwrap();
+        match back {
+            Verdict::Fail { violations } => {
+                assert_eq!(violations.len(), 1);
+                assert_eq!(violations[0].clause_expression, "result > 0");
+                assert_eq!(violations[0].evidence_line, Some(10));
+            }
+            _ => panic!("expected Fail variant"),
+        }
+    }
+
+    #[test]
+    fn verdict_uncertain_roundtrip() {
+        let v = Verdict::Uncertain {
+            reason: "complex control flow".to_string(),
+        };
+        let json = serde_json::to_string(&v).unwrap();
+        let back: Verdict = serde_json::from_str(&json).unwrap();
+        match back {
+            Verdict::Uncertain { reason } => assert_eq!(reason, "complex control flow"),
+            _ => panic!("expected Uncertain variant"),
+        }
+    }
+
+    #[test]
+    fn lemma_result_roundtrip() {
+        for (variant, expected_tag) in [
+            (LemmaResult::Valid, "valid"),
+            (
+                LemmaResult::Counterexample {
+                    model: "x = -1".to_string(),
+                },
+                "counterexample",
+            ),
+            (LemmaResult::Timeout, "timeout"),
+            (
+                LemmaResult::ParseError {
+                    message: "bad syntax".to_string(),
+                },
+                "parse_error",
+            ),
+        ] {
+            let json = serde_json::to_string(&variant).unwrap();
+            assert!(
+                json.contains(expected_tag),
+                "tag {expected_tag} missing in {json}"
+            );
+            let _back: LemmaResult = serde_json::from_str(&json).unwrap();
+        }
+    }
+
+    #[test]
+    fn suggestion_kind_roundtrip() {
+        for kind in [
+            SuggestionKind::Requires,
+            SuggestionKind::Ensures,
+            SuggestionKind::EnsuresOk,
+            SuggestionKind::EnsuresErr,
+            SuggestionKind::Invariant,
+        ] {
+            let json = serde_json::to_string(&kind).unwrap();
+            let back: SuggestionKind = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, kind);
+        }
+    }
+
+    #[test]
+    fn llm_config_defaults() {
+        let cfg = LlmConfig::default();
+        assert_eq!(cfg.provider, "anthropic");
+        assert_eq!(cfg.api_key_env, "ANTHROPIC_API_KEY");
+        assert_eq!(cfg.timeout_seconds, 60);
+        assert_eq!(cfg.max_tokens, 4096);
+        assert!(cfg.base_url.is_none());
+    }
+}
