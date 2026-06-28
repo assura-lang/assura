@@ -3473,3 +3473,67 @@ service DataStore {
         "should generate query method: {lib}"
     );
 }
+
+#[test]
+fn runtime_checks_via_codegen_with_config() {
+    let source = "contract SafeDiv { requires(a: Int, b: Int) { b != 0 } ensures(result: Int) { true } }";
+    let project = codegen_with_config_ok(
+        source,
+        super::BackendConfig {
+            runtime_checks: true,
+            ..Default::default()
+        },
+    );
+    let lib = &project.files[0].1;
+    assert!(
+        lib.contains("contract_violation"),
+        "runtime_checks=true should produce contract_violation: {lib}"
+    );
+    assert!(
+        !lib.contains("debug_assert!"),
+        "runtime_checks=true should NOT use debug_assert!: {lib}"
+    );
+}
+
+#[test]
+fn multi_file_ir_bodies_propagate_to_per_contract_files() {
+    let source = "\
+contract Alpha { requires(x: Int) { x > 0 } ensures(result: Int) { true } }
+contract Beta { requires(y: Int) { y >= 0 } ensures(result: Int) { true } }";
+    let mut ir_bodies = std::collections::HashMap::new();
+    ir_bodies.insert("Alpha".to_string(), "x + 1".to_string());
+    ir_bodies.insert("Beta".to_string(), "y * 2".to_string());
+    let project = codegen_with_config_ok(
+        source,
+        super::BackendConfig {
+            ir_bodies,
+            ..Default::default()
+        },
+    );
+    // Multi-file mode: lib.rs + contract_alpha.rs + contract_beta.rs
+    assert!(
+        project.files.len() >= 3,
+        "should produce multi-file output: got {} files",
+        project.files.len()
+    );
+    let alpha_file = project
+        .files
+        .iter()
+        .find(|(name, _)| name.contains("alpha"))
+        .expect("should have alpha contract file");
+    assert!(
+        alpha_file.1.contains("x + 1"),
+        "Alpha's IR body should be injected: {}",
+        alpha_file.1
+    );
+    let beta_file = project
+        .files
+        .iter()
+        .find(|(name, _)| name.contains("beta"))
+        .expect("should have beta contract file");
+    assert!(
+        beta_file.1.contains("y * 2"),
+        "Beta's IR body should be injected: {}",
+        beta_file.1
+    );
+}
