@@ -152,7 +152,7 @@ impl Default for LivenessChecker {
 /// Documents the integer encoding used in `MonitorReduction::eventually()`:
 /// `Waiting = 0`, `Satisfied = 1`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub enum EventuallyState {
     /// Waiting for P to become true
     Waiting,
@@ -165,7 +165,7 @@ pub enum EventuallyState {
 /// Documents the integer encoding used in `MonitorReduction::leads_to()`:
 /// `Idle = 0`, `Triggered = 1`, `Fulfilled = 2`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub enum LeadsToState {
     /// Neither A nor B has been seen
     Idle,

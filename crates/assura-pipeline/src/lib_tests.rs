@@ -1049,3 +1049,107 @@ fn verify_ir_progress_format() {
         result.progress
     );
 }
+
+// ---------------------------------------------------------------------------
+// IrVerifyResult::from_results — mixed-variant coverage
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ir_verify_result_mixed_variants() {
+    use assura_smt::VerificationResult;
+
+    let results = vec![
+        VerificationResult::Verified {
+            clause_desc: "A: ensures".into(),
+            unsat_core: None,
+        },
+        VerificationResult::Counterexample {
+            clause_desc: "B: ensures".into(),
+            model: "x = 0".into(),
+            counter_model: None,
+        },
+        VerificationResult::Timeout {
+            clause_desc: "C: requires".into(),
+        },
+        VerificationResult::Unknown {
+            clause_desc: "D: invariant".into(),
+            reason: "non-linear arithmetic".into(),
+        },
+    ];
+
+    let ir_result = IrVerifyResult::from_results(results);
+
+    assert_eq!(
+        ir_result.status, "failed",
+        "mixed results with counterexample/timeout should fail"
+    );
+    assert_eq!(ir_result.summary.verified, 1);
+    assert_eq!(ir_result.summary.counterexample, 1);
+    assert_eq!(ir_result.summary.timeout, 1);
+    assert_eq!(ir_result.summary.unknown, 1);
+    assert_eq!(ir_result.summary.total, 4);
+    assert_eq!(ir_result.clauses.len(), 4);
+
+    assert_eq!(ir_result.clauses[0].status, "verified");
+    assert_eq!(ir_result.clauses[1].status, "counterexample");
+    assert_eq!(ir_result.clauses[2].status, "timeout");
+    assert_eq!(ir_result.clauses[3].status, "unknown");
+    assert_eq!(
+        ir_result.clauses[3].reason.as_deref(),
+        Some("non-linear arithmetic")
+    );
+}
+
+#[test]
+fn ir_verify_result_known_limitation_is_not_failure() {
+    use assura_smt::VerificationResult;
+
+    let results = vec![
+        VerificationResult::Verified {
+            clause_desc: "A: ensures".into(),
+            unsat_core: None,
+        },
+        VerificationResult::unknown_not_encoded("B: invariant", "collection quantifiers"),
+    ];
+
+    let ir_result = IrVerifyResult::from_results(results);
+
+    assert_eq!(
+        ir_result.status, "verified",
+        "known SMT limitations alongside verified should not fail"
+    );
+    assert_eq!(ir_result.summary.verified, 1);
+    assert_eq!(ir_result.summary.unknown, 1);
+}
+
+#[test]
+fn ir_verify_result_all_verified() {
+    use assura_smt::VerificationResult;
+
+    let results = vec![
+        VerificationResult::Verified {
+            clause_desc: "A: ensures".into(),
+            unsat_core: None,
+        },
+        VerificationResult::Verified {
+            clause_desc: "B: requires".into(),
+            unsat_core: None,
+        },
+    ];
+
+    let ir_result = IrVerifyResult::from_results(results);
+
+    assert_eq!(ir_result.status, "verified");
+    assert_eq!(ir_result.summary.verified, 2);
+    assert_eq!(ir_result.summary.total, 2);
+    assert!(ir_result.progress.contains("100%"));
+}
+
+#[test]
+fn ir_verify_result_empty() {
+    let ir_result = IrVerifyResult::from_results(vec![]);
+
+    assert_eq!(ir_result.status, "verified");
+    assert_eq!(ir_result.summary.total, 0);
+    assert!(ir_result.progress.contains("0/0"));
+}
