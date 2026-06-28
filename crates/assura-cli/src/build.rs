@@ -340,9 +340,11 @@ pub(crate) fn run_build(
 
         let mut cmd = process::Command::new("cargo");
         cmd.arg("build").current_dir(out_dir);
-        // Clear RUSTC_WRAPPER so inner cargo build is not affected by
-        // the outer build environment (e.g. sccache instability on CI).
+        // Clear build-environment vars so the inner cargo build uses its
+        // own defaults (e.g. CI sets CARGO_TARGET_DIR=target/ci-test and
+        // RUSTC_WRAPPER=sccache which misdirect or destabilize the build).
         cmd.env_remove("RUSTC_WRAPPER");
+        cmd.env_remove("CARGO_TARGET_DIR");
         if let Some(triple) = compile_target.rust_target() {
             cmd.arg("--target").arg(triple);
         }
@@ -599,6 +601,7 @@ pub(crate) fn run_build_project(
             .arg("build")
             .current_dir(out_dir)
             .env_remove("RUSTC_WRAPPER")
+            .env_remove("CARGO_TARGET_DIR")
             .status();
         match status {
             Ok(s) if s.success() => {
