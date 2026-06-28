@@ -701,12 +701,28 @@ pub(crate) fn format_pattern(pat: &Pattern, out: &mut String) {
 
 /// Join raw tokens, collapsing `.` into dotted paths without spaces.
 /// E.g., `["io", ".", "read"]` -> `"io.read"` instead of `"io . read"`.
+///
+/// Also collapses `(` / `)` and `[` / `]` brackets so that `["(", ")"]`
+/// becomes `"()"` instead of `"( )"`, and consecutive `.` tokens (ellipsis)
+/// stay glued: `[".", ".", "."]` -> `"..."`.
 pub(crate) fn join_raw_tokens(tokens: &[String]) -> String {
     let mut out = String::new();
     for (i, tok) in tokens.iter().enumerate() {
         if tok == "." {
+            // Dot: glue to the previous token (dotted paths and ellipsis)
             out.push('.');
         } else if i > 0 && tokens.get(i - 1).is_some_and(|prev| prev == ".") {
+            // Token right after a dot: glue (dotted path continuation)
+            out.push_str(tok);
+        } else if tok == ")" || tok == "]" || tok == "}" {
+            // Closing brackets: glue to previous content (no leading space)
+            out.push_str(tok);
+        } else if i > 0
+            && tokens
+                .get(i - 1)
+                .is_some_and(|prev| prev == "(" || prev == "[")
+        {
+            // Token right after opening bracket: glue (no space after open paren)
             out.push_str(tok);
         } else {
             if !out.is_empty() {
