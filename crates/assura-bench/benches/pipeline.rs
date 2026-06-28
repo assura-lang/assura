@@ -56,7 +56,7 @@ fn bench_type_check(c: &mut Criterion) {
             BenchmarkId::new("typecheck", demo.name),
             &resolved,
             |b, resolved| {
-                b.iter(|| assura_types::type_check(resolved));
+                b.iter(|| assura_types::type_check(resolved.clone()));
             },
         );
     }
