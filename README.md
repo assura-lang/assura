@@ -67,10 +67,14 @@ Three verification tiers, fastest first:
 
 ### Prerequisites
 
-The compiler needs Z3 for SMT verification. Check your setup with:
+The compiler needs Z3 for SMT verification:
 
 ```bash
-cargo run -- doctor
+# macOS
+brew install z3
+
+# Ubuntu/Debian
+sudo apt-get install -y libz3-dev
 ```
 
 ### Build from source
