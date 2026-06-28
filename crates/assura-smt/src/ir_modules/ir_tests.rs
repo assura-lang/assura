@@ -652,3 +652,59 @@ fn test_loop_referenced_slots() {
     };
     assert_eq!(referenced_slots(&expr), vec![5]);
 }
+
+// --- count_input_params / validate_ir_against_contract tests (#706) ---
+
+#[test]
+fn count_input_params_multi_param_cast_block() {
+    // Simulate the AST shape for input(val: Int, lo: Int, hi: Int):
+    // Block of Cast expressions (name as Type)
+    use assura_ast::{Expr, Spanned};
+    let body = Spanned::no_span(Expr::Block(vec![
+        Spanned::no_span(Expr::Cast {
+            expr: Box::new(Spanned::no_span(Expr::Ident("val".into()))),
+            ty: "Int".into(),
+        }),
+        Spanned::no_span(Expr::Cast {
+            expr: Box::new(Spanned::no_span(Expr::Ident("lo".into()))),
+            ty: "Int".into(),
+        }),
+        Spanned::no_span(Expr::Cast {
+            expr: Box::new(Spanned::no_span(Expr::Ident("hi".into()))),
+            ty: "Int".into(),
+        }),
+    ]));
+    assert_eq!(
+        count_input_params(&body),
+        3,
+        "Block of 3 Cast exprs should count as 3 params"
+    );
+}
+
+#[test]
+fn count_input_params_single_param_cast() {
+    use assura_ast::{Expr, Spanned};
+    let body = Spanned::no_span(Expr::Cast {
+        expr: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+        ty: "Int".into(),
+    });
+    assert_eq!(
+        count_input_params(&body),
+        1,
+        "Single Cast expr should count as 1 param"
+    );
+}
+
+#[test]
+fn count_input_params_tuple() {
+    use assura_ast::{Expr, Spanned};
+    let body = Spanned::no_span(Expr::Tuple(vec![
+        Spanned::no_span(Expr::Ident("a".into())),
+        Spanned::no_span(Expr::Ident("b".into())),
+    ]));
+    assert_eq!(
+        count_input_params(&body),
+        2,
+        "Tuple of 2 idents should count as 2 params"
+    );
+}

@@ -990,12 +990,11 @@ pub(crate) fn referenced_slots(expr: &IrExprKind) -> Vec<usize> {
     }
 }
 
-fn count_input_params(body: &assura_ast::SpExpr) -> usize {
-    match &body.node {
-        assura_ast::Expr::Tuple(items) => items.len(),
-        assura_ast::Expr::Call { args, .. } => args.len(),
-        _ => 1,
-    }
+pub(crate) fn count_input_params(body: &assura_ast::SpExpr) -> usize {
+    // Delegate to the canonical param extractor which handles all AST shapes
+    // (Cast, Call, Tuple, Block, Raw tokens) produced by the parser for
+    // input(a: Int, b: Int, c: Int) clauses.
+    assura_ast::extract_clause_params(body).len()
 }
 
 #[cfg(test)]
