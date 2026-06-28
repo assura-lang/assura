@@ -519,10 +519,7 @@ fn build_validity_query(assumptions: &[String], conclusion: &str) -> String {
 
     // Simple identifier extraction from SMT-LIB text
     for word in all_text.split(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
-        if !word.is_empty()
-            && !word.as_bytes()[0].is_ascii_digit()
-            && !is_smtlib_keyword(word)
-        {
+        if !word.is_empty() && !word.as_bytes()[0].is_ascii_digit() && !is_smtlib_keyword(word) {
             vars.insert(word.to_string());
         }
     }

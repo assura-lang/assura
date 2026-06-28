@@ -109,7 +109,7 @@ enum Commands {
         #[arg(long)]
         llm: bool,
 
-        /// Suggest contracts for unannotated functions (requires --llm)
+        /// Suggest contracts for unannotated functions (combine with --llm for richer analysis)
         #[arg(long)]
         suggest: bool,
 
@@ -129,7 +129,7 @@ enum Commands {
         #[arg(long)]
         unsafe_only: bool,
 
-        /// Enable Level 2 LLM lemma verification (requires --llm)
+        /// Enable Level 2 LLM lemma verification (combine with --llm for richer analysis)
         #[arg(long)]
         llm_verify: bool,
     },
