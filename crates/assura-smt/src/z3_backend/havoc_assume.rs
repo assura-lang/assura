@@ -15,9 +15,9 @@ use z3::ast;
 
 struct Z3IrBuilder<'a, 'b> {
     encoder: &'a mut Encoder,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     slot_to_name: &'b HashMap<usize, String>,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     slot_types: &'b HashMap<usize, String>,
     enc_ctx: IrEncodeContext<'b>,
 }

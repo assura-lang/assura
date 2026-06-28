@@ -612,3 +612,54 @@ fn default_config_has_no_dependencies() {
     let config = ProjectConfig::default();
     assert!(config.dependencies.is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// SolverChoice unit tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn solver_choice_as_str() {
+    assert_eq!(SolverChoice::Z3.as_str(), "z3");
+    assert_eq!(SolverChoice::Cvc5.as_str(), "cvc5");
+    assert_eq!(SolverChoice::Portfolio.as_str(), "portfolio");
+}
+
+#[test]
+fn solver_choice_display() {
+    assert_eq!(format!("{}", SolverChoice::Z3), "z3");
+    assert_eq!(format!("{}", SolverChoice::Cvc5), "cvc5");
+    assert_eq!(format!("{}", SolverChoice::Portfolio), "portfolio");
+}
+
+#[test]
+fn solver_choice_from_str_loose_valid() {
+    assert_eq!(SolverChoice::from_str_loose("z3"), Some(SolverChoice::Z3));
+    assert_eq!(
+        SolverChoice::from_str_loose("cvc5"),
+        Some(SolverChoice::Cvc5)
+    );
+    assert_eq!(
+        SolverChoice::from_str_loose("portfolio"),
+        Some(SolverChoice::Portfolio)
+    );
+}
+
+#[test]
+fn solver_choice_from_str_loose_case_insensitive() {
+    assert_eq!(SolverChoice::from_str_loose("Z3"), Some(SolverChoice::Z3));
+    assert_eq!(
+        SolverChoice::from_str_loose("CVC5"),
+        Some(SolverChoice::Cvc5)
+    );
+    assert_eq!(
+        SolverChoice::from_str_loose("Portfolio"),
+        Some(SolverChoice::Portfolio)
+    );
+}
+
+#[test]
+fn solver_choice_from_str_loose_invalid() {
+    assert_eq!(SolverChoice::from_str_loose(""), None);
+    assert_eq!(SolverChoice::from_str_loose("unknown"), None);
+    assert_eq!(SolverChoice::from_str_loose("z4"), None);
+}
