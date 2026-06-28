@@ -68,27 +68,7 @@ pub(crate) fn run_suggest_from_crash(
     let contract_db = assura_llm::ContractDatabase::from_scan(&file_items);
 
     // Configure LLM provider
-    let config = LlmConfig {
-        provider: llm_provider.to_string(),
-        model: llm_model
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| match llm_provider {
-                "openai" => "gpt-4o".to_string(),
-                "ollama" => "llama3".to_string(),
-                _ => "claude-sonnet-4-20250514".to_string(),
-            }),
-        api_key_env: match llm_provider {
-            "openai" => "OPENAI_API_KEY".to_string(),
-            "ollama" => "OLLAMA_API_KEY".to_string(),
-            _ => "ANTHROPIC_API_KEY".to_string(),
-        },
-        base_url: if llm_provider == "ollama" {
-            Some("http://localhost:11434/v1".to_string())
-        } else {
-            None
-        },
-        ..Default::default()
-    };
+    let config = LlmConfig::from_provider(llm_provider, llm_model);
 
     let cache = LlmCache::new(&config.cache_dir);
 

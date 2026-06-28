@@ -298,27 +298,7 @@ fn run_llm_analysis(
     }
 
     // Configure LLM provider
-    let config = LlmConfig {
-        provider: provider_name.to_string(),
-        model: model_override
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| match provider_name {
-                "openai" => "gpt-4o".to_string(),
-                "ollama" => "llama3".to_string(),
-                _ => "claude-sonnet-4-20250514".to_string(),
-            }),
-        api_key_env: match provider_name {
-            "openai" => "OPENAI_API_KEY".to_string(),
-            "ollama" => "OLLAMA_API_KEY".to_string(),
-            _ => "ANTHROPIC_API_KEY".to_string(),
-        },
-        base_url: if provider_name == "ollama" {
-            Some("http://localhost:11434/v1".to_string())
-        } else {
-            None
-        },
-        ..Default::default()
-    };
+    let config = LlmConfig::from_provider(provider_name, model_override);
 
     let cache = LlmCache::new(&config.cache_dir);
 
