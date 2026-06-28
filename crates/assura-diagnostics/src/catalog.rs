@@ -3050,3 +3050,77 @@ static CATALOG_MAP: LazyLock<HashMap<&'static str, usize>> = LazyLock::new(|| {
 pub fn explain(code: &str) -> Option<&'static ErrorInfo> {
     CATALOG_MAP.get(code).map(|&idx| &CATALOG[idx])
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn no_duplicate_error_codes() {
+        let catalog = error_catalog();
+        let mut seen = HashSet::new();
+        for info in &catalog {
+            assert!(
+                seen.insert(info.code),
+                "duplicate error code: {}",
+                info.code
+            );
+        }
+    }
+
+    #[test]
+    fn all_codes_follow_format() {
+        let catalog = error_catalog();
+        for info in &catalog {
+            assert!(
+                info.code.starts_with('A'),
+                "code {} does not start with 'A'",
+                info.code
+            );
+            assert!(
+                info.code.len() == 6,
+                "code {} is not 6 characters (Axxxxx)",
+                info.code
+            );
+            assert!(
+                info.code[1..].chars().all(|c| c.is_ascii_digit()),
+                "code {} has non-digit suffix",
+                info.code
+            );
+        }
+    }
+
+    #[test]
+    fn explain_returns_known_code() {
+        let info = explain("A01001").expect("A01001 should exist");
+        assert_eq!(info.code, "A01001");
+        assert!(!info.name.is_empty());
+        assert!(!info.description.is_empty());
+    }
+
+    #[test]
+    fn explain_returns_none_for_unknown() {
+        assert!(explain("A00000").is_none());
+        assert!(explain("BOGUS").is_none());
+    }
+
+    #[test]
+    fn catalog_has_entries() {
+        let catalog = error_catalog();
+        assert!(
+            catalog.len() >= 50,
+            "catalog has only {} entries, expected 50+",
+            catalog.len()
+        );
+    }
+
+    #[test]
+    fn every_entry_has_example_and_fix() {
+        let catalog = error_catalog();
+        for info in &catalog {
+            assert!(!info.example.is_empty(), "{} has empty example", info.code);
+            assert!(!info.fix.is_empty(), "{} has empty fix", info.code);
+        }
+    }
+}
