@@ -321,6 +321,29 @@ else
   jsec 10 "writeln/write unwrap" "ok" "no writeln/write unwrap violations"
 fi
 
+# ---------------------------------------------------------------------------
+# 11) contains("ensures") in production code (should use ends_with("::ensures"))
+#     clause_desc format is "{Name}::ensures". contains("ensures") can match
+#     spurious substrings. Production classification must use ends_with.
+#     Test code is exempt (convenience matching is fine there).
+# ---------------------------------------------------------------------------
+s_warn=0
+while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
+  file="${line%%:*}"
+  case "$file" in
+    *tests*|*test*.rs|*_test.rs|*_tests.rs|*tests_*|*/tests/*) continue ;;
+  esac
+  warn "contains(\"ensures\") in production code (use ends_with(\"::ensures\")): $line"
+  jfind 11 "$file" "contains ensures in production"
+  s_warn=1
+done < <(rg -n 'contains\("ensures"\)' crates --glob '*.rs' 2>/dev/null || true)
+if [[ $s_warn -eq 1 ]]; then
+  jsec 11 "contains ensures" "warn" "contains(\"ensures\") in production code (use ends_with(\"::ensures\"))"
+else
+  jsec 11 "contains ensures" "ok" "no contains(\"ensures\") in production code"
+fi
+
 # ── Final output ─────────────────────────────────────────────────────────────
 if $json_mode; then
   python3 - "$_jdata" << 'PYEOF'

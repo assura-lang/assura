@@ -47,6 +47,7 @@ wrong test helpers, wrong Unknown policy).
 | Walk all decls | `assura_ast::walk_decls` + `DeclVisitor` | copy 20-arm `match Decl` blocks |
 | New type checker | implement `run_*_checks` in `crates/assura-types/src/checks/`, register in `CHECKER_PIPELINE` in `pipeline.rs` | struct + unit tests only (orphan / dead code) |
 | Known SMT limitation? | `assura_smt::is_known_smt_limitation(reason)` or `KNOWN_SMT_LIMITATION_MARKER` | open-code `"not yet encoded in SMT"` with a different string |
+| Check if expr references `result` | `assura_ast::expr_references_result(&expr)` | duplicate the function in assura-types or assura-smt |
 
 ### Decision tree (if X, then Y)
 
@@ -189,6 +190,43 @@ still use explicit matches; do not add new match blocks without justification.
    SIGSEGV. The `make_ite` impl must detect sort mismatches and coerce via
    `cvc5::Kind::ToReal`. This applies to any CVC5 term construction that
    combines Int and Real sorts (ITE, Equal, etc.).
+10. **New verify skip/filter logic must go in all verify paths**: The SMT
+    verifier has three verify dispatch paths. Any new clause-level skip,
+    filter, or classification logic (e.g., "skip unconstrained-result
+    ensures without IR") must be added to all three, not just the Z3
+    parallel path. The paths are:
+    - Z3 parallel: `crates/assura-smt/src/z3_backend/verify.rs`
+    - Z3 non-parallel: same file (the non-parallel branch)
+    - CVC5 non-parallel: `crates/assura-smt/src/entry/advanced_passes.rs`
+      (`verify_file_with_cvc5`)
+    Missing even one path causes silent behavioral divergence between
+    `--solver z3` and `--solver cvc5`, or between parallel and non-parallel
+    modes. This was learned in #708 where the unconstrained-result skip
+    was initially added only to the Z3 parallel path.
+11. **`clause_desc` matching: use `ends_with`, not `contains`**: The
+    `clause_desc` format is `"{ContractName}::ensures"`. Production code
+    that classifies clause descriptions must use `ends_with("::ensures")`
+    (or `::requires`, `::invariant`), not `contains("ensures")`. The
+    `contains` variant can match spurious substrings (e.g., a contract
+    named `EnsuresValidator` would match `contains("ensures")`). Test
+    code may use `contains` for convenience, but production classification
+    must use `ends_with`. `agent-guards.sh` section 11 warns on violations.
+12. **AST utility functions belong in `assura-ast`**: Functions that
+    operate solely on `Expr`, `Decl`, `Pattern`, or other AST types
+    (without needing type-checker or SMT context) must be defined in
+    `assura-ast`, not duplicated in consumer crates. Canonical example:
+    `expr_references_result` was duplicated in both `assura-types` and
+    `assura-smt` with divergent variant coverage. The fix (#707) moved
+    it to `assura-ast` with exhaustive matching across all 21 Expr
+    variants and had both crates delegate.
+13. **Beware `..` in struct destructuring on AST nodes**: Rust's `..`
+    pattern silently skips struct fields. Exhaustive matching does NOT
+    help because `..` explicitly opts out. When destructuring AST nodes
+    with optional fields (e.g., `Forall { body, .. }` silently ignores
+    `domain`), always list all fields explicitly or use a comment
+    documenting which fields are intentionally ignored. This was learned
+    in #713 where `expr_references_result` missed checking quantifier
+    domains because `Forall { body, .. }` skipped the `domain` field.
 
 ### Crate map (where to edit)
 
