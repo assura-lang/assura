@@ -928,3 +928,111 @@ fn test_idempotent_fn_with_refinement_param() {
         "fn read_bits(br: Nat, n_bits: { Nat | n_bits > 0 }) -> Nat\n    requires { br >= 0 }\n",
     );
 }
+
+// ----- format_clause direct coverage (closes #687) -----
+
+/// Helper to build a Clause with no effect variables.
+fn make_clause(kind: ClauseKind, body: Expr) -> Clause {
+    Clause {
+        kind,
+        body: Spanned::no_span(body),
+        effect_variables: vec![],
+    }
+}
+
+#[test]
+fn test_format_clause_requires_braced() {
+    let clause = make_clause(ClauseKind::Requires, Expr::Ident("x".into()));
+    let mut out = String::new();
+    format_clause(&clause, &mut out);
+    assert_eq!(out, "requires { x }");
+}
+
+#[test]
+fn test_format_clause_ensures_braced() {
+    let clause = make_clause(
+        ClauseKind::Ensures,
+        Expr::BinOp {
+            op: BinOp::Gt,
+            lhs: bsp(Expr::Ident("result".into())),
+            rhs: bsp(Expr::Literal(Literal::Int("0".into()))),
+        },
+    );
+    let mut out = String::new();
+    format_clause(&clause, &mut out);
+    assert_eq!(out, "ensures { result > 0 }");
+}
+
+#[test]
+fn test_format_clause_effects_braced() {
+    let clause = make_clause(ClauseKind::Effects, Expr::Raw(vec!["io".into()]));
+    let mut out = String::new();
+    format_clause(&clause, &mut out);
+    assert_eq!(out, "effects { io }");
+}
+
+#[test]
+fn test_format_clause_input_with_params() {
+    // input(x: Int) — Cast expr triggers the param extraction path
+    let clause = make_clause(
+        ClauseKind::Input,
+        Expr::Cast {
+            expr: bsp(Expr::Ident("x".into())),
+            ty: "Int".into(),
+        },
+    );
+    let mut out = String::new();
+    format_clause(&clause, &mut out);
+    assert_eq!(out, "input(x: Int)");
+}
+
+#[test]
+fn test_format_clause_output_with_params() {
+    let clause = make_clause(
+        ClauseKind::Output,
+        Expr::Cast {
+            expr: bsp(Expr::Ident("result".into())),
+            ty: "Bool".into(),
+        },
+    );
+    let mut out = String::new();
+    format_clause(&clause, &mut out);
+    assert_eq!(out, "output(result: Bool)");
+}
+
+#[test]
+fn test_format_clause_other_colon_syntax() {
+    let clause = make_clause(
+        ClauseKind::Other("custom_check".into()),
+        Expr::Ident("valid".into()),
+    );
+    let mut out = String::new();
+    format_clause(&clause, &mut out);
+    assert_eq!(out, "custom_check: valid");
+}
+
+#[test]
+fn test_format_clause_ordering_colon_syntax() {
+    let clause = make_clause(
+        ClauseKind::Ordering,
+        Expr::Raw(vec!["a".into(), "<".into(), "b".into()]),
+    );
+    let mut out = String::new();
+    format_clause(&clause, &mut out);
+    assert_eq!(out, "ordering: a < b");
+}
+
+#[test]
+fn test_format_clause_invariant_braced() {
+    let clause = make_clause(
+        ClauseKind::Invariant,
+        Expr::BinOp {
+            op: BinOp::Gte,
+            lhs: bsp(Expr::Ident("count".into())),
+            rhs: bsp(Expr::Literal(Literal::Int("0".into()))),
+        },
+    );
+    let mut out = String::new();
+    format_clause(&clause, &mut out);
+    assert_eq!(out, "invariant { count >= 0 }");
+}

@@ -1153,3 +1153,50 @@ fn ir_verify_result_empty() {
     assert_eq!(ir_result.summary.total, 0);
     assert!(ir_result.progress.contains("0/0"));
 }
+
+// ---------------------------------------------------------------------------
+// verify_ir: layer-0 bypass and validation-error paths (closes #685)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn verify_ir_layer_zero_bypass() {
+    let contract =
+        "contract Echo {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n";
+    let ir = "module Echo {\n  fn #0 : ($0: Int) -> Int ! pure\n  {\n    $result = load $0 : Int\n  }\n}\n";
+    let mut config = CompilerConfig::default();
+    config.verify.layer = 0;
+    let result = verify_ir(contract, ir, &config);
+
+    assert_eq!(result.status, "verified");
+    assert!(
+        result.progress.contains("structural only"),
+        "layer-0 progress should say structural only: {}",
+        result.progress
+    );
+    assert_eq!(result.summary.total, 0, "layer-0 should skip SMT clauses");
+    assert!(result.clauses.is_empty());
+    assert!(result.compile_errors.is_empty());
+    assert!(result.ir_errors.is_empty());
+    assert!(result.validation_errors.is_empty());
+}
+
+#[test]
+fn verify_ir_validation_error_slot_gap() {
+    // IR has a slot gap ($0 -> $5) which the validator catches
+    let contract =
+        "contract Echo {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n";
+    let ir = "module Echo {\n  fn #0 : ($0: Int) -> Int ! pure\n  {\n    $5 = load $0 : Int\n    $result = load $5 : Int\n  }\n}\n";
+    let config = CompilerConfig::default();
+    let result = verify_ir(contract, ir, &config);
+
+    assert_eq!(result.status, "error");
+    assert!(
+        !result.validation_errors.is_empty(),
+        "should have validation errors for slot gap"
+    );
+    assert!(
+        result.validation_errors[0].contains("skip"),
+        "validation error should mention skipped slot: {:?}",
+        result.validation_errors
+    );
+}
