@@ -452,7 +452,7 @@ module copy {
         let ensures = results.iter().find(|r| {
             matches!(
                 r,
-                VerificationResult::Verified { clause_desc, .. } if clause_desc.contains("ensures")
+                VerificationResult::Verified { clause_desc, .. } if clause_desc.ends_with("::ensures")
             )
         });
         assert!(
