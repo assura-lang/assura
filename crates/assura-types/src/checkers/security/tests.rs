@@ -357,7 +357,12 @@ fn se_check_all_erased() {
     checker.mark_zeroized("a".into());
     let errs = checker.check_all_erased(&span());
     assert_eq!(errs.len(), 1);
-    assert!(errs[0].message.contains("b"));
+    assert_eq!(errs[0].code.as_ref(), "A16001");
+    assert!(
+        errs[0].message.contains("`b`") || errs[0].message.contains("'b'"),
+        "error should name the un-erased variable `b`, got: {}",
+        errs[0].message
+    );
 }
 
 #[test]
