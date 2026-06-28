@@ -84,7 +84,7 @@ pub(crate) fn run_doctor() {
         }
         _ => {
             println!("  cvc5:         not found ... OPTIONAL (enables portfolio mode)");
-            println!("                Install: brew install cvc5  (macOS)");
+            println!("                Install: bash scripts/setup-cvc5.sh");
         }
     }
 
