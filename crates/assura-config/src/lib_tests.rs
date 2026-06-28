@@ -663,3 +663,73 @@ fn solver_choice_from_str_loose_invalid() {
     assert_eq!(SolverChoice::from_str_loose("unknown"), None);
     assert_eq!(SolverChoice::from_str_loose("z4"), None);
 }
+
+// ---------------------------------------------------------------------------
+// load_project_config() (closes #686)
+// ---------------------------------------------------------------------------
+
+/// Stub find_root that returns the given path itself if it contains assura.toml.
+fn find_root_here(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let candidate = if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        path.parent()?.to_path_buf()
+    };
+    if candidate.join("assura.toml").exists() {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
+/// Stub find_root that always returns None (no project root).
+fn find_root_none(_: &std::path::Path) -> Option<std::path::PathBuf> {
+    None
+}
+
+#[test]
+fn load_project_config_returns_none_when_no_root() {
+    let result = load_project_config(std::path::Path::new("/nonexistent"), find_root_none);
+    assert!(result.is_none());
+}
+
+#[test]
+fn load_project_config_reads_valid_toml() {
+    let dir = tempfile::tempdir().unwrap();
+    let toml_path = dir.path().join("assura.toml");
+    std::fs::write(
+        &toml_path,
+        "[package]\nname = \"test-proj\"\nversion = \"1.0.0\"\n\n[verify]\nlayer = 2\ntimeout = 5000\n",
+    )
+    .unwrap();
+
+    let result = load_project_config(dir.path(), find_root_here);
+    assert!(result.is_some(), "should parse valid assura.toml");
+    let (config, root) = result.unwrap();
+    assert_eq!(config.package.name, "test-proj");
+    assert_eq!(config.package.version, "1.0.0");
+    assert_eq!(config.verify.layer, 2);
+    assert_eq!(config.verify.timeout, 5000);
+    assert_eq!(root, dir.path());
+}
+
+#[test]
+fn load_project_config_returns_none_on_malformed_toml() {
+    let dir = tempfile::tempdir().unwrap();
+    let toml_path = dir.path().join("assura.toml");
+    std::fs::write(&toml_path, "not valid { toml [[[").unwrap();
+
+    let result = load_project_config(dir.path(), find_root_here);
+    assert!(result.is_none(), "malformed TOML should return None");
+}
+
+#[test]
+fn load_project_config_returns_none_when_file_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    // find_root returns the dir, but assura.toml doesn't exist
+    fn find_root_always(path: &std::path::Path) -> Option<std::path::PathBuf> {
+        Some(path.to_path_buf())
+    }
+    let result = load_project_config(dir.path(), find_root_always);
+    assert!(result.is_none(), "missing file should return None");
+}
