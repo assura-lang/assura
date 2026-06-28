@@ -758,18 +758,27 @@ fn diagnostics_classified_as_parse_errors() {
 #[test]
 fn diagnostics_classified_as_resolution_errors() {
     // Duplicate contract names trigger A02003 (resolution phase)
-    let result = run("contract Dup {\n  requires { true }\n}\ncontract Dup {\n  requires { true }\n}");
+    let result =
+        run("contract Dup {\n  requires { true }\n}\ncontract Dup {\n  requires { true }\n}");
     assert!(
         !result.resolution_errors.is_empty(),
         "duplicate names should produce resolution errors (A02xxx), got: parse={:?}, resolve={:?}, type={:?}",
-        result.parse_errors, result.resolution_errors, result.type_errors
+        result.parse_errors,
+        result.resolution_errors,
+        result.type_errors
     );
     assert!(
-        result.resolution_errors.iter().all(|e| e.code.as_str().starts_with("A02")),
+        result
+            .resolution_errors
+            .iter()
+            .all(|e| e.code.as_str().starts_with("A02")),
         "all resolution errors should have A02 prefix: {:?}",
         result.resolution_errors
     );
-    assert!(result.parse_errors.is_empty(), "no parse errors expected for valid syntax");
+    assert!(
+        result.parse_errors.is_empty(),
+        "no parse errors expected for valid syntax"
+    );
 }
 
 #[test]
@@ -779,7 +788,9 @@ fn diagnostics_classified_as_type_errors() {
     assert!(
         !result.type_errors.is_empty(),
         "type mismatch should produce type errors (A03xxx), got: parse={:?}, resolve={:?}, type={:?}",
-        result.parse_errors, result.resolution_errors, result.type_errors
+        result.parse_errors,
+        result.resolution_errors,
+        result.type_errors
     );
     assert!(result.parse_errors.is_empty(), "no parse errors expected");
 }
@@ -792,7 +803,10 @@ fn diagnostics_classified_as_type_errors() {
 fn pipeline_result_has_errors_on_type_errors() {
     // Type mismatch should trigger has_errors
     let result = run("contract T {\n  input(x: Int)\n  requires { x == \"hello\" }\n}");
-    assert!(result.has_errors(), "type mismatch should make has_errors() true");
+    assert!(
+        result.has_errors(),
+        "type mismatch should make has_errors() true"
+    );
     assert!(!result.type_errors.is_empty(), "should have type errors");
 }
 
