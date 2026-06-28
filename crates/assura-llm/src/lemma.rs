@@ -520,7 +520,7 @@ fn build_validity_query(assumptions: &[String], conclusion: &str) -> String {
     // Simple identifier extraction from SMT-LIB text
     for word in all_text.split(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
         if !word.is_empty()
-            && !word.chars().next().unwrap().is_ascii_digit()
+            && !word.as_bytes()[0].is_ascii_digit()
             && !is_smtlib_keyword(word)
         {
             vars.insert(word.to_string());
@@ -580,9 +580,19 @@ fn run_smtlib_check(query: &str) -> LemmaResult {
         };
     }
 
+    let tmp_str = match tmp.to_str() {
+        Some(s) => s.to_string(),
+        None => {
+            let _ = std::fs::remove_file(&tmp);
+            return LemmaResult::ParseError {
+                message: "temp path is not valid UTF-8".to_string(),
+            };
+        }
+    };
+
     let output = Command::new("z3")
         .arg("-T:5") // 5 second timeout
-        .arg(tmp.to_str().unwrap())
+        .arg(&tmp_str)
         .output();
 
     let _ = std::fs::remove_file(&tmp);
@@ -659,6 +669,18 @@ pub fn generate_and_verify_lemmas(
         provider.model_id(),
     );
 
+    // Extract requires/ensures once (used for both cache-hit and cache-miss paths)
+    let requires: Vec<String> = contracts
+        .iter()
+        .filter(|c| c.kind == "requires")
+        .map(|c| c.expression.clone())
+        .collect();
+    let ensures: Vec<String> = contracts
+        .iter()
+        .filter(|c| c.kind == "ensures")
+        .map(|c| c.expression.clone())
+        .collect();
+
     // Check cache for lemma chain
     let lemma_dir = cache.cache_dir().join("lemmas");
     let cache_path = lemma_dir.join(format!("{key}.json"));
@@ -666,16 +688,6 @@ pub fn generate_and_verify_lemmas(
         && let Ok(chain) = serde_json::from_str::<LemmaChain>(&data)
     {
         // Re-verify (cheap) even if cached, in case Z3 version changed
-        let requires: Vec<String> = contracts
-            .iter()
-            .filter(|c| c.kind == "requires")
-            .map(|c| c.expression.clone())
-            .collect();
-        let ensures: Vec<String> = contracts
-            .iter()
-            .filter(|c| c.kind == "ensures")
-            .map(|c| c.expression.clone())
-            .collect();
         let verification = verify_lemma_chain(&requires, &ensures, &chain);
         return Ok((chain, verification));
     }
@@ -699,16 +711,6 @@ pub fn generate_and_verify_lemmas(
     }
 
     // Verify with Z3
-    let requires: Vec<String> = contracts
-        .iter()
-        .filter(|c| c.kind == "requires")
-        .map(|c| c.expression.clone())
-        .collect();
-    let ensures: Vec<String> = contracts
-        .iter()
-        .filter(|c| c.kind == "ensures")
-        .map(|c| c.expression.clone())
-        .collect();
     let verification = verify_lemma_chain(&requires, &ensures, &chain);
 
     Ok((chain, verification))
