@@ -124,6 +124,7 @@ jobs:
         with:
           shared-key: ci-clippy
           toolchain-components: clippy, rustfmt
+          is-self-hosted: ${{ vars.RUNNER && 'true' || 'false' }}
 
       - name: Format check
         run: cargo fmt --check --all
@@ -161,6 +162,7 @@ jobs:
       - uses: ./.github/actions/setup-rust-ci
         with:
           shared-key: ci-test
+          is-self-hosted: ${{ vars.RUNNER && 'true' || 'false' }}
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
@@ -197,6 +199,7 @@ jobs:
       - uses: ./.github/actions/setup-rust-ci
         with:
           shared-key: ci-bench
+          is-self-hosted: ${{ vars.RUNNER && 'true' || 'false' }}
 
       - name: Run pipeline benchmarks (smoke + compile check only)
         # Run only full_pipeline bench in CI (smoke to ensure it compiles/runs).
@@ -235,6 +238,7 @@ jobs:
       - uses: ./.github/actions/setup-rust-ci
         with:
           shared-key: ci-codegen
+          is-self-hosted: ${{ vars.RUNNER && 'true' || 'false' }}
 
       - name: Build compiler
         run: cargo build --bin assura --locked
@@ -275,6 +279,7 @@ jobs:
         with:
           shared-key: ci-no-z3
           install-system-deps: 'false'
+          is-self-hosted: ${{ vars.RUNNER && 'true' || 'false' }}
 
       - name: Build without Z3 (graceful fallback)
         run: cargo check -p assura-smt --no-default-features --locked
@@ -301,6 +306,7 @@ jobs:
       - uses: ./.github/actions/setup-rust-ci
         with:
           shared-key: ci-cvc5
+          is-self-hosted: ${{ vars.RUNNER && 'true' || 'false' }}
 
       - name: Install CVC5 prebuilt library
         run: |
