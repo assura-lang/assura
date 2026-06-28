@@ -13,6 +13,7 @@ pub(crate) struct LlmOpts<'a> {
     pub model: Option<&'a str>,
     pub public_only: bool,
     pub unsafe_only: bool,
+    pub llm_verify: bool,
 }
 
 pub(crate) fn run_check_rust(
@@ -228,7 +229,7 @@ pub(crate) fn run_check_rust(
     }
 
     // LLM analysis (opt-in)
-    if llm_opts.llm || llm_opts.suggest {
+    if llm_opts.llm || llm_opts.suggest || llm_opts.llm_verify {
         run_llm_analysis(&file_items, verbosity, &llm_opts);
     }
 
@@ -427,6 +428,160 @@ fn run_llm_analysis(
                         Err(e) => {
                             if verbosity != Verbosity::Quiet {
                                 eprintln!("    function `{name}`: LLM error: {e}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Level 2: LLM-generated lemma chain verification
+    if opts.llm_verify {
+        if verbosity != Verbosity::Quiet {
+            println!();
+            println!(
+                "  Level 2 lemma verification (model: {}):",
+                provider.model_id()
+            );
+        }
+
+        for (_file_path, items) in file_items {
+            for item in items {
+                if let assura_rust_analyzer::AnnotatedItemKind::Function {
+                    name,
+                    params,
+                    return_type: _,
+                    ..
+                } = &item.kind
+                {
+                    if item.contract.requires.is_empty() && item.contract.ensures.is_empty() {
+                        continue;
+                    }
+
+                    let contracts: Vec<ContractClauseInfo> = item
+                        .contract
+                        .requires
+                        .iter()
+                        .map(|c| ContractClauseInfo {
+                            kind: "requires".to_string(),
+                            expression: c.body.clone(),
+                        })
+                        .chain(item.contract.ensures.iter().map(|c| ContractClauseInfo {
+                            kind: "ensures".to_string(),
+                            expression: c.body.clone(),
+                        }))
+                        .collect();
+
+                    let sig = format!(
+                        "fn {}({})",
+                        name,
+                        params
+                            .iter()
+                            .map(|p| format!("{}: {}", p.name, p.ty))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+
+                    // Run Level 1 first if not already done, to get verdict + paths
+                    let (verdict_str, paths) = if analyze {
+                        // Re-use the Level 1 analysis result via cache (cheap)
+                        let called_fns: Vec<CalledFunctionContract> = contract_db
+                            .all_contracts()
+                            .into_iter()
+                            .filter(|cf| cf.name != *name)
+                            .collect();
+                        let req = AnalysisRequest {
+                            function_name: name.clone(),
+                            function_body: "(source body not available via scan)".to_string(),
+                            function_signature: sig.clone(),
+                            contracts: contracts.clone(),
+                            params: params
+                                .iter()
+                                .map(|p| ParamEntry {
+                                    name: p.name.clone(),
+                                    ty: p.ty.clone(),
+                                })
+                                .collect(),
+                            return_type: None,
+                            context: AnalysisContext {
+                                surrounding_types: vec![],
+                                called_functions: called_fns,
+                            },
+                        };
+                        match assura_llm::suggest::analyze_function(&provider, &cache, &req) {
+                            Ok(resp) => {
+                                let v = match &resp.verdict {
+                                    Verdict::Pass => "pass".to_string(),
+                                    Verdict::Fail { .. } => "fail".to_string(),
+                                    Verdict::Uncertain { .. } => "uncertain".to_string(),
+                                };
+                                (v, resp.paths)
+                            }
+                            Err(_) => ("unknown".to_string(), vec![]),
+                        }
+                    } else {
+                        ("unknown".to_string(), vec![])
+                    };
+
+                    match assura_llm::lemma::generate_and_verify_lemmas(
+                        &provider,
+                        &cache,
+                        "(source body not available via scan)",
+                        &sig,
+                        &contracts,
+                        &verdict_str,
+                        &paths,
+                    ) {
+                        Ok((chain, verification)) => {
+                            if verbosity != Verbosity::Quiet {
+                                let status = if verification.chain_valid {
+                                    "VALID"
+                                } else {
+                                    "INCOMPLETE"
+                                };
+                                println!(
+                                    "    function `{}` (line {}): {} ({}/{} lemmas valid, ensures follows: {})",
+                                    name,
+                                    item.line,
+                                    status,
+                                    verification.valid_count,
+                                    verification.total_count,
+                                    verification.ensures_follows,
+                                );
+                            }
+                            if verbosity == Verbosity::Verbose {
+                                for lv in &verification.lemmas {
+                                    let r = match &lv.result {
+                                        assura_llm::types::LemmaResult::Valid => {
+                                            "valid".to_string()
+                                        }
+                                        assura_llm::types::LemmaResult::Counterexample {
+                                            ..
+                                        } => "counterexample".to_string(),
+                                        assura_llm::types::LemmaResult::Timeout => {
+                                            "timeout".to_string()
+                                        }
+                                        assura_llm::types::LemmaResult::ParseError { message } => {
+                                            format!("parse error: {message}")
+                                        }
+                                    };
+                                    println!(
+                                        "      lemma `{}`: {} ({}ms)",
+                                        lv.label, r, lv.time_ms
+                                    );
+                                    if verbosity == Verbosity::Verbose {
+                                        println!("        assertion: {}", lv.assertion);
+                                    }
+                                }
+                                if chain.chain_complete {
+                                    println!("      chain marked complete by LLM");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            if verbosity != Verbosity::Quiet {
+                                eprintln!("    function `{name}`: lemma error: {e}");
                             }
                         }
                     }
