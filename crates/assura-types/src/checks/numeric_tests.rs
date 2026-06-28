@@ -171,7 +171,11 @@ fn precomputed_table_domain_size_nonstandard_flagged() {
     let errors = checker.check_domain_size(None);
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A43005");
-    assert!(errors[0].message.contains("100"));
+    assert!(
+        errors[0].message.contains("100") && errors[0].message.contains("domain"),
+        "A43005 should mention non-standard domain size 100, got: {}",
+        errors[0].message
+    );
 }
 
 #[test]
@@ -196,7 +200,11 @@ fn precomputed_table_domain_size_explicit_mismatch() {
     let errors = checker.check_domain_size(Some(256));
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A43005");
-    assert!(errors[0].message.contains("256"));
+    assert!(
+        errors[0].message.contains("256") && errors[0].message.contains("domain"),
+        "A43005 should mention expected domain size 256, got: {}",
+        errors[0].message
+    );
 }
 
 #[test]

@@ -272,12 +272,21 @@ fn shell_tuple_encoding_emits_element_axioms() {
         "expected 3 element axioms, got: {:?}",
         effects.assertions
     );
-    assert!(effects.assertions[0].contains("__tuple_3_0"));
-    assert!(effects.assertions[0].contains("10"));
-    assert!(effects.assertions[1].contains("__tuple_3_1"));
-    assert!(effects.assertions[1].contains("20"));
-    assert!(effects.assertions[2].contains("__tuple_3_2"));
-    assert!(effects.assertions[2].contains("30"));
+    assert!(
+        effects.assertions[0].contains("__tuple_3_0") && effects.assertions[0].contains(") 10))"),
+        "tuple element 0 axiom should bind value 10, got: {}",
+        effects.assertions[0]
+    );
+    assert!(
+        effects.assertions[1].contains("__tuple_3_1") && effects.assertions[1].contains(") 20))"),
+        "tuple element 1 axiom should bind value 20, got: {}",
+        effects.assertions[1]
+    );
+    assert!(
+        effects.assertions[2].contains("__tuple_3_2") && effects.assertions[2].contains(") 30))"),
+        "tuple element 2 axiom should bind value 30, got: {}",
+        effects.assertions[2]
+    );
 }
 
 #[test]
@@ -329,12 +338,21 @@ fn shell_list_encoding_emits_element_and_length_axioms() {
         "expected 3 axioms (2 elements + 1 length), got: {:?}",
         effects.assertions
     );
-    assert!(effects.assertions[0].contains("__list_get"));
-    assert!(effects.assertions[0].contains("1")); // elem value
-    assert!(effects.assertions[1].contains("__list_get"));
-    assert!(effects.assertions[1].contains("2")); // elem value
-    assert!(effects.assertions[2].contains("__field_len"));
-    assert!(effects.assertions[2].contains("2")); // length
+    assert!(
+        effects.assertions[0].contains("__list_get") && effects.assertions[0].contains(") 1))"),
+        "list element 0 axiom should bind value 1, got: {}",
+        effects.assertions[0]
+    );
+    assert!(
+        effects.assertions[1].contains("__list_get") && effects.assertions[1].contains(") 2))"),
+        "list element 1 axiom should bind value 2, got: {}",
+        effects.assertions[1]
+    );
+    assert!(
+        effects.assertions[2].contains("__field_len") && effects.assertions[2].contains(") 2))"),
+        "list length axiom should assert length 2, got: {}",
+        effects.assertions[2]
+    );
 }
 
 #[test]
@@ -403,7 +421,10 @@ fn shell_literal_int_encoding() {
     // Negative literal encoded via int SMT-LIB
     let neg = Spanned::no_span(Expr::Literal(Literal::Int("-7".into())));
     let smt = expr_to_smtlib(&neg).unwrap();
-    assert!(smt.contains("7"), "negative int should encode, got: {smt}");
+    assert!(
+        smt.contains("(- 7)") || smt == "(- 7)" || smt.contains("-7"),
+        "negative int should encode -7, got: {smt}"
+    );
 }
 
 #[test]
@@ -477,8 +498,8 @@ fn shell_if_then_else_encoding() {
         ))))),
     });
     let smt = expr_to_smtlib(&ite).unwrap();
-    assert!(
-        smt.contains("ite") && smt.contains("p") && smt.contains("1") && smt.contains("0"),
+    assert_eq!(
+        smt, "(ite p 1 0)",
         "if/then/else should produce (ite p 1 0), got: {smt}"
     );
 }
@@ -534,8 +555,8 @@ fn shell_index_access_encoding() {
         index: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("3".into())))),
     });
     let smt = expr_to_smtlib(&idx).unwrap();
-    assert!(
-        smt.contains("__index") && smt.contains("buf") && smt.contains("3"),
+    assert_eq!(
+        smt, "(__index buf 3)",
         "index should produce (__index buf 3), got: {smt}"
     );
 }

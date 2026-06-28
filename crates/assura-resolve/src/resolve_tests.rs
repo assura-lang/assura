@@ -74,7 +74,11 @@ contract Foo {
     let errs = result.unwrap_err();
     assert_eq!(errs.len(), 1);
     assert_eq!(errs[0].code, "A02003");
-    assert!(errs[0].message.contains("Foo"));
+    assert!(
+        errs[0].message.contains("`Foo`"),
+        "error should name the duplicate definition `Foo`, got: {}",
+        errs[0].message
+    );
 }
 
 #[test]
@@ -244,7 +248,11 @@ fn bad(x: Int, x: Int) -> Int {
     let errs = result.unwrap_err();
     assert_eq!(errs.len(), 1);
     assert_eq!(errs[0].code, "A02003");
-    assert!(errs[0].message.contains("x"));
+    assert!(
+        errs[0].message.contains("`x`"),
+        "error should name the duplicate parameter `x`, got: {}",
+        errs[0].message
+    );
 }
 
 #[test]
@@ -282,7 +290,11 @@ type BadStruct {
     let errs = result.unwrap_err();
     assert_eq!(errs.len(), 1);
     assert_eq!(errs[0].code, "A02003");
-    assert!(errs[0].message.contains("x"));
+    assert!(
+        errs[0].message.contains("`x`"),
+        "error should name the duplicate field `x`, got: {}",
+        errs[0].message
+    );
 }
 
 #[test]
@@ -322,7 +334,11 @@ enum Bad {
     let errs = result.unwrap_err();
     assert_eq!(errs.len(), 1);
     assert_eq!(errs[0].code, "A02003");
-    assert!(errs[0].message.contains("A"));
+    assert!(
+        errs[0].message.contains("`A`"),
+        "error should name the duplicate variant `A`, got: {}",
+        errs[0].message
+    );
 }
 
 #[test]
@@ -381,7 +397,11 @@ input { other: Bytes }
     let errs = result.unwrap_err();
     assert_eq!(errs.len(), 1);
     assert_eq!(errs[0].code, "A02003");
-    assert!(errs[0].message.contains("go"));
+    assert!(
+        errs[0].message.contains("`go`"),
+        "error should name the duplicate operation `go`, got: {}",
+        errs[0].message
+    );
 }
 
 #[test]
@@ -571,7 +591,11 @@ import mymod;
     let errs = result.unwrap_err();
     assert_eq!(errs.len(), 1);
     assert_eq!(errs[0].code, "A02005");
-    assert!(errs[0].message.contains("mymod"));
+    assert!(
+        errs[0].message.contains("`mymod`"),
+        "error should name the circular module `mymod`, got: {}",
+        errs[0].message
+    );
 }
 
 #[test]
@@ -591,7 +615,11 @@ import b;
     assert!(result.is_err(), "circular import should produce an error");
     let errs = result.unwrap_err();
     assert_eq!(errs[0].code, "A02005");
-    assert!(errs[0].message.contains("b"));
+    assert!(
+        errs[0].message.contains("`b`"),
+        "error should name the circular module `b`, got: {}",
+        errs[0].message
+    );
 }
 
 #[test]
