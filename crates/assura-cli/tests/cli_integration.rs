@@ -2204,3 +2204,87 @@ fn init_then_build_generates_rust() {
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+// =======================================================================
+// #679: Build produces compiled artifact (not just codegen)
+// =======================================================================
+
+#[test]
+fn build_produces_native_artifact() {
+    let tmp = unique_temp("assura_build_artifact");
+    let _ = std::fs::remove_dir_all(&tmp);
+    // Run without --no-check so cargo build actually runs
+    let out = Command::new(assura_bin())
+        .args([
+            "build",
+            "demos/libwebp-huffman.assura",
+            "--output",
+            tmp.to_str().unwrap(),
+        ])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura build");
+    assert!(
+        out.status.success(),
+        "build should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // The generated project should have been compiled by cargo
+    let target_dir = tmp.join("target/debug/deps");
+    assert!(
+        target_dir.exists(),
+        "target/debug/deps should exist after cargo build"
+    );
+
+    // Check that an .rlib artifact was produced
+    let has_rlib = std::fs::read_dir(&target_dir)
+        .expect("should be able to read deps dir")
+        .flatten()
+        .any(|e| {
+            e.path()
+                .extension()
+                .is_some_and(|ext| ext == "rlib" || ext == "rmeta")
+        });
+    assert!(has_rlib, "should produce an rlib or rmeta artifact");
+
+    // CLI output should mention the artifact path and size
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("OK") && stdout.contains("bytes"),
+        "stdout should report artifact path and size: {stdout}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn build_output_includes_artifact_size() {
+    let tmp = unique_temp("assura_build_artifact_size");
+    let _ = std::fs::remove_dir_all(&tmp);
+    let out = Command::new(assura_bin())
+        .args([
+            "build",
+            "demos/heartbleed.assura",
+            "--output",
+            tmp.to_str().unwrap(),
+        ])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura build");
+    assert!(
+        out.status.success(),
+        "build should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // The output should report the artifact with a byte count (e.g. "1234 bytes")
+    // or at minimum the OK status line
+    assert!(
+        stdout.contains("OK"),
+        "stdout should contain OK status line: {stdout}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}

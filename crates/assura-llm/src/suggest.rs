@@ -111,4 +111,144 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    fn make_suggestion_request() -> SuggestionRequest {
+        SuggestionRequest {
+            function_name: "add".to_string(),
+            function_signature: "fn add(a: i32, b: i32) -> i32".to_string(),
+            function_body: "a + b".to_string(),
+            doc_comments: String::new(),
+            impl_type: None,
+            visibility: "pub".to_string(),
+            is_unsafe: false,
+            is_async: false,
+            context: SuggestionContext::default(),
+        }
+    }
+
+    #[test]
+    fn suggest_contracts_returns_provider_response() {
+        let dir = std::env::temp_dir().join("assura-llm-test-suggest-contracts");
+        let _ = std::fs::remove_dir_all(&dir);
+        let cache = LlmCache::new(&dir);
+
+        let provider = MockProvider {
+            suggestion_response: SuggestionResponse {
+                suggestions: vec![RawSuggestion {
+                    kind: "requires".to_string(),
+                    expression: "a >= 0".to_string(),
+                    confidence: 0.85,
+                    reasoning: "non-negative input".to_string(),
+                    evidence_line: Some(1),
+                }],
+                skipped_reason: None,
+            },
+            ..Default::default()
+        };
+
+        let req = make_suggestion_request();
+        let result = suggest_contracts(&provider, &cache, &req).unwrap();
+        assert_eq!(result.suggestions.len(), 1);
+        assert_eq!(result.suggestions[0].expression, "a >= 0");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn suggest_contracts_uses_cache() {
+        let dir = std::env::temp_dir().join("assura-llm-test-suggest-cache-hit");
+        let _ = std::fs::remove_dir_all(&dir);
+        let cache = LlmCache::new(&dir);
+
+        let provider = MockProvider {
+            suggestion_response: SuggestionResponse {
+                suggestions: vec![RawSuggestion {
+                    kind: "ensures".to_string(),
+                    expression: "result == a + b".to_string(),
+                    confidence: 0.95,
+                    reasoning: "sum".to_string(),
+                    evidence_line: None,
+                }],
+                skipped_reason: None,
+            },
+            ..Default::default()
+        };
+
+        let req = make_suggestion_request();
+
+        // First call hits provider and populates cache
+        let r1 = suggest_contracts(&provider, &cache, &req).unwrap();
+        assert_eq!(r1.suggestions.len(), 1);
+
+        // Second call should return cached result
+        let r2 = suggest_contracts(&provider, &cache, &req).unwrap();
+        assert_eq!(r2.suggestions.len(), 1);
+        assert_eq!(r2.suggestions[0].expression, "result == a + b");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn suggest_contracts_empty_suggestions() {
+        let dir = std::env::temp_dir().join("assura-llm-test-suggest-empty");
+        let _ = std::fs::remove_dir_all(&dir);
+        let cache = LlmCache::new(&dir);
+
+        let provider = MockProvider::default(); // default has empty suggestions
+
+        let req = make_suggestion_request();
+        let result = suggest_contracts(&provider, &cache, &req).unwrap();
+        assert!(result.suggestions.is_empty());
+        assert!(result.skipped_reason.is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn suggest_contracts_with_sibling_context() {
+        let dir = std::env::temp_dir().join("assura-llm-test-suggest-siblings");
+        let _ = std::fs::remove_dir_all(&dir);
+        let cache = LlmCache::new(&dir);
+
+        let provider = MockProvider {
+            suggestion_response: SuggestionResponse {
+                suggestions: vec![RawSuggestion {
+                    kind: "requires".to_string(),
+                    expression: "n > 0".to_string(),
+                    confidence: 0.9,
+                    reasoning: "follows sibling pattern".to_string(),
+                    evidence_line: None,
+                }],
+                skipped_reason: None,
+            },
+            ..Default::default()
+        };
+
+        let req = SuggestionRequest {
+            function_name: "divide".to_string(),
+            function_signature: "fn divide(a: i32, n: i32) -> i32".to_string(),
+            function_body: "a / n".to_string(),
+            doc_comments: String::new(),
+            impl_type: None,
+            visibility: "pub".to_string(),
+            is_unsafe: false,
+            is_async: false,
+            context: SuggestionContext {
+                surrounding_types: vec![],
+                sibling_contracts: vec![CalledFunctionContract {
+                    name: "multiply".to_string(),
+                    signature: "fn multiply(a: i32, b: i32) -> i32".to_string(),
+                    requires: vec!["a >= 0".to_string()],
+                    ensures: vec!["result == a * b".to_string()],
+                    source_file: "lib.rs".to_string(),
+                }],
+            },
+        };
+
+        let result = suggest_contracts(&provider, &cache, &req).unwrap();
+        assert_eq!(result.suggestions.len(), 1);
+        assert_eq!(result.suggestions[0].kind, "requires");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

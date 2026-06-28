@@ -225,3 +225,129 @@ impl LlmProvider for MockProvider {
         "mock"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn http_provider_new_missing_api_key() {
+        // Use an env var name that is guaranteed not to be set
+        let env_var = "ASSURA_TEST_NONEXISTENT_KEY_XYZ_12345";
+
+        let config = LlmConfig {
+            api_key_env: env_var.to_string(),
+            ..LlmConfig::default()
+        };
+        let result = HttpProvider::new(config);
+        assert!(result.is_err(), "should fail when env var is not set");
+        let err = result.err().unwrap();
+        let msg = err.to_string();
+        assert!(
+            msg.contains(env_var),
+            "error should mention env var name: {msg}"
+        );
+        assert!(
+            matches!(err, LlmError::ApiKeyMissing { .. }),
+            "should be ApiKeyMissing variant"
+        );
+    }
+
+    #[test]
+    fn http_provider_new_with_api_key_succeeds() {
+        let env_var = "ASSURA_TEST_PROVIDER_KEY_SUCCESS";
+        // SAFETY: test-only env var, no concurrent access
+        unsafe { std::env::set_var(env_var, "test-key-value") };
+
+        let config = LlmConfig {
+            api_key_env: env_var.to_string(),
+            ..LlmConfig::default()
+        };
+        let result = HttpProvider::new(config);
+        assert!(result.is_ok(), "should succeed when env var is set");
+
+        // SAFETY: cleaning up test env var
+        unsafe { std::env::remove_var(env_var) };
+    }
+
+    #[test]
+    fn mock_provider_returns_configured_analysis() {
+        let provider = MockProvider {
+            analysis_response: AnalysisResponse {
+                verdict: Verdict::Fail {
+                    violations: vec![Violation {
+                        clause_kind: "ensures".to_string(),
+                        clause_expression: "result > 0".to_string(),
+                        description: "can return 0".to_string(),
+                        evidence_line: Some(5),
+                    }],
+                },
+                confidence: 0.8,
+                paths: vec![],
+                reasoning: "test fail".to_string(),
+            },
+            ..Default::default()
+        };
+
+        let req = AnalysisRequest {
+            function_name: "f".to_string(),
+            function_body: "0".to_string(),
+            function_signature: "fn f() -> i32".to_string(),
+            contracts: vec![],
+            params: vec![],
+            return_type: Some("i32".to_string()),
+            context: AnalysisContext::default(),
+        };
+
+        let result = provider.analyze(&req).unwrap();
+        assert!(matches!(result.verdict, Verdict::Fail { .. }));
+    }
+
+    #[test]
+    fn mock_provider_returns_configured_suggestions() {
+        let provider = MockProvider {
+            suggestion_response: SuggestionResponse {
+                suggestions: vec![RawSuggestion {
+                    kind: "requires".to_string(),
+                    expression: "x > 0".to_string(),
+                    confidence: 0.9,
+                    reasoning: "guard".to_string(),
+                    evidence_line: None,
+                }],
+                skipped_reason: None,
+            },
+            ..Default::default()
+        };
+
+        let req = SuggestionRequest {
+            function_name: "g".to_string(),
+            function_signature: "fn g(x: i32)".to_string(),
+            function_body: "x + 1".to_string(),
+            doc_comments: String::new(),
+            impl_type: None,
+            visibility: "pub".to_string(),
+            is_unsafe: false,
+            is_async: false,
+            context: SuggestionContext::default(),
+        };
+
+        let result = provider.suggest(&req).unwrap();
+        assert_eq!(result.suggestions.len(), 1);
+        assert_eq!(result.suggestions[0].expression, "x > 0");
+    }
+
+    #[test]
+    fn mock_provider_model_id() {
+        let provider = MockProvider::default();
+        assert_eq!(provider.model_id(), "mock");
+    }
+
+    #[test]
+    fn mock_provider_call_raw_returns_json() {
+        let provider = MockProvider::default();
+        let result = provider.call_raw("system", "user").unwrap();
+        // Should be valid JSON
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert!(parsed["suggestions"].is_array());
+    }
+}
