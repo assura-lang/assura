@@ -361,16 +361,32 @@ pub(crate) fn proptest_strategy_for_type(rust_type: &str) -> String {
     }
 }
 
-/// Try to refine a proptest strategy based on a requires constraint.
+/// A single bound extracted from a requires constraint.
+#[derive(Debug, Clone)]
+pub(crate) enum ParamBound {
+    /// x >= val (inclusive lower)
+    GteVal(i64),
+    /// x > val  (exclusive lower, stored as val+1 inclusive)
+    GtVal(i64),
+    /// x <= val (inclusive upper)
+    LteVal(i64),
+    /// x < val  (exclusive upper, stored as val-1 inclusive)
+    LtVal(i64),
+    /// x != val (non-equality; currently only x != 0 uses lower bound 1)
+    NeqZero,
+}
+
+/// Try to extract a bound on a parameter from a requires constraint.
 ///
 /// Recognizes patterns like:
-///   - `x != 0` -> range that excludes zero
-///   - `x > 0` / `x >= 1` -> positive range
-///   - `x < N` / `x <= N` -> bounded range
+///   - `x != 0` -> lower bound 1
+///   - `x > 0` / `x >= 1` -> lower bound
+///   - `x < N` / `x <= N` -> upper bound
 ///
-/// Returns `Some((param_name, refined_strategy))` if the constraint can be
-/// encoded as a generator, or `None` if it should remain a filter/assumption.
-pub(crate) fn try_refine_strategy(requires_expr: &SpExpr) -> Option<(String, String)> {
+/// Returns `Some((param_name, bound))` if the constraint is a simple
+/// comparison on a single param, or `None` if it should remain a
+/// filter/assumption.
+pub(crate) fn try_extract_bound(requires_expr: &SpExpr) -> Option<(String, ParamBound)> {
     if let Expr::BinOp { lhs, op, rhs } = &requires_expr.node {
         let param = match &lhs.node {
             Expr::Ident(name) => name.clone(),
@@ -378,34 +394,75 @@ pub(crate) fn try_refine_strategy(requires_expr: &SpExpr) -> Option<(String, Str
         };
 
         match (op, &rhs.node) {
-            // x != 0 -> filter: use 1..=MAX for unsigned, two ranges for signed
             (BinOp::Neq, Expr::Literal(Literal::Int(val))) if val == "0" => {
-                Some((param, "1i64..=i64::MAX".to_string()))
+                Some((param, ParamBound::NeqZero))
             }
-            // x > 0 -> 1..=MAX
-            (BinOp::Gt, Expr::Literal(Literal::Int(val))) if val == "0" => {
-                Some((param, "1i64..=i64::MAX".to_string()))
+            (BinOp::Gt, Expr::Literal(Literal::Int(val))) => {
+                let v = val.parse::<i64>().ok()?;
+                Some((param, ParamBound::GtVal(v)))
             }
-            // x >= 0 -> 0..=MAX
-            (BinOp::Gte, Expr::Literal(Literal::Int(val))) if val == "0" => {
-                Some((param, "0i64..=i64::MAX".to_string()))
+            (BinOp::Gte, Expr::Literal(Literal::Int(val))) => {
+                let v = val.parse::<i64>().ok()?;
+                Some((param, ParamBound::GteVal(v)))
             }
-            // x >= 1 -> 1..=MAX
-            (BinOp::Gte, Expr::Literal(Literal::Int(val))) if val == "1" => {
-                Some((param, "1i64..=i64::MAX".to_string()))
-            }
-            // x < N -> MIN..N
             (BinOp::Lt, Expr::Literal(Literal::Int(val))) => {
-                Some((param, format!("i64::MIN..{val}i64")))
+                let v = val.parse::<i64>().ok()?;
+                Some((param, ParamBound::LtVal(v)))
             }
-            // x <= N -> MIN..=N
             (BinOp::Lte, Expr::Literal(Literal::Int(val))) => {
-                Some((param, format!("i64::MIN..={val}i64")))
+                let v = val.parse::<i64>().ok()?;
+                Some((param, ParamBound::LteVal(v)))
             }
             _ => None,
         }
     } else {
         None
+    }
+}
+
+/// Collected lower and upper bounds for a single parameter.
+#[derive(Debug, Default)]
+struct ParamRange {
+    lower: Option<i64>,
+    upper: Option<i64>,
+}
+
+impl ParamRange {
+    fn apply(&mut self, bound: &ParamBound) {
+        match bound {
+            ParamBound::GteVal(v) => {
+                self.lower = Some(self.lower.map_or(*v, |cur| cur.max(*v)));
+            }
+            ParamBound::GtVal(v) => {
+                let inclusive = v.saturating_add(1);
+                self.lower = Some(self.lower.map_or(inclusive, |cur| cur.max(inclusive)));
+            }
+            ParamBound::LteVal(v) => {
+                self.upper = Some(self.upper.map_or(*v, |cur| cur.min(*v)));
+            }
+            ParamBound::LtVal(v) => {
+                let inclusive = v.saturating_sub(1);
+                self.upper = Some(self.upper.map_or(inclusive, |cur| cur.min(inclusive)));
+            }
+            ParamBound::NeqZero => {
+                // If no lower bound yet, set to 1; if lower is already > 0, keep it
+                let new_lower = 1i64;
+                self.lower = Some(self.lower.map_or(new_lower, |cur| cur.max(new_lower)));
+            }
+        }
+    }
+
+    fn to_strategy(&self) -> String {
+        match (self.lower, self.upper) {
+            (Some(lo), Some(hi)) => format!("{lo}i64..={hi}i64"),
+            (Some(lo), None) => format!("{lo}i64..=i64::MAX"),
+            (None, Some(hi)) => format!("i64::MIN..={hi}i64"),
+            (None, None) => "proptest::prelude::any::<i64>()".to_string(),
+        }
+    }
+
+    fn has_bounds(&self) -> bool {
+        self.lower.is_some() || self.upper.is_some()
     }
 }
 
@@ -478,15 +535,22 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
         return;
     }
 
-    let mut refined: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    // Collect all bounds per parameter, then merge into one range each.
+    let mut param_ranges: std::collections::HashMap<String, ParamRange> =
+        std::collections::HashMap::new();
     let mut unrefined_requires: Vec<String> = Vec::new();
     for (i, ast) in requires_ast.iter().enumerate() {
-        if let Some((param, strategy)) = try_refine_strategy(ast) {
-            refined.insert(param, strategy);
+        if let Some((param, bound)) = try_extract_bound(ast) {
+            param_ranges.entry(param).or_default().apply(&bound);
         } else {
             unrefined_requires.push(requires_exprs[i].clone());
         }
     }
+    let refined: std::collections::HashMap<String, String> = param_ranges
+        .iter()
+        .filter(|(_, range)| range.has_bounds())
+        .map(|(param, range)| (param.clone(), range.to_strategy()))
+        .collect();
 
     let fn_name = c.name.to_lowercase();
 

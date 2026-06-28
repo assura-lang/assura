@@ -125,80 +125,147 @@ fn proptest_strategy_unknown_type() {
     assert!(s.contains("any::<MyStruct>()"));
 }
 
-// ---- try_refine_strategy ----
+// ---- try_extract_bound ----
 
 #[test]
-fn refine_neq_zero() {
+fn bound_neq_zero() {
     let expr = Spanned::no_span(Expr::BinOp {
         lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         op: BinOp::Neq,
         rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
     });
-    let (param, strategy) = try_refine_strategy(&expr).unwrap();
+    let (param, bound) = try_extract_bound(&expr).unwrap();
     assert_eq!(param, "x");
-    assert!(strategy.contains("1i64..=i64::MAX"));
+    assert!(matches!(bound, ParamBound::NeqZero));
 }
 
 #[test]
-fn refine_gt_zero() {
+fn bound_gt_zero() {
     let expr = Spanned::no_span(Expr::BinOp {
         lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
         op: BinOp::Gt,
         rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
     });
-    let (param, strategy) = try_refine_strategy(&expr).unwrap();
+    let (param, bound) = try_extract_bound(&expr).unwrap();
     assert_eq!(param, "n");
-    assert!(strategy.contains("1i64..=i64::MAX"));
+    assert!(matches!(bound, ParamBound::GtVal(0)));
 }
 
 #[test]
-fn refine_gte_zero() {
+fn bound_gte_zero() {
     let expr = Spanned::no_span(Expr::BinOp {
         lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         op: BinOp::Gte,
         rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
     });
-    let (_, strategy) = try_refine_strategy(&expr).unwrap();
-    assert!(strategy.contains("0i64..=i64::MAX"));
+    let (_, bound) = try_extract_bound(&expr).unwrap();
+    assert!(matches!(bound, ParamBound::GteVal(0)));
 }
 
 #[test]
-fn refine_lt_bound() {
+fn bound_lt_100() {
     let expr = Spanned::no_span(Expr::BinOp {
         lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         op: BinOp::Lt,
         rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("100".into())))),
     });
-    let (_, strategy) = try_refine_strategy(&expr).unwrap();
-    assert!(strategy.contains("100i64"));
-    assert!(strategy.contains("i64::MIN"));
+    let (_, bound) = try_extract_bound(&expr).unwrap();
+    assert!(matches!(bound, ParamBound::LtVal(100)));
 }
 
 #[test]
-fn refine_lte_bound() {
+fn bound_lte_50() {
     let expr = Spanned::no_span(Expr::BinOp {
         lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         op: BinOp::Lte,
         rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("50".into())))),
     });
-    let (_, strategy) = try_refine_strategy(&expr).unwrap();
-    assert!(strategy.contains("=50i64"));
+    let (_, bound) = try_extract_bound(&expr).unwrap();
+    assert!(matches!(bound, ParamBound::LteVal(50)));
 }
 
 #[test]
-fn refine_non_ident_lhs_returns_none() {
+fn bound_non_ident_lhs_returns_none() {
     let expr = Spanned::no_span(Expr::BinOp {
         lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
         op: BinOp::Gt,
         rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
     });
-    assert!(try_refine_strategy(&expr).is_none());
+    assert!(try_extract_bound(&expr).is_none());
 }
 
 #[test]
-fn refine_non_binop_returns_none() {
+fn bound_non_binop_returns_none() {
     let expr = Spanned::no_span(Expr::Ident("x".into()));
-    assert!(try_refine_strategy(&expr).is_none());
+    assert!(try_extract_bound(&expr).is_none());
+}
+
+// ---- ParamRange merging (the #705 fix) ----
+
+#[test]
+fn param_range_both_bounds_merged() {
+    // requires { x >= 0 } + requires { x <= 1000 } -> 0i64..=1000i64
+    let mut range = super::ParamRange::default();
+    range.apply(&ParamBound::GteVal(0));
+    range.apply(&ParamBound::LteVal(1000));
+    assert_eq!(range.to_strategy(), "0i64..=1000i64");
+}
+
+#[test]
+fn param_range_lower_only() {
+    let mut range = super::ParamRange::default();
+    range.apply(&ParamBound::GteVal(5));
+    assert_eq!(range.to_strategy(), "5i64..=i64::MAX");
+}
+
+#[test]
+fn param_range_upper_only() {
+    let mut range = super::ParamRange::default();
+    range.apply(&ParamBound::LteVal(100));
+    assert_eq!(range.to_strategy(), "i64::MIN..=100i64");
+}
+
+#[test]
+fn param_range_tightest_bounds_win() {
+    // x >= 0, x >= 10, x <= 1000, x <= 500 -> 10..=500
+    let mut range = super::ParamRange::default();
+    range.apply(&ParamBound::GteVal(0));
+    range.apply(&ParamBound::GteVal(10));
+    range.apply(&ParamBound::LteVal(1000));
+    range.apply(&ParamBound::LteVal(500));
+    assert_eq!(range.to_strategy(), "10i64..=500i64");
+}
+
+#[test]
+fn param_range_gt_exclusive_becomes_inclusive() {
+    // x > 0 -> lower bound is 1
+    let mut range = super::ParamRange::default();
+    range.apply(&ParamBound::GtVal(0));
+    assert_eq!(range.to_strategy(), "1i64..=i64::MAX");
+}
+
+#[test]
+fn param_range_lt_exclusive_becomes_inclusive() {
+    // x < 100 -> upper bound is 99
+    let mut range = super::ParamRange::default();
+    range.apply(&ParamBound::LtVal(100));
+    assert_eq!(range.to_strategy(), "i64::MIN..=99i64");
+}
+
+#[test]
+fn param_range_neq_zero_sets_lower_1() {
+    let mut range = super::ParamRange::default();
+    range.apply(&ParamBound::NeqZero);
+    assert_eq!(range.to_strategy(), "1i64..=i64::MAX");
+}
+
+#[test]
+fn param_range_neq_zero_with_upper() {
+    // x != 0 + x <= 50 -> 1..=50
+    let mut range = super::ParamRange::default();
+    range.apply(&ParamBound::NeqZero);
+    range.apply(&ParamBound::LteVal(50));
+    assert_eq!(range.to_strategy(), "1i64..=50i64");
 }
 
 // ---- contract_is_testable ----
