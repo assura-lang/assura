@@ -1036,12 +1036,12 @@ mod tests {
             body: TypeBody::Struct(vec![
                 assura_ast::FieldDef {
                     name: "x".into(),
-                    ty: assura_ast::try_parse_type_tokens(&["Int".to_string()]),
+                    ty: Some(assura_ast::TypeExpr::named("Int")),
                     is_pub: true,
                 },
                 assura_ast::FieldDef {
                     name: "y".into(),
-                    ty: assura_ast::try_parse_type_tokens(&["Int".to_string()]),
+                    ty: Some(assura_ast::TypeExpr::named("Int")),
                     is_pub: true,
                 },
             ]),
