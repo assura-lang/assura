@@ -169,4 +169,39 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn roundtrip_suggestions_cache() {
+        let dir = std::env::temp_dir().join("assura-llm-test-suggest-cache");
+        let _ = std::fs::remove_dir_all(&dir);
+        let cache = LlmCache::new(&dir);
+
+        let resp = SuggestionResponse {
+            suggestions: vec![RawSuggestion {
+                kind: "requires".to_string(),
+                expression: "x > 0".to_string(),
+                confidence: 0.9,
+                reasoning: "guard clause".to_string(),
+                evidence_line: Some(5),
+            }],
+            skipped_reason: None,
+        };
+
+        cache.put_suggestions("skey", &resp).unwrap();
+        let got = cache.get_suggestions("skey").unwrap();
+        assert_eq!(got.suggestions.len(), 1);
+        assert_eq!(got.suggestions[0].expression, "x > 0");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn get_nonexistent_returns_none() {
+        let dir = std::env::temp_dir().join("assura-llm-test-miss");
+        let _ = std::fs::remove_dir_all(&dir);
+        let cache = LlmCache::new(&dir);
+        assert!(cache.get_analysis("nonexistent").is_none());
+        assert!(cache.get_suggestions("nonexistent").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

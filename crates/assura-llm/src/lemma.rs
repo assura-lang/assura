@@ -519,10 +519,7 @@ fn build_validity_query(assumptions: &[String], conclusion: &str) -> String {
 
     // Simple identifier extraction from SMT-LIB text
     for word in all_text.split(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
-        if !word.is_empty()
-            && !word.chars().next().unwrap().is_ascii_digit()
-            && !is_smtlib_keyword(word)
-        {
+        if !word.is_empty() && !word.as_bytes()[0].is_ascii_digit() && !is_smtlib_keyword(word) {
             vars.insert(word.to_string());
         }
     }
@@ -580,9 +577,19 @@ fn run_smtlib_check(query: &str) -> LemmaResult {
         };
     }
 
+    let tmp_str = match tmp.to_str() {
+        Some(s) => s.to_string(),
+        None => {
+            let _ = std::fs::remove_file(&tmp);
+            return LemmaResult::ParseError {
+                message: "temp path is not valid UTF-8".to_string(),
+            };
+        }
+    };
+
     let output = Command::new("z3")
         .arg("-T:5") // 5 second timeout
-        .arg(tmp.to_str().unwrap())
+        .arg(&tmp_str)
         .output();
 
     let _ = std::fs::remove_file(&tmp);
@@ -659,6 +666,18 @@ pub fn generate_and_verify_lemmas(
         provider.model_id(),
     );
 
+    // Extract requires/ensures once (used for both cache-hit and cache-miss paths)
+    let requires: Vec<String> = contracts
+        .iter()
+        .filter(|c| c.kind == "requires")
+        .map(|c| c.expression.clone())
+        .collect();
+    let ensures: Vec<String> = contracts
+        .iter()
+        .filter(|c| c.kind == "ensures")
+        .map(|c| c.expression.clone())
+        .collect();
+
     // Check cache for lemma chain
     let lemma_dir = cache.cache_dir().join("lemmas");
     let cache_path = lemma_dir.join(format!("{key}.json"));
@@ -666,16 +685,6 @@ pub fn generate_and_verify_lemmas(
         && let Ok(chain) = serde_json::from_str::<LemmaChain>(&data)
     {
         // Re-verify (cheap) even if cached, in case Z3 version changed
-        let requires: Vec<String> = contracts
-            .iter()
-            .filter(|c| c.kind == "requires")
-            .map(|c| c.expression.clone())
-            .collect();
-        let ensures: Vec<String> = contracts
-            .iter()
-            .filter(|c| c.kind == "ensures")
-            .map(|c| c.expression.clone())
-            .collect();
         let verification = verify_lemma_chain(&requires, &ensures, &chain);
         return Ok((chain, verification));
     }
@@ -699,16 +708,6 @@ pub fn generate_and_verify_lemmas(
     }
 
     // Verify with Z3
-    let requires: Vec<String> = contracts
-        .iter()
-        .filter(|c| c.kind == "requires")
-        .map(|c| c.expression.clone())
-        .collect();
-    let ensures: Vec<String> = contracts
-        .iter()
-        .filter(|c| c.kind == "ensures")
-        .map(|c| c.expression.clone())
-        .collect();
     let verification = verify_lemma_chain(&requires, &ensures, &chain);
 
     Ok((chain, verification))
@@ -823,5 +822,93 @@ mod tests {
         // should be (=> (> a 0) (and (> b 0) (> c 0)))
         let smt = assertion_to_smtlib("a > 0 implies b > 0 and c > 0").unwrap();
         assert_eq!(smt, "(=> (> a 0) (and (> b 0) (> c 0)))");
+    }
+
+    #[test]
+    fn assertion_empty_input() {
+        let result = assertion_to_smtlib("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn assertion_unbalanced_parens() {
+        let result = assertion_to_smtlib("(a + b");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn assertion_unicode_rejected() {
+        let result = assertion_to_smtlib("α > 0");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn assertion_unary_minus() {
+        let smt = assertion_to_smtlib("-x + 1").unwrap();
+        assert_eq!(smt, "(+ (- x) 1)");
+    }
+
+    #[test]
+    fn assertion_mod_operator() {
+        let smt = assertion_to_smtlib("x mod 2 == 0").unwrap();
+        assert_eq!(smt, "(= (mod x 2) 0)");
+    }
+
+    #[test]
+    fn assertion_not_equals() {
+        let smt = assertion_to_smtlib("x != y").unwrap();
+        assert_eq!(smt, "(distinct x y)");
+    }
+
+    #[test]
+    fn verify_empty_lemma_chain() {
+        let chain = LemmaChain {
+            lemmas: vec![],
+            chain_complete: true,
+        };
+        let v = verify_lemma_chain(&["x > 0".to_string()], &["x >= 0".to_string()], &chain);
+        assert_eq!(v.total_count, 0);
+        assert_eq!(v.valid_count, 0);
+    }
+
+    #[test]
+    fn verify_chain_with_parse_error() {
+        let chain = LemmaChain {
+            lemmas: vec![LlmLemma {
+                label: "bad".to_string(),
+                assertion: "α ≥ 0".to_string(), // unparseable
+                justification: "test".to_string(),
+                depends_on: vec![],
+            }],
+            chain_complete: false,
+        };
+        let v = verify_lemma_chain(&["x > 0".to_string()], &[], &chain);
+        assert_eq!(v.total_count, 1);
+        assert_eq!(v.valid_count, 0);
+        assert!(matches!(v.lemmas[0].result, LemmaResult::ParseError { .. }));
+    }
+
+    #[test]
+    fn parse_lemma_response_invalid_json() {
+        let result = parse_lemma_response("not json");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn tokenize_empty() {
+        let tokens = tokenize("").unwrap();
+        assert!(tokens.is_empty());
+    }
+
+    #[test]
+    fn tokenize_operators() {
+        let tokens = tokenize("!= <= >= == < >").unwrap();
+        assert_eq!(tokens.len(), 6);
+        assert!(matches!(&tokens[0], Token::Op(s) if s == "!="));
+        assert!(matches!(&tokens[1], Token::Op(s) if s == "<="));
+        assert!(matches!(&tokens[2], Token::Op(s) if s == ">="));
+        assert!(matches!(&tokens[3], Token::Op(s) if s == "=="));
+        assert!(matches!(&tokens[4], Token::Op(s) if s == "<"));
+        assert!(matches!(&tokens[5], Token::Op(s) if s == ">"));
     }
 }

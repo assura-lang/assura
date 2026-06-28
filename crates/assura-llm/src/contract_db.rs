@@ -218,4 +218,65 @@ mod tests {
         let db = ContractDatabase::default();
         assert!(db.lookup_function("nonexistent").is_none());
     }
+
+    #[test]
+    fn all_contracts_returns_all() {
+        let items = vec![
+            make_item("foo", &["a > 0"], &[]),
+            make_item("bar", &[], &["result > 0"]),
+        ];
+        let scan = vec![(PathBuf::from("lib.rs"), items)];
+        let db = ContractDatabase::from_scan(&scan);
+        assert_eq!(db.all_contracts().len(), 2);
+    }
+
+    #[test]
+    fn functions_without_contracts_are_skipped() {
+        let items = vec![make_item("no_contracts", &[], &[])];
+        let scan = vec![(PathBuf::from("lib.rs"), items)];
+        let db = ContractDatabase::from_scan(&scan);
+        assert!(db.is_empty());
+    }
+
+    #[test]
+    fn lookup_method_by_name_found() {
+        let impl_item = AnnotatedItem {
+            contract: InlineContract::default(),
+            kind: AnnotatedItemKind::ImplBlock {
+                self_type: "MyStruct".to_string(),
+                trait_name: None,
+            },
+            line: 1,
+            offset: 0,
+        };
+        let method_item = make_item("do_thing", &["x > 0"], &["result >= 0"]);
+        let scan = vec![(PathBuf::from("src/lib.rs"), vec![impl_item, method_item])];
+        let db = ContractDatabase::from_scan(&scan);
+
+        let found = db.lookup_method_by_name("do_thing");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().name, "do_thing");
+    }
+
+    #[test]
+    fn lookup_method_with_self_type() {
+        let impl_item = AnnotatedItem {
+            contract: InlineContract::default(),
+            kind: AnnotatedItemKind::ImplBlock {
+                self_type: "Counter".to_string(),
+                trait_name: None,
+            },
+            line: 1,
+            offset: 0,
+        };
+        let method_item = make_item("increment", &["self.count < max"], &[]);
+        let scan = vec![(PathBuf::from("src/lib.rs"), vec![impl_item, method_item])];
+        let db = ContractDatabase::from_scan(&scan);
+
+        let found = db.lookup_method("Counter", "increment");
+        assert!(found.is_some());
+
+        let not_found = db.lookup_method("WrongType", "increment");
+        assert!(not_found.is_none());
+    }
 }

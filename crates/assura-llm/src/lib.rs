@@ -5,6 +5,7 @@
 //! - `HttpProvider` for OpenAI/Anthropic-compatible APIs
 //! - `MockProvider` for testing
 //! - `ContractDatabase` for cross-function contract propagation
+//! - Level 2 lemma chain generation and Z3 verification
 //! - Cache layer keyed by content hash
 //! - Fuzzer crash artifact parsing and crash-guided contract suggestion
 
