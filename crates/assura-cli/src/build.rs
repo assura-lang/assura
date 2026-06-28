@@ -55,7 +55,13 @@ fn resolve_build_config<'a>(
             ..Default::default()
         }
     };
-    BuildConfig { out_dir_str, solver, compile_target, compiler_config, project }
+    BuildConfig {
+        out_dir_str,
+        solver,
+        compile_target,
+        compiler_config,
+        project,
+    }
 }
 
 /// Run verification on a typed file and print results. Returns the verification
@@ -96,11 +102,8 @@ fn verify_and_print(
     if verbosity != Verbosity::Quiet && !results.is_empty() {
         eprintln!();
         eprintln!("Verification ({} clause(s)):", results.len());
-        let _ = assura_smt::display::write_grouped_verification(
-            &mut std::io::stderr(),
-            &results,
-            "  ",
-        );
+        let _ =
+            assura_smt::display::write_grouped_verification(&mut std::io::stderr(), &results, "  ");
     }
     (results, verify_ms)
 }
@@ -118,15 +121,24 @@ pub(crate) fn run_build(
 ) {
     let mut config_output_buf = String::new();
     let bc = resolve_build_config(
-        filename, output_mode, verbosity, cli_output, cli_target,
-        cli_solver, &mut config_output_buf,
+        filename,
+        output_mode,
+        verbosity,
+        cli_output,
+        cli_target,
+        cli_solver,
+        &mut config_output_buf,
     );
 
     // Project mode: detect directory
     if Path::new(filename).is_dir() {
         run_build_project(
-            Path::new(filename), verbosity, bc.out_dir_str,
-            bc.compile_target, no_check, runtime_checks,
+            Path::new(filename),
+            verbosity,
+            bc.out_dir_str,
+            bc.compile_target,
+            no_check,
+            runtime_checks,
         );
         return;
     }
@@ -145,7 +157,11 @@ pub(crate) fn run_build(
             output_mode: OutputMode::Human,
             verbosity,
             project: bc.project.as_ref().map(|(cfg, root)| {
-                (cfg.package.name.as_str(), cfg.package.version.as_str(), root.as_path())
+                (
+                    cfg.package.name.as_str(),
+                    cfg.package.version.as_str(),
+                    root.as_path(),
+                )
             }),
             config_line: bc.project.as_ref().map(|(cfg, _)| {
                 format!(
@@ -159,7 +175,14 @@ pub(crate) fn run_build(
         },
     );
 
-    let CompilationResult { diagnostics, has_errors, typed, timing: phase_timing, file: parsed_file, .. } = output;
+    let CompilationResult {
+        diagnostics,
+        has_errors,
+        typed,
+        timing: phase_timing,
+        file: parsed_file,
+        ..
+    } = output;
     if has_errors {
         assura_diagnostics::report_diagnostics_human(&diagnostics, filename, &source);
         eprintln!("{filename}: {} error(s) found", diagnostics.len());
@@ -168,7 +191,8 @@ pub(crate) fn run_build(
     let typed = typed.expect("type check should succeed if has_errors is false");
 
     // Verify
-    let (verification_results, verify_ms) = verify_and_print(&typed, filename, bc.solver, verbosity);
+    let (verification_results, verify_ms) =
+        verify_and_print(&typed, filename, bc.solver, verbosity);
 
     // Codegen
     let codegen_start = Instant::now();
@@ -187,18 +211,42 @@ pub(crate) fn run_build(
     });
     let codegen_ms = codegen_start.elapsed().as_secs_f64() * 1000.0;
     if verbosity == Verbosity::Verbose {
-        eprintln!("  codegen:   {} file(s) ({codegen_ms:.2}ms)", project.files.len());
+        eprintln!(
+            "  codegen:   {} file(s) ({codegen_ms:.2}ms)",
+            project.files.len()
+        );
         let total = phase_timing.parse_ms
             + phase_timing.resolve_ms.unwrap_or(0.0)
             + phase_timing.typecheck_ms.unwrap_or(0.0)
-            + verify_ms + codegen_ms;
+            + verify_ms
+            + codegen_ms;
         eprintln!("  total:     {total:.2}ms");
         eprintln!();
     }
 
-    write_generated_project(filename, out_dir, &project, &typed, &bc.compile_target, verbosity);
-    write_unresolved_tests(out_dir, &verification_results, parsed_file.as_ref(), &typed, verbosity);
-    run_cargo_build(filename, bc.out_dir_str, out_dir, &bc.compile_target, no_check, verbosity);
+    write_generated_project(
+        filename,
+        out_dir,
+        &project,
+        &typed,
+        &bc.compile_target,
+        verbosity,
+    );
+    write_unresolved_tests(
+        out_dir,
+        &verification_results,
+        parsed_file.as_ref(),
+        &typed,
+        verbosity,
+    );
+    run_cargo_build(
+        filename,
+        bc.out_dir_str,
+        out_dir,
+        &bc.compile_target,
+        no_check,
+        verbosity,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -419,9 +467,7 @@ fn run_cargo_build(
         }
         Err(_) => {
             if verbosity != Verbosity::Quiet {
-                println!(
-                    "OK  {filename} -> {out_dir_str}/ (cargo build skipped: cargo not found)"
-                );
+                println!("OK  {filename} -> {out_dir_str}/ (cargo build skipped: cargo not found)");
             }
         }
     }

@@ -108,8 +108,7 @@ impl AssuraLanguageServer {
         // Extract it from there; fall back to the direct field on error paths.
         let (resolved, type_env) = match output.typed {
             Some(t) => {
-                let r = std::sync::Arc::try_unwrap(t.resolved)
-                    .unwrap_or_else(|arc| (*arc).clone());
+                let r = std::sync::Arc::try_unwrap(t.resolved).unwrap_or_else(|arc| (*arc).clone());
                 (Some(r), Some(t.type_env))
             }
             None => (output.resolved, None),

@@ -31,9 +31,7 @@ use crate::{Type, TypeEnv, TypeError, TypedFile};
 /// Convenience wrapper around [`TypeChecker`]. For custom configuration
 /// or cross-module type checking, use the builder directly.
 pub fn type_check(resolved: ResolvedFile) -> Result<TypedFile, Vec<TypeError>> {
-    TypeChecker::new()
-        .check(resolved)
-        .map_err(|(errs, _)| errs)
+    TypeChecker::new().check(resolved).map_err(|(errs, _)| errs)
 }
 
 type SourceChecker = fn(&assura_parser::ast::SourceFile) -> Vec<TypeError>;

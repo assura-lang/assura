@@ -83,5 +83,8 @@ fn unknown_classification_diagnostic_output() {
     };
     assert!(has_errors2, "solver inconclusive should set has_errors");
     assert!(diag2.message.starts_with("verification inconclusive"));
-    assert_eq!(diag2.code, "A05103", "solver inconclusive should use A05103");
+    assert_eq!(
+        diag2.code, "A05103",
+        "solver inconclusive should use A05103"
+    );
 }

@@ -3476,7 +3476,8 @@ service DataStore {
 
 #[test]
 fn runtime_checks_via_codegen_with_config() {
-    let source = "contract SafeDiv { requires(a: Int, b: Int) { b != 0 } ensures(result: Int) { true } }";
+    let source =
+        "contract SafeDiv { requires(a: Int, b: Int) { b != 0 } ensures(result: Int) { true } }";
     let project = codegen_with_config_ok(
         source,
         super::BackendConfig {
