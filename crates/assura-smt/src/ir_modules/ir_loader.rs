@@ -60,6 +60,7 @@ impl LoadedVerifyExtras {
             ir_bodies: Some(&self.ir_map),
             ir_blocks: Some(&self.block_map),
             type_env: None,
+            ir_loading_attempted: true,
         })
     }
 }

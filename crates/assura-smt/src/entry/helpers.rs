@@ -91,16 +91,22 @@ pub struct VerifyFileExtras<'a> {
     >,
     /// Layer-0 type environment for HIR/type-aware IR encoding.
     pub type_env: Option<&'a assura_types::TypeEnv>,
+    /// Whether IR sidecar loading was attempted (source path was provided).
+    /// When true, ensures-with-result clauses without an IR body are skipped
+    /// with Unknown instead of being sent to the solver (#703).
+    pub ir_loading_attempted: bool,
 }
 
 /// Build optional IR/type extras for a verify pass.
 pub(crate) fn build_verify_extras<'a>(
     typed: &'a TypedFile,
     loaded: Option<&'a crate::ir_loader::LoadedVerifyExtras>,
+    ir_loading_attempted: bool,
 ) -> VerifyFileExtras<'a> {
     VerifyFileExtras {
         ir_bodies: loaded.filter(|l| !l.is_empty()).map(|l| &l.ir_map),
         ir_blocks: loaded.filter(|l| !l.is_empty()).map(|l| &l.block_map),
         type_env: Some(&typed.type_env),
+        ir_loading_attempted,
     }
 }

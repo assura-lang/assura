@@ -473,8 +473,15 @@ pub(crate) fn verify_impl_with_timeout(
 
         // #703: Skip ensures clauses referencing result when no IR body
         // is loaded. Emit Unknown instead of producing spurious counterexamples.
+        // Only applies when IR loading was attempted (source path provided).
         let has_ir = ir_body.is_some();
-        let skip = crate::entry::verify::unconstrained_result_unknowns(&name, &clauses, has_ir);
+        let ir_loading_attempted = extras.is_some_and(|e| e.ir_loading_attempted);
+        let skip = crate::entry::verify::unconstrained_result_unknowns(
+            &name,
+            &clauses,
+            has_ir,
+            ir_loading_attempted,
+        );
         if !skip.is_empty() {
             let filtered: Vec<assura_ast::Clause> = clauses
                 .iter()

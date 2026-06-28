@@ -129,7 +129,8 @@ impl<'a> Verifier<'a> {
                 .map(|path| crate::ir_loader::LoadedVerifyExtras::load(path, self.typed))
         };
         let effective_loaded = self.inline_extras.or(loaded_storage.as_ref());
-        let extras = build_verify_extras(self.typed, effective_loaded);
+        let ir_loading_attempted = self.source.is_some() || self.inline_extras.is_some();
+        let extras = build_verify_extras(self.typed, effective_loaded, ir_loading_attempted);
 
         let enable_cache = self.options.enable_cache;
         let mut results = if self.parallel {
@@ -299,16 +300,23 @@ pub(crate) fn expr_references_result(expr: &assura_ast::SpExpr) -> bool {
     }
 }
 
-/// When no IR body is loaded for a contract, ensures clauses referencing
-/// `result` cannot be verified (Z3 treats result as unconstrained). Emit
-/// `Unknown` for those clauses so users see "no implementation" instead
-/// of spurious counterexamples (#703).
+/// When IR loading was attempted but no body exists for a contract,
+/// ensures clauses referencing `result` cannot be verified (Z3 treats
+/// result as unconstrained). Emit `Unknown` for those clauses so
+/// users see "no implementation" instead of spurious counterexamples (#703).
+///
+/// `ir_loading_attempted` should be `true` when a source path was provided
+/// (CLI, pipeline) so IR sidecar discovery ran. When `false` (direct
+/// `verify(&typed)` without a source path), the skip is not applied
+/// and ensures-with-result go to the solver normally (allowing tests
+/// like Nat-return-constrains-result to work).
 pub(crate) fn unconstrained_result_unknowns(
     name: &str,
     clauses: &[Clause],
     has_ir: bool,
+    ir_loading_attempted: bool,
 ) -> Vec<VerificationResult> {
-    if has_ir {
+    if has_ir || !ir_loading_attempted {
         return Vec::new();
     }
     clauses
@@ -356,7 +364,10 @@ pub(crate) fn verify_parallel_with_solver(
             // #703: Skip ensures clauses referencing result when no IR body
             // is loaded. Emit Unknown instead of sending to Z3 where result
             // is unconstrained and produces spurious counterexamples.
-            let skip_results = unconstrained_result_unknowns(name, clauses, has_ir);
+            // Only applies when IR loading was attempted (source path provided).
+            let ir_loading_attempted = extras.is_some_and(|e| e.ir_loading_attempted);
+            let skip_results =
+                unconstrained_result_unknowns(name, clauses, has_ir, ir_loading_attempted);
             if !skip_results.is_empty() {
                 // Filter out ensures-with-result clauses so the solver only
                 // sees clauses it can meaningfully verify.
@@ -1200,7 +1211,8 @@ mod tests {
                 rhs: Box::new(sp(Expr::Literal(Literal::Int("0".into())))),
             })),
         ];
-        let unknowns = unconstrained_result_unknowns("Clamp", &clauses, false);
+        // IR loading attempted but no body for this contract
+        let unknowns = unconstrained_result_unknowns("Clamp", &clauses, false, true);
         assert_eq!(unknowns.len(), 1);
         assert!(unknowns[0].is_known_limitation());
         assert!(unknowns[0].clause_desc().contains("ensures"));
@@ -1213,7 +1225,7 @@ mod tests {
             op: BinOp::Gte,
             rhs: Box::new(sp(Expr::Literal(Literal::Int("0".into())))),
         }))];
-        let unknowns = unconstrained_result_unknowns("Clamp", &clauses, true);
+        let unknowns = unconstrained_result_unknowns("Clamp", &clauses, true, true);
         assert!(unknowns.is_empty());
     }
 
@@ -1225,7 +1237,7 @@ mod tests {
             op: BinOp::Gte,
             rhs: Box::new(sp(Expr::Literal(Literal::Int("0".into())))),
         }))];
-        let unknowns = unconstrained_result_unknowns("Test", &clauses, false);
+        let unknowns = unconstrained_result_unknowns("Test", &clauses, false, true);
         assert!(unknowns.is_empty());
     }
 
@@ -1249,8 +1261,24 @@ mod tests {
                 rhs: Box::new(sp(Expr::Ident("hi".into()))),
             })),
         ];
-        // Should emit 2 unknowns (the two ensures referencing result)
-        let unknowns = unconstrained_result_unknowns("Clamp", &clauses, false);
+        // IR loading attempted, should emit 2 unknowns for result-referencing clauses
+        let unknowns = unconstrained_result_unknowns("Clamp", &clauses, false, true);
         assert_eq!(unknowns.len(), 2);
+    }
+
+    #[test]
+    fn unconstrained_result_unknowns_no_loading_attempted() {
+        // When IR loading was not attempted (no source path), skip logic
+        // should not fire even for ensures referencing result.
+        let clauses = vec![ensures_clause(sp(Expr::BinOp {
+            lhs: Box::new(sp(Expr::Ident("result".into()))),
+            op: BinOp::Gte,
+            rhs: Box::new(sp(Expr::Literal(Literal::Int("0".into())))),
+        }))];
+        let unknowns = unconstrained_result_unknowns("Test", &clauses, false, false);
+        assert!(
+            unknowns.is_empty(),
+            "should not skip when IR loading was not attempted"
+        );
     }
 }
