@@ -39,12 +39,12 @@ fn unknown_classification_diagnostic_output() {
     let filename = "test.assura";
     let clause_desc = "TestContract: ensures";
 
-    // Warning path: known limitation
+    // Warning path: known limitation -> A05102
     let reason = "clause uses features not yet encoded in SMT (method call)";
     let mut has_errors = false;
     let diag = if assura_smt::is_known_smt_limitation(reason) {
         assura_diagnostics::Diagnostic::warning(
-            "A05100",
+            "A05102",
             format!("verification skipped for {clause_desc}: {reason}"),
             0..0,
         )
@@ -52,7 +52,7 @@ fn unknown_classification_diagnostic_output() {
     } else {
         has_errors = true;
         assura_diagnostics::Diagnostic::error(
-            "A05100",
+            "A05103",
             format!("verification inconclusive for {clause_desc}: {reason}"),
             0..0,
         )
@@ -60,13 +60,14 @@ fn unknown_classification_diagnostic_output() {
     };
     assert!(!has_errors, "known limitation should not set has_errors");
     assert!(diag.message.starts_with("verification skipped"));
+    assert_eq!(diag.code, "A05102", "known limitation should use A05102");
 
-    // Error path: solver inconclusive
+    // Error path: solver inconclusive -> A05103
     let reason2 = "non-linear arithmetic";
     let mut has_errors2 = false;
     let diag2 = if assura_smt::is_known_smt_limitation(reason2) {
         assura_diagnostics::Diagnostic::warning(
-            "A05100",
+            "A05102",
             format!("verification skipped for {clause_desc}: {reason2}"),
             0..0,
         )
@@ -74,7 +75,7 @@ fn unknown_classification_diagnostic_output() {
     } else {
         has_errors2 = true;
         assura_diagnostics::Diagnostic::error(
-            "A05100",
+            "A05103",
             format!("verification inconclusive for {clause_desc}: {reason2}"),
             0..0,
         )
@@ -82,4 +83,5 @@ fn unknown_classification_diagnostic_output() {
     };
     assert!(has_errors2, "solver inconclusive should set has_errors");
     assert!(diag2.message.starts_with("verification inconclusive"));
+    assert_eq!(diag2.code, "A05103", "solver inconclusive should use A05103");
 }

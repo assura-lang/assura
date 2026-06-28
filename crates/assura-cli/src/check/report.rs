@@ -107,7 +107,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                 *has_errors = true;
                 diagnostics.push(
                     assura_diagnostics::Diagnostic::error(
-                        "A05100",
+                        "A05101",
                         format!(
                             "verification timeout for {clause_desc} (consider increasing --timeout)"
                         ),
@@ -123,7 +123,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                 if is_known_smt_limitation(reason) {
                     diagnostics.push(
                         assura_diagnostics::Diagnostic::warning(
-                            "A05100",
+                            "A05102",
                             format!("verification skipped for {clause_desc}: {reason}"),
                             span.clone(),
                         )
@@ -133,7 +133,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                     *has_errors = true;
                     diagnostics.push(
                         assura_diagnostics::Diagnostic::error(
-                            "A05100",
+                            "A05103",
                             format!("verification inconclusive for {clause_desc}: {reason}"),
                             span.clone(),
                         )

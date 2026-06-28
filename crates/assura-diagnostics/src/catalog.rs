@@ -626,6 +626,50 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
                  inputs, or weaken the ensures clause to account for the case. The \
                  counterexample model shows exactly which inputs break the contract.",
         },
+        ErrorInfo {
+            code: "A05101",
+            name: "Verification timeout",
+            description: "The SMT solver timed out before it could prove or disprove the \
+                          contract clause. This does not mean the contract is wrong; the \
+                          solver just could not decide within the configured time limit.",
+            example: r#"  contract ComplexArithmetic {
+      requires: a * b * c > 0   // may time out on non-linear
+      ensures: a * b * c < 1000
+  }"#,
+            fix: "Increase the solver timeout with `--timeout <seconds>`. If that does \
+                 not help, try simplifying the contract: break complex conditions into \
+                 smaller contracts, add intermediate lemmas, or avoid non-linear \
+                 arithmetic.",
+        },
+        ErrorInfo {
+            code: "A05102",
+            name: "Verification skipped (known compiler limitation)",
+            description: "The contract clause uses a language feature that the SMT encoder \
+                          does not yet support. This is a known compiler limitation, not a \
+                          problem with your contract. The clause is skipped with a warning.",
+            example: r#"  contract DeepAccess {
+      requires: obj.nested.field > 0   // deep field chains
+      ensures: true
+  }"#,
+            fix: "No action needed. The compiler will verify this clause once the \
+                 feature is implemented. You can track progress in the project roadmap.",
+        },
+        ErrorInfo {
+            code: "A05103",
+            name: "Verification inconclusive",
+            description: "The SMT solver returned 'unknown' for a reason other than a known \
+                          compiler limitation. The solver could not determine whether the \
+                          contract clause holds. This often happens with non-linear \
+                          arithmetic, quantifiers over unbounded domains, or very complex \
+                          constraint systems.",
+            example: r#"  contract NonLinear {
+      requires: x > 0
+      ensures: x * x * x > 0   // non-linear: solver may be unable to decide
+  }"#,
+            fix: "Simplify the contract: linearize arithmetic where possible, add bounds \
+                 on quantifier domains, or split into smaller verifiable pieces. \
+                 Try a different solver with `--solver cvc5`.",
+        },
         // -- A01003-A01005: Parser errors --
         ErrorInfo {
             code: "A01003",
