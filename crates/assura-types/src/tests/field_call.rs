@@ -234,7 +234,7 @@ type Point {
 }
 "#;
     let resolved = resolve_ok(src);
-    let typed = type_check(&resolved).expect("type_check should succeed");
+    let typed = type_check(resolved).expect("type_check should succeed");
     assert_eq!(typed.type_env.lookup_field("Point", "x"), Some(&Type::Int));
     assert_eq!(
         typed.type_env.lookup_field("Point", "y"),
@@ -251,7 +251,7 @@ type Point {
 }
 "#;
     let resolved = resolve_ok(src);
-    let typed = type_check(&resolved).expect("type_check should succeed");
+    let typed = type_check(resolved).expect("type_check should succeed");
     assert_eq!(typed.type_env.lookup_field("Point", "x"), Some(&Type::Int));
     assert_eq!(
         typed.type_env.lookup_field("Point", "y"),

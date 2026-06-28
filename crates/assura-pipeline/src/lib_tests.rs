@@ -63,12 +63,15 @@ fn compile_valid_contract() {
         &config,
     );
     output.file.unwrap();
-    output.resolved.unwrap();
+    // On success, resolved is consumed into typed.resolved (Arc); the
+    // CompilationOutput.resolved field is None.
     assert!(
         output.typed.is_some(),
         "typed was None; diagnostics: {:?}",
         output.diagnostics
     );
+    // Verify resolved is accessible via typed
+    assert!(output.typed.as_ref().unwrap().resolved.source.decls.len() > 0);
     assert!(
         !output.has_errors,
         "unexpected errors: {:?}",

@@ -2,7 +2,7 @@ use super::*;
 #[test]
 fn empty_file_type_checks() {
     let resolved = resolve_ok("");
-    let typed = type_check(&resolved).expect("type_check should succeed");
+    let typed = type_check(resolved).expect("type_check should succeed");
     // Should have at least the built-in types in the environment.
     assert!(!typed.type_env.is_empty());
 }
@@ -17,7 +17,8 @@ contract BadExpr {
 }
 "#;
     let resolved = resolve_ok(src);
-    let res = type_check(&resolved);
+    let decl_span = resolved.source.decls[0].span.clone();
+    let res = type_check(resolved);
     assert!(res.is_err(), "expected type error");
     let errs = res.unwrap_err();
     // Find a relevant type error (A03001 or containing "numeric" or "Bool")
@@ -30,7 +31,6 @@ contract BadExpr {
         "error span must be real (not no_span 0..0), got {:?}",
         err.span
     );
-    let decl_span = resolved.source.decls[0].span.clone();
     assert!(err.span != decl_span, "should not be the whole decl span");
     // Tight relative to decl (subexpr precision)
     assert!(
@@ -54,7 +54,7 @@ contract BadExpr {
 #[test]
 fn builtin_types_in_env() {
     let resolved = resolve_ok("");
-    let typed = type_check(&resolved).expect("type_check should succeed");
+    let typed = type_check(resolved).expect("type_check should succeed");
     let env = &typed.type_env;
 
     assert_eq!(env.lookup("Int"), Some(&Type::Int));
@@ -92,7 +92,7 @@ enum Color {
 }
 "#;
     let resolved = resolve_ok(src);
-    let typed = type_check(&resolved).expect("type_check should succeed");
+    let typed = type_check(resolved).expect("type_check should succeed");
     let env = &typed.type_env;
 
     assert_eq!(env.lookup("Foo"), Some(&Type::Named("Foo".into())));
@@ -109,7 +109,7 @@ contract SafeBuffer {
 }
 "#;
     let resolved = resolve_ok(src);
-    let typed = type_check(&resolved).expect("type_check should succeed");
+    let typed = type_check(resolved).expect("type_check should succeed");
     assert_eq!(
         typed.type_env.lookup("SafeBuffer"),
         Some(&Type::Named("SafeBuffer".into()))
@@ -124,7 +124,7 @@ fn helper(n: Int) -> Int {
 }
 "#;
     let resolved = resolve_ok(src);
-    let typed = type_check(&resolved).expect("type_check should succeed");
+    let typed = type_check(resolved).expect("type_check should succeed");
     assert_eq!(
         typed.type_env.lookup("helper"),
         Some(&Type::Fn {
@@ -144,7 +144,7 @@ contract Container<T> {
 }
 "#;
     let resolved = resolve_ok(src);
-    let typed = type_check(&resolved).expect("type_check should succeed");
+    let typed = type_check(resolved).expect("type_check should succeed");
     assert_eq!(
         typed.type_env.lookup("T"),
         Some(&Type::TypeParam("T".into()))
@@ -160,7 +160,7 @@ type Point {
 }
 "#;
     let resolved = resolve_ok(src);
-    let typed = type_check(&resolved).expect("type_check should succeed");
+    let typed = type_check(resolved).expect("type_check should succeed");
     // The resolved file should be preserved intact
     assert_eq!(typed.resolved.source.decls.len(), 1);
 }
@@ -168,7 +168,7 @@ type Point {
 #[test]
 fn type_env_len() {
     let resolved = resolve_ok("");
-    let typed = type_check(&resolved).expect("type_check should succeed");
+    let typed = type_check(resolved).expect("type_check should succeed");
     // At minimum, all 22 built-in types should be in the env
     assert!(typed.type_env.len() >= 22);
 }
@@ -290,7 +290,7 @@ fn compute(x: Nat, y: Float) -> Bool {
 }
 "#;
     let resolved = resolve_ok(src);
-    let typed = type_check(&resolved).expect("type_check should succeed");
+    let typed = type_check(resolved).expect("type_check should succeed");
     assert_eq!(
         typed.type_env.lookup("compute"),
         Some(&Type::Fn {
@@ -309,7 +309,7 @@ extern fn read_bytes(n: U32) -> Bytes
   effects { io.read }
 "#;
     let resolved = resolve_ok(src);
-    let typed = type_check(&resolved).expect("type_check should succeed");
+    let typed = type_check(resolved).expect("type_check should succeed");
     assert_eq!(
         typed.type_env.lookup("read_bytes"),
         Some(&Type::Fn {

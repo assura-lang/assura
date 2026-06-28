@@ -16,7 +16,7 @@ fn e2e_safe_division_check_passes() {
     );
     let file = out.file.expect("parse");
     let resolved = assura_resolve::resolve(&file).expect("resolution should succeed");
-    let typed = assura_types::type_check(&resolved).expect("type check should succeed");
+    let typed = assura_types::type_check(resolved).expect("type check should succeed");
 
     // Codegen should succeed
     let project = codegen(&typed);

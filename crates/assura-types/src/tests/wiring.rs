@@ -222,7 +222,7 @@ fn square(x: Int) -> Int
     let resolved = assura_resolve::resolve(&file).unwrap();
     // type_check should succeed; the `result >= 0` comparison is
     // Int >= Int which is valid
-    let typed = type_check(&resolved);
+    let typed = type_check(resolved);
     assert!(typed.is_ok(), "type_check failed: {:?}", typed.err());
 }
 
@@ -955,7 +955,7 @@ ensures { result >= 0 }
 }
 "#;
     let resolved = resolve_ok(src);
-    let typed = type_check(&resolved);
+    let typed = type_check(resolved);
     assert!(
         typed.is_ok(),
         "query with output(result: Nat) and ensures should pass: {:?}",
@@ -983,7 +983,7 @@ ensures { result >= 0 }
 }
 "#;
     let resolved = resolve_ok(src);
-    let typed = type_check(&resolved);
+    let typed = type_check(resolved);
     assert!(
         typed.is_ok(),
         "service with typed ops should pass: {:?}",
@@ -1029,7 +1029,7 @@ output(result: Bool)
 }
 "#;
     let resolved = resolve_ok(src);
-    let typed = type_check(&resolved);
+    let typed = type_check(resolved);
     assert!(
         typed.is_ok(),
         "store service should pass: {:?}",
@@ -1056,7 +1056,7 @@ ensures { true }
 }
 "#;
     let resolved = resolve_ok(src);
-    let typed = type_check(&resolved);
+    let typed = type_check(resolved);
     assert!(typed.is_ok(), "no-io op should pass: {:?}", typed.err());
     let typed = typed.unwrap();
     if let Some(Type::Fn { params, ret }) = typed.type_env.lookup("Ping") {
@@ -1076,7 +1076,7 @@ service Guardian {
 }
 "#;
     let resolved = resolve_ok(src);
-    let typed = type_check(&resolved);
+    let typed = type_check(resolved);
     assert!(
         typed.is_ok(),
         "invariant-only service should pass: {:?}",
@@ -1334,7 +1334,7 @@ contract Process {
 }
 "#,
     );
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     // The call-graph check for contracts is based on names in the effect map.
     // ReadData is a contract name with effects {io}, so if Process references
     // ReadData in its ensures, the inferred callee effects include io.
@@ -1437,7 +1437,7 @@ contract Plain {
 }
 "#,
     );
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     assert!(
         result.is_ok(),
         "contract without security labels should pass: {result:?}"
@@ -1522,7 +1522,7 @@ contract SecureHash {
     );
     // This should type-check OK because ensures doesn't directly flow
     // secret key to result (just checks length)
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     assert!(
         result.is_ok(),
         "secret input not flowing to result should pass: {result:?}"

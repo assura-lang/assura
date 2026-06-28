@@ -32,7 +32,7 @@ pub fn pipeline(source: &str) -> Result<(), Vec<String>> {
             .map(|e| format!("{}: {}", e.code, e.message))
             .collect::<Vec<_>>()
     })?;
-    assura_types::type_check(&resolved).map_err(|errs| {
+    assura_types::type_check(resolved).map_err(|errs| {
         errs.iter()
             .map(|e| format!("{}: {}", e.code, e.message))
             .collect::<Vec<_>>()

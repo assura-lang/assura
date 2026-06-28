@@ -103,7 +103,10 @@ Linked from `AGENTS.md` (LLM decision tree). Regenerated/curated; not exhaustive
 | A22001 | ? | ? | Exceeds declared complexity | O(n^2) found, O(n) declared | Complexity Bounds (A22xxx) | rg code in crates |
 | A22002 | ? | ? | Complexity analysis timeout | AARA solver timed out | Complexity Bounds (A22xxx) | rg code in crates |
 | A22003 | ? | ? | Unbounded allocation detected | No allocation bound proved | Complexity Bounds (A22xxx) | rg code in crates |
-| A05100 | smt+cli | assura-smt / assura-cli | SMT Unknown / inconclusive (limitation vs error) | (implementation; see CLI/SMT Unknown policy) | (impl) | result.rs, check.rs |
+| A05100 | smt+cli | assura-smt / assura-cli | SMT counterexample found (verification failed) | Fix the contract (real violation) | (impl) | check/report.rs |
+| A05101 | cli | assura-cli | SMT solver timed out | Increase `--timeout` | (impl) | check/report.rs |
+| A05102 | cli | assura-cli | Known compiler limitation (warning, exit 0) | No action needed | (impl) | check/report.rs |
+| A05103 | cli | assura-cli | Solver inconclusive (error, exit 1) | Simplify the contract | (impl) | check/report.rs |
 | A10002 | types | assura-types | Match on unknown scrutinee without wildcard | (implementation; see CLI/SMT Unknown policy) | (impl) | checks/meta.rs (match exhaustiveness) |
 
 ## High-traffic implementation codes (not always in SPEC §7.2 table above)
@@ -164,7 +167,7 @@ in the same PR when agents are likely to hit it again.
 | `A08xxx` taint/flow | `checks/info_flow.rs` / `checkers/taint.rs` |
 | `A09xxx` / `A10xxx` match/totality | `checks/meta.rs` / `checkers/totality.rs`; parser arm trivia footgun |
 | `A14xxx` frame/modifies | `checks/frame_totality.rs` |
-| `A05100` Unknown | `assura_smt::is_known_smt_limitation`; limitation = warning, else error |
+| `A05100` counterexample / `A05101` timeout / `A05102` limitation / `A05103` inconclusive | `check/report.rs`; limitation (A05102) = warning, else error |
 | `A52xxx` / `A54xxx` / high A-series | domain/meta features: `checks/meta.rs`, `domain/`, then `rg 'Axxxxx' crates` |
 | Wrong phase suspicion | `bash scripts/agent-guards.sh` then re-read AGENTS decision tree |
 

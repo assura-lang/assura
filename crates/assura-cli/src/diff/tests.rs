@@ -6,7 +6,7 @@ fn full_pipeline(source: &str) -> Result<assura_codegen::GeneratedProject, Strin
     }
     let file = file.ok_or("parse returned None")?;
     let resolved = assura_resolve::resolve(&file).map_err(|e| format!("resolve errors: {e:?}"))?;
-    let typed = assura_types::type_check(&resolved).map_err(|e| format!("type errors: {e:?}"))?;
+    let typed = assura_types::type_check(resolved).map_err(|e| format!("type errors: {e:?}"))?;
     Ok(assura_codegen::codegen(&typed))
 }
 
@@ -163,7 +163,7 @@ contract Typed {
 "#;
     let file = assura_parser::parse_unwrap(source);
     let resolved = assura_resolve::resolve(&file).unwrap();
-    let typed = assura_types::type_check(&resolved);
+    let typed = assura_types::type_check(resolved);
     // `requires { x + 1 }` is an Int expression where Bool is expected,
     // so type checking should report at least one error.
     assert!(
@@ -244,7 +244,7 @@ fn test_must_reject_fixtures() {
                     continue;
                 }
             };
-            let type_result = assura_types::type_check(&resolved);
+            let type_result = assura_types::type_check(resolved);
             match type_result {
                 Err(type_errors) => {
                     let found = type_errors.iter().any(|e| e.code == code);
@@ -363,7 +363,7 @@ fn test_must_compile_fixtures() {
         });
 
         // Type check
-        let typed = assura_types::type_check(&resolved).unwrap_or_else(|errs| {
+        let typed = assura_types::type_check(resolved).unwrap_or_else(|errs| {
             panic!("{}: type errors: {:?}", path.display(), errs);
         });
 
@@ -463,7 +463,7 @@ contract CraneliftTest {
 "#;
     let file = assura_parser::parse_unwrap(source);
     let resolved = assura_resolve::resolve(&file).unwrap();
-    let typed = assura_types::type_check(&resolved).unwrap();
+    let typed = assura_types::type_check(resolved).unwrap();
     let config = assura_codegen::BackendConfig {
         backend: assura_codegen::CodegenBackend::Cranelift,
         opt_level: 0,
@@ -1008,7 +1008,7 @@ fn run_e2e_pipeline(source: &str, source_path: &std::path::Path) -> (bool, bool)
         Ok(r) => r,
         Err(_) => return (true, false),
     };
-    let typed = match assura_types::TypeChecker::new().check(&resolved) {
+    let typed = match assura_types::TypeChecker::new().check(resolved) {
         Ok(t) => t,
         Err(_) => return (true, false),
     };

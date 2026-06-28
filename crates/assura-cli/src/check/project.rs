@@ -45,11 +45,12 @@ pub(crate) fn run_check_project(
     let mut total_bindings = 0usize;
 
     // Type-check each resolved file with cross-module type information
-    for (module_path, resolved) in &resolved_files {
+    let modules_map = resolved_files.clone();
+    for (module_path, resolved) in resolved_files {
         total_modules += 1;
         match assura_types::TypeChecker::new()
             .config(config.type_check.clone())
-            .modules(resolved_files.clone())
+            .modules(modules_map.clone())
             .check(resolved)
         {
             Ok(typed) => {
@@ -58,11 +59,11 @@ pub(crate) fn run_check_project(
                 if output_mode == OutputMode::Human {
                     eprintln!(
                         "OK  {module_path}: {} symbol(s), {bindings} binding(s)",
-                        resolved.symbols.symbols.len()
+                        typed.resolved.symbols.symbols.len()
                     );
                 }
             }
-            Err(errors) => {
+            Err((errors, _returned_resolved)) => {
                 total_errors += errors.len();
                 if output_mode == OutputMode::Human {
                     eprintln!("ERR {module_path}: {} error(s)", errors.len());

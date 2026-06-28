@@ -23,7 +23,7 @@ pub(super) use assura_resolve::ResolvedFile;
 /// on `assura-types` via the pipeline, so the returned `TypedFile` is a
 /// *different type instance* than this crate under test (same footgun as
 /// `codegen_ok` inside `assura-codegen` tests). For happy-path type checks
-/// here, use `resolve_ok` + `type_check(&resolved).expect(...)`. For
+/// here, use `resolve_ok` + `type_check(resolved).expect(...)`. For
 /// error-code-only negative tests, call `assura_test_support::expect_type_errors`
 /// / `compile_result` directly (inspect codes via support helpers, not
 /// `TypedFile`).

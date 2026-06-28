@@ -272,7 +272,7 @@ fn cross_file_import_resolves_contract_type() {
 
     let result = crate::TypeChecker::new()
         .modules(modules)
-        .check(&main_resolved);
+        .check(main_resolved);
     // Should succeed: imported Add is known, main's own types are valid
     assert!(result.is_ok(), "cross-file type check should succeed");
 
@@ -321,7 +321,7 @@ fn cross_file_import_resolves_type_def() {
 
     let result = crate::TypeChecker::new()
         .modules(modules)
-        .check(&main_resolved);
+        .check(main_resolved);
     assert!(result.is_ok(), "cross-file type check should succeed");
 
     let typed = result.unwrap();
@@ -342,7 +342,7 @@ fn cross_file_without_modules_still_works() {
     let resolved = assura_resolve::resolve(&file).expect("resolve failed");
     let modules = std::collections::HashMap::new();
 
-    let result = crate::TypeChecker::new().modules(modules).check(&resolved);
+    let result = crate::TypeChecker::new().modules(modules).check(resolved);
     assert!(
         result.is_ok(),
         "type checking with empty modules map should still work"
@@ -360,7 +360,7 @@ fn cross_file_unresolved_import_is_ignored() {
 
     let result = crate::TypeChecker::new()
         .modules(modules)
-        .check(&main_resolved);
+        .check(main_resolved);
     // Should succeed; unresolved imports are just Unknown types (no crash)
     assert!(
         result.is_ok(),
@@ -532,7 +532,7 @@ fn cross_type_comparison_string_vs_int_rejected() {
         }
     "#;
     let resolved = resolve_ok(src);
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     let errs = result.expect_err("String >= Int comparison should be rejected");
     assert!(
         errs.iter().any(|e| e.code.as_str().starts_with("A03")),
@@ -551,7 +551,7 @@ fn cross_type_arithmetic_string_plus_int_rejected() {
         }
     "#;
     let resolved = resolve_ok(src);
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     let errs = result.expect_err("String + Int arithmetic should be rejected");
     assert!(
         errs.iter().any(|e| e.code.as_str().starts_with("A03")),
@@ -570,7 +570,7 @@ fn same_type_comparison_passes() {
         }
     "#;
     let resolved = resolve_ok(src);
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     assert!(result.is_ok(), "Int >= Int should pass: {:?}", result.err());
 }
 
@@ -761,7 +761,7 @@ contract SortEquiv {
 }
 "#;
     let resolved = resolve_ok(src);
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     let errors = result.unwrap_err();
     assert!(
         errors.iter().any(|e| e.code == "A49001"),
@@ -914,7 +914,7 @@ fn match_non_exhaustive_missing_variant_a10001() {
         }
     "#;
     let resolved = resolve_ok(src);
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     let errs = result.err().unwrap_or_default();
     assert!(
         errs.iter().any(|e| e.code == "A10001"),
@@ -933,7 +933,7 @@ fn match_all_variants_covered_no_a10001() {
         }
     "#;
     let resolved = resolve_ok(src);
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     let errs = result.err().unwrap_or_default();
     assert!(
         !errs.iter().any(|e| e.code == "A10001"),
@@ -951,7 +951,7 @@ fn match_unknown_scrutinee_no_wildcard_a10002() {
         }
     "#;
     let resolved = resolve_ok(src);
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     let errs = result.err().unwrap_or_default();
     assert!(
         errs.iter().any(|e| e.code == "A10002"),
@@ -974,7 +974,7 @@ fn collection_sort_without_length_postcondition_a03007() {
         }
     "#;
     let resolved = resolve_ok(src);
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     let errs = result.err().unwrap_or_default();
     assert!(
         errs.iter().any(|e| e.code == "A03007"),
@@ -992,7 +992,7 @@ fn collection_sort_with_length_postcondition_no_a03007() {
         }
     "#;
     let resolved = resolve_ok(src);
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     let errs = result.err().unwrap_or_default();
     assert!(
         !errs.iter().any(|e| e.code == "A03007"),
@@ -1015,7 +1015,7 @@ contract X {
 }
 "#;
     let resolved = resolve_ok(src);
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     let errs = result.err().unwrap_or_default();
     assert!(
         errs.iter().any(|e| e.code == "A53006"),
@@ -1033,7 +1033,7 @@ contract X {
 }
 "#;
     let resolved = resolve_ok(src);
-    let result = type_check(&resolved);
+    let result = type_check(resolved);
     let errs = result.err().unwrap_or_default();
     assert!(
         !errs.iter().any(|e| e.code == "A53006"),

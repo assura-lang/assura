@@ -77,7 +77,13 @@ fn print_core_phases(output: &CompilationOutput, show_failures: bool) {
     }
 
     if let Some(resolve_ms) = timing.resolve_ms {
-        if let Some(ref r) = output.resolved {
+        // On success, resolved may be consumed into typed.resolved (Arc).
+        // Fall back to typed.resolved for symbol count.
+        let resolved_ref = output
+            .resolved
+            .as_ref()
+            .or_else(|| output.typed.as_ref().map(|t| t.resolved.as_ref()));
+        if let Some(r) = resolved_ref {
             let user_symbols = r
                 .symbols
                 .symbols

@@ -1,0 +1,65 @@
+name: Setup Rust CI
+description: Shared setup for Rust CI jobs (toolchain, cache, system deps, disk check)
+
+inputs:
+  shared-key:
+    description: Swatinem/rust-cache shared-key (e.g. ci-clippy)
+    required: true
+  install-system-deps:
+    description: Install protobuf, Z3, and OpenSSL system libraries (Linux)
+    default: 'true'
+  toolchain-components:
+    description: Extra rustup components (e.g. "clippy, rustfmt")
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Setup self-hosted Rust environment
+      if: ${{ vars.RUNNER }}
+      shell: bash
+      run: |
+        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        export SCCACHE_CACHE_SIZE="5G"
+        echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
+        sccache --start-server 2>/dev/null || true
+
+    - name: Setup Rust toolchain
+      if: ${{ !vars.RUNNER }}
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: ${{ inputs.toolchain-components }}
+
+    - name: Cache dependencies
+      if: ${{ !vars.RUNNER }}
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ${{ inputs.shared-key }}
+
+    - name: Install system dependencies (Linux)
+      if: ${{ runner.os == 'Linux' && inputs.install-system-deps == 'true' }}
+      shell: bash
+      run: sudo apt-get install -y protobuf-compiler libz3-dev libssl-dev
+      env:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Set Linux Z3 paths
+      if: ${{ runner.os == 'Linux' && inputs.install-system-deps == 'true' }}
+      shell: bash
+      run: |
+        echo "Z3_SYS_Z3_HEADER=/usr/include/z3.h" >> "$GITHUB_ENV"
+        echo "CPATH=/usr/include" >> "$GITHUB_ENV"
+        echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+
+    - name: Check disk space
+      shell: bash
+      run: |
+        avail=$(df -k / | awk 'NR==2{print $4}')
+        echo "Available disk: $(df -h / | awk 'NR==2{print $4}')"
+        if [ "$avail" -lt 20971520 ]; then
+          echo "::warning::Less than 20GB free disk space. Compilation may fail with SIGKILL."
+        fi
+        if [ "$avail" -lt 5242880 ]; then
+          echo "::error::Less than 5GB free disk space. Aborting to prevent SIGKILL during compilation."
+          exit 1
+        fi
