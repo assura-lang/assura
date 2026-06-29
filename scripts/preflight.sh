@@ -2,15 +2,15 @@
 # Fast checks for agent sessions. Prefer this over full `cargo test --workspace`.
 #
 # Usage:
-#   bash scripts/agent-preflight.sh              # types + pipeline + smt lib + CLI bin
-#   bash scripts/agent-preflight.sh assura-types  # one crate only
-#   bash scripts/agent-preflight.sh assura-types assura-smt
-#   bash scripts/agent-preflight.sh --json        # structured JSON output
-#   bash scripts/agent-preflight.sh --json assura-types
+#   bash scripts/preflight.sh              # types + pipeline + smt lib + CLI bin
+#   bash scripts/preflight.sh assura-types  # one crate only
+#   bash scripts/preflight.sh assura-types assura-smt
+#   bash scripts/preflight.sh --json        # structured JSON output
+#   bash scripts/preflight.sh --json assura-types
 #
 # Related scaffolds (print-only, not run here):
-#   bash scripts/agent-new-checker.sh <name> [--category <stem>]
-#   bash scripts/agent-new-decl.sh <Variant>
+#   bash scripts/new-checker.sh <name> [--category <stem>]
+#   bash scripts/new-decl.sh <Variant>
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -37,7 +37,7 @@ jstep() {
 
 run_step() {
   local name="$1"; shift
-  $json_mode || echo "== agent-preflight: $name =="
+  $json_mode || echo "== preflight: $name =="
   if "$@" 2>&1; then
     jstep "$name" "ok"
   else
@@ -66,7 +66,7 @@ with open(sys.argv[1]) as f:
 ok = sum(1 for s in steps if s['status'] == 'ok')
 fail = sum(1 for s in steps if s['status'] == 'fail')
 print(json.dumps({
-    'script': 'agent-preflight',
+    'script': 'preflight',
     'steps': steps,
     'summary': {'ok': ok, 'fail': fail},
     'exit_code': int(sys.argv[2])
@@ -77,9 +77,9 @@ PYEOF
 run_step "fmt check" cargo fmt --all -- --check
 
 if $json_mode; then
-  run_step "agent guards" bash scripts/agent-guards.sh --json
+  run_step "guards" bash scripts/guards.sh --json
 else
-  run_step "agent guards" bash scripts/agent-guards.sh
+  run_step "guards" bash scripts/guards.sh
 fi
 
 for crate in "${crates[@]}"; do
@@ -100,5 +100,5 @@ run_step "demo check" cargo run -q --bin assura -- check demos/libwebp-huffman.a
 if $json_mode; then
   emit_json 0
 else
-  echo "agent-preflight: OK"
+  echo "preflight: OK"
 fi

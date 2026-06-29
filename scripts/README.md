@@ -1,18 +1,17 @@
 # Assura Scripts
 
-Scripts for agent sessions, verification gates, and developer setup.
+Scripts for verification gates, developer workflow, and setup.
 
-## Agent Scripts
+## Developer Scripts
 
-Use these during LLM/agent sessions to catch common mistakes and
-scaffold new components.
+Catch common mistakes and scaffold new components.
 
 | Script | Purpose | When to Use |
 |--------|---------|-------------|
-| `agent-guards.sh` | 9-section static analysis for anti-patterns (orphan checkers, unwired SMT methods, `Verifier::new` outside allowed crates) | After touching types pipeline, SMT managers, or Verifier |
-| `agent-preflight.sh [crates...]` | fmt + guards + clippy on key crates + one demo check | Before every commit (fast, accepts crate subset) |
-| `agent-new-checker.sh <name> [--category <stem>]` | Print steps to scaffold a new Layer 0 type checker | When adding a new checker to `CHECKER_PIPELINE` |
-| `agent-new-decl.sh <VariantName>` | Print steps to scaffold a new `Decl` variant | When adding a new declaration type to the AST |
+| `guards.sh` | 9-section static analysis for anti-patterns (orphan checkers, unwired SMT methods, `Verifier::new` outside allowed crates) | After touching types pipeline, SMT managers, or Verifier |
+| `preflight.sh [crates...]` | fmt + guards + clippy on key crates + one demo check | Before every commit (fast, accepts crate subset) |
+| `new-checker.sh <name> [--category <stem>]` | Print steps to scaffold a new Layer 0 type checker | When adding a new checker to `CHECKER_PIPELINE` |
+| `new-decl.sh <VariantName>` | Print steps to scaffold a new `Decl` variant | When adding a new declaration type to the AST |
 
 ## Verification Scripts
 

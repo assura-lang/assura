@@ -133,7 +133,7 @@ jobs:
       # missing ergonomics APIs, CHECKER_PIPELINE breadth. No compile required.
       - name: Agent ergonomics guards
         if: ${{ !cancelled() }}
-        run: bash scripts/agent-guards.sh
+        run: bash scripts/guards.sh
 
       - name: Clippy
         if: ${{ !cancelled() }}

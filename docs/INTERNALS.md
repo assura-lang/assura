@@ -210,7 +210,7 @@ CVC5 fallback via external binary in portfolio mode.
 | Measures / termination | `measures.rs` | Decrease / measure definitions |
 
 **Agent rule:** add SMT behavior in the row above, then wire from `entry/mod.rs` or
-`z3_backend/encoder`. `scripts/agent-guards.sh` section 7 fails if high-signal
+`z3_backend/encoder`. `scripts/guards.sh` section 7 fails if high-signal
 methods exist only in `advanced.rs` / tests.
 
 **Source files (legacy list, still accurate):**

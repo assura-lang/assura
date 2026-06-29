@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Static greps that catch common agent mistakes. Exit non-zero on violations.
-# Runs in CI (clippy job) and via scripts/agent-preflight.sh.
+# Runs in CI (clippy job) and via scripts/preflight.sh.
 #
 # Usage:
-#   bash scripts/agent-guards.sh          # human-readable (default)
-#   bash scripts/agent-guards.sh --json   # structured JSON output
+#   bash scripts/guards.sh          # human-readable (default)
+#   bash scripts/guards.sh --json   # structured JSON output
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -23,8 +23,8 @@ jsec()  { printf 'S\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >> "$_jdata"; }
 jfind() { printf 'F\t%s\t%s\t%s\n' "$1" "$2" "$3" >> "$_jdata"; }
 
 # ── Human output helpers (suppressed in JSON mode) ───────────────────────────
-warn() { $json_mode || echo "agent-guards WARN: $*" >&2; }
-die()  { $json_mode || echo "agent-guards FAIL: $*" >&2; fail=1; }
+warn() { $json_mode || echo "guards WARN: $*" >&2; }
+die()  { $json_mode || echo "guards FAIL: $*" >&2; fail=1; }
 
 # ---------------------------------------------------------------------------
 # 1) Verifier::new outside allowed crates (production code only)
@@ -82,7 +82,7 @@ if [[ "${pipeline_count:-0}" -lt 50 ]]; then
   die "CHECKER_PIPELINE looks too small ($pipeline_count CheckerDispatch refs)"
   jsec 3 "CHECKER_PIPELINE breadth" "fail" "only $pipeline_count CheckerDispatch refs (minimum 50)"
 else
-  $json_mode || echo "agent-guards: CHECKER_PIPELINE refs=$pipeline_count run_*_checks files=$run_checks_files"
+  $json_mode || echo "guards: CHECKER_PIPELINE refs=$pipeline_count run_*_checks files=$run_checks_files"
   jsec 3 "CHECKER_PIPELINE breadth" "ok" "refs=$pipeline_count, run_*_checks files=$run_checks_files"
 fi
 
@@ -180,16 +180,16 @@ if [[ ! -f crates/assura-types/src/CHECKER-LAYERS.md ]]; then
   jfind 6 "crates/assura-types/src/CHECKER-LAYERS.md" "missing"
   s_fail=1
 fi
-for script_path in scripts/agent-new-checker.sh scripts/agent-new-decl.sh; do
+for script_path in scripts/new-checker.sh scripts/new-decl.sh; do
   if [[ ! -x "$script_path" ]]; then
     die "$script_path missing or not executable"
     jfind 6 "$script_path" "missing or not executable"
     s_fail=1
   fi
 done
-if [[ ! -f docs/error-codes-agent.md ]]; then
-  die "docs/error-codes-agent.md missing (agent error-code index)"
-  jfind 6 "docs/error-codes-agent.md" "missing"
+if [[ ! -f docs/error-codes.md ]]; then
+  die "docs/error-codes.md missing (agent error-code index)"
+  jfind 6 "docs/error-codes.md" "missing"
   s_fail=1
 fi
 if [[ $s_fail -eq 1 ]]; then
@@ -222,7 +222,7 @@ for item in "${smt_wire_hard[@]}"; do
     if [[ -n "$def_only" ]]; then
       die "SMT method unwired (only def / tests): $label ($meth)"
       die "  fix: call from assura-smt entry/verify/encoder (or remove dead API)"
-      die "  see agent-guards section 7 / AGENTS decision tree"
+      die "  see guards section 7 / AGENTS decision tree"
       jfind 7 "crates/assura-smt" "unwired SMT method: $label"
       s_fail=1
     fi
@@ -486,7 +486,7 @@ w = sum(1 for s in result if s['status'] == 'warn')
 f = sum(1 for s in result if s['status'] == 'fail')
 
 print(json.dumps({
-    'script': 'agent-guards',
+    'script': 'guards',
     'sections': result,
     'summary': {'ok': ok, 'warn': w, 'fail': f},
     'exit_code': 1 if f > 0 else 0
@@ -495,7 +495,7 @@ PYEOF
 fi
 
 if [[ "$fail" -ne 0 ]]; then
-  $json_mode || echo "agent-guards: FAILED" >&2
+  $json_mode || echo "guards: FAILED" >&2
   exit 1
 fi
-$json_mode || echo "agent-guards: OK"
+$json_mode || echo "guards: OK"

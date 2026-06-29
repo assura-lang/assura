@@ -1,14 +1,12 @@
-# Agent error code index (quick lookup)
+# Error Code Index (quick lookup)
 
-**Purpose:** When an agent sees `Axxxxx`, use this table to pick the **compiler phase** and **primary crate/files** before editing. Full catalog is `docs/SPECIFICATION.md` §7.2 / Appendix D.
+**Purpose:** Use this table to find the **compiler phase** and **primary crate/files** for any error code. Full catalog is in `docs/SPECIFICATION.md` §7.2 / Appendix D.
 
 **How to use**
-1. Note the code prefix (`A01` = parser, `A02` = resolve, `A03` = types, …).
+1. Note the code prefix (`A01` = parser, `A02` = resolve, `A03` = types, ...).
 2. Open the primary crate/files below (or `rg 'A0xxxx' crates --glob '*.rs'`).
 3. Do **not** fix a types error by changing the SMT backend unless the code is `A04`/`A11`/`A05100` and the failure is genuinely solver-side.
 4. For unknown codes not listed here: `rg 'A0xxxx' docs/SPECIFICATION.md` then `rg 'A0xxxx' crates`.
-
-Linked from `AGENTS.md` (LLM decision tree). Regenerated/curated; not exhaustive of every implementation-only code.
 
 ## By series (agent phase map)
 
@@ -169,7 +167,7 @@ in the same PR when agents are likely to hit it again.
 | `A14xxx` frame/modifies | `checks/frame_totality.rs` |
 | `A05100` counterexample / `A05101` timeout / `A05102` limitation / `A05103` inconclusive | `check/report.rs`; limitation (A05102) = warning, else error |
 | `A52xxx` / `A54xxx` / high A-series | domain/meta features: `checks/meta.rs`, `domain/`, then `rg 'Axxxxx' crates` |
-| Wrong phase suspicion | `bash scripts/agent-guards.sh` then re-read AGENTS decision tree |
+| Wrong phase suspicion | `bash scripts/guards.sh` then re-read AGENTS decision tree |
 
 ## Maintenance
 

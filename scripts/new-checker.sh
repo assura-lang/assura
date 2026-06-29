@@ -2,8 +2,8 @@
 # Scaffold / checklist for adding a new Layer-0 type checker (run_*_checks).
 #
 # Usage:
-#   bash scripts/agent-new-checker.sh my_feature
-#   bash scripts/agent-new-checker.sh my_feature --category memory
+#   bash scripts/new-checker.sh my_feature
+#   bash scripts/new-checker.sh my_feature --category memory
 #
 # Does not edit files automatically (avoids wrong-layer mistakes). Prints the
 # exact steps and grep targets an agent should follow.
@@ -18,11 +18,11 @@ fi
 
 if [[ -z "$name" || "$name" == "-h" || "$name" == "--help" ]]; then
   cat <<'USAGE'
-Usage: bash scripts/agent-new-checker.sh <snake_name> [--category <checks_file_stem>]
+Usage: bash scripts/new-checker.sh <snake_name> [--category <checks_file_stem>]
 
 Examples:
-  bash scripts/agent-new-checker.sh widget_safety
-  bash scripts/agent-new-checker.sh lock_order --category concurrency
+  bash scripts/new-checker.sh widget_safety
+  bash scripts/new-checker.sh lock_order --category concurrency
 
 Categories (existing checks/*.rs stems): concurrency core effects ffi_error format
   frame_totality info_flow linear_typestate memory meta numeric platform safety storage
@@ -39,7 +39,7 @@ fn="run_${name}_checks"
 dispatch_line="    CheckerDispatch::Source(${fn}),"
 
 cat <<EOF
-=== agent-new-checker: ${fn} ===
+=== new-checker: ${fn} ===
 
 Layer map (see crates/assura-types/src/CHECKER-LAYERS.md):
   domain/     feature / CVE / invariant logic (the *what*)
@@ -84,7 +84,7 @@ ${dispatch_line}
    - Other crates: assura_test_support::compile_result / expect_type_errors OK
 
 6) Verify before commit
-   bash scripts/agent-guards.sh
+   bash scripts/guards.sh
    cargo test -p assura-types ${name} --lib --locked   # or your test name filter
    cargo clippy -p assura-types --lib --locked -- -D warnings
 
@@ -92,5 +92,5 @@ ${dispatch_line}
    rg -n '${fn}' crates/assura-types/
    # must appear in checks/*.rs (def) AND pipeline.rs (registry)
 
-Done. Implement logic; do not mark done until agent-guards passes and a negative test exists.
+Done. Implement logic; do not mark done until guards passes and a negative test exists.
 EOF

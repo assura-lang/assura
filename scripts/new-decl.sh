@@ -2,8 +2,8 @@
 # Scaffold / checklist for adding a new Decl enum variant.
 #
 # Usage:
-#   bash scripts/agent-new-decl.sh Widget
-#   bash scripts/agent-new-decl.sh Widget WIDGET_DECL
+#   bash scripts/new-decl.sh Widget
+#   bash scripts/new-decl.sh Widget WIDGET_DECL
 #
 # Prints steps and runs check-decl-variant.sh at the end.
 set -euo pipefail
@@ -14,11 +14,11 @@ syntax_kind="${2:-}"
 
 if [[ -z "$variant" || "$variant" == "-h" || "$variant" == "--help" ]]; then
   cat <<'USAGE'
-Usage: bash scripts/agent-new-decl.sh <PascalCaseVariant> [SYNTAX_KIND_NAME]
+Usage: bash scripts/new-decl.sh <PascalCaseVariant> [SYNTAX_KIND_NAME]
 
 Examples:
-  bash scripts/agent-new-decl.sh Widget
-  bash scripts/agent-new-decl.sh Widget WIDGET_DECL
+  bash scripts/new-decl.sh Widget
+  bash scripts/new-decl.sh Widget WIDGET_DECL
 
 High blast radius (17+ match sites). Prefer extending DeclVisitor/DeclFolder
 defaults over new open-coded match arms where possible.
@@ -35,7 +35,7 @@ fi
 snake=$(echo "$variant" | sed 's/\([A-Z]\)/_\1/g' | sed 's/^_//' | tr '[:upper:]' '[:lower:]')
 
 cat <<EOF
-=== agent-new-decl: Decl::${variant} / ${syntax_kind} ===
+=== new-decl: Decl::${variant} / ${syntax_kind} ===
 
 1) assura-ast (canonical types + visitors)
    crates/assura-ast/src/ast/mod.rs
@@ -83,7 +83,7 @@ cat <<EOF
    cargo test -p assura-parser --locked --lib
    cargo test -p assura-resolve --locked --lib
    cargo test -p assura-types --locked --lib
-   bash scripts/agent-guards.sh
+   bash scripts/guards.sh
    cargo run --bin assura -- check demos/libwebp-huffman.assura
 
 Tip: if you only need a new *walk* over existing decls, implement DeclVisitor

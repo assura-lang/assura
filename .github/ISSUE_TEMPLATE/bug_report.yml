@@ -1,0 +1,44 @@
+name: Bug Report
+description: Report a bug in the Assura compiler
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Minimal `.assura` file or command to reproduce the issue.
+      render: assura
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual output
+      description: Paste the compiler output (error messages, counterexamples, panics).
+      render: text
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected output
+      description: What should have happened instead?
+  - type: input
+    id: version
+    attributes:
+      label: Assura version
+      description: Output of `assura --version`
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      description: e.g. macOS 15.1, Ubuntu 24.04
+    validations:
+      required: true

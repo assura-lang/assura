@@ -72,7 +72,7 @@ struct CheckerEntry {
 /// **Agent rule:** every new `run_*_checks` in `checks/` must appear here in
 /// the same PR, or it is dead code. `checker_pipeline_has_expected_breadth`
 /// below guards against accidental empty registries. Run
-/// `bash scripts/agent-guards.sh` after adding a checker.
+/// `bash scripts/guards.sh` after adding a checker.
 const CHECKER_PIPELINE: &[CheckerEntry] = &[
     // -- CORE --
     CheckerEntry {

@@ -7,23 +7,23 @@
    Never re-chain parse/resolve/type_check in CLI/LSP/MCP/tests.
 2. **Register new checkers.** Every `run_*_checks` function must appear
    in `CHECKER_PIPELINE` in `pipeline.rs`. Scaffold with
-   `bash scripts/agent-new-checker.sh <name>`.
-   `bash scripts/agent-guards.sh` fails on orphans.
+   `bash scripts/new-checker.sh <name>`.
+   `bash scripts/guards.sh` fails on orphans.
 3. **Use visitors.** Prefer `DeclVisitor`/`ExprVisitor`/`ExprFolder`
    over raw `match &decl.node` blocks. Accessors: `Decl::name()`,
    `Decl::clauses()`.
 4. **Run guards after every edit to types/SMT.**
-   `bash scripts/agent-guards.sh` catches orphan checkers, unwired
+   `bash scripts/guards.sh` catches orphan checkers, unwired
    SMT methods, open-coded limitation markers, and `Type::Unknown ==`
    comparisons.
-5. **Look up error codes first.** Check `docs/error-codes-agent.md`
+5. **Look up error codes first.** Check `docs/error-codes.md`
    for `Axxxxx` phase and crate before editing. Wrong-phase edits
    (e.g. fixing an A02 in assura-smt) waste entire sessions.
 6. **Test helpers.** Use `assura_test_support::{typecheck_ok, verify_ok,
    compile_result}` in tests, not hand-rolled pipelines. Exception:
    `assura-types` and `assura-codegen` unit tests (type instance
    mismatch; use `resolve_ok` or local `codegen` instead).
-7. **Preflight before commit.** `bash scripts/agent-preflight.sh`
+7. **Preflight before commit.** `bash scripts/preflight.sh`
    runs fmt + guards + clippy on key crates.
 
 For the full decision tree, entrypoint tables, and invariants, read
@@ -57,10 +57,10 @@ Do not improvise a parallel pipeline. Follow the branch that matches your task.
 
 | If you are… | Then do this | Not this |
 |-------------|--------------|----------|
-| Adding a **type checker** (Layer 0) | `bash scripts/agent-new-checker.sh <name> [--category <stem>]` then implement; register in `CHECKER_PIPELINE` same PR; `bash scripts/agent-guards.sh` | Struct + unit tests only (orphan / dead code) |
+| Adding a **type checker** (Layer 0) | `bash scripts/new-checker.sh <name> [--category <stem>]` then implement; register in `CHECKER_PIPELINE` same PR; `bash scripts/guards.sh` | Struct + unit tests only (orphan / dead code) |
 | Adding **SMT encoding** (Layer 1–3) | Encode in `assura-smt`; wire from `verify()` / entry; for unimplemented paths emit `Unknown` with `KNOWN_SMT_LIMITATION_MARKER` via smt helpers | Hand-roll `Verifier` in CLI/LSP/MCP; invent a different limitation string |
 | Asking “did verify succeed?” | `verification_succeeded` (lenient) or `verification_strict_succeeded` (strict) | `!output.has_errors` alone (SMT does not set `has_errors`) |
-| Adding a **`Decl` variant** | `bash scripts/agent-new-decl.sh VariantName` then fix every non-exhaustive match | Grep only one crate and ship |
+| Adding a **`Decl` variant** | `bash scripts/new-decl.sh VariantName` then fix every non-exhaustive match | Grep only one crate and ship |
 | Walking existing decls | `DeclVisitor` / `walk_decls` / `Decl` accessors (`clauses`, `name`) | Copy-paste 20-arm `match Decl` in a new pass |
 | Writing a **test** in smt/cli/pipeline | `assura_test_support::{typecheck_ok, compile_result, expect_type_errors, verify_ok, verify_strict_ok}` | Re-implement parse→resolve→type_check |
 | Writing a **test** in `assura-types` unit tests | `resolve_ok` + in-crate `type_check` (or `compile_result` only for error **codes**, not `TypedFile` from support) | `assura_test_support::typecheck_ok` returning `TypedFile` into this crate |
@@ -68,19 +68,19 @@ Do not improvise a parallel pipeline. Follow the branch that matches your task.
 | Comparing indeterminate types | `ty.is_indeterminate()` | `ty == Type::Unknown` (misses `Type::Error`) |
 | Classifying SMT `Unknown` | `assura_smt::is_known_smt_limitation(reason)` | Open-code `"not yet encoded in SMT"` with different wording outside `assura-smt` |
 | Unsure which types layer to edit | Read `crates/assura-types/src/CHECKER-LAYERS.md` (`domain/` / `checkers/` / `checks/` / `pipeline.rs`) | Put feature logic only in `checks/` wiring |
-| See error code `Axxxxx` | Open [`docs/error-codes-agent.md`](docs/error-codes-agent.md) (phase + primary crate); then `rg 'A0xxxx' crates` | Edit SMT backend for an `A03` type error (wrong phase) |
+| See error code `Axxxxx` | Open [`docs/error-codes.md`](docs/error-codes.md) (phase + primary crate); then `rg 'A0xxxx' crates` | Edit SMT backend for an `A03` type error (wrong phase) |
 | Injecting **LLM-generated IR** into codegen | `ir_function_body_to_rust(func)` for body, replace `__result` with `__assura_result`, strip trailing bare return, inject via `BackendConfig.ir_bodies` | `ir_to_rust(module)` (generates full function signature; codegen wraps body in its own fn with requires/ensures checks) |
 | Verifying IR for **one contract** in a multi-contract file | Build single-contract source via `build_single_contract_source()`, pass to `verify_ir()` | Passing full multi-contract source (verify_ir validates against the first `Decl::Contract` found) |
 | Accepting **LLM-generated IR** verification | Accept when no `Counterexample` in results (tolerates `Unknown` from SMT limitations) | Requiring `status == "verified"` (rejects valid IR when clauses are "unknown" due to unmodeled features) |
 
 ### Error codes (agent index)
 
-**Quick lookup:** [`docs/error-codes-agent.md`](docs/error-codes-agent.md) maps `Axxxxx` → compiler phase, primary crate, and start-here paths (SPEC §7.2 plus high-traffic impl codes like `A05100`, `A10001`, `A14001`, `A52001`).
+**Quick lookup:** [`docs/error-codes.md`](docs/error-codes.md) maps `Axxxxx` → compiler phase, primary crate, and start-here paths (SPEC §7.2 plus high-traffic impl codes like `A05100`, `A10001`, `A14001`, `A52001`).
 
 Full meanings: `docs/SPECIFICATION.md` §7.2 / Appendix D. Do not fix an `A02` in `assura-smt` or an `A01` in `assura-types` unless the index explicitly says cross-phase.
 
 **When you introduce or rely on a code not in the index:** append one row to
-`docs/error-codes-agent.md` in the same PR (high-traffic section is fine). Do not
+`docs/error-codes.md` in the same PR (high-traffic section is fine). Do not
 regenerate all of Appendix D.
 
 ### `assura-types` layer map (summary)
@@ -90,7 +90,7 @@ regenerate all of Appendix D.
 | `domain/` | Feature / CVE / invariant logic (the *what*) |
 | `checkers/` | Structural AST / symbol / type analysis (the *how* on syntax) |
 | `checks/` | Thin `run_*_checks` wiring only; must appear in `CHECKER_PIPELINE` or be called from a peer `run_*` |
-| `pipeline.rs` | `CHECKER_PIPELINE` registry + `TypeChecker`; agent-guards fails on orphans |
+| `pipeline.rs` | `CHECKER_PIPELINE` registry + `TypeChecker`; guards.sh fails on orphans |
 
 Full detail: `crates/assura-types/src/CHECKER-LAYERS.md`.
 
@@ -100,15 +100,15 @@ Use this table before grepping the whole repo. It reduces wrong-crate edits.
 
 | Task | Start here | Wire / register here | Guard / verify |
 |------|------------|----------------------|----------------|
-| New type checker (Layer 0) | `bash scripts/agent-new-checker.sh <name>` then `crates/assura-types/src/checks/<name>.rs` | `CHECKER_PIPELINE` in `crates/assura-types/src/pipeline.rs` | `bash scripts/agent-guards.sh` (orphan `run_*_checks`) |
+| New type checker (Layer 0) | `bash scripts/new-checker.sh <name>` then `crates/assura-types/src/checks/<name>.rs` | `CHECKER_PIPELINE` in `crates/assura-types/src/pipeline.rs` | `bash scripts/guards.sh` (orphan `run_*_checks`) |
 | New domain / CVE logic | `crates/assura-types/src/domain/` or `checkers/` (see `CHECKER-LAYERS.md`) | Thin `run_*_checks` in `checks/` + pipeline row | same guards |
-| SMT manager method (Prophecy / Trigger / decrease / quantifier) | `crates/assura-smt/src/advanced.rs` (or backend modules) | Call from `verify()` / `z3_backend/encoder` / entry, not tests only | agent-guards **section 7 hard-fails** unwired `check_all_resolved`, `check_unconstrained`, `validate_trigger`, `validate_quantifier_bounds`, `dispatch_decrease_checks` |
+| SMT manager method (Prophecy / Trigger / decrease / quantifier) | `crates/assura-smt/src/advanced.rs` (or backend modules) | Call from `verify()` / `z3_backend/encoder` / entry, not tests only | guards.sh **section 7 hard-fails** unwired `check_all_resolved`, `check_unconstrained`, `validate_trigger`, `validate_quantifier_bounds`, `dispatch_decrease_checks` |
 | SMT limitation (skip with warning) | `assura_smt::KNOWN_SMT_LIMITATION_MARKER` / `is_known_smt_limitation` | Emit `VerificationResult::Unknown` with that marker | guards reject open-coded marker strings elsewhere |
 | Full compile path (CLI/LSP/MCP/tests) | `assura_pipeline::{compile, compile_full, verify_typed, run_at}` | Do not hand-roll Verifier in CLI/LSP/MCP | guards warn/fail on `Verifier::new` outside smt/pipeline |
 | Name resolution pass on decls | `crates/assura-resolve/src/` (`unused.rs`, `clause_names.rs`, `type_refs.rs` use `DeclVisitor`) | Prefer `visit_decl` over copy-paste `match Decl` | `cargo test -p assura-resolve --locked --lib` |
-| SMT verify jobs / entry passes | `crates/assura-smt/src/entry/` (`verify.rs` / `jobs.rs` / `advanced_passes.rs`; see `docs/INTERNALS.md` smt module map) | Wire from `verify()`; collect jobs via `DeclVisitor` where possible | agent-guards section 7 |
-| CLI `assura check` / verify UX | `crates/assura-cli/src/check/` (`run.rs` entry, `report.rs` diagnostics/Unknown policy) | Prefer `assura_pipeline::{compile, compile_full, verify_typed}` | agent-guards `Verifier::new` |
-| Error code `Axxxxx` | [`docs/error-codes-agent.md`](docs/error-codes-agent.md) | Phase crate from index, then `rg 'A0xxxx' crates` | wrong phase = wasted work |
+| SMT verify jobs / entry passes | `crates/assura-smt/src/entry/` (`verify.rs` / `jobs.rs` / `advanced_passes.rs`; see `docs/INTERNALS.md` smt module map) | Wire from `verify()`; collect jobs via `DeclVisitor` where possible | guards.sh section 7 |
+| CLI `assura check` / verify UX | `crates/assura-cli/src/check/` (`run.rs` entry, `report.rs` diagnostics/Unknown policy) | Prefer `assura_pipeline::{compile, compile_full, verify_typed}` | guards.sh `Verifier::new` |
+| Error code `Axxxxx` | [`docs/error-codes.md`](docs/error-codes.md) | Phase crate from index, then `rg 'A0xxxx' crates` | wrong phase = wasted work |
 | Load demo/fixture in tests | `assura_test_support::{load_fixture, fixture_path, verify_result, expect_verify_limitation}` | smt/cli/pipeline tests only (not types/codegen type returns) | unit test in test-support crate |
 | Codegen name/type collection (phases 1–2) | `crates/assura-codegen/src/lib.rs` (`TypeCollectVisitor` / `DeclVisitor`) | Later phases still use explicit matches; prefer visitor for **new** collection passes | `cargo test -p assura-codegen --locked --lib` |
 | `MASTER-PLAN.md` task | Task section + **Agent entrypoint** line + **Acceptance Tests** | Implement only that task's scope | Run every acceptance command before `[x]` |
@@ -126,15 +126,15 @@ That line is the first file an agent should open; acceptance tests remain the do
 # open-coded SMT limitation marker, ergonomics APIs, CHECKER_PIPELINE breadth,
 # SMT manager wiring hard-fail section 7).
 # Also runs in CI (clippy job) so regressions fail PRs, not only local sessions.
-bash scripts/agent-guards.sh
+bash scripts/guards.sh
 
 # fmt + guards + clippy on key crates + one demo
-bash scripts/agent-preflight.sh
-bash scripts/agent-preflight.sh assura-types assura-smt   # subset
+bash scripts/preflight.sh
+bash scripts/preflight.sh assura-types assura-smt   # subset
 
 # Scaffolds (print steps; do not auto-edit source)
-bash scripts/agent-new-checker.sh my_feature --category safety
-bash scripts/agent-new-decl.sh Widget
+bash scripts/new-checker.sh my_feature --category safety
+bash scripts/new-decl.sh Widget
 
 # Decl variant touch list (grep sites; then cargo build for non-exhaustive)
 bash scripts/check-decl-variant.sh
@@ -160,7 +160,7 @@ For SMT limitation cases, use `expect_verify_limitation` (or `verify_result` + i
 `Decl::name()` / `Decl::clauses()` over open-coding `match &decl.node`. Existing
 hotspots (codegen main loop, resolve symbol registration, some smt entry helpers)
 still use explicit matches; do not add new match blocks without justification.
-`agent-guards.sh` section 9 warns if match counts grow far past baselines.
+`guards.sh` section 9 warns if match counts grow far past baselines.
 
 ### Pipeline invariants agents must respect
 
@@ -178,9 +178,9 @@ still use explicit matches; do not add new match blocks without justification.
    from inside `assura-codegen` (dependency type mismatch). Use `typecheck_ok` then
    local `codegen(&typed)`.
 6. **New `run_*_checks`**: add to `CHECKER_PIPELINE` in the same PR (or call from a
-   peer `run_*` entry point). `agent-guards.sh` fails on orphans and too-small
-   registries; start with `bash scripts/agent-new-checker.sh <name>`.
-7. **New `Decl` variant**: start with `bash scripts/agent-new-decl.sh <Variant>`;
+   peer `run_*` entry point). `guards.sh` fails on orphans and too-small
+   registries; start with `bash scripts/new-checker.sh <name>`.
+7. **New `Decl` variant**: start with `bash scripts/new-decl.sh <Variant>`;
    then `cargo build` until zero non-exhaustive matches.
 8. **`EncodeTerm` var access must apply `encode_ident_name()`**:
    `encode_expr_shared` passes raw AST identifier names (e.g. `"result"`) to
@@ -215,7 +215,7 @@ still use explicit matches; do not add new match blocks without justification.
     `contains` variant can match spurious substrings (e.g., a contract
     named `EnsuresValidator` would match `contains("ensures")`). Test
     code may use `contains` for convenience, but production classification
-    must use `ends_with`. `agent-guards.sh` section 11 warns on violations.
+    must use `ends_with`. `guards.sh` section 11 warns on violations.
 12. **AST utility functions belong in `assura-ast`**: Functions that
     operate solely on `Expr`, `Decl`, `Pattern`, or other AST types
     (without needing type-checker or SMT context) must be defined in
@@ -267,7 +267,7 @@ still use explicit matches; do not add new match blocks without justification.
     `crates/assura-parser/src/grammar/clauses.rs`. A keyword registered
     in `features.rs` but missing from the parser means the feature's
     type checker and SMT implementations are unreachable from source
-    code. `agent-guards.sh` section 12 checks this automatically.
+    code. `guards.sh` section 12 checks this automatically.
     This drift caused 12 keywords across 7 features to be unreachable
     (#716-#722).
 
@@ -295,7 +295,7 @@ then `cargo build` and fix every non-exhaustive match. Full checklist is in
 ### Spec and tasks
 
 - Language source of truth: `docs/SPECIFICATION.md` (grep; do not read all 11k lines).
-- Error codes (agent-sized): [`docs/error-codes-agent.md`](docs/error-codes-agent.md).
+- Error codes (agent-sized): [`docs/error-codes.md`](docs/error-codes.md).
 - Actionable work: `MASTER-PLAN.md` (acceptance tests are mandatory, not optional).
 - Coverage of 50 verification features: `bash scripts/verify-task.sh SEC.1` (example).
 
@@ -336,9 +336,9 @@ At the start of every session:
 1. **If the session involves code changes**:
    - **Inside an agent tool / Grok CLI** (or any environment with short command timeouts):
      Use fast targeted commands. Never run the full suite if it will time out.
-     Preferred: `bash scripts/agent-preflight.sh` (or subset), then
+     Preferred: `bash scripts/preflight.sh` (or subset), then
      `cargo check -p <crate> --locked`, `cargo test -p <crate> --locked --lib`.
-     Run `bash scripts/agent-guards.sh` after touching verify/checkers/types.
+     Run `bash scripts/guards.sh` after touching verify/checkers/types.
    - **On a local developer machine**:
      Run `cargo test --workspace --locked` in the background while reading the task.
      Do not block on it; start working and check the result before committing.
@@ -1323,7 +1323,7 @@ When you introduce a new helper, document it here and in
   (Copilot, Cursor without your skill dir) **never** see the skill.
 - **Do not** store only-in-skill guidance that affects how to edit this codebase
   correctly; if an agent needs it to avoid a bug, put it in `AGENTS.md` (or
-  `docs/error-codes-agent.md` / `CHECKER-LAYERS.md` as appropriate).
+  `docs/error-codes.md` / `CHECKER-LAYERS.md` as appropriate).
 
 ### Parser / CST helpers (for correct spans after trivia capture)
 

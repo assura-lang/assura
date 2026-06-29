@@ -112,9 +112,6 @@ assura explain A03001
 # Build and generate Rust code
 assura build demos/libwebp-huffman.assura
 
-# Build with LLM-generated implementations (requires grok CLI)
-assura build demos/libwebp-huffman.assura --auto-implement
-
 # Format a contract file
 assura fmt demos/libwebp-huffman.assura
 
@@ -124,26 +121,8 @@ assura infer src/main.rs
 # Verify inline contract annotations in Rust source files
 assura check-rust src/
 
-# Check Rust source with LLM-powered analysis
-assura check-rust src/ --llm
-
 # Suggest contracts for unannotated functions
 assura check-rust src/ --suggest
-
-# Suggest contracts for public functions only
-assura check-rust src/ --suggest --public-only
-
-# Suggest contracts for unsafe functions only
-assura check-rust src/ --suggest --unsafe-only
-
-# Use a specific LLM provider and model
-assura check-rust src/ --llm --llm-provider anthropic --llm-model claude-sonnet-4-20250514
-
-# Enable Level 2 LLM lemma verification
-assura check-rust src/ --llm --llm-verify
-
-# Print AI agent instructions (for setting up AI coding assistants)
-assura agent-instructions
 ```
 
 > **Tip:** If running from source without installing, prefix commands with `cargo run --`, e.g. `cargo run -- check demos/libwebp-huffman.assura`.
