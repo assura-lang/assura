@@ -84,6 +84,8 @@ jobs:
       - name: E2E check all demos
         run: |
           for demo in demos/*.assura; do
+            # Audit demos have intentional counterexamples (real CVE models); skip them
+            case "$demo" in *-audit*|*audit-*) echo "=== Skipping audit demo $demo ==="; continue;; esac
             echo "=== Checking $demo ==="
             cargo run --bin assura -- check "$demo"
           done
@@ -103,6 +105,7 @@ jobs:
       - name: Codegen validation (demos)
         run: |
           for demo in demos/*.assura; do
+            case "$demo" in *-audit*|*audit-*) continue;; esac
             echo "=== Building $demo ==="
             cargo run --bin assura -- build --no-check "$demo"
             echo "=== Checking generated Rust for $demo ==="
