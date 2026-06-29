@@ -48,6 +48,8 @@ wrong test helpers, wrong Unknown policy).
 | New type checker | implement `run_*_checks` in `crates/assura-types/src/checks/`, register in `CHECKER_PIPELINE` in `pipeline.rs` | struct + unit tests only (orphan / dead code) |
 | Known SMT limitation? | `assura_smt::is_known_smt_limitation(reason)` or `KNOWN_SMT_LIMITATION_MARKER` | open-code `"not yet encoded in SMT"` with a different string |
 | Check if expr references `result` | `assura_ast::expr_references_result(&expr)` | duplicate the function in assura-types or assura-smt |
+| Verify IR against a contract | `assura_pipeline::verify_ir(source, ir_text, path, &config)` | hand-roll Verifier + IR parse in CLI/tests |
+| IR body for codegen injection | `assura_codegen::ir_function_body_to_rust(func)` (body only) | `ir_to_rust(module)` (generates full function; wrong for `BackendConfig.ir_bodies`) |
 
 ### Decision tree (if X, then Y)
 
@@ -67,6 +69,9 @@ Do not improvise a parallel pipeline. Follow the branch that matches your task.
 | Classifying SMT `Unknown` | `assura_smt::is_known_smt_limitation(reason)` | Open-code `"not yet encoded in SMT"` with different wording outside `assura-smt` |
 | Unsure which types layer to edit | Read `crates/assura-types/src/CHECKER-LAYERS.md` (`domain/` / `checkers/` / `checks/` / `pipeline.rs`) | Put feature logic only in `checks/` wiring |
 | See error code `Axxxxx` | Open [`docs/error-codes-agent.md`](docs/error-codes-agent.md) (phase + primary crate); then `rg 'A0xxxx' crates` | Edit SMT backend for an `A03` type error (wrong phase) |
+| Injecting **LLM-generated IR** into codegen | `ir_function_body_to_rust(func)` for body, replace `__result` with `__assura_result`, strip trailing bare return, inject via `BackendConfig.ir_bodies` | `ir_to_rust(module)` (generates full function signature; codegen wraps body in its own fn with requires/ensures checks) |
+| Verifying IR for **one contract** in a multi-contract file | Build single-contract source via `build_single_contract_source()`, pass to `verify_ir()` | Passing full multi-contract source (verify_ir validates against the first `Decl::Contract` found) |
+| Accepting **LLM-generated IR** verification | Accept when no `Counterexample` in results (tolerates `Unknown` from SMT limitations) | Requiring `status == "verified"` (rejects valid IR when clauses are "unknown" due to unmodeled features) |
 
 ### Error codes (agent index)
 
@@ -227,6 +232,34 @@ still use explicit matches; do not add new match blocks without justification.
     documenting which fields are intentionally ignored. This was learned
     in #713 where `expr_references_result` missed checking quantifier
     domains because `Forall { body, .. }` skipped the `domain` field.
+14. **`verify_ir()` validates against the first `Decl::Contract` only**:
+    When a source file contains multiple contracts, `verify_ir()` picks
+    the first contract and validates the IR against its clauses. If you
+    are verifying IR for the second contract, it validates against the
+    wrong contract's ensures/requires. The `--auto-implement` code works
+    around this by synthesizing single-contract source via
+    `build_single_contract_source()`. Any new caller of `verify_ir()`
+    with multi-contract source must do the same.
+15. **Result variable naming mismatch: IR codegen vs Assura codegen**:
+    IR codegen (`ir_function_body_to_rust`) uses `__result` (from
+    `encode_atom_policy::RESULT_VAR_NAME`). Assura codegen uses
+    `__assura_result` (from `crates/assura-codegen/src/expr.rs:RESULT_VAR`).
+    Any code that bridges IR output into codegen input (e.g.,
+    `BackendConfig.ir_bodies`) must translate:
+    `ir_body.replace("__result", "__assura_result")`.
+16. **IR body trailing return must be stripped before codegen injection**:
+    `ir_function_body_to_rust()` ends the body with a bare `__result\n`
+    (the return expression). Codegen appends its own ensures checks and
+    return after the injected body. The duplicate return causes syntax
+    errors. Strip it with `strip_trailing_return()` in `build.rs`.
+17. **LLM-generated IR acceptance policy**: Do not require
+    `status == "verified"` for LLM-generated IR. Many clauses return
+    `Unknown` due to SMT limitations (unmodeled features, method calls,
+    deep field chains). Accept when no `Counterexample` is found in the
+    verification results. A counterexample means the IR violates a
+    contract; Unknown means the solver could not decide (which is
+    acceptable for auto-implement since the generated Rust will still
+    have runtime assertions from requires/ensures codegen).
 
 ### Crate map (where to edit)
 
