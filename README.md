@@ -65,19 +65,10 @@ Three verification tiers, fastest first:
 
 ## Quick Start
 
-### Prerequisites
-
-The compiler needs Z3 for SMT verification and protobuf for the gRPC server:
-
-```bash
-# macOS
-brew install z3 protobuf
-
-# Ubuntu/Debian
-sudo apt-get install -y libz3-dev protobuf-compiler
-```
-
 ### Build from source
+
+Only a [Rust toolchain](https://rustup.rs/) is required. Z3 and protobuf
+are vendored automatically during `cargo build`.
 
 ```bash
 git clone https://github.com/assura-lang/assura.git

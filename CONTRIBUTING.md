@@ -6,21 +6,9 @@ need to set up, build, test, and submit changes.
 ## Prerequisites
 
 - **Rust 1.85+** (edition 2024)
-- **Z3 4.12+** (required for SMT verification; 4.16+ recommended)
-- **protobuf compiler** (required for the gRPC server crate)
-- **CVC5** (optional, for portfolio solver mode)
 
-```bash
-# macOS
-brew install z3 protobuf
-
-# Ubuntu/Debian
-sudo apt-get install -y libz3-dev protobuf-compiler
-
-# Verify
-z3 --version
-assura doctor       # checks all dependencies
-```
+Z3 and protobuf are vendored automatically during `cargo build`, so no
+system packages are needed beyond a Rust toolchain.
 
 CVC5 is optional (portfolio solver mode). It is not in Homebrew; use the
 setup script instead:
