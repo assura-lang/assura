@@ -7,14 +7,15 @@ need to set up, build, test, and submit changes.
 
 - **Rust 1.85+** (edition 2024)
 - **Z3 4.12+** (required for SMT verification; 4.16+ recommended)
+- **protobuf compiler** (required for the gRPC server crate)
 - **CVC5** (optional, for portfolio solver mode)
 
 ```bash
 # macOS
-brew install z3
+brew install z3 protobuf
 
 # Ubuntu/Debian
-sudo apt-get install -y libz3-dev
+sudo apt-get install -y libz3-dev protobuf-compiler
 
 # Verify
 z3 --version

@@ -10,18 +10,18 @@ AI writes verified implementations. The compiler proves correctness
 mathematically. Ships as Rust.
 
 ```assura
-contract SafeDivision {
-  input(a: Int, b: Int)
-  output(result: Int)
+contract SafeMemcpy {
+  input(src_length: Nat, offset: Nat, count: Nat)
 
-  requires { b != 0 }
-  ensures  { result * b + (a mod b) == a }
-  ensures  { abs(result) <= abs(a) }
+  requires { offset + count <= src_length }
+
+  ensures  { offset + count <= src_length }   // copy stays in bounds
+  ensures  { count <= src_length }             // can't copy more than buffer
   effects  { pure }
 }
 ```
 
-You write *what*. AI figures out *how*. `rustc` compiles the result.
+You write *what*. AI figures out *how*. Z3 proves it. `rustc` compiles the result.
 
 ## The Problem
 
@@ -67,14 +67,14 @@ Three verification tiers, fastest first:
 
 ### Prerequisites
 
-The compiler needs Z3 for SMT verification:
+The compiler needs Z3 for SMT verification and protobuf for the gRPC server:
 
 ```bash
 # macOS
-brew install z3
+brew install z3 protobuf
 
 # Ubuntu/Debian
-sudo apt-get install -y libz3-dev
+sudo apt-get install -y libz3-dev protobuf-compiler
 ```
 
 ### Build from source

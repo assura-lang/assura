@@ -1,7 +1,7 @@
 # Assura for Visual Studio Code
 
 Syntax highlighting and language server support for the
-[Assura](https://github.com/sebastientardif/assura) contract-first
+[Assura](https://github.com/assura-lang/assura) contract-first
 verification language.
 
 ## Features

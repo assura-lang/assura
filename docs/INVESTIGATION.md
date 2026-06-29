@@ -3110,7 +3110,7 @@ oversight" objection into an argument FOR the approach.
 | PyPI | `assura-lang` | **Available** (checked 2026-06-12) |
 | npm | `@assura/cli` | **Available** (checked 2026-06-12) |
 | GitHub Org | `assura-lang` | **Created** (github.com/assura-lang) |
-| GitHub Repo | `assura-lang/assura` | **Created** (private, transferred from SebTardif) |
+| GitHub Repo | `assura-lang/assura` | **Created** |
 | Domain | `assura.dev` | **Taken** (registered, Cloudflare DNS) |
 
 ### Repository
