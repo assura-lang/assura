@@ -1248,4 +1248,136 @@ mod tests {
         let result = resolve_target(None, Some("wasm32-wasip1"));
         assert_eq!(result, assura_codegen::CompileTarget::Wasm);
     }
+
+    // ---------------------------------------------------------------
+    // strip_trailing_return
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn strip_trailing_return_removes_bare_result() {
+        let body = "    let x = 1;\n__assura_result\n";
+        let result = strip_trailing_return(body);
+        assert_eq!(result, "    let x = 1;\n");
+    }
+
+    #[test]
+    fn strip_trailing_return_only_result() {
+        let result = strip_trailing_return("__assura_result");
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn strip_trailing_return_preserves_non_result_ending() {
+        let body = "    let x = 1;\n    x + 2\n";
+        let result = strip_trailing_return(body);
+        assert_eq!(result, body);
+    }
+
+    #[test]
+    fn strip_trailing_return_preserves_result_in_middle() {
+        let body = "    __assura_result = 42;\n    do_stuff();\n";
+        let result = strip_trailing_return(body);
+        assert_eq!(result, body);
+    }
+
+    // ---------------------------------------------------------------
+    // strip_markdown_fences
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn strip_markdown_fences_extracts_fenced_content() {
+        let input = "```ir\nmodule Foo {\n}\n```";
+        let result = strip_markdown_fences(input);
+        assert_eq!(result, "module Foo {\n}");
+    }
+
+    #[test]
+    fn strip_markdown_fences_plain_text_passthrough() {
+        let input = "module Bar {\n}";
+        let result = strip_markdown_fences(input);
+        assert_eq!(result, "module Bar {\n}");
+    }
+
+    #[test]
+    fn strip_markdown_fences_no_language_tag() {
+        let input = "```\nmodule Baz {}\n```";
+        let result = strip_markdown_fences(input);
+        assert_eq!(result, "module Baz {}");
+    }
+
+    #[test]
+    fn strip_markdown_fences_surrounding_text() {
+        let input = "Here is the IR:\n```ir\nmodule X {}\n```\nDone.";
+        let result = strip_markdown_fences(input);
+        assert_eq!(result, "module X {}");
+    }
+
+    // ---------------------------------------------------------------
+    // build_single_contract_source
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn build_single_contract_source_basic() {
+        let ctx = assura_smt::IrPromptContext {
+            decl_name: "SafeDiv".into(),
+            params: vec![
+                Param {
+                    name: "a".into(),
+                    ty: Some(TypeExpr::Named("Int".into())),
+                },
+                Param {
+                    name: "b".into(),
+                    ty: Some(TypeExpr::Named("Int".into())),
+                },
+            ],
+            return_ty: vec!["Int".into()],
+            clauses: vec![
+                Clause {
+                    kind: ClauseKind::Requires,
+                    body: Spanned::no_span(Expr::BinOp {
+                        op: BinOp::Neq,
+                        lhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+                        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+                    }),
+                    effect_variables: vec![],
+                },
+                Clause {
+                    kind: ClauseKind::Ensures,
+                    body: Spanned::no_span(Expr::BinOp {
+                        op: BinOp::Eq,
+                        lhs: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
+                        rhs: Box::new(Spanned::no_span(Expr::BinOp {
+                            op: BinOp::Div,
+                            lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+                            rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+                        })),
+                    }),
+                    effect_variables: vec![],
+                },
+            ],
+            source_file: None,
+        };
+        let src = build_single_contract_source(&ctx);
+        assert!(src.contains("contract SafeDiv {"));
+        assert!(src.contains("input(a: Int, b: Int)"));
+        assert!(src.contains("output(result: Int)"));
+        assert!(src.contains("requires {"));
+        assert!(src.contains("ensures {"));
+    }
+
+    #[test]
+    fn build_single_contract_source_no_params_unit_return() {
+        let ctx = assura_smt::IrPromptContext {
+            decl_name: "Ping".into(),
+            params: vec![],
+            return_ty: vec![],
+            clauses: vec![],
+            source_file: None,
+        };
+        let src = build_single_contract_source(&ctx);
+        assert!(src.contains("contract Ping {"));
+        assert!(!src.contains("input("));
+        assert!(!src.contains("output("));
+        assert!(src.ends_with("}\n"));
+    }
 }

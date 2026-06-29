@@ -112,6 +112,9 @@ assura explain A03001
 # Build and generate Rust code
 assura build demos/libwebp-huffman.assura
 
+# Build with LLM-generated implementations (requires grok CLI)
+assura build demos/libwebp-huffman.assura --auto-implement
+
 # Format a contract file
 assura fmt demos/libwebp-huffman.assura
 
