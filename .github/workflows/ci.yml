@@ -259,9 +259,11 @@ jobs:
             case "$demo" in *-audit*|*audit-*) continue;; esac
             echo "=== Building $demo ==="
             cargo run --locked --bin assura -- build --no-check "$demo"
+            # build writes to <input-parent>/generated/ (e.g. demos/generated/)
+            gen_dir="$(dirname "$demo")/generated"
             echo "=== Checking generated Rust for $demo ==="
-            (cd generated && cargo check)
-            rm -rf generated
+            (cd "$gen_dir" && cargo check)
+            rm -rf "$gen_dir"
           done
 
       - name: Cleanup target (self-hosted)
