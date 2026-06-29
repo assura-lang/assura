@@ -787,3 +787,49 @@ fn extract_input_from_ident() {
     extract_input_params(&body, &mut params);
     // Single ident extraction depends on extract_clause_params
 }
+
+// ---- #715: proptest ensures uses `result`, not `__assura_result` ----
+
+#[test]
+fn proptest_ensures_uses_result_not_internal_var() {
+    // Build a contract: input(x: Int), output(result: Int), ensures { result > x }
+    let c = mk_contract(
+        "Deposit",
+        vec![
+            mk_clause(
+                ClauseKind::Input,
+                Spanned::no_span(Expr::Cast {
+                    expr: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                    ty: "Int".into(),
+                }),
+            ),
+            mk_clause(
+                ClauseKind::Output,
+                Spanned::no_span(Expr::Cast {
+                    expr: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
+                    ty: "Int".into(),
+                }),
+            ),
+            mk_clause(
+                ClauseKind::Ensures,
+                Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
+                    op: BinOp::Gt,
+                    rhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                }),
+            ),
+        ],
+    );
+    let mut code = String::new();
+    generate_proptest_for_contract_contents(&c, &mut code);
+    // The proptest body binds `let result = super::check(...)`, so the
+    // ensures expression must use `result`, not `__assura_result`.
+    assert!(
+        !code.contains(RESULT_VAR),
+        "proptest should NOT contain {RESULT_VAR}: {code}"
+    );
+    assert!(
+        code.contains("result"),
+        "proptest should reference `result`: {code}"
+    );
+}

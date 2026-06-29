@@ -510,4 +510,94 @@ mod tests {
         );
         assert!(!errors.is_empty(), "should report errors for the garbage");
     }
+
+    // ---- #716-#726: all features.rs clause_kinds parse as clause starters ----
+
+    /// Every keyword registered in features.rs clause_kinds must be recognized
+    /// by the parser as a clause starter (no A01002 parse errors).
+    #[test]
+    fn all_features_clause_kinds_parse_without_error() {
+        // Comprehensive list of all clause_kinds from features.rs that are
+        // ident-based (not SyntaxKind keywords). Each must parse as a clause
+        // inside a contract body without producing parse errors.
+        let ident_keywords = [
+            // CORE.8 Liveness (#716)
+            "liveness",
+            "eventually",
+            "leads_to",
+            // SEC.5 DependentTypes (#717)
+            "dependent",
+            "label",
+            // MEM.2 FixedWidth (#718)
+            "fixed_width",
+            "width",
+            // STOR.6 StorageFailure (#719)
+            "failure_mode",
+            "storage_failure",
+            // FMT.6 ProtocolGrammar (#720)
+            "protocol_grammar",
+            "state_machine",
+            // TEST.1 TestGenCoverage (#721)
+            "test_gen",
+            "generate_tests",
+            // SEC.1 TaintTracking (#722)
+            "taint",
+            "secret",
+            // SEC.3 SecureErasure (#723)
+            "zeroize",
+            "secure_erase",
+            // CORE.4 AxiomaticDefinitions (#724)
+            "trigger",
+            "auto_trigger",
+            // CORE.5 TriggerPatterns (#725)
+            "trigger_pattern",
+            // #726 alias keywords
+            "must_not_reenter",
+            "no_reentrant",
+            "lock_rank",
+            "seq_cst",
+            "acq_rel",
+            "axiomatic",
+            "frame",
+            "byte_layout",
+            "charset",
+            "circular",
+            "incremental_contract",
+            "scoped_invariant",
+            "ulp_bound",
+            "complexity_bound",
+            "platform_abstraction",
+            "write_ahead",
+            "buffer_pool",
+            "behavioral_equivalence",
+            "error_policy",
+        ];
+
+        for kw in &ident_keywords {
+            let src =
+                format!("contract Test_{kw} {{\n  {kw} {{ some_body }}\n  fn run() -> Bool\n}}");
+            let (file, errors) = parse(&src);
+            assert!(
+                errors.is_empty(),
+                "keyword `{kw}` should parse without errors, got: {errors:?}"
+            );
+            let f = file.unwrap_or_else(|| panic!("keyword `{kw}` should return a file"));
+            assert_eq!(
+                f.decls.len(),
+                1,
+                "keyword `{kw}` should produce 1 declaration"
+            );
+            // The clause should have been parsed (not swallowed into fn body)
+            match &f.decls[0].node {
+                ast::Decl::Contract(c) => {
+                    assert!(
+                        c.clauses.len() >= 1,
+                        "keyword `{kw}` contract should have at least 1 clause, got {}",
+                        c.clauses.len()
+                    );
+                }
+                other => panic!("keyword `{kw}`: expected Contract, got {other:?}"),
+            }
+        }
+    }
 }

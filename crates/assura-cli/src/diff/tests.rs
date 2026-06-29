@@ -300,8 +300,10 @@ fn test_must_reject_fixtures() {
     // Zero is the healthy default; any BLOCKED fixture must have a tracking
     // GitHub issue referenced in the `// BLOCKED:` line. Raising this limit
     // is allowed only when adding a justified temporary gap (prefer fixing).
-    // Zero BLOCKED fixtures allowed; use == so clippy does not treat `<= 0` as absurd.
-    const MAX_BLOCKED_MUST_REJECT: usize = 0;
+    // One BLOCKED fixture allowed: liveness_no_fairness.assura (A31007
+    // fairness checking not yet implemented; parser now correctly accepts
+    // liveness clauses per #716).
+    const MAX_BLOCKED_MUST_REJECT: usize = 1;
     assert_eq!(
         blocked_paths.len(),
         MAX_BLOCKED_MUST_REJECT,

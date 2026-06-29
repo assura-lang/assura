@@ -46,6 +46,20 @@ pub(crate) fn at_clause_start(p: &mut Parser) -> bool {
             | SyntaxKind::MUST_NOT_MASK_KW
             | SyntaxKind::PROTOCOL_KW
             | SyntaxKind::TRANSITION_KW
+            // Feature clause keywords with dedicated SyntaxKind tokens (#716-#726)
+            | SyntaxKind::LIVENESS_KW
+            | SyntaxKind::EVENTUALLY_KW
+            | SyntaxKind::LEADS_TO_KW
+            | SyntaxKind::AUTO_TRIGGER_KW
+            | SyntaxKind::TRIGGER_KW
+            | SyntaxKind::SECRET_KW
+            | SyntaxKind::SECURE_ERASE_KW
+            | SyntaxKind::ACQ_REL_KW
+            | SyntaxKind::SEQ_CST_KW
+            | SyntaxKind::LOCK_RANK_KW
+            | SyntaxKind::MUST_NOT_REENTER_KW
+            | SyntaxKind::ERROR_POLICY_KW
+            | SyntaxKind::GENERATE_TESTS_KW
     ) || is_domain_keyword_clause(p)
         || is_ident_clause_start(p)
 }
@@ -160,18 +174,43 @@ const IDENT_CLAUSE_STARTERS: &[&str] = &[
     "bit_level",
     "bit_field",
     "strict_triggers",
+    // #717: SEC.5 DependentTypes
+    "dependent",
+    "label",
+    // #718: MEM.2 FixedWidth
+    "fixed_width",
+    "width",
+    // #719: STOR.6 StorageFailure (primary keyword; alias storage_failure already present)
+    "failure_mode",
+    // #720: FMT.6 ProtocolGrammar (primary keyword; alias state_machine already present)
+    "protocol_grammar",
+    // #721: TEST.1 TestGenCoverage
+    "test_gen",
+    // #723: SEC.3 SecureErasure
+    "zeroize",
+    // #725: CORE.5 TriggerPatterns
+    "trigger_pattern",
+    // #726: Missing alias keywords across 17 features (ident-based only)
+    "no_reentrant",
+    "axiomatic",
+    "frame",
+    "byte_layout",
+    "charset",
+    "circular",
+    "incremental_contract",
+    "scoped_invariant",
+    "ulp_bound",
+    "complexity_bound",
+    "platform_abstraction",
+    "write_ahead",
+    "buffer_pool",
+    "behavioral_equivalence",
 ];
 
 /// Ident-based keywords that STOP a clause body but do NOT start one.
 /// These are declaration-like keywords (feature_max, incremental, etc.)
 /// that terminate the current clause but are not themselves clause heads.
-const IDENT_CLAUSE_STOPPERS_ONLY: &[&str] = &[
-    "feature_max",
-    "incremental",
-    "liveness",
-    "safety",
-    "security",
-];
+const IDENT_CLAUSE_STOPPERS_ONLY: &[&str] = &["feature_max", "incremental", "safety", "security"];
 
 /// Check if a SyntaxKind is a domain keyword clause starter (without needing Parser).
 pub(crate) fn is_domain_keyword_clause_kind(k: SyntaxKind) -> bool {
@@ -364,6 +403,20 @@ pub(crate) fn is_clause_stopper_kind(k: SyntaxKind) -> bool {
             | SyntaxKind::GHOST_KW
             | SyntaxKind::BIND_KW
             | SyntaxKind::CODEC_REGISTRY_KW
+            // Feature clause keywords (#716-#726)
+            | SyntaxKind::LIVENESS_KW
+            | SyntaxKind::EVENTUALLY_KW
+            | SyntaxKind::LEADS_TO_KW
+            | SyntaxKind::AUTO_TRIGGER_KW
+            | SyntaxKind::TRIGGER_KW
+            | SyntaxKind::SECRET_KW
+            | SyntaxKind::SECURE_ERASE_KW
+            | SyntaxKind::ACQ_REL_KW
+            | SyntaxKind::SEQ_CST_KW
+            | SyntaxKind::LOCK_RANK_KW
+            | SyntaxKind::MUST_NOT_REENTER_KW
+            | SyntaxKind::ERROR_POLICY_KW
+            | SyntaxKind::GENERATE_TESTS_KW
     )
 }
 

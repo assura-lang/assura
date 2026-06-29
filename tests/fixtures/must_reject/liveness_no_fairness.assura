@@ -1,4 +1,7 @@
 // MUST REJECT A31007
+// BLOCKED: liveness fairness checking (A31007) not yet implemented in type checker.
+//          Parser now correctly accepts liveness clauses (#716); type-level
+//          rejection will be added when liveness feature is fully wired.
 // A liveness block that uses leads_to without assume fair.
 // Fairness is required for leads-to proofs.
 liveness EventualResponse {

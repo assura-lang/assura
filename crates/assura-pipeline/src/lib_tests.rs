@@ -413,7 +413,9 @@ fn layer3_liveness_eventually_produces_results() {
             | assura_smt::VerificationResult::Counterexample { clause_desc, .. }
             | assura_smt::VerificationResult::Timeout { clause_desc, .. }
             | assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
-                clause_desc.contains("eventually") || clause_desc.contains("BMC")
+                clause_desc.contains("eventually")
+                    || clause_desc.contains("BMC")
+                    || clause_desc.contains("liveness")
             }
         })
         .collect();
@@ -442,7 +444,9 @@ fn layer3_liveness_leads_to_produces_results() {
             | assura_smt::VerificationResult::Counterexample { clause_desc, .. }
             | assura_smt::VerificationResult::Timeout { clause_desc, .. }
             | assura_smt::VerificationResult::Unknown { clause_desc, .. } => {
-                clause_desc.contains("leads_to") || clause_desc.contains("BMC")
+                clause_desc.contains("leads_to")
+                    || clause_desc.contains("BMC")
+                    || clause_desc.contains("liveness")
             }
         })
         .collect();

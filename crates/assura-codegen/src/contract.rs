@@ -525,11 +525,11 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
         match &clause.kind {
             ClauseKind::Input => extract_input_params(&clause.body, &mut input_params),
             ClauseKind::Requires => {
-                requires_exprs.push(expr_to_rust(&clause.body));
+                requires_exprs.push(expr_to_rust_static(&clause.body));
                 requires_ast.push(&clause.body);
             }
             ClauseKind::Ensures => {
-                ensures_exprs.push(expr_to_rust(&clause.body));
+                ensures_exprs.push(expr_to_rust_static(&clause.body));
             }
             ClauseKind::Output => {
                 output_name = extract_output_name(&clause.body);
