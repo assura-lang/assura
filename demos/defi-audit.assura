@@ -1,0 +1,413 @@
+// DeFi Smart Contract Invariant Verification
+//
+// Every contract below models a REAL exploit pattern that has
+// caused $100M+ in losses. The invariants come directly from
+// ERC-20/ERC-4626/AMM specs. Z3 searches for inputs that violate them.
+//
+// This is where Z3 genuinely wins:
+//   - Contracts are immutable (no patches after deployment)
+//   - Adversarial inputs (attackers craft transactions to exploit)
+//   - State space is bounded but combinatorially large
+//   - A single bug = catastrophic irreversible loss
+
+// ============================================================
+// CONTRACT 1: ERC-20 Token Transfer - Balance Conservation
+//
+// Invariant (ERC-20 spec):
+//   "The sum of all balances equals totalSupply at all times"
+//
+// Bug pattern: transfer without proper underflow check
+// Real exploit: BEC token (2018) - $900M evaporated
+// ============================================================
+contract TokenTransferConservation {
+    input(
+        balance_sender: Int,        // sender's balance before
+        balance_receiver: Int,      // receiver's balance before
+        total_supply: Int,          // total token supply
+        other_balances: Int,        // sum of ALL other balances
+        amount: Int                 // transfer amount
+    )
+    // Valid initial state
+    requires { balance_sender >= 0 }
+    requires { balance_receiver >= 0 }
+    requires { total_supply >= 0 }
+    requires { other_balances >= 0 }
+    requires { amount >= 0 }
+
+    // Conservation holds before transfer
+    requires { balance_sender + balance_receiver + other_balances == total_supply }
+
+    // Transfer is valid (sender has enough)
+    requires { amount <= balance_sender }
+
+    // After transfer:
+    // sender_new = balance_sender - amount
+    // receiver_new = balance_receiver + amount
+    // total_supply unchanged
+
+    // INVARIANT: conservation still holds after transfer
+    ensures { (balance_sender - amount) + (balance_receiver + amount) + other_balances == total_supply }
+}
+
+// ============================================================
+// CONTRACT 2: Unchecked Transfer - The BEC/SMT overflow bug
+//
+// Real code (simplified):
+//   function transfer(to, amount):
+//     balances[msg.sender] -= amount    // no underflow check!
+//     balances[to] += amount
+//
+// In Solidity uint256, underflow wraps to 2^256 - 1
+// Attacker with balance 0 transfers 1 token: gets 2^256 - 1 tokens
+//
+// We model with 32-bit to keep Z3 fast. Same principle.
+// ============================================================
+contract UncheckedTransferOverflow {
+    input(
+        balance_sender: Int,
+        balance_receiver: Int,
+        total_supply: Int,
+        other_balances: Int,
+        amount: Int
+    )
+    requires { balance_sender >= 0 }
+    requires { balance_sender <= 4294967295 }
+    requires { balance_receiver >= 0 }
+    requires { balance_receiver <= 4294967295 }
+    requires { total_supply >= 0 }
+    requires { other_balances >= 0 }
+    requires { amount >= 0 }
+    requires { amount <= 4294967295 }
+
+    // Conservation holds before
+    requires { balance_sender + balance_receiver + other_balances == total_supply }
+
+    // NO underflow check (the bug): amount can exceed balance_sender
+    // Solidity uint256 wraps: balance_sender - amount mod 2^256
+    // We model: if amount > balance_sender, sender gets huge number
+
+    // After "transfer" with wrapping subtraction:
+    // sender_new = (balance_sender - amount) mod 2^32
+    //            = balance_sender - amount (if >= 0)
+    //            = balance_sender - amount + 2^32 (if < 0, wraps)
+    // receiver_new = balance_receiver + amount (can also overflow)
+
+    // INVARIANT: conservation must hold
+    // If amount > balance_sender: sender_new is HUGE (wrapped)
+    // sender_new + receiver_new + others != total_supply
+    ensures { balance_sender - amount + balance_receiver + amount + other_balances == total_supply }
+}
+
+// ============================================================
+// CONTRACT 3: Reentrancy Attack Pattern (The DAO, 2016, $60M)
+//
+// Bug: update state AFTER external call
+//   function withdraw(amount):
+//     require(balances[msg.sender] >= amount)
+//     msg.sender.call{value: amount}("")   // <-- external call
+//     balances[msg.sender] -= amount       // <-- state update AFTER
+//
+// Attacker's fallback function calls withdraw() again
+// before balance is decremented. Same balance passes check twice.
+//
+// Model: 2 withdraw calls on same balance, state update delayed
+// ============================================================
+contract ReentrancyWithdrawBug {
+    input(
+        user_balance: Int,          // attacker's deposited balance
+        contract_eth: Int,          // contract's total ETH
+        withdraw_amount: Int,       // amount per withdrawal
+        num_reentrant_calls: Int    // how many times attacker re-enters
+    )
+    requires { user_balance >= 0 }
+    requires { contract_eth >= 0 }
+    requires { withdraw_amount >= 0 }
+    requires { num_reentrant_calls >= 1 }
+    requires { num_reentrant_calls <= 10 }
+
+    // Attacker has legitimately deposited this much
+    requires { user_balance <= contract_eth }
+    requires { withdraw_amount <= user_balance }
+
+    // The bug: balance check passes every time because
+    // state isn't updated until all calls complete
+    //
+    // Each reentrant call: check balance (still == user_balance), send ETH
+    // Total ETH sent = withdraw_amount * num_reentrant_calls
+    // But attacker only had user_balance
+
+    // INVARIANT: total withdrawn should not exceed user's balance
+    ensures { withdraw_amount * num_reentrant_calls <= user_balance }
+}
+
+// ============================================================
+// CONTRACT 4: Flash Loan + AMM Price Manipulation
+//
+// Real pattern (multiple exploits, 2020-2024, $500M+ total):
+//   1. Flash loan X tokens
+//   2. Dump X into AMM pool, crash the price
+//   3. Buy cheap from a protocol that uses AMM as price oracle
+//   4. Repay flash loan
+//   5. Profit: bought at manipulated price
+//
+// AMM price model: constant product x * y = k
+// Price of token A in terms of B: y / x
+//
+// Z3 checks: after a large swap, does the price move enough
+// to make oracle manipulation profitable?
+// ============================================================
+contract FlashLoanOracleManipulation {
+    input(
+        reserve_a: Int,             // AMM pool reserve of token A
+        reserve_b: Int,             // AMM pool reserve of token B
+        flash_amount: Int,          // flash loaned amount of A
+        lending_collateral: Int,    // collateral in lending protocol
+        lending_debt: Int           // debt in lending protocol
+    )
+    requires { reserve_a >= 1 }
+    requires { reserve_a <= 1000000000 }
+    requires { reserve_b >= 1 }
+    requires { reserve_b <= 1000000000 }
+    requires { flash_amount >= 1 }
+    requires { flash_amount <= 1000000000 }
+    requires { lending_collateral >= 0 }
+    requires { lending_debt >= 0 }
+
+    // Constant product invariant
+    // k = reserve_a * reserve_b
+    // After dumping flash_amount of A into pool:
+    //   new_reserve_a = reserve_a + flash_amount
+    //   new_reserve_b = k / new_reserve_a = reserve_a * reserve_b / (reserve_a + flash_amount)
+
+    // Price before: reserve_b / reserve_a
+    // Price after: new_reserve_b / new_reserve_a
+    //   = (reserve_a * reserve_b / (reserve_a + flash_amount)) / (reserve_a + flash_amount)
+    //   = reserve_a * reserve_b / (reserve_a + flash_amount)^2
+
+    // Price ratio (how much price dropped):
+    // price_after / price_before = reserve_a^2 / (reserve_a + flash_amount)^2
+
+    // If lending protocol uses AMM spot price as oracle:
+    // Collateral value drops by the same ratio
+    // If collateral_value_new < debt, position is liquidatable
+
+    // INVARIANT: price manipulation should not make price drop below 50%
+    // (if it does, the oracle is exploitable)
+    // price_after / price_before >= 0.5
+    // reserve_a^2 / (reserve_a + flash_amount)^2 >= 0.5
+    // reserve_a^2 * 2 >= (reserve_a + flash_amount)^2
+    ensures { reserve_a * reserve_a * 2 >= (reserve_a + flash_amount) * (reserve_a + flash_amount) }
+}
+
+// ============================================================
+// CONTRACT 5: ERC-20 Approve/TransferFrom Race Condition
+//
+// Known ERC-20 design flaw (documented in EIP-20):
+//   1. Alice approves Bob for 100 tokens
+//   2. Alice changes approval to 50 tokens
+//   3. Bob front-runs: transferFrom(alice, bob, 100) before tx 2
+//   4. After tx 2 lands: Bob has new approval of 50
+//   5. Bob calls transferFrom(alice, bob, 50)
+//   6. Bob got 150 tokens total, Alice intended max 100
+//
+// Z3 models the race between approval change and transferFrom
+// ============================================================
+contract ApproveRaceCondition {
+    input(
+        alice_balance: Int,
+        bob_balance: Int,
+        old_approval: Int,          // current approval (100)
+        new_approval: Int,          // Alice's new approval (50)
+
+        // Bob's actions
+        bob_uses_old: Int,          // Bob transfers using old approval
+        bob_uses_new: Int           // Bob transfers using new approval
+    )
+    requires { alice_balance >= 0 }
+    requires { bob_balance >= 0 }
+    requires { old_approval >= 0 }
+    requires { new_approval >= 0 }
+    requires { bob_uses_old >= 0 }
+    requires { bob_uses_new >= 0 }
+
+    // Valid: approvals don't exceed balance
+    requires { old_approval <= alice_balance }
+    requires { new_approval <= alice_balance }
+
+    // Bob front-runs: uses old approval first
+    requires { bob_uses_old <= old_approval }
+    // Then uses new approval
+    requires { bob_uses_new <= new_approval }
+    // Both are valid transfers (Alice has enough after first)
+    requires { bob_uses_old + bob_uses_new <= alice_balance }
+
+    // Alice intended: Bob gets at most max(old_approval, new_approval)
+    // In this case: max(100, 50) = 100
+    // But Bob got: bob_uses_old + bob_uses_new
+
+    // INVARIANT: Bob should not get more than Alice's intended maximum
+    ensures { bob_uses_old + bob_uses_new <= old_approval }
+}
+
+// ============================================================
+// CONTRACT 6: Vault Share Inflation Attack (ERC-4626)
+//
+// Real exploit pattern (multiple protocols, 2022-2023):
+//   1. Attacker is first depositor, deposits 1 wei
+//   2. Attacker donates 1M tokens directly to vault contract
+//   3. share_price = totalAssets / totalShares = 1000001 / 1
+//   4. Victim deposits 999999 tokens
+//   5. Victim gets: 999999 / 1000001 = 0 shares (rounds down!)
+//   6. Attacker redeems 1 share = gets all 2000000 tokens
+//
+// Z3 finds the exact donation amount that steals deposits
+// ============================================================
+contract VaultShareInflation {
+    input(
+        attacker_deposit: Int,      // attacker's initial deposit (1 wei)
+        donation: Int,              // attacker donates directly to vault
+        victim_deposit: Int,        // victim's deposit
+
+        // Share calculation
+        total_shares_before: Int,   // shares outstanding before victim
+        total_assets_before: Int    // assets in vault before victim
+    )
+    requires { attacker_deposit >= 1 }
+    requires { donation >= 0 }
+    requires { victim_deposit >= 1 }
+    requires { total_shares_before >= 1 }
+    requires { total_assets_before >= 1 }
+
+    // Attacker is first depositor: 1 share for attacker_deposit
+    requires { total_shares_before == attacker_deposit }
+
+    // After donation: assets increase but shares don't
+    requires { total_assets_before == attacker_deposit + donation }
+
+    // Victim's shares = victim_deposit * total_shares / total_assets
+    // With integer division (Solidity has no floats):
+    // victim_shares = victim_deposit * total_shares_before / total_assets_before
+
+    // INVARIANT: victim should get at least 1 share for a non-zero deposit
+    // victim_shares = victim_deposit * attacker_deposit / (attacker_deposit + donation)
+    // If donation >= victim_deposit * attacker_deposit, victim gets 0 shares!
+    ensures { victim_deposit * total_shares_before / total_assets_before >= 1 }
+}
+
+// ============================================================
+// CONTRACT 7: AMM Constant Product After Swap
+//
+// Invariant (Uniswap V2):
+//   "After every swap, x_new * y_new >= x_old * y_old"
+//   (constant product invariant, accounting for fees)
+//
+// Model: swap dx of token A for dy of token B
+//   x_new = x + dx
+//   y_new = y - dy
+//   dy = y * dx / (x + dx)   (exact formula)
+//
+// With 0.3% fee: dy = y * (dx * 997) / (x * 1000 + dx * 997)
+//
+// Z3 checks: does the fee formula maintain k = x*y?
+// ============================================================
+contract AMMConstantProductFee {
+    input(
+        reserve_x: Int,
+        reserve_y: Int,
+        amount_in: Int              // amount of X being swapped in
+    )
+    requires { reserve_x >= 1 }
+    requires { reserve_x <= 1000000000 }
+    requires { reserve_y >= 1 }
+    requires { reserve_y <= 1000000000 }
+    requires { amount_in >= 1 }
+    requires { amount_in <= 1000000000 }
+
+    // Uniswap V2 formula with 0.3% fee:
+    // amount_out = reserve_y * amount_in * 997 / (reserve_x * 1000 + amount_in * 997)
+    //
+    // After swap:
+    //   x_new = reserve_x + amount_in
+    //   y_new = reserve_y - amount_out
+    //
+    // k_new = x_new * y_new
+    // k_old = reserve_x * reserve_y
+    //
+    // INVARIANT: k_new >= k_old (fees should never decrease k)
+
+    // Substituting:
+    // k_new = (reserve_x + amount_in) * (reserve_y - amount_out)
+    // amount_out = reserve_y * amount_in * 997 / (reserve_x * 1000 + amount_in * 997)
+    //
+    // Let D = reserve_x * 1000 + amount_in * 997
+    // k_new = (reserve_x + amount_in) * (reserve_y - reserve_y * amount_in * 997 / D)
+    //       = (reserve_x + amount_in) * reserve_y * (D - amount_in * 997) / D
+    //       = (reserve_x + amount_in) * reserve_y * (reserve_x * 1000) / D
+
+    // For k_new >= k_old:
+    // (reserve_x + amount_in) * reserve_y * reserve_x * 1000 / D >= reserve_x * reserve_y
+    // (reserve_x + amount_in) * 1000 / D >= 1
+    // (reserve_x + amount_in) * 1000 >= D
+    // (reserve_x + amount_in) * 1000 >= reserve_x * 1000 + amount_in * 997
+    // reserve_x * 1000 + amount_in * 1000 >= reserve_x * 1000 + amount_in * 997
+    // amount_in * 1000 >= amount_in * 997
+    // 1000 >= 997 (always true!)
+
+    // So the invariant holds. Z3 should verify this.
+    ensures { (reserve_x + amount_in) * 1000 >= reserve_x * 1000 + amount_in * 997 }
+}
+
+// ============================================================
+// CONTRACT 8: Rounding Direction in Vault Deposit/Withdraw
+//
+// Critical DeFi invariant:
+//   Deposits: round DOWN shares (favor vault, user gets fewer shares)
+//   Withdrawals: round DOWN assets (favor vault, user gets less back)
+//
+// If rounding goes wrong direction, attacker can extract value
+// by depositing and withdrawing repeatedly, gaining 1 wei per round.
+//
+// With enough repetitions (gas is cheap on L2s), this drains the vault.
+// ============================================================
+contract VaultRoundingExtraction {
+    input(
+        total_assets: Int,          // vault total assets
+        total_shares: Int,          // vault total shares
+        deposit_amount: Int,        // attacker deposits
+        rounds: Int                 // number of deposit/withdraw cycles
+    )
+    requires { total_assets >= 1 }
+    requires { total_assets <= 1000000000 }
+    requires { total_shares >= 1 }
+    requires { total_shares <= 1000000000 }
+    requires { deposit_amount >= 1 }
+    requires { deposit_amount <= 1000000000 }
+    requires { rounds >= 1 }
+    requires { rounds <= 1000 }
+
+    // Deposit: shares_minted = deposit_amount * total_shares / total_assets (round down)
+    // Withdraw all shares: assets_out = shares_minted * total_assets_new / total_shares_new
+
+    // If total_assets = 100, total_shares = 99, deposit = 1:
+    //   shares_minted = 1 * 99 / 100 = 0 (rounds to zero!)
+    //   Attacker deposited 1 but got 0 shares -> lost 1 token to vault
+    //   That's correct rounding (favor vault)
+
+    // But if total_assets = 99, total_shares = 100, deposit = 1:
+    //   shares_minted = 1 * 100 / 99 = 1 (rounds down from 1.01)
+    //   assets_redeemable = 1 * 100 / 101 = 0 (rounds down)
+    //   Attacker deposited 1, got back 0. Still favors vault.
+
+    // INVARIANT: one round-trip should never be profitable for attacker
+    // assets_out <= deposit_amount for any single round-trip
+    // shares = deposit * total_shares / total_assets (floor)
+    // assets_back = shares * (total_assets + deposit) / (total_shares + shares) (floor)
+
+    // For extraction to work: assets_back > deposit_amount
+    // shares * (total_assets + deposit) / (total_shares + shares) > deposit
+    // With floor division, this can happen if shares/total_shares > deposit/(total_assets+deposit)
+
+    // In repeated rounds, rounding errors accumulate
+    // INVARIANT: net gain over N rounds must be <= 0
+    ensures { rounds * deposit_amount * total_shares / total_assets * (total_assets + deposit_amount) / (total_shares + deposit_amount * total_shares / total_assets) <= rounds * deposit_amount }
+}

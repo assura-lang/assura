@@ -1,0 +1,127 @@
+// zip-rs/zip2 crate audit
+// Models arithmetic invariants from the real code. Z3 proves or disproves.
+
+contract Zip64ParseOverread {
+  input(
+    len: Nat,
+    uncompressed_size: Nat,
+    compressed_size: Nat,
+    header_start_val: Nat
+  )
+
+  requires { len <= 65535 }
+  requires { uncompressed_size <= 4294967295 }
+  requires { compressed_size <= 4294967295 }
+  requires { header_start_val <= 4294967295 }
+
+  // Per spec: each field is 8 bytes, present only if sentinel.
+  // Per code: field is read if len >= 24 OR field == 4294967295.
+  // consumed_len must not exceed len.
+  ensures { len >= 24 }
+}
+
+contract DataStartOverflow {
+  input(
+    hdr_start: Nat,
+    file_name_length: Nat,
+    extra_field_length: Nat
+  )
+
+  requires { hdr_start <= 18446744073709551615 }
+  requires { file_name_length <= 65535 }
+  requires { extra_field_length <= 65535 }
+
+  // data_start = hdr_start + 30 + file_name_length + extra_field_length
+  // Must not wrap past u64::MAX
+  ensures { hdr_start + 30 + file_name_length + extra_field_length <= 18446744073709551615 }
+}
+
+contract FindCdSubtractSafe {
+  input(
+    cd_offset: Nat,
+    relative_cd_offset: Nat,
+    eocd_offset: Nat
+  )
+
+  requires { cd_offset <= 18446744073709551615 }
+  requires { relative_cd_offset <= 18446744073709551615 }
+  requires { eocd_offset <= 18446744073709551615 }
+  requires { cd_offset <= eocd_offset }
+
+  // archive_offset = cd_offset - relative_cd_offset (unchecked)
+  ensures { cd_offset >= relative_cd_offset }
+}
+
+contract Eocd64SubSafe {
+  input(
+    eocd64_offset: Nat,
+    locator_cd_offset: Nat,
+    locator64_offset: Nat
+  )
+
+  requires { eocd64_offset <= 18446744073709551615 }
+  requires { locator_cd_offset <= 18446744073709551615 }
+  requires { locator64_offset <= 18446744073709551615 }
+  requires { locator_cd_offset < locator64_offset }
+
+  // archive_offset = eocd64_offset - locator_cd_offset (unchecked)
+  ensures { eocd64_offset >= locator_cd_offset }
+}
+
+contract Zip64WriteReadAsymmetry {
+  input(
+    hdr_start_orig: Nat,
+    uncomp_size: Nat,
+    comp_size: Nat
+  )
+
+  requires { hdr_start_orig <= 18446744073709551615 }
+  requires { uncomp_size <= 18446744073709551615 }
+  requires { comp_size <= 18446744073709551615 }
+
+  // Writer stores header_start in zip64 only if:
+  //   hdr_start_orig != 0 AND hdr_start_orig >= 4294967295
+  // Reader reads header_start from zip64 only if:
+  //   min(hdr_start_orig, 4294967295) == 4294967295
+  //
+  // If hdr_start_orig == 0, writer skips it. 32-bit field = 0.
+  // Reader sees 0 != 4294967295, so skips reading. Returns 0. OK.
+  //
+  // If hdr_start_orig == 4294967295 exactly, writer condition:
+  //   4294967295 != 0 (true) AND 4294967295 >= 4294967295 (true) -> stores
+  // Reader: 32-bit field = 4294967295 (sentinel) -> reads. OK.
+  //
+  // If hdr_start_orig > 4294967295 (e.g. 5000000000):
+  //   Writer: 5000000000 != 0 (true) AND 5000000000 >= 4294967295 (true) -> stores
+  //   Reader: 32-bit field = min(5000000000, 4294967295) = 4294967295 -> reads. OK.
+  //
+  // But: what if hdr_start_orig is between 1 and 4294967294?
+  // Writer: e.g. 100 != 0 (true) AND 100 >= 4294967295 (false) -> DOES NOT store
+  // 32-bit field = 100. Reader: 100 != 4294967295 -> DOES NOT read. Returns 100.
+  // This is correct behavior.
+  //
+  // The real question: with is_large_file = true, writer ALSO checks >= threshold.
+  // So large_file alone doesn't force zip64 header_start storage. Is that correct?
+  ensures { hdr_start_orig >= 4294967295 }
+}
+
+contract Zip64LenVsFieldCount {
+  input(
+    len: Nat,
+    uncomp_is_sentinel: Nat,
+    comp_is_sentinel: Nat,
+    hdr_is_sentinel: Nat
+  )
+
+  requires { len <= 65535 }
+  requires { uncomp_is_sentinel <= 1 }
+  requires { comp_is_sentinel <= 1 }
+  requires { hdr_is_sentinel <= 1 }
+
+  // Per ZIP spec, len should equal 8 * (number of sentinel fields)
+  // Per code, fields are read if len >= 24 OR sentinel
+  // When len >= 24 but no sentinels, code reads 3 fields (24 bytes)
+  // but spec says 0 fields should be present
+  // That means 24 bytes consumed from a field containing non-zip64 data
+  ensures { len >= 24 }
+}

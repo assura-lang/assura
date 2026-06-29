@@ -12,3 +12,4 @@ tests/fixtures/generated
 /docs/book/
 fuzz/Cargo.lock
 .patchloom/
+.pr-preflight-passed

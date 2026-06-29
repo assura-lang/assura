@@ -1,0 +1,493 @@
+// mbedTLS Arithmetic Audit Contracts
+// Targets: DTLS reassembly, CBC decryption, record parsing
+// Source: library/ssl_msg.c (Mbed-TLS/mbedtls, latest main)
+
+// ============================================================
+// Contract 1: DTLS ssl_check_hs_header validation
+// Lines 2819-2840 of ssl_msg.c
+// All three values are 24-bit from network (MBEDTLS_GET_UINT24_BE)
+// Checks: frag_off <= msg_len, frag_off + frag_len <= msg_len,
+//         frag_len + 12 <= in_msglen
+// Question: can values pass all checks but frag_off+frag_len overflow uint32?
+// ============================================================
+contract DtlsFragHeaderCheck {
+    input(msg_len: Int, frag_off: Int, frag_len: Int, in_msglen: Int)
+
+    // 24-bit values from network
+    requires { msg_len >= 0 }
+    requires { msg_len <= 16777215 }
+    requires { frag_off >= 0 }
+    requires { frag_off <= 16777215 }
+    requires { frag_len >= 0 }
+    requires { frag_len <= 16777215 }
+    requires { in_msglen >= 0 }
+    requires { in_msglen <= 16384 }
+
+    // The three checks from ssl_check_hs_header
+    requires { frag_off <= msg_len }
+    requires { frag_len <= msg_len - frag_off }
+    requires { frag_len + 12 <= in_msglen }
+
+    output(safe: Bool)
+
+    // After passing all checks, frag_off + frag_len must be <= msg_len
+    // (this should always hold; Z3 confirms the checks are sufficient)
+    ensures { frag_off + frag_len <= msg_len }
+}
+
+// ============================================================
+// Contract 2: DTLS reassembly buffer size calculation
+// Line 2909-2921 of ssl_msg.c
+// alloc_len = 12 + msg_len + msg_len/8 + (msg_len % 8 != 0)
+// Question: can this overflow size_t on 32-bit?
+// ============================================================
+contract ReassemblyBufferSize32Bit {
+    input(msg_len: Int)
+
+    // msg_len comes from 24-bit network value
+    requires { msg_len >= 0 }
+    requires { msg_len <= 16777215 }
+
+    output(alloc_len: Int)
+
+    // The calculation: 12 + msg_len + msg_len/8 + 1 (worst case for bitmap)
+    // On 32-bit size_t, max is 4294967295
+    // Must not overflow
+    ensures { 12 + msg_len + msg_len / 8 + 1 <= 4294967295 }
+}
+
+// ============================================================
+// Contract 3: DTLS bitmask_set bounds check
+// Lines 2845-2883 of ssl_msg.c
+// bitmask array has (msg_len/8 + (msg_len%8 != 0)) bytes
+// ssl_bitmask_set(bitmask, frag_off, frag_len) accesses
+// mask[last_byte_idx] where last_byte_idx = (offset + len) / 8
+// Question: can last_byte_idx exceed the bitmask array bounds?
+// ============================================================
+contract BitmaskSetBounds {
+    input(msg_len: Int, frag_off: Int, frag_len: Int)
+
+    // Constraints from ssl_check_hs_header
+    requires { msg_len >= 1 }
+    requires { msg_len <= 16384 }
+    requires { frag_off >= 0 }
+    requires { frag_off <= 16777215 }
+    requires { frag_len >= 0 }
+    requires { frag_len <= 16777215 }
+    requires { frag_off <= msg_len }
+    requires { frag_off + frag_len <= msg_len }
+    requires { frag_len >= 1 }
+
+    output(safe: Bool)
+
+    // Bitmask size = msg_len / 8 + 1 (worst case when msg_len % 8 != 0)
+    // last_byte_idx = (frag_off + frag_len) / 8
+    // For bitmask_set: also accesses first_byte_idx = frag_off / 8
+    // Both must be < bitmask_size
+    ensures { (frag_off + frag_len) / 8 <= msg_len / 8 }
+    ensures { frag_off / 8 <= msg_len / 8 }
+}
+
+// ============================================================
+// Contract 4: CBC decryption padding arithmetic
+// Lines 1436-1700 of ssl_msg.c
+// data_len modified through: IV strip, padding strip, MAC strip
+// All subtractions must not underflow
+// ============================================================
+contract CbcDecryptPaddingArithmetic {
+    input(data_len: Int, ivlen: Int, maclen: Int, padlen_byte: Int)
+
+    // data_len from 16-bit record length field
+    requires { data_len >= 0 }
+    requires { data_len <= 16384 }
+
+    // ivlen is block size (16 for AES-128/256, 8 for 3DES)
+    requires { ivlen == 8 }
+
+    // maclen is HMAC output (20 for SHA1, 32 for SHA256, 48 for SHA384)
+    requires { maclen == 20 }
+
+    // padlen_byte is the last byte of decrypted data (0-255)
+    requires { padlen_byte >= 0 }
+    requires { padlen_byte <= 255 }
+
+    // TLS 1.2 checks (lines 1472-1482):
+    // minlen = ivlen (TLS 1.2 prepended IV)
+    // data_len >= minlen + ivlen = 2 * ivlen
+    // data_len >= minlen + maclen + 1 = ivlen + maclen + 1
+    requires { data_len >= 2 * ivlen }
+    requires { data_len >= ivlen + maclen + 1 }
+
+    // data_len must be multiple of ivlen (line 1557)
+    requires { data_len mod ivlen == 0 }
+
+    output(final_data_len: Int)
+
+    // After IV strip: data_len -= ivlen
+    // After padding check (MAC-then-Encrypt, not ETM):
+    //   if data_len_after_iv >= maclen + padlen_byte + 1 + 1:
+    //     padlen = padlen_byte + 1 (the +1 is line 1653)
+    //   else:
+    //     padlen = 1 (reset to 0 then +1)
+    // After padding strip: data_len -= padlen
+    // After MAC strip: data_len -= maclen
+    // final must be >= 0
+
+    // After IV strip
+    ensures { data_len - ivlen >= maclen }
+}
+
+// ============================================================
+// Contract 5: Record buf_len vs data_offset + data_len
+// Line 3712 of ssl_msg.c: rec->buf_len = rec->data_offset + rec->data_len
+// Line 1304-1305: buf_len >= data_offset and buf_len - data_offset >= data_len
+// Line 1364-1365: data_offset += dynamic_iv_len; data_len -= dynamic_iv_len
+// Question: after AEAD IV stripping, can data_offset + data_len > buf_len?
+// ============================================================
+contract AeadRecordLengthConsistency {
+    input(buf_len: Int, data_offset_init: Int, data_len_init: Int,
+          dynamic_iv_len: Int, taglen: Int)
+
+    // buf_len from record header parsing
+    requires { buf_len >= 0 }
+    requires { buf_len <= 16709 }
+
+    // data_offset is header size (5 for TLS, 13 for DTLS)
+    requires { data_offset_init >= 5 }
+    requires { data_offset_init <= 13 }
+
+    // data_len from 16-bit record length
+    requires { data_len_init >= 1 }
+    requires { data_len_init <= 16384 }
+
+    // Initial invariant: buf_len = data_offset + data_len (line 3712)
+    requires { buf_len == data_offset_init + data_len_init }
+
+    // dynamic_iv_len = 8 (for explicit IV in TLS 1.2 AEAD)
+    requires { dynamic_iv_len == 8 }
+
+    // taglen = 16 (for AES-GCM) or 8 (for AES-CCM-8)
+    requires { taglen >= 8 }
+    requires { taglen <= 16 }
+
+    // Check: data_len >= dynamic_iv_len (line 1354)
+    requires { data_len_init >= dynamic_iv_len }
+
+    // After IV strip: data_offset += dynamic_iv_len, data_len -= dynamic_iv_len
+    // Check: data_len >= taglen (line 1371)
+    requires { data_len_init - dynamic_iv_len >= taglen }
+
+    output(safe: Bool)
+
+    // After IV strip and tag removal, the buffer math must hold:
+    // data_offset_new + data_len_new + taglen <= buf_len
+    // where data_offset_new = data_offset_init + dynamic_iv_len
+    // and data_len_new = data_len_init - dynamic_iv_len - taglen
+    ensures { data_offset_init + dynamic_iv_len + data_len_init - dynamic_iv_len - taglen + taglen <= buf_len }
+}
+
+// ============================================================
+// Contract 6: TLS fragment reassembly length accumulation
+// Lines 3069-3167 of ssl_msg.c (TLS, not DTLS)
+// payload_end = payload_start + in_hsfraglen
+// hs_remain = in_hslen - in_hsfraglen
+// memmove(payload_end, ssl->in_msg, in_msglen)
+// in_hsfraglen += in_msglen
+// Question: can accumulated in_hsfraglen exceed in_hslen
+// causing the hs_remain subtraction to underflow?
+// ============================================================
+contract TlsFragmentAccumulation {
+    input(in_hslen: Int, in_hsfraglen: Int, in_msglen: Int,
+          in_buf_len: Int, payload_start_offset: Int)
+
+    // in_hslen = header_len + total_msg_len, set from first fragment
+    requires { in_hslen >= 4 }
+    requires { in_hslen <= 16388 }
+
+    // in_hsfraglen = bytes accumulated so far
+    requires { in_hsfraglen >= 0 }
+    requires { in_hsfraglen < in_hslen }
+
+    // in_msglen = current record payload
+    requires { in_msglen >= 1 }
+    requires { in_msglen <= 16384 }
+
+    // in_buf_len is total buffer
+    requires { in_buf_len >= 16717 }
+    requires { in_buf_len <= 65535 }
+
+    // payload_start is fixed offset
+    requires { payload_start_offset >= 13 }
+    requires { payload_start_offset <= 21 }
+
+    // Buffer overflow check (line 3115):
+    // payload_end + in_msglen <= in_buf + in_buf_len
+    // payload_end = payload_start_offset + in_hsfraglen
+    requires { payload_start_offset + in_hsfraglen + in_msglen <= in_buf_len }
+
+    output(new_hsfraglen: Int)
+
+    // After accumulation: in_hsfraglen += in_msglen
+    // The new value can exceed in_hslen (that is by design,
+    // means record contained multiple handshake messages)
+    // But hs_remain = in_hslen - in_hsfraglen was computed BEFORE
+    // the accumulation, so no underflow there.
+    // The real question: is the memmove safe?
+    // dest = payload_start + in_hsfraglen, len = in_msglen
+    // dest + len must be <= in_buf + in_buf_len
+    ensures { payload_start_offset + in_hsfraglen + in_msglen <= in_buf_len }
+}
+
+// ============================================================
+// Contract 7: ssl_bitmask_set internal arithmetic
+// Lines 2845-2883 of ssl_msg.c
+// Complex bit manipulation with offset/len adjusted for alignment
+// last_byte_idx = (adjusted_offset + adjusted_len) / 8
+// Can this access out-of-bounds in the bitmask array?
+// ============================================================
+contract BitmaskSetInternalArithmetic {
+    input(offset: Int, len: Int, bitmask_size: Int)
+
+    // offset and len are frag_off and frag_len after header validation
+    requires { offset >= 0 }
+    requires { len >= 1 }
+    requires { offset + len <= 16384 }
+
+    // bitmask_size = msg_len / 8 + (msg_len % 8 != 0)
+    // where msg_len >= offset + len
+    // Use msg_len = offset + len as worst case (fragment covers exactly to end)
+    requires { bitmask_size == (offset + len) / 8 + 1 }
+
+    output(safe: Bool)
+
+    // The function computes:
+    // start_bits = 8 - (offset % 8), may be 8
+    // After alignment: new_offset = offset + start_bits (if start_bits != 8)
+    //                  new_len = len - start_bits
+    // first_byte_idx = offset / 8
+    // end_bits = new_len % 8
+    // last_byte_idx = (new_offset + new_len) / 8 = (offset + len) / 8
+    // Access: mask[last_byte_idx]
+    // Requires: last_byte_idx < bitmask_size
+
+    // (offset + len) / 8 < (offset + len) / 8 + 1
+    // This is always true when (offset + len) > 0
+    ensures { (offset + len) / 8 < bitmask_size }
+}
+
+// ============================================================
+// Contract 8: DTLS cookie length + session ID + cipher suite offset
+// Lines 1028-1031 of ssl_tls12_server.c
+// cookie_offset = 35 + sess_len
+// Check: cookie_offset + 1 + cookie_len + 2 > msg_len
+// Question: can cookie_offset + 1 + cookie_len + 2 overflow?
+// ============================================================
+contract DtlsClientHelloOffsets {
+    input(msg_len: Int, sess_len: Int, cookie_len: Int)
+
+    // msg_len from record (16-bit, minus 12 byte hs header)
+    requires { msg_len >= 38 }
+    requires { msg_len <= 16372 }
+
+    // sess_len is 1 byte (line 1005: buf[34])
+    requires { sess_len >= 0 }
+    requires { sess_len <= 255 }
+
+    // Session ID check passes (line 1008):
+    requires { sess_len + 34 + 2 <= msg_len }
+
+    // cookie_len is 1 byte (line 1029)
+    requires { cookie_len >= 0 }
+    requires { cookie_len <= 255 }
+
+    // cookie check passes (line 1031):
+    requires { 35 + sess_len + 1 + cookie_len + 2 <= msg_len }
+
+    output(ciph_offset: Int)
+
+    // After cookie: cipher suite offset
+    // ciph_offset = cookie_offset + 1 + cookie_len = 36 + sess_len + cookie_len
+    // ciph_len is 2 bytes at buf[ciph_offset]
+    // ciph_offset + 2 must be <= msg_len
+    ensures { 36 + sess_len + cookie_len + 2 <= msg_len }
+}
+
+// ============================================================
+// Contract 9: AEAD tag pointer arithmetic
+// Line 1416 of ssl_msg.c:
+//   psa_aead_decrypt(..., data, rec->data_len + transform->taglen, ...)
+// data_len was already reduced by taglen at line 1378
+// So data_len + taglen = original data_len (after IV strip)
+// Line 1417: output buffer size = rec->buf_len - (data - rec->buf)
+// = buf_len - data_offset (after IV adjustment)
+// Question: is output buffer always large enough?
+// ============================================================
+contract AeadDecryptOutputBuffer {
+    input(buf_len: Int, data_offset: Int, data_len: Int,
+          dynamic_iv_len: Int, taglen: Int)
+
+    // Initial record invariant
+    requires { buf_len >= 5 }
+    requires { buf_len <= 16709 }
+    requires { data_offset >= 5 }
+    requires { data_offset <= 21 }
+    requires { data_len >= 1 }
+    requires { data_len <= 16384 }
+    requires { buf_len == data_offset + data_len }
+
+    requires { dynamic_iv_len == 8 }
+    requires { taglen >= 8 }
+    requires { taglen <= 16 }
+
+    // Checks pass
+    requires { data_len >= dynamic_iv_len }
+    requires { data_len - dynamic_iv_len >= taglen }
+
+    output(safe: Bool)
+
+    // After IV strip: data_offset' = data_offset + dynamic_iv_len
+    //                 data_len' = data_len - dynamic_iv_len - taglen
+    // psa_aead_decrypt input_len = data_len' + taglen = data_len - dynamic_iv_len
+    // output buffer = buf_len - (data_offset + dynamic_iv_len)
+    //               = buf_len - data_offset - dynamic_iv_len
+    //               = data_len - dynamic_iv_len (since buf_len = data_offset + data_len)
+    // input_len == output buffer size, so it fits exactly
+    ensures { data_len - dynamic_iv_len <= buf_len - data_offset - dynamic_iv_len }
+}
+
+// ============================================================
+// Contract 10: CBC minlen check vs actual subtraction chain
+// The key question: after ALL subtractions (IV, padding, MAC),
+// can data_len become negative?
+// This models the COMPLETE chain, not individual steps.
+// ============================================================
+contract CbcFullSubtractionChain {
+    input(data_len: Int, ivlen: Int, maclen: Int, padlen_byte: Int)
+
+    // Realistic constraints
+    requires { data_len >= 1 }
+    requires { data_len <= 16384 }
+    requires { ivlen >= 8 }
+    requires { ivlen <= 16 }
+    requires { maclen >= 16 }
+    requires { maclen <= 48 }
+    requires { padlen_byte >= 0 }
+    requires { padlen_byte <= 255 }
+
+    // TLS 1.2 checks (lines 1472-1473)
+    requires { data_len >= 2 * ivlen }
+    requires { data_len >= ivlen + maclen + 1 }
+    requires { data_len mod ivlen == 0 }
+
+    output(final_len: Int)
+
+    // Step 1: IV strip -> data_len' = data_len - ivlen
+    // Step 2: padding validation
+    //   padlen = padlen_byte + 1  (line 1653)
+    //   if data_len' >= maclen + padlen: actual_padlen = padlen
+    //   else: actual_padlen = 1 (reset to 0, then +1)
+    // Step 3: data_len'' = data_len' - actual_padlen
+    // Step 4: data_len''' = data_len'' - maclen
+    // Must have data_len''' >= 0
+
+    // After IV strip: data_len - ivlen >= maclen + 1 (from check 2 - ivlen)
+    // = maclen + 1
+    // Worst case invalid padding: subtract 1
+    // = maclen
+    // Then subtract maclen: = 0
+    // So final >= 0. Always holds.
+    ensures { data_len - ivlen - 1 - maclen >= 0 }
+}
+
+// ============================================================
+// Contract 11: Interaction between msg_len and bitmask allocation
+// When msg_len = 0, bitmask size = 0/8 + 0 = 0 (no bitmask at all)
+// But frag_off and frag_len must be 0 too (from header checks)
+// What if msg_len > 0 but msg_len % 8 == 0, and frag_off + frag_len == msg_len?
+// ============================================================
+contract BitmaskBoundaryCase {
+    input(msg_len: Int, frag_off: Int, frag_len: Int)
+
+    requires { msg_len >= 1 }
+    requires { msg_len <= 16384 }
+    requires { msg_len mod 8 == 0 }
+    requires { frag_off >= 0 }
+    requires { frag_len >= 1 }
+    requires { frag_off + frag_len == msg_len }
+    requires { frag_off <= msg_len }
+    requires { frag_len <= msg_len - frag_off }
+
+    output(safe: Bool)
+
+    // bitmask_size = msg_len / 8 + 0 = msg_len / 8 (since msg_len % 8 == 0)
+    // In bitmask_set, after alignment adjustments:
+    // end_bits = adjusted_len % 8
+    // last_byte_idx = (frag_off + frag_len) / 8 = msg_len / 8
+    // But if end_bits == 0, the mask[last_byte_idx] access is SKIPPED
+    // Only the memset path runs: memset(mask + aligned_offset/8, 0xFF, adjusted_len/8)
+    // memset end = aligned_offset/8 + adjusted_len/8
+    // = (frag_off + frag_len) / 8 = msg_len / 8
+    // But memset(ptr, val, N) writes bytes ptr[0]..ptr[N-1]
+    // So the last byte written is at index (msg_len/8 - 1) if offset=0
+    // Actually: offset/8 + len/8 - 1 for the last byte
+
+    // When frag_off = 0, frag_len = msg_len, msg_len % 8 == 0:
+    // start_bits = 8 (offset=0, 8 - 0%8 = 8, skip start adjustment)
+    // end_bits = msg_len % 8 = 0 (skip end adjustment)
+    // memset(mask + 0, 0xFF, msg_len/8)
+    // Writes mask[0]..mask[msg_len/8 - 1]
+    // bitmask has msg_len/8 entries (indices 0 to msg_len/8 - 1)
+    // SAFE
+
+    // When frag_off > 0 and (frag_off + frag_len) % 8 != 0:
+    // end_bits = (adjusted_len) % 8 which could be non-zero
+    // last_byte_idx = (adjusted_offset + adjusted_len) / 8
+    //               = (frag_off + frag_len) / 8 = msg_len / 8
+    // Access: mask[msg_len/8]
+    // bitmask has msg_len/8 entries (0 to msg_len/8 - 1)
+    // INDEX msg_len/8 IS OUT OF BOUNDS!
+
+    // Let Z3 find: can end_bits be non-zero when msg_len%8==0 and frag_off+frag_len==msg_len?
+    // end_bits depends on adjusted_len, not original len
+    // adjusted_len = frag_len - start_bits (if start_bits != 8)
+    // start_bits = 8 - (frag_off % 8)
+
+    // If frag_off % 8 != 0: start_bits = 8 - (frag_off%8), < 8
+    //   adjusted_len = frag_len - start_bits
+    //   end_bits = adjusted_len % 8 = (frag_len - (8 - frag_off%8)) % 8
+    //   = (frag_len + frag_off%8 - 8) % 8
+    //   = (frag_len + frag_off%8) % 8 (since -8 mod 8 = 0)
+    //   = (frag_off + frag_len) % 8 (adding full multiples of 8 from frag_off)
+    //   = msg_len % 8 = 0
+    // So end_bits = 0 when msg_len % 8 == 0. The access is skipped.
+
+    // Hmm, this means it IS safe. Let me verify with Z3 for non-aligned msg_len.
+    ensures { frag_off / 8 < msg_len / 8 + 1 }
+}
+
+// ============================================================
+// Contract 12: Non-8-aligned msg_len with fragment at end
+// When msg_len % 8 != 0, bitmask_size = msg_len/8 + 1
+// Fragment covers end of message
+// ============================================================
+contract BitmaskNonAligned {
+    input(msg_len: Int, frag_off: Int, frag_len: Int)
+
+    requires { msg_len >= 1 }
+    requires { msg_len <= 16384 }
+    requires { msg_len mod 8 != 0 }
+    requires { frag_off >= 0 }
+    requires { frag_len >= 1 }
+    requires { frag_off + frag_len <= msg_len }
+    requires { frag_off <= msg_len }
+    requires { frag_len <= msg_len - frag_off }
+
+    output(safe: Bool)
+
+    // bitmask_size = msg_len / 8 + 1 (since msg_len % 8 != 0)
+    // Worst case: frag_off + frag_len = msg_len
+    // last_byte_idx = msg_len / 8
+    // bitmask valid indices: 0 to msg_len/8 (total msg_len/8 + 1)
+    // msg_len / 8 < msg_len / 8 + 1 -> SAFE
+    ensures { (frag_off + frag_len) / 8 < msg_len / 8 + 1 }
+}

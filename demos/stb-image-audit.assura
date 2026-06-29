@@ -1,0 +1,208 @@
+// stb_image.h audit - arithmetic invariants from nothings/stb
+// Z3 will find concrete inputs that violate these invariants.
+// All values model C int (32-bit signed) unless noted.
+
+// INT_MAX for 32-bit signed int
+// STBI_MAX_DIMENSIONS = 1 << 24 = 16777216
+
+// =========================================================================
+// CONTRACT 1: stbi__mad3sizes_valid validates a*b*c+add, but the caller
+// (PNG interlace, line 4883) computes ((img_n*x*depth+7)>>3 + 1)*y
+// which is a DIFFERENT expression than a*b*c+add.
+// The check says "img_n*x*depth+7 is safe" but the actual computation
+// involves a right shift then multiply by y. Does the check cover it?
+// =========================================================================
+contract PngInterlaceImgLen {
+  input(
+    img_n: Nat,
+    x: Nat,
+    depth: Nat,
+    y: Nat
+  )
+
+  // img_n: 1-4 (PNG channels)
+  requires { img_n >= 1 }
+  requires { img_n <= 4 }
+  // depth: 1,2,4,8,16
+  requires { depth >= 1 }
+  requires { depth <= 16 }
+  // x, y from interlace pass: derived from image dimensions / spacing
+  // STBI_MAX_DIMENSIONS = 16777216
+  requires { x >= 1 }
+  requires { x <= 16777216 }
+  requires { y >= 1 }
+  requires { y <= 16777216 }
+
+  // The code checks: stbi__mad3sizes_valid(img_n, x, depth, 7)
+  // which validates: img_n*x*depth + 7 <= INT_MAX
+  requires { img_n * x * depth + 7 <= 2147483647 }
+
+  // Then computes: img_width_bytes = (img_n*x*depth + 7) >> 3
+  //                img_len = (img_width_bytes + 1) * y
+  // But the check on line 4719 is: mad2sizes_valid(img_width_bytes, y, img_width_bytes)
+  // which validates: img_width_bytes * y + img_width_bytes <= INT_MAX
+  // which is: img_width_bytes * (y + 1) <= INT_MAX
+  //
+  // The ACTUAL computation is: (img_width_bytes + 1) * y
+  // which is: img_width_bytes * y + y
+  //
+  // These are DIFFERENT:
+  //   check:  img_width_bytes * y + img_width_bytes = img_width_bytes * (y+1)
+  //   actual: img_width_bytes * y + y               = (img_width_bytes+1) * y
+  //
+  // Are there values where the check passes but the actual computation overflows?
+
+  ensures { x * y <= 2147483647 }
+}
+
+// =========================================================================
+// CONTRACT 2: GIF pcount = w * h overflow
+//
+// Line 6790: stbi__mad3sizes_valid(4, w, h, 0) checks 4*w*h <= INT_MAX
+// Line 6792: pcount = w * h (signed int multiplication, NO overflow check)
+// Line 6795: stbi__malloc(pcount) -- if pcount overflowed, small allocation
+//
+// 4*w*h <= INT_MAX does NOT guarantee w*h <= INT_MAX.
+// If w*h > INT_MAX but 4*w*h would also overflow... wait, if 4*w*h <= INT_MAX
+// then w*h <= INT_MAX/4. That's safe. Unless the mad3sizes_valid check itself
+// has a bug. Let Z3 check.
+// =========================================================================
+contract GifPcountOverflow {
+  input(
+    w: Nat,
+    h: Nat
+  )
+
+  requires { w >= 1 }
+  requires { h >= 1 }
+  requires { w <= 16777216 }
+  requires { h <= 16777216 }
+
+  // mad3sizes_valid(4, w, h, 0) says: 4*w*h+0 <= INT_MAX
+  requires { 4 * w * h <= 2147483647 }
+
+  // pcount = w * h should not overflow INT_MAX
+  ensures { w * h <= 2147483647 }
+}
+
+// =========================================================================
+// CONTRACT 3: PNG interlace img_len as stbi__uint32 (UNSIGNED 32-bit)
+//
+// Line 4883: stbi__uint32 img_len = ((((img_n * x * depth) + 7) >> 3) + 1) * y;
+//
+// This is computed as uint32. But img_n, x, depth, y are all signed int.
+// The subexpression (img_n * x * depth) is signed int multiplication.
+// If it overflows signed int, that's UNDEFINED BEHAVIOR in C.
+// The mad3sizes_valid check prevents img_n*x*depth+7 from overflowing,
+// but the final multiply by y is NOT checked in the interlace path.
+// Note: line 4883 has NO overflow check before it. The check at 4717
+// only runs in the non-interlace path; line 4883 is in the interlace loop.
+// =========================================================================
+contract PngInterlaceUncheckedImgLen {
+  input(
+    img_n: Nat,
+    x: Nat,
+    depth: Nat,
+    y: Nat
+  )
+
+  requires { img_n >= 1 }
+  requires { img_n <= 4 }
+  requires { depth >= 1 }
+  requires { depth <= 16 }
+  // In interlace pass, x and y are derived from image dims / spacing
+  // max img_x/img_y = 16777216, spacing min = 1, so x,y can be up to 16777216
+  requires { x >= 1 }
+  requires { x <= 16777216 }
+  requires { y >= 1 }
+  requires { y <= 16777216 }
+
+  // The interlace path does NOT call mad3sizes_valid on (img_n*x*depth+7)
+  // for each sub-pass. It only checks the full image once.
+  // So we only have STBI_MAX_DIMENSIONS as the bound.
+
+  // img_width_bytes = ((img_n * x * depth + 7) >> 3)
+  // img_len = (img_width_bytes + 1) * y
+  // stored in uint32, so must fit in 0..4294967295
+  ensures { img_n * x * depth + 7 <= 2147483647 }
+}
+
+// =========================================================================
+// CONTRACT 4: stbi__mad2sizes_valid has a signed overflow in a*b
+//
+// stbi__mad2sizes_valid(a, b, add):
+//   return stbi__mul2sizes_valid(a, b) && stbi__addsizes_valid(a*b, add);
+//
+// stbi__mul2sizes_valid checks a <= INT_MAX/b (safe, no overflow).
+// But then stbi__addsizes_valid receives a*b as its first argument.
+// The multiplication a*b is evaluated BEFORE the function call.
+// If a*b overflows signed int, that's UB BEFORE addsizes_valid runs.
+//
+// Wait: mul2sizes_valid already verified a*b <= INT_MAX. So a*b
+// can't overflow. Unless... let Z3 check the exact boundary.
+// =========================================================================
+contract Mad2Boundary {
+  input(
+    a: Nat,
+    b: Nat,
+    add: Nat
+  )
+
+  requires { a >= 0 }
+  requires { b >= 0 }
+  requires { add >= 0 }
+  requires { a <= 2147483647 }
+  requires { b <= 2147483647 }
+  requires { add <= 2147483647 }
+
+  // mul2sizes_valid: a <= INT_MAX / b (when b > 0)
+  // This means a*b <= INT_MAX (safe)
+  requires { b >= 1 }
+  requires { a * b <= 2147483647 }
+
+  // addsizes_valid: a*b + add <= INT_MAX
+  // Since a*b <= INT_MAX and add >= 0, this CAN still overflow
+  // a*b could be INT_MAX and add could be 1
+  ensures { a * b + add <= 2147483647 }
+}
+
+// =========================================================================
+// CONTRACT 5: GIF frame copy uses w*h without checking for int overflow
+//
+// Line 6792: pcount = g->w * g->h  (int * int, signed)
+// Line 6793: stbi__malloc(4 * pcount)
+//
+// mad3sizes_valid(4,w,h,0) checks 4*w*h fits, which implies w*h fits.
+// But 4*pcount on line 6793 is a SEPARATE multiplication from the check.
+// The check validated 4*w*h. Line 6793 computes 4*(w*h).
+// If w*h overflows first (e.g., w*h wraps to a small positive number),
+// then 4*pcount is small, malloc succeeds with tiny buffer, then the
+// code writes 4*w*h bytes into it => heap overflow.
+//
+// Does mad3sizes_valid(4,w,h,0) prevent w*h from overflowing?
+// It checks: mul2sizes_valid(4,w) && mul2sizes_valid(4*w,h) && addsizes_valid(4*w*h,0)
+// mul2sizes_valid(4,w): 4 <= INT_MAX/w => w <= INT_MAX/4 = 536870911
+// mul2sizes_valid(4*w,h): 4*w <= INT_MAX/h => h <= INT_MAX/(4*w)
+// So 4*w*h <= INT_MAX => w*h <= INT_MAX/4
+// w*h <= 536870911 < INT_MAX, so w*h can't overflow. Safe.
+//
+// BUT: what about the history allocation on line 6795?
+// stbi__malloc(pcount) -- pcount as size_t on 32-bit = same int
+// On 32-bit systems, size_t is uint32, pcount is int.
+// If pcount were negative (can't happen here), implicit cast to size_t wraps.
+// Let Z3 check anyway.
+// =========================================================================
+contract GifFramePcount {
+  input(
+    w: Nat,
+    h: Nat
+  )
+
+  requires { w >= 1 }
+  requires { h >= 1 }
+  requires { w <= 2147483647 }
+  requires { h <= 2147483647 }
+  requires { 4 * w * h <= 2147483647 }
+
+  ensures { 4 * w * h <= 2147483647 }
+}

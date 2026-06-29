@@ -1,0 +1,233 @@
+// BoringVault Deep Audit - Round 2
+// Additional contracts targeting specific arithmetic paths
+// Source: AccountantWithRateProviders.sol (Solidity 0.8.21)
+
+// ============================================================
+// FINDING 1: Platform fee can ALSO overflow uint128
+// Source: lines 504-510, cast on line 567
+//
+// minimumAssets = shares * rate / ONE_SHARE
+// platformFeesAnnual = minimumAssets * platformFee / 1e4
+// platformFees = platformFeesAnnual * timeDelta / 365_days
+//
+// Then: state.feesOwedInBase += uint128(newFeesOwedInBase)
+// The uint128() cast silently truncates in Solidity 0.8+
+// ============================================================
+contract PlatformFeeOverflowUint128 {
+    input(
+        total_shares: Int,
+        exchange_rate: Int,
+        platform_fee: Int,
+        time_delta: Int,
+        one_share: Int
+    )
+    // uint128 for shares, uint96 for rate (actual Solidity types)
+    requires { total_shares >= 1 }
+    requires { total_shares <= 340282366920938463463374607431768211455 }
+    requires { exchange_rate >= 1 }
+    requires { exchange_rate <= 79228162514264337593543950335 }
+    requires { platform_fee >= 1 }
+    requires { platform_fee <= 2000 }
+    requires { time_delta >= 1 }
+    requires { time_delta <= 1209600 }
+    requires { one_share == 1000000000000000000 }
+
+    // Platform fee = shares * rate / ONE_SHARE * platformFee / 10000 * timeDelta / 31536000
+    ensures { total_shares * exchange_rate / one_share * platform_fee / 10000 * time_delta / 31536000 <= 340282366920938463463374607431768211455 }
+}
+
+// ============================================================
+// FINDING 2: Cumulative fee addition can cause DoS
+// Source: line 567: state.feesOwedInBase += uint128(newFeesOwedInBase)
+//
+// In Solidity 0.8+, uint128 += uint128 REVERTS on overflow.
+// If feesOwedInBase is close to uint128 max and new fees push it over,
+// the updateExchangeRate() function reverts permanently = DoS.
+// Fees can never be claimed because claimFees() also checks isPaused.
+//
+// Can accumulated fees reach near-uint128-max?
+// ============================================================
+contract CumulativeFeeDoS {
+    input(
+        existing_fees: Int,
+        new_fees: Int
+    )
+    // Both are uint128 (after the truncation cast)
+    requires { existing_fees >= 0 }
+    requires { existing_fees <= 340282366920938463463374607431768211455 }
+    requires { new_fees >= 0 }
+    requires { new_fees <= 340282366920938463463374607431768211455 }
+
+    // The addition: existing + new must fit in uint128
+    // If not, updateExchangeRate() reverts = DoS
+    ensures { existing_fees + new_fees <= 340282366920938463463374607431768211455 }
+}
+
+// ============================================================
+// FINDING 3: Fee claim decimal conversion can zero out fees
+// Source: lines 324-325, 330
+//
+// feesOwedInBaseUsingFeeAssetDecimals = _changeDecimals(fees, 18, 6)
+//   = fees / 10^12
+//
+// If fees < 10^12, the conversion returns 0.
+// Protocol loses accumulated small fees.
+//
+// 10^12 wei = 0.000001 tokens (with 18 decimals)
+// Small, but fees ACCUMULATE. Each update that yields < 0.000001 in fees
+// when converted to USDC (6 decimals) = permanent fee loss.
+// ============================================================
+contract FeeClaimDecimalTruncation {
+    input(
+        fees_owed_base: Int,
+        base_decimals: Int,
+        fee_asset_decimals: Int
+    )
+    requires { fees_owed_base >= 1 }
+    requires { fees_owed_base <= 340282366920938463463374607431768211455 }
+    requires { base_decimals == 18 }
+    requires { fee_asset_decimals == 6 }
+
+    // _changeDecimals: fees / 10^(18-6) = fees / 10^12
+    // For small fees, this truncates to 0
+    // INVARIANT: converted fees should be > 0 when base fees > 0
+    ensures { fees_owed_base / 1000000000000 >= 1 }
+}
+
+// ============================================================
+// FINDING 4: Exchange rate update allows 555% jump
+// Source: lines 468-470
+//
+// allowedExchangeRateChangeUpper is uint16, checked >= 10000
+// Max uint16 = 65535 means max allowed ratio = 6.5535x = 555% increase
+// In one single update call!
+//
+// A 555% rate jump in one tx would massively benefit:
+// - Existing depositors (shares now worth 6.5x)
+// - Anyone who front-runs the rate update
+//
+// Is the upper bound configurable? Is there a sanity check?
+// ============================================================
+contract RateJumpMEVOpportunity {
+    input(
+        deposit_amount: Int,
+        rate_before: Int,
+        rate_after: Int,
+        one_share: Int
+    )
+    requires { deposit_amount >= 1000000000000000000 }
+    requires { deposit_amount <= 1000000000000000000000000 }
+    requires { rate_before >= 1000000000000000000 }
+    requires { rate_before <= 79228162514264337593543950335 }
+    requires { one_share == 1000000000000000000 }
+    // rate_after is up to 6.5535x rate_before (max allowed)
+    requires { rate_after >= rate_before }
+    requires { rate_after <= rate_before * 65535 / 10000 }
+
+    // Deposit at rate_before, withdraw at rate_after
+    // Profit = withdraw_amount - deposit_amount
+    // shares = deposit * ONE_SHARE / rate_before
+    // withdraw = shares * rate_after / ONE_SHARE
+    //          = deposit * ONE_SHARE / rate_before * rate_after / ONE_SHARE
+    //          = deposit * rate_after / rate_before
+
+    // INVARIANT: profit should be bounded (not exploitable)
+    // Can someone extract > 2x their deposit in one cycle?
+    ensures { deposit_amount * rate_after / rate_before <= deposit_amount * 2 }
+}
+
+// ============================================================
+// FINDING 5: Performance fee highwater mark manipulation
+// Source: lines 554-564
+//
+// Performance fee is only charged when newRate > highwaterMark.
+// The highwater mark is ALWAYS updated to newRate when new > old.
+// If rate goes: 100 -> 200 -> 150 -> 200
+//   - First 200: fees on (200-100) = 100 gain
+//   - 150: no fees (below HWM)
+//   - Second 200: no fees (200 == HWM, not >)
+//
+// But what about: 100 -> 200 -> 150 -> 201
+//   - First 200: fees on 100 gain
+//   - 201: fees on (201-200) = 1 gain
+//   - Total fees on 101 gain, actual gain = 101. Correct.
+//
+// What if the rate updater (privileged) manipulates update timing?
+// Can they minimize performance fees by splitting rate increases?
+// ============================================================
+contract PerformanceFeeSplitManipulation {
+    input(
+        initial_hwm: Int,
+        total_increase: Int,
+        split_point: Int,
+        total_shares: Int,
+        perf_fee: Int,
+        one_share: Int
+    )
+    requires { initial_hwm >= 1000000000000000000 }
+    requires { initial_hwm <= 79228162514264337593543950335 }
+    requires { total_increase >= 1 }
+    requires { total_increase <= 1000000000000000000 }
+    requires { split_point >= 1 }
+    requires { split_point < total_increase }
+    requires { total_shares >= 1 }
+    requires { total_shares <= 340282366920938463463374607431768211455 }
+    requires { perf_fee >= 1 }
+    requires { perf_fee <= 5000 }
+    requires { one_share == 1000000000000000000 }
+
+    // Single update: fee = total_increase * total_shares / ONE_SHARE * perf_fee / 10000
+    // Two updates:
+    //   fee1 = split_point * total_shares / ONE_SHARE * perf_fee / 10000
+    //   fee2 = (total_increase - split_point) * total_shares / ONE_SHARE * perf_fee / 10000
+    //   total_split = fee1 + fee2
+
+    // INVARIANT: splitting should not reduce fees (protocol should not be cheated)
+    ensures { split_point * total_shares / one_share * perf_fee / 10000 + (total_increase - split_point) * total_shares / one_share * perf_fee / 10000 >= total_increase * total_shares / one_share * perf_fee / 10000 }
+}
+
+// ============================================================
+// FINDING 6: Share lock period can be bypassed with transferFrom
+// Source: TellerWithMultiAssetSupport.sol
+//
+// After deposit, shares are locked (shareLockPeriod, max 3 days).
+// The lock uses a mapping: shareUnlockTime[user] = block.timestamp + lock
+// But: BoringVault is ERC20. Can user transfer shares to another address
+// that has no lock, then withdraw from there?
+//
+// Actually let me check if they override transfer/transferFrom...
+// This is more of a logic bug check than arithmetic.
+// Let's model the arithmetic of whether share locking affects
+// the deposit-withdraw cycle at all.
+// ============================================================
+contract ShareLockBypassCheck {
+    input(
+        deposit_amount: Int,
+        rate: Int,
+        one_share: Int,
+        premium: Int,
+        lock_period: Int,
+        time_since_deposit: Int
+    )
+    requires { deposit_amount >= 1 }
+    requires { deposit_amount <= 1000000000000000000000000000 }
+    requires { rate >= 1 }
+    requires { rate <= 79228162514264337593543950335 }
+    requires { one_share == 1000000000000000000 }
+    requires { premium >= 0 }
+    requires { premium <= 1000 }
+    requires { lock_period >= 0 }
+    requires { lock_period <= 259200 }
+    requires { time_since_deposit >= 0 }
+
+    // Shares received from deposit
+    // shares = deposit_amount * ONE_SHARE / rate * (10000 - premium) / 10000
+    // Value of those shares = shares * rate / ONE_SHARE
+
+    // If transfer to another wallet is possible, the lock is meaningless
+    // The arithmetic relationship stays the same regardless:
+    // withdraw value <= deposit value (rounding favors vault)
+
+    // This holds regardless of who holds the shares
+    ensures { deposit_amount * one_share / rate * (10000 - premium) / 10000 * rate / one_share <= deposit_amount }
+}

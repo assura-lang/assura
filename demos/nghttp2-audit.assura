@@ -1,0 +1,634 @@
+// nghttp2 HTTP/2 flow control audit
+// Level 3: Multi-step state machine invariants
+// Z3 searches ALL interleavings of SETTINGS + WINDOW_UPDATE + DATA
+//
+// Source: https://github.com/nghttp2/nghttp2 (lib/nghttp2_session.c, nghttp2_stream.c, nghttp2_helper.c)
+// Used by: curl, Apache httpd, Node.js, envoy, gRPC
+//
+// HTTP/2 flow control (RFC 7540 Section 6.9):
+//   - Connection-level window: shared across all streams
+//   - Per-stream window: independent per stream
+//   - SETTINGS_INITIAL_WINDOW_SIZE retroactively adjusts ALL stream windows
+//   - Windows can go negative (signed int32)
+//   - WINDOW_UPDATE increments are always positive
+
+// Constants from nghttp2
+// NGHTTP2_MAX_WINDOW_SIZE = 2^31 - 1 = 2147483647
+// NGHTTP2_INITIAL_WINDOW_SIZE = 65535
+// INT32_MIN = -2147483648
+// INT32_MAX = 2147483647
+
+// ============================================================
+// CONTRACT 1: update_initial_window_size overflow safety
+// Models: nghttp2_stream.c lines 106-117
+// Z3 checks: can the int64 intermediate overflow or produce
+// a value the int32 check misses?
+// ============================================================
+contract UpdateInitialWindowSizeOverflow {
+    input(
+        window_size: Int,           // current stream remote_window_size (int32)
+        new_initial: Int,           // new SETTINGS value (validated: 0..MAX_WINDOW)
+        old_initial: Int            // previous SETTINGS value (0..MAX_WINDOW)
+    )
+    requires { window_size >= -2147483648 }
+    requires { window_size <= 2147483647 }
+    requires { new_initial >= 0 }
+    requires { new_initial <= 2147483647 }
+    requires { old_initial >= 0 }
+    requires { old_initial <= 2147483647 }
+
+    // The code computes: (int64)(window_size) + new_initial - old_initial
+    // Then checks: INT32_MIN <= result <= MAX_WINDOW_SIZE
+    // Invariant: if the check passes, the truncation to int32 is exact
+
+    // The int64 intermediate can range from:
+    //   min: -2^31 + 0 - (2^31-1) = -2^32 + 1
+    //   max: (2^31-1) + (2^31-1) - 0 = 2^32 - 2
+    // Both fit in int64 (64-bit range)
+
+    // This ensures: for ALL valid inputs, if the result passes the
+    // range check, the final int32 value equals the mathematical result
+    ensures { window_size + new_initial - old_initial >= -2147483648 }
+    ensures { window_size + new_initial - old_initial <= 4294967294 }
+}
+
+// ============================================================
+// CONTRACT 2: WINDOW_UPDATE overflow check correctness
+// Models: nghttp2_session.c lines 4779-4785 (stream-level)
+// The check: MAX_WINDOW_SIZE - increment < current_window
+// Z3 checks: can this allow window to exceed MAX_WINDOW_SIZE?
+// ============================================================
+contract WindowUpdateOverflowCheck {
+    input(
+        current_window: Int,        // stream->remote_window_size (can be negative)
+        increment: Int              // window_size_increment (1..MAX_WINDOW)
+    )
+    requires { current_window >= -2147483648 }
+    requires { current_window <= 2147483647 }
+    requires { increment >= 1 }
+    requires { increment <= 2147483647 }
+
+    // The code's check: if (MAX - increment < current_window) return error
+    // If check passes: current_window <= MAX - increment
+    // Then: current_window + increment <= MAX
+    requires { current_window <= 2147483647 - increment }
+
+    // After update
+    ensures { current_window + increment <= 2147483647 }
+    ensures { current_window + increment >= -2147483647 }
+}
+
+// ============================================================
+// CONTRACT 3: Multi-step SETTINGS + WINDOW_UPDATE on TWO streams
+// This is the LEVEL 3 contract: Z3 searches all possible orderings
+// of: initial state -> data send -> SETTINGS change -> WINDOW_UPDATE
+//
+// Models the COMPLETE sequence:
+//   1. Two streams open with initial_window = W0
+//   2. Stream 1 sends data_1 bytes, stream 2 sends data_2 bytes
+//   3. SETTINGS changes initial_window to W1
+//   4. WINDOW_UPDATE arrives for stream 1 only
+//
+// Z3 checks: after all operations, are stream windows consistent
+// with the mathematical expectation?
+// ============================================================
+contract SettingsWindowUpdateTwoStreams {
+    input(
+        w0: Int,                    // initial_window_size
+        data_1: Int,                // bytes sent on stream 1
+        data_2: Int,                // bytes sent on stream 2
+        w1: Int,                    // new initial_window_size from SETTINGS
+        wu_increment: Int,          // WINDOW_UPDATE increment for stream 1
+        conn_window: Int            // initial connection-level window
+    )
+    // Initial window size constraints (SETTINGS range)
+    requires { w0 >= 0 }
+    requires { w0 <= 2147483647 }
+    requires { w1 >= 0 }
+    requires { w1 <= 2147483647 }
+
+    // Data sent must be non-negative and <= stream window
+    requires { data_1 >= 0 }
+    requires { data_1 <= w0 }
+    requires { data_2 >= 0 }
+    requires { data_2 <= w0 }
+
+    // Connection window constraints
+    requires { conn_window >= 0 }
+    requires { conn_window <= 2147483647 }
+    // Total data sent cannot exceed connection window
+    requires { data_1 + data_2 <= conn_window }
+
+    // WINDOW_UPDATE constraints
+    requires { wu_increment >= 1 }
+    requires { wu_increment <= 2147483647 }
+
+    // --- Step 1: After sending data ---
+    // stream1_window = w0 - data_1
+    // stream2_window = w0 - data_2
+    // conn_window_after = conn_window - data_1 - data_2
+
+    // --- Step 2: SETTINGS changes initial_window to w1 ---
+    // nghttp2 code: new_window = old_window + (w1 - w0)
+    // stream1_after_settings = (w0 - data_1) + (w1 - w0) = w1 - data_1
+    // stream2_after_settings = (w0 - data_2) + (w1 - w0) = w1 - data_2
+    // Connection window unchanged by SETTINGS
+
+    // SETTINGS must not push windows out of int32 range
+    requires { w1 - data_1 >= -2147483648 }
+    requires { w1 - data_1 <= 2147483647 }
+    requires { w1 - data_2 >= -2147483648 }
+    requires { w1 - data_2 <= 2147483647 }
+
+    // --- Step 3: WINDOW_UPDATE on stream 1 ---
+    // nghttp2 check: MAX - increment < stream1_window
+    // stream1_final = stream1_after_settings + wu_increment = (w1 - data_1) + wu_increment
+    requires { w1 - data_1 <= 2147483647 - wu_increment }
+
+    // THE INVARIANT Z3 CHECKS:
+    // After all operations, stream 1 window should equal:
+    //   w1 - data_1 + wu_increment
+    // And stream 2 window should equal:
+    //   w1 - data_2
+    // And connection window should equal:
+    //   conn_window - data_1 - data_2
+    //
+    // The key question: is there any combination where the code
+    // would compute a DIFFERENT value?
+    //
+    // Mathematical correctness of the final state:
+    ensures { w1 - data_1 + wu_increment >= -2147483648 }
+    ensures { w1 - data_1 + wu_increment <= 2147483647 }
+    ensures { w1 - data_2 >= -2147483648 }
+    ensures { conn_window - data_1 - data_2 >= 0 }
+}
+
+// ============================================================
+// CONTRACT 4: nghttp2_adjust_local_window_size - decrease path
+// Models: nghttp2_helper.c lines 198-213
+// The most complex arithmetic in the codebase: three coupled
+// variables (local_window, recv_window, recv_reduction)
+//
+// Z3 searches ALL int32 inputs for invariant violations
+// ============================================================
+contract AdjustLocalWindowDecrease {
+    input(
+        local_window: Int,          // local_window_size (must be >= 0)
+        recv_window: Int,           // recv_window_size (can be negative)
+        recv_reduction: Int,        // recv_reduction (non-negative debt)
+        delta: Int                  // negative delta (decrease amount)
+    )
+    requires { local_window >= 0 }
+    requires { local_window <= 2147483647 }
+    requires { recv_window >= -2147483648 }
+    requires { recv_window <= 2147483647 }
+    requires { recv_reduction >= 0 }
+    requires { recv_reduction <= 2147483647 }
+    requires { delta >= -2147483648 }
+    requires { delta < 0 }
+
+    // The code's overflow checks (line 199-202):
+    // Check 1: local_window + delta >= 0
+    requires { local_window + delta >= 0 }
+    // Check 2: recv_window >= INT32_MIN - delta
+    requires { recv_window >= -2147483648 - delta }
+    // Check 3: recv_reduction <= INT32_MAX + delta
+    requires { recv_reduction <= 2147483647 + delta }
+
+    // After the operation:
+    //   local_window_new = local_window + delta
+    //   recv_window_new = recv_window + delta
+    //   recv_reduction_new = recv_reduction - delta
+
+    // Invariant 1: local_window stays non-negative
+    ensures { local_window + delta >= 0 }
+
+    // Invariant 2: recv_reduction stays non-negative
+    // delta is negative, so -delta is positive, so recv_reduction - delta > recv_reduction >= 0
+    ensures { recv_reduction - delta >= 0 }
+
+    // Invariant 3: recv_reduction fits in int32
+    ensures { recv_reduction - delta <= 2147483647 }
+
+    // Invariant 4: recv_window fits in int32
+    ensures { recv_window + delta >= -2147483648 }
+
+    // Invariant 5: Conservation law
+    // local_window - recv_window + recv_reduction should be conserved
+    // Before: local_window - recv_window + recv_reduction
+    // After:  (local_window + delta) - (recv_window + delta) + (recv_reduction - delta)
+    //       = local_window - recv_window + recv_reduction - delta
+    // NOT conserved: it changes by -delta (positive since delta < 0)
+    // This is expected: a decrease "takes" window space
+    ensures { (local_window + delta) - (recv_window + delta) + (recv_reduction - delta) == local_window - recv_window + recv_reduction - delta }
+}
+
+// ============================================================
+// CONTRACT 5: nghttp2_adjust_local_window_size - increase path
+// Models: nghttp2_helper.c lines 159-196
+// Even more complex: involves recv_reduction_delta partial payoff
+//
+// Z3 checks if any input combination causes post-conditions to fail
+// ============================================================
+contract AdjustLocalWindowIncrease {
+    input(
+        local_window: Int,
+        recv_window: Int,
+        recv_reduction: Int,
+        delta: Int                  // positive delta (increase)
+    )
+    requires { local_window >= 0 }
+    requires { local_window <= 2147483647 }
+    requires { recv_window >= -2147483648 }
+    requires { recv_window <= 2147483647 }
+    requires { recv_reduction >= 0 }
+    requires { recv_reduction <= 2147483647 }
+    requires { delta > 0 }
+    requires { delta <= 2147483647 }
+
+    // Early return case: new_recv_window = max(0, recv_window) - delta
+    // If new_recv_window >= 0, just set recv_window = new_recv_window and return
+    // This case is simple and correct
+
+    // Complex case: new_recv_window < 0
+    // remaining = -new_recv_window = delta - max(0, recv_window)
+    // Check: local_window <= MAX_WINDOW_SIZE - remaining
+    // local_window += remaining
+
+    // For the complex case to trigger: delta > max(0, recv_window)
+    // i.e., the increase is larger than what can be absorbed by recv_window
+    requires { delta > recv_window }
+    requires { recv_window >= 0 }
+
+    // remaining = delta - recv_window
+    // overflow check: local_window + remaining <= MAX_WINDOW_SIZE
+    requires { local_window + delta - recv_window <= 2147483647 }
+
+    // recv_reduction_delta = min(recv_reduction, delta - recv_window)
+    // Invariant: local_window_new >= 0 (increases, was already >= 0)
+    ensures { local_window + delta - recv_window >= 0 }
+
+    // Invariant: recv_reduction_new >= 0
+    // recv_reduction_new = recv_reduction - min(recv_reduction, remaining)
+    // = max(0, recv_reduction - remaining) if remaining >= 0
+    ensures { recv_reduction >= 0 }
+}
+
+// ============================================================
+// CONTRACT 6: Multi-step decrease then increase
+// The CRITICAL multi-step contract:
+//   Step 1: Decrease window by D
+//   Step 2: Receive R bytes of data
+//   Step 3: Increase window by D (back to original)
+//
+// Z3 checks: after decrease-receive-increase, does the state
+// return to a valid configuration? This models the scenario
+// where a peer temporarily shrinks the window and then restores it.
+// ============================================================
+contract DecreaseReceiveIncrease {
+    input(
+        local_window: Int,          // initial local_window_size
+        recv_window: Int,           // initial recv_window_size
+        recv_reduction: Int,        // initial recv_reduction
+        decrease_amount: Int,       // how much to decrease (positive value)
+        data_received: Int          // bytes received between decrease and increase
+    )
+    requires { local_window >= 1 }
+    requires { local_window <= 2147483647 }
+    requires { recv_window >= 0 }
+    requires { recv_window <= 2147483647 }
+    requires { recv_reduction >= 0 }
+    requires { recv_reduction <= 2147483647 }
+    requires { decrease_amount >= 1 }
+    requires { decrease_amount < local_window }
+
+    // Data received must fit in the (reduced) window
+    requires { data_received >= 0 }
+    requires { data_received <= local_window - decrease_amount }
+
+    // --- Step 1: Decrease by decrease_amount ---
+    // delta = -decrease_amount (negative)
+    // Check: local + delta >= 0 -> local - decrease >= 0 (true by requires)
+    // Check: recv >= INT32_MIN - delta -> recv >= INT32_MIN + decrease
+    requires { recv_window >= -2147483648 + decrease_amount }
+    // Check: reduction <= INT32_MAX + delta -> reduction <= INT32_MAX - decrease
+    requires { recv_reduction <= 2147483647 - decrease_amount }
+
+    // After step 1:
+    // local_1 = local - decrease
+    // recv_1 = recv - decrease  (can go negative!)
+    // reduction_1 = reduction + decrease
+
+    // --- Step 2: Receive data_received bytes ---
+    // recv_2 = recv_1 + data_received = recv - decrease + data_received
+
+    // --- Step 3: Increase by decrease_amount ---
+    // delta = decrease_amount (positive)
+    // new_recv_window = max(0, recv_2) - decrease_amount
+    //                 = max(0, recv - decrease + data_received) - decrease_amount
+
+    // After all three steps, local_window should return to original value
+    // (if the increase path's complex case doesn't lose precision)
+
+    // The key invariant Z3 checks:
+    // After decrease by D then increase by D, local_window is restored
+    // recv_window accounts for the received data
+    // recv_reduction returns to original (or close to it)
+    ensures { local_window - decrease_amount >= 0 }
+    ensures { recv_reduction + decrease_amount <= 2147483647 }
+    ensures { recv_window - decrease_amount + data_received >= -2147483648 }
+}
+
+// ============================================================
+// CONTRACT 7: Connection window vs stream window divergence
+// after SETTINGS + selective WINDOW_UPDATE
+//
+// This is the MOST IMPORTANT level-3 contract:
+// Z3 explores the scenario where SETTINGS makes ALL stream
+// windows negative, then WINDOW_UPDATE on specific streams
+// makes them positive. The connection window is unchanged.
+//
+// Bug hypothesis: can a stream be resumed for sending (window > 0)
+// when the connection window is actually insufficient?
+//
+// nghttp2 code (line 4154): resumes stream if remote_window > 0
+// But doesn't check session->remote_window_size
+// ============================================================
+contract ConnectionStreamWindowDivergence {
+    input(
+        initial_window: Int,        // W0 initial window for streams
+        conn_window: Int,           // connection-level window (unchanged by SETTINGS)
+        n_streams: Int,             // number of active streams
+        data_per_stream: Int,       // data sent per stream before SETTINGS
+        new_initial: Int,           // W1 new initial window from SETTINGS
+        wu_target_stream: Int,      // WINDOW_UPDATE target stream index
+        wu_increment: Int           // WINDOW_UPDATE increment
+    )
+    requires { initial_window >= 0 }
+    requires { initial_window <= 2147483647 }
+    requires { conn_window >= 0 }
+    requires { conn_window <= 2147483647 }
+    requires { n_streams >= 1 }
+    requires { n_streams <= 100 }
+    requires { data_per_stream >= 0 }
+    requires { data_per_stream <= initial_window }
+    requires { new_initial >= 0 }
+    requires { new_initial <= 2147483647 }
+    requires { wu_target_stream >= 0 }
+    requires { wu_target_stream < n_streams }
+    requires { wu_increment >= 1 }
+    requires { wu_increment <= 2147483647 }
+
+    // Total data sent must not exceed connection window
+    requires { n_streams * data_per_stream <= conn_window }
+
+    // After sending data: each stream window = initial_window - data_per_stream
+    // After SETTINGS: each stream window += (new_initial - initial_window)
+    //   = initial_window - data_per_stream + new_initial - initial_window
+    //   = new_initial - data_per_stream
+
+    // SETTINGS adjustment must fit in int32
+    requires { new_initial - data_per_stream >= -2147483648 }
+    requires { new_initial - data_per_stream <= 2147483647 }
+
+    // Connection window after data: conn_window - n_streams * data_per_stream
+    // SETTINGS does NOT change connection window
+
+    // WINDOW_UPDATE on target stream
+    // stream_window_target = new_initial - data_per_stream + wu_increment
+    requires { new_initial - data_per_stream <= 2147483647 - wu_increment }
+
+    // THE KEY INVARIANT:
+    // If stream window becomes positive (stream can send),
+    // the connection window must also be positive
+    // nghttp2 resumes deferred streams when stream window > 0
+    // but does NOT check connection window (line 4154)
+    //
+    // Connection window = conn_window - n_streams * data_per_stream
+    // Target stream window = new_initial - data_per_stream + wu_increment
+    //
+    // Z3 searches for: stream window > 0 AND connection window <= 0
+    // This would mean the stream is resumed but can't actually send
+
+    // If the target stream has positive window, can it send?
+    // It needs min(stream_window, conn_window_remaining) > 0
+    ensures { new_initial - data_per_stream + wu_increment > 0 }
+    ensures { conn_window - n_streams * data_per_stream >= 0 }
+}
+
+// ============================================================
+// CONTRACT 8: consumed_size overflow in auto-window-update
+// Models: nghttp2_session.c lines 5141-5177
+// Z3 checks: can consumed_size be manipulated to overflow
+// the size_t comparison on line 5150?
+// ============================================================
+contract ConsumedSizeOverflow {
+    input(
+        consumed_size: Int,         // current consumed_size (int32)
+        recv_window_size: Int,      // current recv_window_size (int32)
+        delta_size: Int,            // incoming data size (positive)
+        local_window_size: Int      // local window (positive)
+    )
+    requires { consumed_size >= 0 }
+    requires { consumed_size <= 2147483647 }
+    requires { recv_window_size >= -2147483648 }
+    requires { recv_window_size <= 2147483647 }
+    requires { delta_size >= 0 }
+    requires { delta_size <= 2147483647 }
+    requires { local_window_size >= 1 }
+    requires { local_window_size <= 2147483647 }
+
+    // The code's check (line 5150):
+    // if ((size_t)consumed_size > MAX_WINDOW_SIZE - delta_size) terminate;
+    // Since consumed_size >= 0, (size_t)consumed_size == consumed_size
+    requires { consumed_size <= 2147483647 - delta_size }
+
+    // After: consumed_size_new = consumed_size + delta_size
+    // recv_size = min(consumed_size_new, recv_window_size)
+    // If should_send_window_update: WINDOW_UPDATE sent, both decremented
+
+    // Invariant: consumed_size + delta_size fits in int32
+    ensures { consumed_size + delta_size <= 2147483647 }
+    ensures { consumed_size + delta_size >= 0 }
+}
+
+// ============================================================
+// CONTRACT 9: DATA send never exceeds both windows
+// Models: nghttp2_session.c lines 1759-1772 + 2516-2518
+// enforce_flow_control_limits guarantees payloadlen <= min(stream, session, max_frame)
+// Then DATA send subtracts payloadlen from both windows
+// Z3 checks: can both windows stay non-negative after send?
+// ============================================================
+contract DataSendWindowConservation {
+    input(
+        session_window: Int,        // session->remote_window_size
+        stream_window: Int,         // stream->remote_window_size
+        max_frame_size: Int,        // remote max_frame_size setting
+        requested: Int              // NGHTTP2_DATA_PAYLOADLEN (16384)
+    )
+    requires { session_window >= 1 }
+    requires { session_window <= 2147483647 }
+    requires { stream_window >= 1 }
+    requires { stream_window <= 2147483647 }
+    requires { max_frame_size >= 16384 }
+    requires { max_frame_size <= 16777215 }
+    requires { requested == 16384 }
+
+    // enforce_flow_control_limits computes:
+    // payloadlen = min(min(min(requested, stream_window), session_window), max_frame_size)
+
+    // Since all inputs are positive and >= 1, payloadlen >= 1
+
+    // After DATA send:
+    // session_window -= payloadlen
+    // stream_window -= payloadlen
+
+    // Invariant: neither window goes negative
+    // payloadlen <= stream_window AND payloadlen <= session_window
+    // So both stay >= 0
+    ensures { session_window >= 1 }
+    ensures { stream_window >= 1 }
+}
+
+// ============================================================
+// CONTRACT 10: SETTINGS partial failure - all-or-nothing
+// When SETTINGS changes initial_window and propagates to ALL
+// streams via nghttp2_map_each, if stream K fails, streams
+// 1..K-1 have already been updated.
+//
+// nghttp2 handles this by terminating the connection (GOAWAY).
+// Z3 checks: can we reach a state where the adjustment fails
+// for one stream but succeeds for another? (answer: yes, but
+// the connection is killed, so it's safe)
+// ============================================================
+contract SettingsPartialFailure {
+    input(
+        stream1_window: Int,        // stream 1 current window
+        stream2_window: Int,        // stream 2 current window
+        old_initial: Int,           // previous SETTINGS value
+        new_initial: Int            // new SETTINGS value
+    )
+    requires { stream1_window >= -2147483648 }
+    requires { stream1_window <= 2147483647 }
+    requires { stream2_window >= -2147483648 }
+    requires { stream2_window <= 2147483647 }
+    requires { old_initial >= 0 }
+    requires { old_initial <= 2147483647 }
+    requires { new_initial >= 0 }
+    requires { new_initial <= 2147483647 }
+
+    // Stream 1 adjustment: stream1_window + (new_initial - old_initial)
+    // Stream 2 adjustment: stream2_window + (new_initial - old_initial)
+    // Z3 finds: can stream 1 succeed but stream 2 fail?
+    // Success means: INT32_MIN <= result <= MAX_WINDOW_SIZE
+
+    // If both adjustments must be in range:
+    ensures { stream1_window + new_initial - old_initial >= -2147483648 }
+    ensures { stream1_window + new_initial - old_initial <= 2147483647 }
+    ensures { stream2_window + new_initial - old_initial >= -2147483648 }
+    ensures { stream2_window + new_initial - old_initial <= 2147483647 }
+}
+
+// ============================================================
+// CONTRACT 11: should_send_window_update trigger consistency
+// Models: nghttp2_helper.c lines 248-251
+// Trigger: recv_window_size > 0 AND recv_window_size >= local_window_size / 2
+// Z3 checks: can this trigger spuriously when window is near zero?
+// ============================================================
+contract WindowUpdateTrigger {
+    input(
+        local_window_size: Int,
+        recv_window_size: Int
+    )
+    requires { local_window_size >= 1 }
+    requires { local_window_size <= 2147483647 }
+    requires { recv_window_size >= 0 }
+    requires { recv_window_size <= 2147483647 }
+
+    // The trigger fires when: recv >= local / 2
+    // After sending WINDOW_UPDATE(recv_size), recv -= recv_size
+    // This restores window capacity
+
+    // Invariant: if trigger fires, the update amount is meaningful
+    // (at least half the window is being restored)
+    requires { recv_window_size >= local_window_size / 2 }
+    ensures { recv_window_size >= 1 }
+    ensures { local_window_size >= 2 * recv_window_size }
+}
+
+// ============================================================
+// CONTRACT 12: Full state machine - 3 streams, SETTINGS, WINDOW_UPDATE
+// THE ULTIMATE LEVEL-3 CONTRACT
+// Z3 explores ALL valid combinations of:
+//   - 3 streams with independent data sent
+//   - SETTINGS change affecting all 3
+//   - WINDOW_UPDATE on only 1 stream
+//   - Second DATA send attempt
+// Checks: does the second send respect both windows correctly?
+// ============================================================
+contract FullStateMachineThreeStreams {
+    input(
+        w0: Int,                    // initial window
+        conn_w: Int,                // connection window
+        sent_1: Int,                // data sent on stream 1
+        sent_2: Int,                // data sent on stream 2
+        sent_3: Int,                // data sent on stream 3
+        w1: Int,                    // new initial window from SETTINGS
+        wu_stream1: Int,            // WINDOW_UPDATE on stream 1
+        second_send_1: Int          // second data send attempt on stream 1
+    )
+    requires { w0 >= 0 }
+    requires { w0 <= 2147483647 }
+    requires { conn_w >= 0 }
+    requires { conn_w <= 2147483647 }
+    requires { w1 >= 0 }
+    requires { w1 <= 2147483647 }
+
+    // Sends are valid
+    requires { sent_1 >= 0 }
+    requires { sent_1 <= w0 }
+    requires { sent_2 >= 0 }
+    requires { sent_2 <= w0 }
+    requires { sent_3 >= 0 }
+    requires { sent_3 <= w0 }
+    requires { sent_1 + sent_2 + sent_3 <= conn_w }
+
+    requires { wu_stream1 >= 0 }
+    requires { wu_stream1 <= 2147483647 }
+    requires { second_send_1 >= 0 }
+
+    // After first sends:
+    // stream1_w = w0 - sent_1
+    // stream2_w = w0 - sent_2
+    // stream3_w = w0 - sent_3
+    // conn_after_1 = conn_w - sent_1 - sent_2 - sent_3
+
+    // After SETTINGS(w1):
+    // stream1_w = w1 - sent_1
+    // stream2_w = w1 - sent_2
+    // stream3_w = w1 - sent_3
+    // conn unchanged
+
+    // SETTINGS must keep windows in int32
+    requires { w1 - sent_1 >= -2147483648 }
+    requires { w1 - sent_2 >= -2147483648 }
+    requires { w1 - sent_3 >= -2147483648 }
+
+    // After WINDOW_UPDATE on stream 1:
+    // stream1_w = w1 - sent_1 + wu_stream1
+    requires { w1 - sent_1 + wu_stream1 <= 2147483647 }
+
+    // Second send on stream 1:
+    // Must be <= min(stream1_w, conn_remaining, max_frame)
+    requires { second_send_1 <= w1 - sent_1 + wu_stream1 }
+    requires { second_send_1 <= conn_w - sent_1 - sent_2 - sent_3 }
+
+    // INVARIANTS after second send:
+    // Stream 1 window after second send
+    ensures { w1 - sent_1 + wu_stream1 - second_send_1 >= 0 }
+    // Connection window after second send
+    ensures { conn_w - sent_1 - sent_2 - sent_3 - second_send_1 >= 0 }
+    // Stream 2 and 3 unchanged
+    ensures { w1 - sent_2 >= -2147483648 }
+    ensures { w1 - sent_3 >= -2147483648 }
+}

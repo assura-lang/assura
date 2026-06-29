@@ -1,0 +1,378 @@
+// BoringVault (Se7en-Seas/boring-vault) Formal Audit
+// Real DeFi vault powering ether.fi, Lombard, Kraken DeFi Earn
+// Multi-billion dollar TVL
+//
+// Source: https://github.com/Se7en-Seas/boring-vault
+// Files: TellerWithMultiAssetSupport.sol, AccountantWithRateProviders.sol, BoringVault.sol
+//
+// Contracts below model the ACTUAL arithmetic from the source code.
+// Z3 checks all inputs for invariant violations.
+
+// ============================================================
+// CONTRACT 1: Deposit share calculation rounding
+// Source: TellerWithMultiAssetSupport.sol line 475-476
+//
+// shares = depositAmount.mulDivDown(ONE_SHARE, rate)
+// shares = shares.mulDivDown(1e4 - sharePremium, 1e4)
+//
+// mulDivDown(x, y, z) = x * y / z (rounds down)
+//
+// Invariant: depositor should never receive MORE value than they put in
+// (rounding must favor the vault, not the depositor)
+// ============================================================
+contract DepositShareRounding {
+    input(
+        deposit_amount: Int,        // amount of deposit asset (18 decimals)
+        rate: Int,                  // exchange rate from accountant (18 decimals)
+        one_share: Int,             // 10^18 for 18-decimal vault
+        share_premium: Int          // 0-1000 (basis points, max 10%)
+    )
+    requires { deposit_amount >= 1 }
+    requires { deposit_amount <= 1000000000000000000000000000 }
+    requires { rate >= 1 }
+    requires { rate <= 79228162514264337593543950335 }
+    requires { one_share == 1000000000000000000 }
+    requires { share_premium >= 0 }
+    requires { share_premium <= 1000 }
+
+    // Step 1: shares = deposit_amount * ONE_SHARE / rate (floor)
+    // Step 2: if premium > 0: shares = shares * (10000 - premium) / 10000 (floor)
+
+    // Value of shares received = shares * rate / ONE_SHARE
+    // This should be <= deposit_amount (vault keeps the rounding remainder)
+
+    // For step 1 without premium:
+    // shares = floor(deposit_amount * ONE_SHARE / rate)
+    // value = floor(shares * rate / ONE_SHARE)
+    //       = floor(floor(deposit_amount * ONE_SHARE / rate) * rate / ONE_SHARE)
+    //       <= deposit_amount (because both divisions round down)
+
+    // INVARIANT: value of shares received <= deposit amount
+    // deposit_amount * ONE_SHARE / rate * rate / ONE_SHARE <= deposit_amount
+    ensures { (deposit_amount * one_share / rate) * rate / one_share <= deposit_amount }
+}
+
+// ============================================================
+// CONTRACT 2: Withdraw rounding
+// Source: TellerWithMultiAssetSupport.sol line 455
+//
+// assetsOut = shareAmount.mulDivDown(rate, ONE_SHARE)
+//
+// Invariant: assets withdrawn should never exceed the value of shares burned
+// (rounding must favor the vault)
+// ============================================================
+contract WithdrawRounding {
+    input(
+        share_amount: Int,          // shares to burn
+        rate: Int,                  // exchange rate
+        one_share: Int              // 10^18
+    )
+    requires { share_amount >= 1 }
+    requires { share_amount <= 1000000000000000000000000000 }
+    requires { rate >= 1 }
+    requires { rate <= 79228162514264337593543950335 }
+    requires { one_share == 1000000000000000000 }
+
+    // assetsOut = share_amount * rate / ONE_SHARE (floor)
+    // Value check: assetsOut <= share_amount * rate / ONE_SHARE (exact)
+    // This is trivially true because floor(x) <= x
+
+    // But the deeper question: can a deposit-then-withdraw cycle extract value?
+    // deposit(X) -> shares = X * ONE_SHARE / rate
+    // withdraw(shares) -> assets = shares * rate / ONE_SHARE
+    //                            = (X * ONE_SHARE / rate) * rate / ONE_SHARE
+
+    // INVARIANT: roundtrip should not be profitable
+    ensures { (share_amount * one_share / rate) * rate / one_share <= share_amount }
+}
+
+// ============================================================
+// CONTRACT 3: uint128 fee truncation
+// Source: AccountantWithRateProviders.sol line 567
+//
+//   state.feesOwedInBase += uint128(newFeesOwedInBase)
+//
+// If newFeesOwedInBase > type(uint128).max, the cast silently truncates.
+// uint128 max = 340282366920938463463374607431768211455
+// With 18 decimals that's ~340 billion tokens.
+//
+// Z3 checks: can legitimate fee calculation exceed uint128?
+// ============================================================
+contract FeeUint128Truncation {
+    input(
+        total_shares: Int,          // total supply (uint128, 18 decimals)
+        exchange_rate: Int,         // current rate (uint96, 18 decimals)
+        new_rate: Int,              // new rate (uint96)
+        highwater_mark: Int,        // previous high (uint96)
+        platform_fee: Int,          // platform fee in bps (max 2000 = 20%)
+        performance_fee: Int,       // performance fee in bps (max 5000 = 50%)
+        time_delta: Int,            // seconds since last update
+        one_share: Int
+    )
+    requires { total_shares >= 0 }
+    requires { total_shares <= 340282366920938463463374607431768211455 }
+    requires { exchange_rate >= 1 }
+    requires { exchange_rate <= 79228162514264337593543950335 }
+    requires { new_rate >= 1 }
+    requires { new_rate <= 79228162514264337593543950335 }
+    requires { highwater_mark >= 1 }
+    requires { highwater_mark <= 79228162514264337593543950335 }
+    requires { platform_fee >= 0 }
+    requires { platform_fee <= 2000 }
+    requires { performance_fee >= 0 }
+    requires { performance_fee <= 5000 }
+    requires { time_delta >= 0 }
+    requires { time_delta <= 1209600 }
+    requires { one_share == 1000000000000000000 }
+
+    // Platform fee calculation (line 504-510):
+    //   minimumAssets = total_shares * min(new_rate, exchange_rate) / ONE_SHARE
+    //   platformFeesAnnual = minimumAssets * platformFee / 1e4
+    //   platformFees = platformFeesAnnual * timeDelta / 365 days
+
+    // Performance fee calculation (line 523-526):
+    //   changeInRate = new_rate - highwater_mark (if new_rate > highwater_mark)
+    //   yieldEarned = changeInRate * total_shares / ONE_SHARE
+    //   performanceFees = yieldEarned * performanceFee / 1e4
+
+    // Total = platformFees + performanceFees
+
+    // INVARIANT: total fees must fit in uint128
+    // uint128_max = 340282366920938463463374607431768211455
+
+    // Platform fee upper bound:
+    // total_shares * rate / ONE_SHARE * 2000 / 10000 * 1209600 / 31536000
+    // = total_shares * rate * 2000 * 1209600 / (ONE_SHARE * 10000 * 31536000)
+    // = total_shares * rate * 2419200000 / (ONE_SHARE * 315360000000)
+
+    // Performance fee upper bound:
+    // (new_rate - hwm) * total_shares / ONE_SHARE * 5000 / 10000
+    // = rate_delta * total_shares * 5000 / (ONE_SHARE * 10000)
+
+    // With max values:
+    // total_shares = 2^128, rate = 2^96
+    // platform: 2^128 * 2^96 * 0.2 * (14d/365d) / 2^18 ≈ enormous
+    // But this can't happen because total_shares is uint128 and rate is uint96
+
+    // The cast on line 567: uint128(newFeesOwedInBase)
+    // newFeesOwedInBase is uint256. If it exceeds uint128, SILENT TRUNCATION.
+    // The protocol LOSES fees. Not a user exploit, but a protocol loss.
+
+    // Let's check: can fees exceed uint128 with valid parameters?
+    // Worst case: max shares, max rate, max fees, max time
+    requires { new_rate > highwater_mark }
+    ensures { (new_rate - highwater_mark) * total_shares / one_share * performance_fee / 10000 <= 340282366920938463463374607431768211455 }
+}
+
+// ============================================================
+// CONTRACT 4: Exchange rate bounds check
+// Source: AccountantWithRateProviders.sol lines 468-470
+//
+// shouldPause = newRate > currentRate * upperBound / 1e4
+//           || newRate < currentRate * lowerBound / 1e4
+//
+// upperBound is uint16 (max 65535) checked >= 10000
+// lowerBound is uint16 (max 65535) checked <= 10000
+//
+// Z3 checks: can a rate update slip through the bounds?
+// ============================================================
+contract ExchangeRateBoundsCheck {
+    input(
+        current_rate: Int,          // current exchange rate (uint96)
+        new_rate: Int,              // proposed new rate (uint96)
+        upper_bound: Int,           // max allowed ratio (>= 10000)
+        lower_bound: Int            // min allowed ratio (<= 10000)
+    )
+    requires { current_rate >= 1 }
+    requires { current_rate <= 79228162514264337593543950335 }
+    requires { new_rate >= 0 }
+    requires { new_rate <= 79228162514264337593543950335 }
+    requires { upper_bound >= 10000 }
+    requires { upper_bound <= 65535 }
+    requires { lower_bound >= 0 }
+    requires { lower_bound <= 10000 }
+
+    // The check: NOT paused means:
+    // new_rate <= current_rate * upper_bound / 10000
+    // AND new_rate >= current_rate * lower_bound / 10000
+    requires { new_rate <= current_rate * upper_bound / 10000 }
+    requires { new_rate >= current_rate * lower_bound / 10000 }
+
+    // INVARIANT: the actual ratio new/current should be within bounds
+    // new_rate / current_rate <= upper_bound / 10000
+    // This is what the code checks, but with integer division
+    // floor(current_rate * upper_bound / 10000) could be less than
+    // the mathematical value, making the check slightly MORE restrictive
+
+    // The max possible rate increase without pause:
+    // new_rate <= floor(current_rate * 65535 / 10000) = floor(current_rate * 6.5535)
+    // That's a 555% increase in one update - is this intentional?
+    ensures { new_rate * 10000 <= current_rate * 65535 }
+}
+
+// ============================================================
+// CONTRACT 5: Deposit-withdraw value extraction
+// The CRITICAL invariant for any vault:
+//   deposit(X) then immediately withdraw should return <= X
+//
+// Source: Teller line 475 (deposit), line 455 (withdraw)
+//   deposit: shares = depositAmount * ONE_SHARE / rate
+//   withdraw: assets = shares * rate / ONE_SHARE
+//
+// With integer division, floor(floor(X * A / B) * B / A) <= X
+// But what if rate changes between deposit and withdraw?
+// ============================================================
+contract DepositWithdrawExtraction {
+    input(
+        deposit_amount: Int,
+        rate_at_deposit: Int,
+        rate_at_withdraw: Int,
+        one_share: Int,
+        share_premium: Int
+    )
+    requires { deposit_amount >= 1 }
+    requires { deposit_amount <= 1000000000000000000000000000 }
+    requires { rate_at_deposit >= 1 }
+    requires { rate_at_deposit <= 79228162514264337593543950335 }
+    requires { rate_at_withdraw >= 1 }
+    requires { rate_at_withdraw <= 79228162514264337593543950335 }
+    requires { one_share == 1000000000000000000 }
+    requires { share_premium >= 0 }
+    requires { share_premium <= 1000 }
+
+    // Deposit: shares = deposit_amount * ONE_SHARE / rate_deposit
+    // Apply premium: shares = shares * (10000 - premium) / 10000
+    // Withdraw: assets = shares * rate_withdraw / ONE_SHARE
+
+    // If rate doesn't change (rate_deposit == rate_withdraw):
+    // assets = floor(floor(deposit * ONE_SHARE / rate) * rate / ONE_SHARE)
+    //        <= deposit (rounding favors vault)
+    requires { rate_at_deposit == rate_at_withdraw }
+    requires { share_premium == 0 }
+
+    // Same rate, no premium: roundtrip should not be profitable
+    ensures { (deposit_amount * one_share / rate_at_deposit) * rate_at_deposit / one_share <= deposit_amount }
+}
+
+// ============================================================
+// CONTRACT 6: Platform fee time-proportional correctness
+// Source: AccountantWithRateProviders.sol lines 504-511
+//
+// platformFeesAnnual = minimumAssets * platformFee / 1e4
+// platformFees = platformFeesAnnual * timeDelta / 365_days
+//
+// With mulDivDown at each step, rounding compounds.
+// Z3 checks: can two rapid updates extract more fees than one long update?
+// ============================================================
+contract PlatformFeeTimeProportional {
+    input(
+        minimum_assets: Int,        // min(shares * old_rate, shares * new_rate) / ONE_SHARE
+        platform_fee: Int,          // fee in bps (max 2000)
+        time_total: Int,            // total time period
+        time_split: Int             // split point for two updates
+    )
+    requires { minimum_assets >= 1 }
+    requires { minimum_assets <= 1000000000000000000000000000 }
+    requires { platform_fee >= 1 }
+    requires { platform_fee <= 2000 }
+    requires { time_total >= 2 }
+    requires { time_total <= 1209600 }
+    requires { time_split >= 1 }
+    requires { time_split < time_total }
+
+    // One update for full period:
+    //   fee_single = minimum_assets * platform_fee / 10000 * time_total / 31536000
+
+    // Two updates (split at time_split):
+    //   fee_1 = minimum_assets * platform_fee / 10000 * time_split / 31536000
+    //   fee_2 = minimum_assets * platform_fee / 10000 * (time_total - time_split) / 31536000
+    //   fee_double = fee_1 + fee_2
+
+    // Due to floor division, fee_double could be < fee_single
+    // (each division loses up to 1 unit of precision)
+    // OR fee_double could equal fee_single
+
+    // INVARIANT: splitting should never yield MORE fees than one period
+    // This would mean the protocol could game fee collection by updating frequently
+    ensures { minimum_assets * platform_fee / 10000 * time_split / 31536000 + minimum_assets * platform_fee / 10000 * (time_total - time_split) / 31536000 <= minimum_assets * platform_fee / 10000 * time_total / 31536000 + 1 }
+}
+
+// ============================================================
+// CONTRACT 7: _changeDecimals precision loss
+// Source: AccountantWithRateProviders.sol lines 439-447
+//
+// When converting fees from base decimals to feeAsset decimals,
+// precision can be lost. The code divides then multiplies (or vice versa).
+// Z3 checks: can precision loss be exploited?
+// ============================================================
+contract ChangeDecimalsPrecision {
+    input(
+        amount: Int,                // fee amount in base decimals
+        from_decimals: Int,         // base decimals (e.g. 18)
+        to_decimals: Int            // fee asset decimals (e.g. 6 for USDC)
+    )
+    requires { amount >= 1 }
+    requires { amount <= 340282366920938463463374607431768211455 }
+    requires { from_decimals >= 6 }
+    requires { from_decimals <= 18 }
+    requires { to_decimals >= 6 }
+    requires { to_decimals <= 18 }
+
+    // When from_decimals > to_decimals:
+    //   result = amount / 10^(from_decimals - to_decimals)
+    // This truncates. For 18 -> 6 decimals: loses 12 decimal places
+    // amount = 999999999999 (< 1e12) -> result = 0
+
+    // When from_decimals < to_decimals:
+    //   result = amount * 10^(to_decimals - from_decimals)
+    // This can overflow for large amounts (but uint256 is huge)
+
+    // INVARIANT: when converting down then back up, we don't exceed original
+    // amount / 10^diff * 10^diff <= amount
+    requires { from_decimals > to_decimals }
+    ensures { amount / (from_decimals - to_decimals) * (from_decimals - to_decimals) <= amount }
+}
+
+// ============================================================
+// CONTRACT 8: Share premium deposit fairness
+// Source: TellerWithMultiAssetSupport.sol line 476
+//
+// shares = shares.mulDivDown(1e4 - sharePremium, 1e4)
+//
+// Share premium reduces shares minted (penalty for using certain assets)
+// Z3 checks: can premium be circumvented by splitting deposits?
+// ============================================================
+contract SharePremiumSplitAttack {
+    input(
+        total_deposit: Int,         // total amount to deposit
+        rate: Int,
+        one_share: Int,
+        premium: Int,               // share premium in bps
+        num_splits: Int             // number of deposits to split into
+    )
+    requires { total_deposit >= 2 }
+    requires { total_deposit <= 1000000000000000000000000000 }
+    requires { rate >= 1 }
+    requires { rate <= 79228162514264337593543950335 }
+    requires { one_share == 1000000000000000000 }
+    requires { premium >= 1 }
+    requires { premium <= 1000 }
+    requires { num_splits >= 2 }
+    requires { num_splits <= 10 }
+
+    // Single deposit:
+    //   shares_single = floor(total_deposit * ONE_SHARE / rate) * (10000 - premium) / 10000
+
+    // Split into num_splits equal deposits of total_deposit / num_splits:
+    //   per_deposit = total_deposit / num_splits
+    //   shares_per = floor(per_deposit * ONE_SHARE / rate) * (10000 - premium) / 10000
+    //   shares_split = shares_per * num_splits
+
+    // Due to floor rounding on smaller amounts, shares_split could differ from shares_single
+    // INVARIANT: splitting should not yield MORE shares than single deposit
+    // (if it does, attacker can bypass the premium by depositing small amounts)
+
+    // Simplified to 2 splits for Z3:
+    requires { num_splits == 2 }
+    ensures { ((total_deposit / 2) * one_share / rate * (10000 - premium) / 10000) * 2 <= total_deposit * one_share / rate * (10000 - premium) / 10000 + 1 }
+}

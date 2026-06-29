@@ -1,0 +1,148 @@
+// libssh2 arithmetic audit
+// Source: https://github.com/libssh2/libssh2 (latest main)
+// All ensures reference only inputs so Z3 can find real counterexamples.
+
+// 1. SFTP readdir bypass: unbounded allocation from network
+// sftp.c:314-318 bypasses SFTP_PACKET_MAXLEN for readdir responses
+// sftp.c:332 allocates partial_len bytes with no secondary cap
+contract SftpReaddirUnboundedAlloc {
+    input(partial_len: Nat)
+    requires { partial_len <= 4294967295 }
+    requires { partial_len >= 5 }
+    ensures { partial_len <= 262144 }
+}
+
+// 2. SFTP partial_len * 2 overflow (normal path, capped)
+// sftp.c:348 - window adjust argument is partial_len * 2
+contract SftpPartialLenDouble {
+    input(partial_len: Nat)
+    requires { partial_len <= 262144 }
+    requires { partial_len >= 5 }
+    ensures { partial_len * 2 <= 4294967295 }
+}
+
+// 3. SFTP partial_len * 2 overflow (readdir bypass path)
+// partial_len can be up to 2^32-1, so partial_len*2 wraps uint32
+contract SftpReaddirDouble {
+    input(partial_len: Nat)
+    requires { partial_len <= 4294967295 }
+    requires { partial_len >= 5 }
+    ensures { partial_len * 2 <= 4294967295 }
+}
+
+// 4. bytes_read cast truncation
+// channel.c:2067 - window_size -= (uint32_t)bytes_read
+// bytes_read is size_t (64-bit). Cast truncates if > 2^32.
+contract BytesReadCastTruncation {
+    input(bytes_read: Nat, read_avail: Nat, window_size: Nat)
+    requires { bytes_read > 0 }
+    requires { bytes_read <= read_avail }
+    requires { window_size <= 4294967295 }
+    requires { read_avail <= window_size }
+    ensures { bytes_read <= 4294967295 }
+}
+
+// 5. Window adjustment cast in channel_read
+// channel.c:1940 - adjustment = window_size_initial + buflen - window_size
+// Sum of two uint32 values can exceed 2^32 before cast
+contract WindowAdjustCast {
+    input(window_size_initial: Nat, buflen: Nat, window_size: Nat)
+    requires { window_size_initial <= 4294967295 }
+    requires { buflen <= 4294967295 }
+    requires { window_size <= 4294967295 }
+    requires { window_size < window_size_initial / 4 * 3 + buflen }
+    requires { window_size_initial + buflen > window_size }
+    ensures { window_size_initial + buflen - window_size <= 4294967295 }
+}
+
+// 6. Extended data subtraction safety (non-truncation path)
+// packet.c:977 - window_size -= (datalen - 13)
+// When read_avail + datalen - 13 < window_size (no truncation):
+// Is datalen - 13 guaranteed <= window_size?
+contract ExtDataSubtractSafe {
+    input(datalen: Nat, read_avail: Nat, window_size: Nat)
+    requires { datalen >= 13 }
+    requires { window_size <= 4294967295 }
+    requires { read_avail <= window_size }
+    requires { read_avail + datalen - 13 < window_size }
+    ensures { datalen - 13 <= window_size }
+}
+
+// 7. Channel data truncation: does read_avail stay <= window_size?
+// packet.c:1029-1041 - truncate then add to read_avail
+// After step 1005 (packet_size cap) and step 1015 (discard if full)
+// step 1029 truncates payload to window_size - read_avail
+// step 1041 adds payload to read_avail
+contract ChannelDataInvariant {
+    input(datalen: Nat, read_avail: Nat, window_size: Nat, packet_size: Nat)
+    requires { datalen >= 9 }
+    requires { window_size <= 4294967295 }
+    requires { packet_size <= 4294967295 }
+    requires { window_size > read_avail }
+    requires { datalen - 9 <= packet_size }
+    ensures { read_avail + datalen - 9 <= window_size }
+}
+
+// 8. data_head consistency: EXTENDED_DATA fallthrough
+// packet.c:921-935 - EXTENDED_DATA adds 4 then falls through
+// to CHANNEL_DATA which adds 9. Result: 0+4+9 = 13.
+// The hardcoded 13 at line 992 must equal computed data_head.
+contract ExtDataHeadConsistency {
+    input(base: Nat, ext_add: Nat, data_add: Nat)
+    requires { base == 0 }
+    requires { ext_add == 4 }
+    requires { data_add == 9 }
+    ensures { base + ext_add + data_add == 13 }
+}
+
+// 9. Window adjust overflow guard
+// packet.c:1302 - if(bytestoadd > UINT32_MAX - window_size) error
+// packet.c:1306 - window_size += bytestoadd
+contract WindowAdjustGuard {
+    input(window_size: Nat, bytestoadd: Nat)
+    requires { window_size <= 4294967295 }
+    requires { bytestoadd <= 4294967295 }
+    requires { bytestoadd <= 4294967295 - window_size }
+    ensures { window_size + bytestoadd <= 4294967295 }
+}
+
+// 10. read_avail/window_size sync after payload add
+contract WindowReadAvailSync {
+    input(read_avail: Nat, window_size: Nat, payload: Nat)
+    requires { read_avail <= window_size }
+    requires { window_size <= 4294967295 }
+    requires { payload <= window_size - read_avail }
+    ensures { read_avail + payload <= window_size }
+}
+
+// 11. Window adjustment sum can exceed uint32 before cast
+// channel.c:1940 - initial + buflen can be up to 2^33-2
+contract WindowAdjustSumOverflow {
+    input(window_size_initial: Nat, buflen: Nat, window_size: Nat)
+    requires { window_size_initial <= 4294967295 }
+    requires { buflen <= 4294967295 }
+    requires { window_size <= 4294967295 }
+    requires { window_size < window_size_initial / 4 * 3 + buflen }
+    ensures { window_size_initial + buflen <= 4294967295 + window_size }
+}
+
+// 12. Zero window blocks all data
+// packet.c:1015 - window_size <= read_avail discards
+// With window_size=0, read_avail=0: 0<=0 is true -> discard. Good.
+// But the check is <=, not <. What about window_size=1, read_avail=1?
+// Still discards. What about window_size=1, read_avail=0?
+// 1 > 0, passes. Then line 1029: 0 + datalen-9 > 1
+// For datalen=10: 1 > 1 is false. So no truncation, payload=1.
+// read_avail becomes 1. OK.
+// For datalen=20: 11 > 1. Truncation: datalen = 1-0+9 = 10. payload=1.
+// Invariant: window_size > read_avail implies payload <= window_size - read_avail
+contract SmallWindowCorrectness {
+    input(datalen: Nat, read_avail: Nat, window_size: Nat)
+    requires { datalen >= 9 }
+    requires { window_size <= 4294967295 }
+    requires { window_size > read_avail }
+    requires { window_size <= 10 }
+    requires { read_avail <= 10 }
+    requires { datalen <= 100 }
+    ensures { read_avail + datalen - 9 <= window_size }
+}

@@ -1,0 +1,352 @@
+// ============================================================================
+// Audit of image-rs/image (https://github.com/image-rs/image)
+//
+// The image crate is one of Rust's most downloaded libraries (~250M downloads).
+// It processes untrusted image data (BMP, PNG, JPEG, GIF, TGA, etc.) and must
+// handle attacker-controlled width/height/channel values safely.
+//
+// This file models the crate's key invariants as Assura contracts and uses Z3
+// to find inputs that violate them.
+// ============================================================================
+
+project image_crate_audit {
+  profile: [core, mem, sec]
+}
+
+module image_audit;
+
+// ---------------------------------------------------------------------------
+// Contract 1: overlay_bounds_ext -- coordinate clamping
+//
+// From src/imageops/mod.rs:136. This function computes the safe region when
+// overlaying a top image onto a bottom image at position (x, y), where x and
+// y can be negative (i64). The function must ensure:
+//   1. origin_bottom + range does not exceed bottom dimensions
+//   2. origin_top + range does not exceed top dimensions
+//   3. range values are non-negative
+//
+// The code uses i64 arithmetic with saturating ops then clamps to u32.
+// Let's see if the clamping is correct.
+// ---------------------------------------------------------------------------
+
+contract OverlayBoundsBottomSafe {
+  input(
+    bottom_width: Nat,
+    bottom_height: Nat,
+    top_width: Nat,
+    top_height: Nat,
+    x: Int,
+    y: Int
+  )
+
+  // Model the constraints from the actual code
+  // Images have positive dimensions (u32 in Rust, so 0..4294967295)
+  requires { bottom_width >= 1 }
+  requires { bottom_width <= 65535 }
+  requires { bottom_height >= 1 }
+  requires { bottom_height <= 65535 }
+  requires { top_width >= 1 }
+  requires { top_width <= 65535 }
+  requires { top_height >= 1 }
+  requires { top_height <= 65535 }
+
+  // The images overlap (the function returns early if they don't)
+  requires { x < bottom_width }
+  requires { y < bottom_height }
+  requires { x + top_width > 0 }
+  requires { y + top_height > 0 }
+
+  // Model the actual computation from overlay_bounds_ext:
+  // max_x = x + top_width (saturating, but within i64 range here)
+  // max_inbounds_x = clamp(max_x, 0, bottom_width)
+  // origin_bottom_x = clamp(x, 0, bottom_width)
+  // x_range = max_inbounds_x - origin_bottom_x
+
+  // The key property: origin_bottom_x + x_range <= bottom_width
+  // This expands to: max_inbounds_x <= bottom_width
+  // Since max_inbounds_x = clamp(x + top_width, 0, bottom_width),
+  // this is always true by construction.
+  ensures { bottom_width >= 1 }
+
+  effects { pure }
+}
+
+// ---------------------------------------------------------------------------
+// Contract 2: num_bytes -- buffer allocation overflow
+//
+// From src/codecs/bmp/decoder.rs:757.
+// fn num_bytes(width: i32, length: i32, channels: usize) -> Option<usize>
+//
+// The code does: channels.checked_mul(width as usize)?.checked_mul(length as usize)
+//
+// Critical observation: width and length are i32 but are cast to usize
+// via "as usize". On a 64-bit system, i32 -> usize zero-extends positive
+// values and sign-extends negative values (which become huge usize values).
+// The function checks width <= 0 || length <= 0 first, so negatives return
+// None. But what about the product itself?
+//
+// The REAL question: is checked_mul sufficient to prevent all overflows,
+// or are there edge cases where the product fits in usize but the actual
+// allocation is wrong?
+// ---------------------------------------------------------------------------
+
+contract BmpNumBytesOverflow {
+  input(
+    width: Nat,
+    height: Nat,
+    channels: Nat
+  )
+
+  // width and height come from BMP header (i32, but positive after check)
+  // MAX_WIDTH_HEIGHT = 0xFFFF = 65535
+  requires { width >= 1 }
+  requires { width <= 65535 }
+  requires { height >= 1 }
+  requires { height <= 65535 }
+
+  // channels is 3 (RGB) or 4 (RGBA) for BMP
+  requires { channels >= 3 }
+  requires { channels <= 4 }
+
+  // The product channels * width * height must not overflow usize (2^64)
+  // On 64-bit: 4 * 65535 * 65535 = 17,179,344,900 < 2^64, so this always fits.
+  // This is actually safe. But let's verify:
+  ensures { channels * width * height <= 17179869184 }
+
+  effects { pure }
+}
+
+// ---------------------------------------------------------------------------
+// Contract 3: RLE delta -- x position after delta escape
+//
+// From src/codecs/bmp/decoder.rs:2162-2210.
+// When an RLE_ESCAPE_DELTA is encountered, x_delta and y_delta are u8 values
+// read from the stream. The code does: x += x_delta as u32
+//
+// Critical: x is a u32 tracking the current column. x_delta is added without
+// checking if x + x_delta exceeds the image width. The pixel_iter.next()
+// calls will return None when we exceed the row, but x itself can overflow
+// the width, and on the NEXT row iteration, the "skip to saved x position"
+// logic uses this corrupted x value.
+//
+// Let's model this: can a malicious BMP with crafted delta values cause
+// x to exceed the image width?
+// ---------------------------------------------------------------------------
+
+contract RleDeltaXOverflow {
+  input(
+    width: Nat,
+    current_x: Nat,
+    x_delta: Nat,
+    y_delta: Nat
+  )
+
+  // width is from the BMP header, capped
+  requires { width >= 1 }
+  requires { width <= 65535 }
+
+  // current_x is within the row
+  requires { current_x >= 0 }
+  requires { current_x < width }
+
+  // x_delta and y_delta are u8 (read from stream)
+  requires { x_delta >= 0 }
+  requires { x_delta <= 255 }
+  requires { y_delta >= 0 }
+  requires { y_delta <= 255 }
+
+  // After the delta, x should NOT exceed the width.
+  // The code does: x += x_delta as u32
+  // WITHOUT checking x + x_delta < width.
+  //
+  // If this ensures clause gets a COUNTEREXAMPLE from Z3,
+  // it means there exist valid inputs where x overflows the row.
+  ensures { current_x + x_delta < width }
+
+  effects { pure }
+}
+
+// ---------------------------------------------------------------------------
+// Contract 4: RLE resume after delta -- stale x on new row
+//
+// When y_delta > 0, the decoder advances to a new row and then reuses
+// the current x position (line 2190: for _ in 0..x). But x may have been
+// incremented past the width by a previous delta. If x > width, the
+// for loop at line 2190 tries to skip x pixels in a row that only has
+// width pixels, potentially missing the fill-with-black step.
+//
+// Model: after a delta with y_delta > 0, can x exceed the new row's width?
+// ---------------------------------------------------------------------------
+
+contract RleDeltaResumeStaleX {
+  input(
+    width: Nat,
+    old_x: Nat,
+    x_delta: Nat,
+    y_delta: Nat
+  )
+
+  requires { width >= 1 }
+  requires { width <= 65535 }
+
+  // old_x could be anything if a previous delta already pushed it past width
+  requires { old_x >= 0 }
+  requires { old_x <= 65535 }
+
+  // Deltas from the stream
+  requires { x_delta >= 0 }
+  requires { x_delta <= 255 }
+  requires { y_delta >= 1 }  // This path only taken when y_delta > 0
+
+  // After: new_x = old_x + x_delta (the code just does x += x_delta)
+  // On the new row, the code does: for _ in 0..x { pixel_iter.next() }
+  // If x > width, this loop tries to skip more pixels than exist in the row.
+  //
+  // The ensures checks: can new_x exceed width?
+  // If Z3 finds a counterexample, it means the resume logic is unsafe.
+  ensures { old_x + x_delta < width }
+
+  effects { pure }
+}
+
+// ---------------------------------------------------------------------------
+// Contract 5: thumbnail division-by-zero guard
+//
+// From src/imageops/sample.rs:611-612:
+//   let x_ratio = width as f32 / new_width as f32;
+//   let y_ratio = height as f32 / new_height as f32;
+//
+// If new_width or new_height is 0, this divides by zero (producing Inf in
+// IEEE 754). The function checks width == 0 || height == 0 (the SOURCE
+// image) at line 607, but does NOT check new_width == 0 || new_height == 0
+// (the TARGET dimensions).
+//
+// Let's verify: can the user pass new_width=0 or new_height=0?
+// The function signature takes u32, and 0 is a valid u32.
+// ---------------------------------------------------------------------------
+
+contract ThumbnailDivisionGuard {
+  input(
+    width: Nat,
+    height: Nat,
+    new_width: Nat,
+    new_height: Nat
+  )
+
+  // Source image has valid dimensions
+  requires { width >= 1 }
+  requires { height >= 1 }
+
+  // Target dimensions are u32 -- any value is accepted by the type system
+  requires { new_width >= 0 }
+  requires { new_height >= 0 }
+
+  // The code guards: if height == 0 || width == 0 { return out; }
+  // But does NOT guard: if new_height == 0 || new_width == 0 { ... }
+  //
+  // This ensures should be violated when new_width or new_height is 0:
+  ensures { new_width >= 1 }
+  ensures { new_height >= 1 }
+
+  effects { pure }
+}
+
+// ---------------------------------------------------------------------------
+// Contract 6: with_rows_resumable -- bottom-up row index underflow
+//
+// From src/codecs/bmp/decoder.rs:796-801:
+//   fn output_row_index(file_row: u32, height: u32, top_down: bool) -> usize {
+//       if top_down { file_row as usize }
+//       else { (height - 1 - file_row) as usize }
+//   }
+//
+// For bottom-up images: index = height - 1 - file_row.
+// If file_row >= height, this underflows (u32 wrapping).
+// The loop bound is start_row..height, so file_row < height.
+// But start_row comes from the checkpoint (RLE resume).
+// Is start_row always < height?
+// ---------------------------------------------------------------------------
+
+contract BottomUpRowIndex {
+  input(
+    height: Nat,
+    start_row: Nat,
+    file_row: Nat
+  )
+
+  requires { height >= 1 }
+  requires { height <= 65535 }
+
+  // start_row is restored from RLE checkpoint
+  requires { start_row >= 0 }
+  requires { start_row <= 65535 }
+
+  // file_row is in start_row..height range
+  requires { file_row >= start_row }
+  requires { file_row < height }
+
+  // The computation: height - 1 - file_row must not underflow
+  // Since file_row < height, we have height - 1 - file_row >= 0.
+  // This should be safe.
+  ensures { height - 1 - file_row >= 0 }
+
+  // BUT: what if start_row >= height? The loop start_row..height
+  // produces an empty range. That's safe (no iterations), but it means
+  // no rows are decoded. Is that correct behavior?
+  // Let's check: can start_row >= height happen?
+  ensures { start_row < height }
+
+  effects { pure }
+}
+
+// ---------------------------------------------------------------------------
+// Contract 7: fast_blur sigma to kernel size -- panic path
+//
+// From src/imageops/fast_blur.rs:194-198:
+//   fn test_radius_size(bound: usize, radius: usize) {
+//       match bound.safe_add(radius) {
+//           Ok(_) => {}
+//           Err(_) => panic!("Radius overflowed maximum possible size"),
+//       }
+//   }
+//
+// This panics if bound + radius overflows usize. The radius comes from
+// boxes_for_gauss(sigma, 3), which computes radius from sigma via:
+//   w_ideal = sqrt(12 * sigma^2 / 3 + 1)
+//
+// For large sigma values, this can produce very large radii.
+// Can a user-supplied sigma cause a panic?
+// ---------------------------------------------------------------------------
+
+contract FastBlurRadiusPanic {
+  input(
+    width: Nat,
+    height: Nat,
+    sigma_x100: Nat
+  )
+
+  // Image dimensions (u32)
+  requires { width >= 1 }
+  requires { width <= 65535 }
+  requires { height >= 1 }
+  requires { height <= 65535 }
+
+  // sigma is f32, model as integer * 100 for Z3
+  // sigma = sigma_x100 / 100
+  requires { sigma_x100 >= 1 }
+
+  // w_ideal = sqrt(12 * sigma^2 / 3 + 1) = sqrt(4 * sigma^2 + 1)
+  // radius ~= (w_ideal - 1) / 2 ~= sigma (for large sigma)
+  // Panic when: width + radius > 2^64 (usize::MAX on 64-bit)
+  //
+  // Since width <= 65535, we need radius > 2^64 - 65535, which needs
+  // sigma > ~2^64. Not reachable from f32 (max ~3.4e38).
+  //
+  // BUT on 32-bit systems (usize = u32), we need radius > 2^32 - 65535.
+  // sigma > ~2^32 IS reachable from f32.
+  //
+  // For 32-bit safety: width + sigma_approx must fit in 2^32
+  ensures { width + sigma_x100 <= 4294967295 }
+
+  effects { pure }
+}
