@@ -164,7 +164,6 @@ const IDENT_CLAUSE_STARTERS: &[&str] = &[
     "message",
     "must_not_mask",
     "must_propagate",
-    "must_check",
     "must_preserve_detail",
     "update",
     "shared",
