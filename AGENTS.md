@@ -260,6 +260,16 @@ still use explicit matches; do not add new match blocks without justification.
     contract; Unknown means the solver could not decide (which is
     acceptable for auto-implement since the generated Rust will still
     have runtime assertions from requires/ensures codegen).
+18. **`features.rs` clause_kinds must be synced with parser keyword lists**:
+    Every keyword in `crates/assura-ast/src/features.rs` `clause_kinds`
+    arrays must appear in `IDENT_CLAUSE_STARTERS` (or
+    `IDENT_CLAUSE_STOPPERS_ONLY`, or as a `SyntaxKind` keyword) in
+    `crates/assura-parser/src/grammar/clauses.rs`. A keyword registered
+    in `features.rs` but missing from the parser means the feature's
+    type checker and SMT implementations are unreachable from source
+    code. `agent-guards.sh` section 12 checks this automatically.
+    This drift caused 12 keywords across 7 features to be unreachable
+    (#716-#722).
 
 ### Crate map (where to edit)
 

@@ -344,6 +344,112 @@ else
   jsec 11 "contains ensures" "ok" "no contains(\"ensures\") in production code"
 fi
 
+# ---------------------------------------------------------------------------
+# 12) features.rs clause_kinds vs parser IDENT_CLAUSE_STARTERS sync check.
+#     Every keyword in features.rs clause_kinds must appear in the parser's
+#     IDENT_CLAUSE_STARTERS (or IDENT_CLAUSE_STOPPERS_ONLY, or as a SyntaxKind
+#     keyword). A keyword registered in features.rs but missing from the parser
+#     means the feature's type checker and SMT implementations are unreachable
+#     from source code. This drift caused 12 keywords across 7 features to be
+#     unreachable (issues #716-#722).
+# ---------------------------------------------------------------------------
+s12_warn=0
+if command -v python3 &>/dev/null; then
+  drift_output=$(python3 - << 'PYEOF'
+import re, sys
+
+# Extract clause_kinds from features.rs
+features_path = "crates/assura-ast/src/features.rs"
+try:
+    with open(features_path) as f:
+        features_src = f.read()
+except FileNotFoundError:
+    sys.exit(0)
+
+clause_keywords = set()
+for m in re.finditer(r'clause_kinds:\s*&\[([^\]]+)\]', features_src):
+    for kw in re.findall(r'"([^"]+)"', m.group(1)):
+        clause_keywords.add(kw)
+
+# Build SyntaxKind -> token text map from lexer.rs
+lexer_path = "crates/assura-parser/src/lexer.rs"
+try:
+    with open(lexer_path) as f:
+        lexer_src = f.read()
+except FileNotFoundError:
+    sys.exit(0)
+
+# Match pairs: #[token("text")] \n VariantName,
+sk_to_text = {}
+for m in re.finditer(r'#\[token\("([^"]+)"\)\]\s*(\w+)', lexer_src):
+    text, variant = m.group(1), m.group(2)
+    # Variant name in lexer -> SyntaxKind is VARIANT_KW (uppercased with _KW)
+    sk_name = re.sub(r'([a-z])([A-Z])', r'\1_\2', variant).upper() + '_KW'
+    sk_to_text[sk_name] = text
+
+# Extract all parser recognition paths from clauses.rs
+clauses_path = "crates/assura-parser/src/grammar/clauses.rs"
+try:
+    with open(clauses_path) as f:
+        clauses_src = f.read()
+except FileNotFoundError:
+    sys.exit(0)
+
+parser_keywords = set()
+
+# 1. IDENT_CLAUSE_STARTERS and IDENT_CLAUSE_STOPPERS_ONLY (string arrays)
+#    The array syntax is: const NAME: &[&str] = &["a", "b", ...];
+#    We find "= &[" then bracket-match to the closing "];"
+for array_name in ["IDENT_CLAUSE_STARTERS", "IDENT_CLAUSE_STOPPERS_ONLY"]:
+    start = clauses_src.find("const " + array_name)
+    if start == -1:
+        continue
+    # Find "= &[" after the const declaration
+    eq_bracket = clauses_src.find("= &[", start)
+    if eq_bracket == -1:
+        continue
+    arr_start = eq_bracket + 3  # position of "["
+    depth = 0
+    pos = arr_start
+    while pos < len(clauses_src):
+        if clauses_src[pos] == "[":
+            depth += 1
+        elif clauses_src[pos] == "]":
+            depth -= 1
+            if depth == 0:
+                break
+        pos += 1
+    body = clauses_src[arr_start+1:pos]
+    for kw in re.findall(r'"([^"]+)"', body):
+        parser_keywords.add(kw)
+
+# 2. All SyntaxKind::*_KW references in clauses.rs (is_clause_start,
+#    is_domain_keyword_clause_kind, is_domain_keyword_clause, is_clause_stopper,
+#    at_clause_start -- any function that recognizes clause keywords)
+for sk in re.findall(r'SyntaxKind::(\w+_KW)', clauses_src):
+    if sk in sk_to_text:
+        parser_keywords.add(sk_to_text[sk])
+
+missing = sorted(clause_keywords - parser_keywords)
+if missing:
+    for kw in missing:
+        print(kw)
+PYEOF
+  )
+  if [[ -n "$drift_output" ]]; then
+    while IFS= read -r kw; do
+      warn "features.rs clause_kind \"$kw\" not in parser IDENT_CLAUSE_STARTERS: unreachable from source"
+      jfind 12 "crates/assura-ast/src/features.rs" "clause_kind '$kw' not in parser"
+      s12_warn=1
+    done <<< "$drift_output"
+  fi
+fi
+if [[ $s12_warn -eq 1 ]]; then
+  jsec 12 "features-parser-sync" "warn" "clause_kinds in features.rs not recognized by parser"
+else
+  jsec 12 "features-parser-sync" "ok" "all features.rs clause_kinds are in parser keyword lists"
+fi
+
 # ── Final output ─────────────────────────────────────────────────────────────
 if $json_mode; then
   python3 - "$_jdata" << 'PYEOF'
