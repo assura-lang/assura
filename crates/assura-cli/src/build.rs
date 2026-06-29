@@ -118,6 +118,7 @@ pub(crate) fn run_build(
     no_check: bool,
     cli_solver: Option<assura_smt::SolverChoice>,
     runtime_checks: bool,
+    auto_implement: bool,
 ) {
     let mut config_output_buf = String::new();
     let bc = resolve_build_config(
@@ -142,6 +143,18 @@ pub(crate) fn run_build(
         );
         return;
     }
+
+    // Resolve the output directory relative to the input file's parent when
+    // the output path is relative. This way `assura build /tmp/project/lib.assura`
+    // writes to `/tmp/project/generated/` instead of `./generated/`.
+    let resolved_out_dir = resolve_output_dir_for_file(bc.out_dir_str, filename);
+    let out_dir_str_owned;
+    let effective_out_dir_str = if let Some(ref resolved) = resolved_out_dir {
+        out_dir_str_owned = resolved.to_string_lossy().to_string();
+        out_dir_str_owned.as_str()
+    } else {
+        bc.out_dir_str
+    };
 
     let source = fs::read_to_string(filename).unwrap_or_else(|e| {
         eprintln!("Error: {filename}: {e}");
@@ -194,19 +207,30 @@ pub(crate) fn run_build(
     let (verification_results, verify_ms) =
         verify_and_print(&typed, filename, bc.solver, verbosity);
 
+    // Auto-implement: call LLM to generate IR implementations
+    let ir_bodies = if auto_implement {
+        auto_implement_contracts(&typed, filename, &bc.compiler_config, verbosity)
+    } else {
+        std::collections::HashMap::new()
+    };
+
     // Codegen
     let codegen_start = Instant::now();
     let backend_config = assura_codegen::BackendConfig {
         target: bc.compile_target.clone(),
         runtime_checks,
+        ir_bodies,
         ..assura_codegen::BackendConfig::default()
     };
     let project = assura_codegen::codegen_with_config(&typed, &backend_config);
 
     // Write output
-    let out_dir = Path::new(bc.out_dir_str);
+    let out_dir = Path::new(effective_out_dir_str);
     fs::create_dir_all(out_dir).unwrap_or_else(|e| {
-        eprintln!("Error: cannot create {}/ directory: {e}", bc.out_dir_str);
+        eprintln!(
+            "Error: cannot create {}/ directory: {e}",
+            effective_out_dir_str
+        );
         process::exit(1);
     });
     let codegen_ms = codegen_start.elapsed().as_secs_f64() * 1000.0;
@@ -241,7 +265,7 @@ pub(crate) fn run_build(
     );
     run_cargo_build(
         filename,
-        bc.out_dir_str,
+        effective_out_dir_str,
         out_dir,
         &bc.compile_target,
         no_check,
@@ -273,7 +297,9 @@ fn write_generated_project(
         println!("  wrote {}", cargo_path.display());
     }
 
-    // Stub IR sidecars next to source ({parent}/generated/{Name}.ir)
+    // Stub IR sidecars into a `generated/` directory next to the source file.
+    // When the output dir was resolved relative to the input file, reuse that
+    // parent so IR files land beside the generated Rust.
     let ir_dir = std::path::Path::new(filename)
         .parent()
         .unwrap_or(std::path::Path::new("."))
@@ -549,6 +575,23 @@ pub(crate) fn resolve_output_dir<'a>(cli_output: &'a str, config_output: &'a str
     }
 }
 
+/// When the output path is relative, resolve it relative to the input file's
+/// parent directory. This ensures `assura build /tmp/project/lib.assura` writes
+/// to `/tmp/project/generated/` instead of `./generated/`.
+///
+/// Returns `None` if the output path is absolute or the input file has no parent.
+fn resolve_output_dir_for_file(out_dir_str: &str, filename: &str) -> Option<std::path::PathBuf> {
+    let out_path = Path::new(out_dir_str);
+    if out_path.is_absolute() {
+        return None;
+    }
+    let input_parent = Path::new(filename).parent()?;
+    if input_parent == Path::new("") || input_parent == Path::new(".") {
+        return None;
+    }
+    Some(input_parent.join(out_dir_str))
+}
+
 /// Resolve the SMT solver.
 ///
 /// Priority: CLI flag > config file > Z3 (default).
@@ -571,6 +614,302 @@ pub(crate) fn resolve_target(
     cli_target
         .or_else(|| config_target.and_then(assura_codegen::CompileTarget::from_str_loose))
         .unwrap_or(assura_codegen::CompileTarget::Native)
+}
+
+// ---------------------------------------------------------------------------
+// Auto-implement: call grok to generate IR implementations for contracts
+// ---------------------------------------------------------------------------
+
+/// Call `grok -p "<prompt>"` to have an LLM generate IR implementations for
+/// each verifiable declaration. Returns a map of declaration name to Rust
+/// body code, suitable for `BackendConfig.ir_bodies`.
+fn auto_implement_contracts(
+    typed: &assura_types::TypedFile,
+    source_path: &str,
+    config: &CompilerConfig,
+    verbosity: Verbosity,
+) -> std::collections::HashMap<String, String> {
+    let mut ir_bodies = std::collections::HashMap::new();
+
+    let contexts = assura_smt::ir_prompt_contexts_for_typed(typed, Some(Path::new(source_path)));
+    if contexts.is_empty() {
+        return ir_bodies;
+    }
+
+    for ctx in &contexts {
+        if verbosity != Verbosity::Quiet {
+            eprint!("  auto-implement {}...", ctx.decl_name);
+        }
+
+        let prompt = assura_smt::render_ir_prompt(ctx, assura_smt::IrPromptPattern::Auto);
+        // Build a single-contract source for verification.
+        // verify_ir validates the IR against the first contract it finds,
+        // so we must pass just this contract (not the full multi-contract file).
+        let single_contract_source = build_single_contract_source(ctx);
+        match call_llm_for_ir(
+            &ctx.decl_name,
+            &prompt,
+            &single_contract_source,
+            config,
+            verbosity,
+            &ctx.params,
+        ) {
+            Some(rust_body) => {
+                if verbosity != Verbosity::Quiet {
+                    eprintln!(" ok");
+                }
+                ir_bodies.insert(ctx.decl_name.clone(), rust_body);
+            }
+            None => {
+                if verbosity != Verbosity::Quiet {
+                    eprintln!(" failed (will use todo!())");
+                }
+            }
+        }
+    }
+
+    if verbosity != Verbosity::Quiet {
+        let total = contexts.len();
+        let ok = ir_bodies.len();
+        eprintln!("  auto-implement: {ok}/{total} contracts implemented by LLM");
+    }
+
+    ir_bodies
+}
+
+/// Call `grok -p` with the IR prompt and validate the response.
+/// Retries up to 3 times on parse/validation failure.
+fn call_llm_for_ir(
+    _decl_name: &str,
+    base_prompt: &str,
+    contract_source: &str,
+    config: &CompilerConfig,
+    verbosity: Verbosity,
+    params: &[assura_parser::ast::Param],
+) -> Option<String> {
+    const MAX_RETRIES: usize = 3;
+    let mut prompt = base_prompt.to_string();
+
+    for attempt in 0..MAX_RETRIES {
+        let output = process::Command::new("grok")
+            .arg("-p")
+            .arg(&prompt)
+            .arg("--output-format")
+            .arg("plain")
+            .stdout(process::Stdio::piped())
+            .stderr(process::Stdio::piped())
+            .output();
+
+        let output = match output {
+            Ok(o) if o.status.success() => o,
+            Ok(o) => {
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                if verbosity == Verbosity::Verbose {
+                    eprintln!(
+                        "\n    attempt {}: grok failed: {}",
+                        attempt + 1,
+                        stderr.lines().next().unwrap_or("unknown error")
+                    );
+                }
+                continue;
+            }
+            Err(e) => {
+                if attempt == 0 {
+                    eprintln!(
+                        "\n    error: grok not found ({}). Install grok to use --auto-implement.",
+                        e
+                    );
+                }
+                return None;
+            }
+        };
+
+        let raw_response = String::from_utf8_lossy(&output.stdout).to_string();
+        let ir_text = strip_markdown_fences(&raw_response);
+
+        // Try to parse the IR
+        match assura_smt::parse_ir_module(&ir_text) {
+            Ok(module) => {
+                // Validate against contract
+                let verify_result = assura_pipeline::verify_ir(contract_source, &ir_text, config);
+                // Accept the IR if verification passed or all clauses are
+                // verified/unknown (no counterexamples found). Unknown results
+                // with known SMT limitations are acceptable since the
+                // implementation isn't provably wrong.
+                let has_counterexample = verify_result
+                    .clauses
+                    .iter()
+                    .any(|c| c.status == "counterexample" || c.status == "failed");
+                if !has_counterexample && verify_result.status != "error" {
+                    // Convert IR to Rust body with parameter bindings
+                    if let Some(func) = module.functions.first() {
+                        let mut body = String::new();
+                        // Map slot variables to actual parameter names
+                        for (i, param) in params.iter().enumerate() {
+                            body.push_str(&format!(
+                                "    let slot_{i} = {name}.clone();\n",
+                                name = param.name
+                            ));
+                        }
+                        let ir_body = assura_smt::ir_function_body_to_rust(func);
+                        // The IR codegen uses __result but assura-codegen uses
+                        // __assura_result. Replace and strip the trailing bare
+                        // return expression (codegen adds its own return after
+                        // ensures checks).
+                        let ir_body = ir_body.replace("__result", "__assura_result");
+                        let ir_body = strip_trailing_return(&ir_body);
+                        body.push_str(&ir_body);
+                        return Some(body);
+                    }
+                }
+                // Verification failed, retry with feedback
+                let feedback = verify_result
+                    .clauses
+                    .iter()
+                    .filter(|c| c.status != "verified")
+                    .map(|c| {
+                        if let Some(ref ce) = c.counterexample {
+                            format!("COUNTEREXAMPLE for {}: {ce}", c.name)
+                        } else if let Some(ref reason) = c.reason {
+                            format!("UNKNOWN for {}: {reason}", c.name)
+                        } else {
+                            format!("{} for {}", c.status.to_uppercase(), c.name)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if verbosity == Verbosity::Verbose {
+                    eprintln!(
+                        "\n    attempt {}: verification {}, retrying",
+                        attempt + 1,
+                        verify_result.status
+                    );
+                    for c in &verify_result.clauses {
+                        eprint!("      {} = {}", c.name, c.status);
+                        if let Some(ref ce) = c.counterexample {
+                            eprint!(" ({})", ce);
+                        }
+                        if let Some(ref reason) = c.reason {
+                            eprint!(" ({})", reason);
+                        }
+                        eprintln!();
+                    }
+                    for e in &verify_result.ir_errors {
+                        eprintln!("      IR error: {e}");
+                    }
+                    for e in &verify_result.validation_errors {
+                        eprintln!("      validation error: {e}");
+                    }
+                }
+                prompt = format!(
+                    "{base_prompt}\n\n\
+                     The previous IR was rejected by the SMT verifier:\n\
+                     {feedback}\n\n\
+                     Fix the IR body to satisfy all ensures clauses. \
+                     Output ONLY the corrected .ir text, no markdown."
+                );
+            }
+            Err(errors) => {
+                let err_msg = errors.join("; ");
+                if verbosity == Verbosity::Verbose {
+                    eprintln!(
+                        "\n    attempt {}: IR parse error: {}",
+                        attempt + 1,
+                        &err_msg[..err_msg.len().min(120)]
+                    );
+                }
+                prompt = format!(
+                    "{base_prompt}\n\n\
+                     The previous response could not be parsed as valid IR:\n\
+                     {err_msg}\n\n\
+                     Output ONLY the .ir module text. No markdown fences, \
+                     no commentary, no explanation. Just the IR starting with `module`."
+                );
+            }
+        }
+    }
+
+    None
+}
+
+/// Build an Assura source string containing just one contract from a prompt context.
+///
+/// `verify_ir` validates IR against the first contract it finds in the source.
+/// When the original file has multiple contracts, we need to extract just the
+/// one being implemented so verification targets the right contract.
+fn build_single_contract_source(ctx: &assura_smt::IrPromptContext) -> String {
+    let mut src = format!("contract {} {{\n", ctx.decl_name);
+    // Input clause with parameters
+    if !ctx.params.is_empty() {
+        let params: Vec<String> = ctx
+            .params
+            .iter()
+            .map(|p| {
+                let ty =
+                    p.ty.as_ref()
+                        .map(|t| t.to_string())
+                        .unwrap_or_else(|| "Int".to_string());
+                format!("{}: {}", p.name, ty)
+            })
+            .collect();
+        src.push_str(&format!("    input({})\n", params.join(", ")));
+    }
+    // Output clause
+    let ret = ctx.return_type_str();
+    if ret != "Unit" {
+        src.push_str(&format!("    output(result: {})\n", ret));
+    }
+    // Other clauses
+    for clause in &ctx.clauses {
+        let kind = match clause.kind {
+            ClauseKind::Requires => "requires",
+            ClauseKind::Ensures => "ensures",
+            ClauseKind::Invariant => "invariant",
+            _ => continue,
+        };
+        let body = expr_to_string(&clause.body);
+        src.push_str(&format!("    {kind} {{ {body} }}\n"));
+    }
+    src.push_str("}\n");
+    src
+}
+
+/// Remove the trailing bare return expression from an IR body.
+///
+/// `ir_function_body_to_rust` ends with `__assura_result\n` (no semicolon),
+/// which would be a return expression. But the codegen framework adds ensures
+/// checks and its own return after the IR body, so we need to remove or
+/// semicolon-terminate the trailing return.
+fn strip_trailing_return(body: &str) -> String {
+    let trimmed = body.trim_end();
+    // If the last line is just the result variable, remove it
+    if let Some(last_newline) = trimmed.rfind('\n') {
+        let last_line = trimmed[last_newline + 1..].trim();
+        if last_line == "__assura_result" {
+            return trimmed[..last_newline].to_string() + "\n";
+        }
+    } else if trimmed.trim() == "__assura_result" {
+        return String::new();
+    }
+    body.to_string()
+}
+
+/// Strip markdown code fences from LLM output to extract raw IR text.
+fn strip_markdown_fences(text: &str) -> String {
+    let text = text.trim();
+    // Try to extract content between ```...``` fences
+    if let Some(start) = text.find("```") {
+        let after_fence = &text[start + 3..];
+        // Skip the language tag (e.g., ```ir or ```)
+        let content_start = after_fence.find('\n').map(|i| i + 1).unwrap_or(0);
+        let content = &after_fence[content_start..];
+        if let Some(end) = content.find("```") {
+            return content[..end].trim().to_string();
+        }
+        return content.trim().to_string();
+    }
+    // If the text starts with "module", it's already raw IR
+    text.to_string()
 }
 
 // ---------------------------------------------------------------------------

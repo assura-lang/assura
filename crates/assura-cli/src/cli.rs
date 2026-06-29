@@ -185,6 +185,10 @@ enum Commands {
         /// Generate runtime contract checks that persist in release builds
         #[arg(long)]
         runtime_checks: bool,
+
+        /// Use an LLM (via grok) to auto-generate implementations for contracts
+        #[arg(long)]
+        auto_implement: bool,
     },
 
     /// Create a new Assura project
@@ -472,6 +476,7 @@ pub fn run() {
             no_check,
             solver,
             runtime_checks,
+            auto_implement,
         } => run_build(
             &file,
             output_mode,
@@ -481,6 +486,7 @@ pub fn run() {
             no_check,
             solver,
             runtime_checks,
+            auto_implement,
         ),
         Commands::Init { name } => run_init(&name),
         Commands::Explain { code } => run_explain(&code),

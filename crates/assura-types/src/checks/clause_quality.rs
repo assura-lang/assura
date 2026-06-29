@@ -230,75 +230,16 @@ fn is_output_param(name: &str, clauses: &[assura_parser::ast::Clause]) -> bool {
 // #619: feature_max in verification clause warning
 // ---------------------------------------------------------------------------
 
-/// Warn when `feature_max` constants are used in verification clauses.
-/// The SMT encoder treats them as unconstrained integer variables,
-/// not their defined values.
+/// Previously warned when `feature_max` constants were used in verification
+/// clauses (A04009). The SMT encoder now binds feature_max constants to their
+/// declared integer values in the Z3 var map and CVC5 prelude assertions,
+/// so the warning was factually wrong. Removed in #714 follow-up.
+///
+/// The function is kept as a no-op so CHECKER_PIPELINE callers do not break.
 pub(crate) fn run_feature_max_in_clause_checks(
-    source: &assura_parser::ast::SourceFile,
+    _source: &assura_parser::ast::SourceFile,
 ) -> Vec<TypeError> {
-    // Collect all feature_max constant names
-    let mut feature_max_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for decl in &source.decls {
-        if let Decl::Block {
-            kind: assura_parser::ast::BlockKind::FeatureMax,
-            name,
-            ..
-        } = &decl.node
-        {
-            feature_max_names.insert(name.clone());
-        }
-    }
-
-    if feature_max_names.is_empty() {
-        return Vec::new();
-    }
-
-    let mut warnings = Vec::new();
-
-    for decl in &source.decls {
-        let (name, clauses) = match &decl.node {
-            Decl::Contract(c) => (c.name.as_str(), c.clauses.as_slice()),
-            Decl::FnDef(f) => (f.name.as_str(), f.clauses.as_slice()),
-            Decl::Extern(e) => (e.name.as_str(), e.clauses.as_slice()),
-            _ => continue,
-        };
-
-        for clause in clauses {
-            // Only check verification-relevant clauses
-            if !matches!(
-                clause.kind,
-                ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Invariant
-            ) {
-                continue;
-            }
-
-            let mut idents = Vec::new();
-            collect_idents(&clause.body, &mut idents);
-
-            for (id, span) in &idents {
-                if feature_max_names.contains(id) {
-                    let kind_str = match clause.kind {
-                        ClauseKind::Requires => "requires",
-                        ClauseKind::Ensures => "ensures",
-                        ClauseKind::Invariant => "invariant",
-                        _ => "clause",
-                    };
-                    warnings.push(TypeError {
-                        code: "A04009".into(),
-                        message: format!(
-                            "`{name}`: feature_max constant `{id}` used in {kind_str} clause; \
-                             SMT treats this as unconstrained (inline the value instead)"
-                        ),
-                        span: span.clone(),
-                        secondary: None,
-                        suggestion: None,
-                    });
-                }
-            }
-        }
-    }
-
-    warnings
+    Vec::new()
 }
 
 #[cfg(test)]
@@ -424,7 +365,9 @@ mod tests {
     // --- feature_max in clause tests ---
 
     #[test]
-    fn warns_on_feature_max_in_requires() {
+    fn no_warning_for_feature_max_in_requires() {
+        // The SMT encoder now binds feature_max constants to their declared
+        // integer values, so this is no longer a warning condition.
         let source = SourceFile {
             decls: vec![
                 Spanned::no_span(Decl::Block {
@@ -452,9 +395,7 @@ mod tests {
             imports: vec![],
         };
         let warnings = run_feature_max_in_clause_checks(&source);
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].code == "A04009");
-        assert!(warnings[0].message.contains("HEADER_SIZE"));
+        assert!(warnings.is_empty());
     }
 
     #[test]
