@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Use this template when closing or implementing CVC5 parity work.
-        See AGENTS.md § "CVC5 verification gate" for required evidence.
+        Fill in the checklists below with evidence that the parity gap is closed.
 
   - type: textarea
     id: gap

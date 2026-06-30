@@ -60,8 +60,8 @@ under `crates/`.
 
 ### 2. Run the pre-commit gate
 
-Session-end / full gate (matches [AGENTS.md](AGENTS.md) and CI). Use
-`--locked` so `Cargo.lock` is not rewritten accidentally:
+Full pre-commit gate (matches CI). Use `--locked` so `Cargo.lock` is not
+rewritten accidentally:
 
 ```bash
 cargo fmt --all -- --check

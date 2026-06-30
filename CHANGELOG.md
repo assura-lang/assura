@@ -67,7 +67,6 @@ Initial release of the Assura compiler.
 ### Infrastructure
 
 - CI pipeline with clippy, tests, no-z3 build, generated code check
-- 3 self-hosted runner parallelization with sccache
 - 3 demo contracts (libwebp CVE-2023-4863, zlib CVE-2022-37434,
   mbedtls 4x CVSS 9.8 CVEs)
 - 50+ must_compile, 30+ must_reject fixture tests, 19 e2e tests

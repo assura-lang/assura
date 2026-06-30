@@ -10,13 +10,15 @@ AI writes verified implementations. The compiler proves correctness
 mathematically. Ships as Rust.
 
 ```assura
-contract SafeMemcpy {
-  input(src_length: Nat, offset: Nat, count: Nat)
+contract HeartbeatResponse {
+  input(record_length: Nat, payload_length: Nat, padding_length: Nat)
 
-  requires { offset + count <= src_length }
+  requires { record_length >= 3 }              // TLS header: type + 2-byte length
+  requires { payload_length >= 1 }
+  requires { padding_length >= 16 }            // RFC 6520 minimum
+  requires { 3 + payload_length + padding_length <= record_length }
 
-  ensures  { offset + count <= src_length }   // copy stays in bounds
-  ensures  { count <= src_length }             // can't copy more than buffer
+  ensures  { payload_length + 16 <= record_length }   // response fits in buffer
   effects  { pure }
 }
 ```
@@ -163,7 +165,8 @@ A project activates only the categories it needs. CORE is always on.
 - [Implementation Roadmap](docs/ROADMAP.md)
 - [Competitive Analysis](docs/INVESTIGATION.md)
 - [Contributing](CONTRIBUTING.md)
-- [Demo Contracts](demos/)
+- [Demo Contracts](demos/) (real CVE prevention examples)
+- [50 Example Contracts](examples/) (one per verification feature, organized by category)
 
 ## License
 
