@@ -59,8 +59,7 @@ representative at an online or offline event.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the project maintainers at **conduct@assura-lang.dev**, or
-privately through
+reported privately through
 [GitHub Security Advisories](https://github.com/assura-lang/assura/security/advisories/new).
 All complaints will be reviewed and investigated promptly and fairly.
 
