@@ -26,4 +26,4 @@ provider = "anthropic"
 model = "claude-sonnet-4-20250514"
 ```
 
-See the root README for all `[ai]` configuration options.
+See `docs/SPECIFICATION.md` Section 10 for all `[ai]` configuration options.

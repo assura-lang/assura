@@ -7,8 +7,9 @@ need to set up, build, test, and submit changes.
 
 - **Rust 1.85+** (edition 2024)
 
-Z3 and protobuf are vendored automatically during `cargo build`, so no
-system packages are needed beyond a Rust toolchain.
+The Z3 SMT solver is downloaded automatically during `cargo build` (via
+the `z3` crate's `gh-release` feature), so no manual Z3 installation is
+needed.
 
 CVC5 is optional (portfolio solver mode). It is not in Homebrew; use the
 setup script instead:
@@ -27,6 +28,18 @@ cargo test --workspace
 ```
 
 If all tests pass, you are ready to contribute.
+
+### Where to start
+
+Look for issues labeled
+[`good first issue`](https://github.com/assura-lang/assura/labels/good%20first%20issue)
+for newcomer-friendly tasks. Issues labeled
+[`help wanted`](https://github.com/assura-lang/assura/labels/help%20wanted)
+are open for contribution.
+
+Good first areas: adding test fixtures in `tests/fixtures/`, improving
+error messages in `assura-diagnostics`, and expanding demo contracts in
+`demos/`.
 
 ## Project Structure
 

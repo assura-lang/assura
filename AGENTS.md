@@ -1,5 +1,9 @@
 # Assura Compiler - Agent Instructions
 
+> **Human contributors:** This file is for AI coding assistants (Copilot,
+> Claude, Cursor, etc.) working on the Assura compiler. You can safely ignore
+> it. See [README.md](README.md) and [CONTRIBUTING.md](CONTRIBUTING.md) instead.
+
 ## Quick Start (read this first, skip nothing)
 
 1. **Use the pipeline.** All code paths go through

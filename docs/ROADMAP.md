@@ -25,6 +25,18 @@ The full specification defines:
 This roadmap sequences the work from "nothing exists" to "all 50
 features verified and tested."
 
+## Current Status
+
+The compiler is functional with all core pipeline stages implemented:
+parser (195 EBNF productions), name resolution, type checker (50+
+domain-specific checkers across 12 categories), SMT verification
+(Z3 primary, CVC5 fallback, portfolio mode), and Rust code generation.
+The CLI, LSP server, formatter, and MCP server are operational.
+Over 4,500 tests pass across 19 crates.
+
+See [MASTER-PLAN.md](../MASTER-PLAN.md) for the detailed task-level
+status of each phase.
+
 ---
 
 ## Phase 0: Foundation (Months 1-3)
@@ -556,33 +568,6 @@ the other 48 features. Ship early, iterate.
 
 ---
 
-## Team Size Estimates
-
-| Phase | Duration | Team Size | Person-Months | Key Roles |
-|-------|----------|-----------|---------------|-----------|
-| 0: Foundation | 3 months | 1-2 | 3-5 | Rust compiler engineer |
-| 1: v0.1 Alpha | 5 months | 2-3 | 8-12 | + SMT/formal methods engineer |
-| 2: v0.2 Beta | 6 months | 3-4 | 16-22 | + tooling/LSP engineer |
-| 3: v0.3 | 6 months | 4-5 | 22-28 | + verification researcher |
-| 4: v1.0 | 6+ months | 4-5 | 20-25 | + technical writer, DevRel |
-| **Total** | **~26 months** | **Peak 5** | **~70-90** | |
-
-**Solo developer path**: Phase 0 is feasible solo. Phase 1 is
-feasible solo but slow (~8-10 months instead of 5). Phase 2+ is
-impractical solo due to breadth. Koka (row-polymorphic effects) was
-primarily one developer over 14 years. Idris 2 was primarily one
-developer. But both had narrower scope than Assura's 50 features.
-
-**Lean team (2-3 people)**: Ship Phase 0 in 2 months, Phase 1 in
-4 months. Reach a usable alpha in ~6 months. This is the recommended
-starting configuration. The INVESTIGATION.md estimates 3-6 months for
-a working compiler with 1-3 people; this is consistent.
-
-**Funded team (5+ people)**: Compress the timeline to ~18 months for
-v1.0. But coordination overhead increases. Formal methods expertise
-is the bottleneck, not headcount; hiring a 6th engineer who does not
-understand SMT encoding does not help.
-
 ---
 
 ## Technology Decisions
@@ -660,9 +645,9 @@ project/
 This is the interop model from INVESTIGATION.md. The `generated/`
 crate is a dependency of `app/`. Normal Cargo semantics.
 
-### Error Reporting: `miette` for Human, JSON for AI
+### Error Reporting: `ariadne` for Human, JSON for AI
 
-- **Human mode** (`--human`): Use `miette` crate for rich terminal
+- **Human mode** (`--human`): Use `ariadne` crate for rich terminal
   diagnostics with source snippets, underlines, and suggested fixes.
 - **AI mode** (`--json`, default): Structured JSON per Section 7.3.
   Error code, location, counterexample, suggested fixes with
@@ -710,43 +695,18 @@ crate is a dependency of `app/`. Normal Cargo semantics.
 
 ---
 
-## Honest Assessment
+## Known Challenges
 
-**What's realistic**: A 2-person team can ship a useful alpha
-(Phase 0 + Phase 1) in 6-8 months. This alpha handles contract
-parsing, basic type checking, Z3-powered refinement verification,
-memory region contracts, taint tracking, and Rust codegen. It is
-enough to demonstrate the libwebp CVE prevention story and attract
-early users and contributors.
+**Type system composition** (Section 13): The 6-feature type system
+composition is novel. No existing tool combines all six features.
+Each feature alone is well-understood; the interactions are where
+complexity lives.
 
-**What's hard**: The 6-feature type system composition (Section 13)
-is novel. No existing tool combines all six features. Each feature
-alone is well-understood; the interactions are where dragons live.
-Budget for surprises.
+**Research-adjacent features**: CONC.6 (weak memory ordering), CORE.7
+(prophecy variables), and CORE.8 (liveness via BMC) extend Assura
+beyond what comparable tools offer. They are also what differentiates
+Assura from Dafny/Verus/SPARK.
 
-**What's very hard**: CONC.6 (weak memory ordering), CORE.7 (prophecy
-variables), and CORE.8 (liveness via BMC) are research-adjacent. They
-extend Assura beyond what any comparable tool offers. They are also
-the features that differentiate Assura from Dafny/Verus/SPARK. Ship
-without them first, add them when the foundation is solid.
-
-**What could kill the project**:
-1. Z3 encoding that works for small examples but times out on real
-   projects. Mitigation: modular verification, caching, parallel
-   queries.
-2. Rust codegen that produces code `rustc` rejects (borrow checker
-   errors in generated code). Mitigation: conservative codegen using
-   `Rc`/`Arc` initially, optimize later.
-3. The specification is too ambitious and the team never ships. The
-   50 features are the end state, not the starting point. Ship the
-   MVP (parser + MEM.1 + SEC.1 + codegen) and iterate.
-
-**The strongest argument for building Assura**: The INVESTIGATION.md
-stress-tested 20 real projects across 20 domains. 57 adversarial
-challenges. 50 features with a discovery rate that converged to zero.
-The feature set is complete for systems programming. The architecture
-(transpile to Rust, Z3 for verification) is proven by precedent
-(Gleam, Dafny, Verus). The timing is right (AI code trust crisis,
-regulatory tailwinds, intellectual momentum from Kleppmann/de Moura).
-The window is 12-18 months before well-funded incumbents add the
-missing pieces.
+**SMT scalability**: Z3 encoding must work beyond small examples.
+Mitigations already in place: modular verification, caching, parallel
+queries, portfolio solver mode (Z3 + CVC5).

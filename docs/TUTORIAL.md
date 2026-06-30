@@ -18,18 +18,12 @@ assura --help
 
 ### Prerequisites for verification
 
-Assura uses Z3 for SMT-based contract verification. Install it:
+The Z3 SMT solver is downloaded automatically during `cargo build` (via
+the `z3` crate's `gh-release` feature). No manual Z3 installation is
+needed.
 
-```bash
-# macOS
-brew install z3
-
-# Ubuntu/Debian
-sudo apt-get install -y libz3-dev
-```
-
-CVC5 is an optional alternative solver. Install it if you want portfolio
-mode (tries both solvers):
+CVC5 is an optional alternative solver for portfolio mode (tries both
+solvers). It is not required for normal use:
 
 ```bash
 bash scripts/setup-cvc5.sh

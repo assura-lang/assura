@@ -27,10 +27,9 @@ You write *what*. AI figures out *how*. Z3 proves it. `rustc` compiles the resul
 
 ## The Problem
 
-AI writes most new code. Nobody trusts it. 85% of developers use AI coding
-tools, but only 29% trust the output. 45% of AI-generated code contains
-security vulnerabilities. AI-generated tests mirror implementation bugs: if
-`divide(10, 0)` returns `0` due to a bug, the generated test asserts `== 0`.
+AI writes most new code. Nobody trusts it. AI-generated tests mirror
+implementation bugs: if `divide(10, 0)` returns `0` due to a bug, the
+generated test asserts `== 0`. The test passes. The bug ships.
 
 Assura replaces trust with proof. Contracts define *what* the code must do.
 The compiler uses SMT solvers (Z3/CVC5) to *prove* the implementation
@@ -69,8 +68,9 @@ Three verification tiers, fastest first:
 
 ### Build from source
 
-Only a [Rust toolchain](https://rustup.rs/) is required. Z3 and protobuf
-are vendored automatically during `cargo build`.
+Only a [Rust toolchain](https://rustup.rs/) is required. The Z3 SMT solver
+is downloaded automatically during `cargo build` (via the `z3` crate's
+`gh-release` feature). No manual Z3 installation needed.
 
 ```bash
 git clone https://github.com/assura-lang/assura.git

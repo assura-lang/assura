@@ -27,8 +27,7 @@ Initial release of the Assura compiler.
 - **Parser**: lexer (logos) + recursive-descent parser (rowan CST) with
   full Pratt expression parsing (8 precedence levels)
 - **Name Resolution**: symbol table, scope analysis, cross-reference tracking
-- **HIR Lowering**: AST to high-level IR with desugaring
-- **Type Checker**: 50+ domain-specific checkers covering all 14 feature
+- **Type Checker**: 50+ domain-specific checkers covering all 12 feature
   categories (MEM, SEC, TYPE, CONC, NUM, PERF, FMT, STOR, PLAT, TEST, CORE, MISC)
 - **SMT Verification**: Z3 backend with Layer 0 (structural) and Layer 1
   (SMT-based) verification; CVC5 fallback; portfolio solver mode
@@ -70,3 +69,6 @@ Initial release of the Assura compiler.
 - 3 demo contracts (libwebp CVE-2023-4863, zlib CVE-2022-37434,
   mbedtls 4x CVSS 9.8 CVEs)
 - 50+ must_compile, 30+ must_reject fixture tests, 19 e2e tests
+
+[Unreleased]: https://github.com/assura-lang/assura/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/assura-lang/assura/releases/tag/v0.1.0

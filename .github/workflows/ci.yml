@@ -27,11 +27,8 @@ concurrency:
 # Per-job CARGO_TARGET_DIR prevents cache thrashing between clippy/test/codegen.
 # CARGO_INCREMENTAL=0 ensures all compilation goes through sccache.
 # CARGO_BUILD_JOBS=4 limits parallel rustc processes per job so 3
-# concurrent jobs (one per runner) stay within RAM on the shared Mac.
-# 3 runners x 4 jobs = 12 processes peak. Reduced from 6 (18 peak)
-# after repeated OOM SIGKILL failures under memory pressure (#615).
-# Without this limit, cargo defaults to num_cpus (8-12 on Apple
-# Silicon) x 3 runners = 24-36 processes.
+# concurrent jobs (one per runner) stay within RAM on the self-hosted
+# runner. Reduced from 6 after repeated OOM failures (#615).
 #
 # benchmark and cvc5 are serialized after clippy/test respectively
 # to reduce concurrent RAM pressure (at most 3 heavy jobs at once).
@@ -128,7 +125,7 @@ jobs:
 
       # Fast static greps: Verifier::new outside smt/pipeline, Type::Unknown ==,
       # missing ergonomics APIs, CHECKER_PIPELINE breadth. No compile required.
-      - name: Agent ergonomics guards
+      - name: Static analysis guards
         if: ${{ !cancelled() }}
         run: bash scripts/guards.sh
 
@@ -178,7 +175,7 @@ jobs:
     name: Pipeline benchmarks
     needs: [changes, clippy]
     # Serialized after clippy to reduce concurrent RAM pressure on the
-    # shared Mac (#615). Benchmark gets warm sccache from clippy.
+    # self-hosted runner (#615). Benchmark gets warm sccache from clippy.
     # Only run on codegen/tooling changes (incl. assura-bench) or manual dispatch.
     if: ${{ always() && !failure() && !cancelled() && (needs.changes.outputs.codegen == 'true' || needs.changes.outputs.tooling-only == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
@@ -291,7 +288,7 @@ jobs:
     name: CVC5 native tests
     needs: [changes, test]
     # Serialized after test to reduce concurrent RAM pressure on the
-    # shared Mac (#615). CVC5 gets warm sccache from test.
+    # self-hosted runner (#615). CVC5 gets warm sccache from test.
     if: ${{ always() && !failure() && !cancelled() && (needs.changes.outputs.smt == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 15
