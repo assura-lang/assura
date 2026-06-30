@@ -19,12 +19,9 @@ concurrency:
 # A daily schedule trigger ensures the full test matrix (incl. SMT/Z3/CVC5
 # native jobs) runs regularly even without pushes/PRs.
 #
-# Architecture: 3 self-hosted macOS ARM64 runners (assura-mac-1/2/3) on
-# the same physical Mac. The 3 heavy Rust jobs (clippy, test,
-# codegen-validation) run in parallel, one per runner, for maximum
-# throughput. fmt is folded into clippy (same runner, <1s overhead) to
-# eliminate the serial ubuntu-latest gate that added ~15s of VM
-# provisioning before any compilation could start.
+# When self-hosted runners are available (via the RUNNER repo variable),
+# heavy Rust jobs run in parallel for maximum throughput. Otherwise,
+# jobs fall back to ubuntu-latest.
 #
 # sccache caches compiler outputs across runs on the persistent local disk.
 # Per-job CARGO_TARGET_DIR prevents cache thrashing between clippy/test/codegen.

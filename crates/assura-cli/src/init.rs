@@ -35,6 +35,16 @@ timeout = 1000          # SMT timeout in ms
 
 [profile]
 type = "minimal"        # minimal, parser, database, etc.
+
+# [ai]
+# mode = "api"            # "api" (direct HTTP) or "cli" (shell out)
+# provider = "anthropic"  # "anthropic", "openai", "ollama"
+# model = "claude-sonnet-4-20250514"
+#
+# For CLI mode (any tool that accepts a prompt):
+# mode = "cli"
+# command = "claude"      # or "aider", "sgpt", etc.
+# args = ["-p", "{{prompt}}"]  # {{prompt}} is replaced with the actual prompt
 "#
     );
     let toml_path = project_dir.join("assura.toml");

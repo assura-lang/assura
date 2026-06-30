@@ -58,6 +58,8 @@ pub struct ProjectConfig {
     pub codegen: CodegenTomlConfig,
     pub contracts: ContractsConfig,
     pub inline: InlineConfig,
+    /// AI / LLM provider settings from `[ai]` in assura.toml.
+    pub ai: AiConfig,
     /// Package dependencies from `[dependencies]` in assura.toml.
     pub dependencies: HashMap<String, DependencySpec>,
 }
@@ -278,6 +280,40 @@ impl Default for InlineConfig {
             enabled: true,
             source_paths: vec!["src".to_string()],
             merge_strategy: "merge".to_string(),
+        }
+    }
+}
+
+/// AI / LLM provider configuration from `[ai]` in assura.toml.
+///
+/// Two modes:
+/// - `"api"` (default): Direct HTTP calls to an LLM API (OpenAI, Anthropic, Ollama).
+///   Set `provider` and `model`; API key is read from the environment.
+/// - `"cli"`: Shell out to an external CLI tool. Set `command` and `args`;
+///   `{prompt}` in args is replaced with the actual prompt text.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct AiConfig {
+    /// `"api"` for direct API calls, `"cli"` to shell out to a command.
+    pub mode: String,
+    /// API provider name: `"anthropic"`, `"openai"`, `"ollama"`.
+    pub provider: String,
+    /// Model identifier (e.g. `"claude-sonnet-4-20250514"`, `"gpt-4o"`).
+    pub model: String,
+    /// CLI mode: command to run (e.g. `"claude"`, `"aider"`).
+    pub command: Option<String>,
+    /// CLI mode: arguments. Use `{prompt}` as a placeholder for the prompt text.
+    pub args: Vec<String>,
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self {
+            mode: "api".to_string(),
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet-4-20250514".to_string(),
+            command: None,
+            args: Vec::new(),
         }
     }
 }

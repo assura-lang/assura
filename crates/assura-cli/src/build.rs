@@ -1,4 +1,5 @@
 use super::*;
+use assura_llm::LlmProvider;
 
 // `assura build <file.assura>` — codegen to generated/
 // ---------------------------------------------------------------------------
@@ -209,7 +210,12 @@ pub(crate) fn run_build(
 
     // Auto-implement: call LLM to generate IR implementations
     let ir_bodies = if auto_implement {
-        auto_implement_contracts(&typed, filename, &bc.compiler_config, verbosity)
+        let ai_config = bc
+            .project
+            .as_ref()
+            .map(|(p, _)| p.ai.clone())
+            .unwrap_or_default();
+        auto_implement_contracts(&typed, filename, &bc.compiler_config, verbosity, &ai_config)
     } else {
         std::collections::HashMap::new()
     };
@@ -617,10 +623,10 @@ pub(crate) fn resolve_target(
 }
 
 // ---------------------------------------------------------------------------
-// Auto-implement: call grok to generate IR implementations for contracts
+// Auto-implement: call an LLM to generate IR implementations for contracts
 // ---------------------------------------------------------------------------
 
-/// Call `grok -p "<prompt>"` to have an LLM generate IR implementations for
+/// Use the configured LLM provider to generate IR implementations for
 /// each verifiable declaration. Returns a map of declaration name to Rust
 /// body code, suitable for `BackendConfig.ir_bodies`.
 fn auto_implement_contracts(
@@ -628,6 +634,7 @@ fn auto_implement_contracts(
     source_path: &str,
     config: &CompilerConfig,
     verbosity: Verbosity,
+    ai_config: &assura_config::AiConfig,
 ) -> std::collections::HashMap<String, String> {
     let mut ir_bodies = std::collections::HashMap::new();
 
@@ -653,6 +660,7 @@ fn auto_implement_contracts(
             config,
             verbosity,
             &ctx.params,
+            ai_config,
         ) {
             Some(rust_body) => {
                 if verbosity != Verbosity::Quiet {
@@ -677,7 +685,7 @@ fn auto_implement_contracts(
     ir_bodies
 }
 
-/// Call `grok -p` with the IR prompt and validate the response.
+/// Call the configured LLM with the IR prompt and validate the response.
 /// Retries up to 3 times on parse/validation failure.
 fn call_llm_for_ir(
     _decl_name: &str,
@@ -686,45 +694,89 @@ fn call_llm_for_ir(
     config: &CompilerConfig,
     verbosity: Verbosity,
     params: &[assura_parser::ast::Param],
+    ai_config: &assura_config::AiConfig,
 ) -> Option<String> {
     const MAX_RETRIES: usize = 3;
     let mut prompt = base_prompt.to_string();
 
     for attempt in 0..MAX_RETRIES {
-        let output = process::Command::new("grok")
-            .arg("-p")
-            .arg(&prompt)
-            .arg("--output-format")
-            .arg("plain")
-            .stdout(process::Stdio::piped())
-            .stderr(process::Stdio::piped())
-            .output();
+        let raw_response = if ai_config.mode == "cli" {
+            // CLI mode: shell out to the configured command
+            let cmd = ai_config
+                .command
+                .as_deref()
+                .unwrap_or("claude");
+            let args: Vec<String> = if ai_config.args.is_empty() {
+                vec!["-p".to_string(), prompt.clone()]
+            } else {
+                ai_config
+                    .args
+                    .iter()
+                    .map(|a| a.replace("{prompt}", &prompt))
+                    .collect()
+            };
+            let output = process::Command::new(cmd)
+                .args(&args)
+                .stdout(process::Stdio::piped())
+                .stderr(process::Stdio::piped())
+                .output();
 
-        let output = match output {
-            Ok(o) if o.status.success() => o,
-            Ok(o) => {
-                let stderr = String::from_utf8_lossy(&o.stderr);
-                if verbosity == Verbosity::Verbose {
-                    eprintln!(
-                        "\n    attempt {}: grok failed: {}",
-                        attempt + 1,
-                        stderr.lines().next().unwrap_or("unknown error")
-                    );
+            match output {
+                Ok(o) if o.status.success() => {
+                    String::from_utf8_lossy(&o.stdout).to_string()
                 }
-                continue;
+                Ok(o) => {
+                    let stderr = String::from_utf8_lossy(&o.stderr);
+                    if verbosity == Verbosity::Verbose {
+                        eprintln!(
+                            "\n    attempt {}: {cmd} failed: {}",
+                            attempt + 1,
+                            stderr.lines().next().unwrap_or("unknown error")
+                        );
+                    }
+                    continue;
+                }
+                Err(e) => {
+                    if attempt == 0 {
+                        eprintln!(
+                            "\n    error: '{cmd}' not found ({e}). \
+                             Set [ai] command in assura.toml or use mode = \"api\".",
+                        );
+                    }
+                    return None;
+                }
             }
-            Err(e) => {
-                if attempt == 0 {
-                    eprintln!(
-                        "\n    error: grok not found ({}). Install grok to use --auto-implement.",
-                        e
-                    );
+        } else {
+            // API mode: use assura-llm HttpProvider
+            let llm_config = assura_llm::LlmConfig::from_provider(
+                &ai_config.provider,
+                Some(&ai_config.model),
+            );
+            let provider = match assura_llm::HttpProvider::new(llm_config) {
+                Ok(p) => p,
+                Err(e) => {
+                    if attempt == 0 {
+                        eprintln!(
+                            "\n    error: LLM provider setup failed: {e}\n    \
+                             Set the API key env var or configure [ai] in assura.toml.",
+                        );
+                    }
+                    return None;
                 }
-                return None;
+            };
+            match provider.call_raw(
+                "You are an Assura IR code generator. Output only the IR code, no explanation.",
+                &prompt,
+            ) {
+                Ok(resp) => resp,
+                Err(e) => {
+                    if verbosity == Verbosity::Verbose {
+                        eprintln!("\n    attempt {}: LLM call failed: {e}", attempt + 1);
+                    }
+                    continue;
+                }
             }
         };
-
-        let raw_response = String::from_utf8_lossy(&output.stdout).to_string();
         let ir_text = strip_markdown_fences(&raw_response);
 
         // Try to parse the IR

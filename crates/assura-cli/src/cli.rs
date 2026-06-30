@@ -186,7 +186,7 @@ enum Commands {
         #[arg(long)]
         runtime_checks: bool,
 
-        /// Use an LLM (via grok) to auto-generate implementations for contracts
+        /// Use the configured LLM provider to auto-generate implementations for contracts
         #[arg(long)]
         auto_implement: bool,
     },

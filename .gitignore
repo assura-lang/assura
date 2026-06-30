@@ -13,3 +13,9 @@ tests/fixtures/generated
 fuzz/Cargo.lock
 .patchloom/
 .pr-preflight-passed
+.env
+.env.*
+.idea/
+.vscode/
+*.pem
+*.key

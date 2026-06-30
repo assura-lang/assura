@@ -136,7 +136,7 @@ contract.
 | **CORE** Verification Infrastructure | Ghost code, lemmas, frame conditions, axiomatic definitions, quantifier triggers, opaque functions, prophecy variables, liveness contracts |
 | **MEM** Memory Safety | Memory regions, fixed-width integers, allocator contracts, circular buffer contracts |
 | **TYPE** Types and Contracts | Interface contracts, recursive structural invariants, error propagation |
-| **SEC** Trust and Security | Taint tracking, FFI boundaries, constant-time execution, secure erasure, cryptographic spec conformance |
+| **SEC** Trust and Security | Taint tracking, dependent types, constant-time execution, secure erasure, cryptographic spec conformance |
 | **CONC** Concurrency | Shared memory protocols, callback re-entrancy, determinism, lock ordering, temporal deadlines, weak memory ordering |
 | **NUM** Numerical and Precision | Numerical precision contracts, precomputed table verification |
 | **PERF** Performance | Unsafe escape with proof obligation, complexity bounds |

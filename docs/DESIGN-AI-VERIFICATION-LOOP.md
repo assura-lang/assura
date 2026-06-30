@@ -157,7 +157,7 @@ graph TB
 
 | Interface | Who uses it | Command |
 |-----------|-------------|---------|
-| **MCP tool** | AI agents (Grok, Cursor, Copilot) | `assura_ir_verify(contract, ir)` |
+| **MCP tool** | AI coding agents (Cursor, Copilot, Claude Code, etc.) | `assura_ir_verify(contract, ir)` |
 | **CLI** | Developers, CI pipelines | `assura ir impl.ir --contract spec.assura --verify` |
 | **gRPC** | Services, orchestrators | `VerifyIR(request) → stream ClauseResult` |
 

@@ -206,8 +206,7 @@ still use explicit matches; do not add new match blocks without justification.
       (`verify_file_with_cvc5`)
     Missing even one path causes silent behavioral divergence between
     `--solver z3` and `--solver cvc5`, or between parallel and non-parallel
-    modes. This was learned in #708 where the unconstrained-result skip
-    was initially added only to the Z3 parallel path.
+    modes.
 11. **`clause_desc` matching: use `ends_with`, not `contains`**: The
     `clause_desc` format is `"{ContractName}::ensures"`. Production code
     that classifies clause descriptions must use `ends_with("::ensures")`
@@ -229,9 +228,7 @@ still use explicit matches; do not add new match blocks without justification.
     help because `..` explicitly opts out. When destructuring AST nodes
     with optional fields (e.g., `Forall { body, .. }` silently ignores
     `domain`), always list all fields explicitly or use a comment
-    documenting which fields are intentionally ignored. This was learned
-    in #713 where `expr_references_result` missed checking quantifier
-    domains because `Forall { body, .. }` skipped the `domain` field.
+    documenting which fields are intentionally ignored.
 14. **`verify_ir()` validates against the first `Decl::Contract` only**:
     When a source file contains multiple contracts, `verify_ir()` picks
     the first contract and validates the IR against its clauses. If you
@@ -301,20 +298,6 @@ then `cargo build` and fix every non-exhaustive match. Full checklist is in
 
 ---
 
-## Grok Filename Bug Workaround
-
-This file is named `AGENTS.md` in git. Grok scans for project rules
-in this order: `Agents.md`, `Claude.md`, `CLAUDE.md`, `CLAUDE.local.md`,
-`AGENT.md`, `AGENTS.md`. On macOS case-insensitive APFS, the pattern
-`Agents.md` matches the actual file `AGENTS.md` first, so the
-system-reminder reports the path as `Agents.md` instead of the real
-filesystem name `AGENTS.md`. This causes `search_replace` and
-`read_file` to use the wrong casing.
-
-**Workaround**: Always use `AGENTS.md` (all caps) when editing or
-reading this file, regardless of what the system-reminder header says.
-The git-tracked name is `AGENTS.md`. Do not rename it.
-
 ## Project Overview
 
 Assura is a contract-first AI-native language that transpiles to Rust.
@@ -334,7 +317,7 @@ compiles the generated Rust to native or WASM binaries.
 At the start of every session:
 
 1. **If the session involves code changes**:
-   - **Inside an agent tool / Grok CLI** (or any environment with short command timeouts):
+   - **Inside an agent tool or CI** (or any environment with short command timeouts):
      Use fast targeted commands. Never run the full suite if it will time out.
      Preferred: `bash scripts/preflight.sh` (or subset), then
      `cargo check -p <crate> --locked`, `cargo test -p <crate> --locked --lib`.
@@ -702,10 +685,7 @@ grep -n "StructName\|run_structname_checks" crates/assura-types/src/pipeline.rs
 
 If the struct exists but the grep returns zero matches in the entry
 point, the component is dead code. Wire it in before marking the task
-done. This was learned when 4 features (`CryptoConformanceChecker`,
-`TriggerManager`, `IncrementalCompiler`, `TestGenerator`) shipped with
-complete implementations and passing unit tests but were never called
-from any pipeline entry point across multiple sessions.
+done.
 
 **Check individual methods, not just struct presence.** A struct can
 be "wired in" (called from the entry point) while individual public
@@ -724,11 +704,6 @@ grep -rn 'check_all_resolved\|check_unconstrained' crates/assura-smt/src/
 
 If a method exists but has zero callers outside its own test module,
 wire it in before marking the task done.
-
-This was learned when `ProphecyManager::check_unconstrained()` existed
-with passing unit tests but was never called from `verify()` or the
-Z3 backend across multiple sessions. Unconstrained prophecy variables
-were silently ignored until the method was wired in during #62.
 
 ### Pipeline skew (behavioral divergence)
 
@@ -883,8 +858,6 @@ When the user's question is reflective, audit-style, or meta ("during the sessio
 
 Implementation, reproduction, or "make this green" questions are the only time targeted `cargo ... -p <crate> --locked` commands are appropriate.
 
-This rule was reinforced when unnecessary build commands were executed during a pure reflection question.
-
 **After any change that could affect cli_integration races or the main
 executable (see #328), run the full checks + explicitly `cargo test --workspace --locked`
 before the end of the session / before pushing the final commit.**
@@ -926,12 +899,6 @@ bash scripts/verify-task.sh SEC.1
 If the script exits non-zero, the feature is not done. Fix the issue
 before marking the feature complete. "I wrote the code" is not done;
 "the script exits 0" is done.
-
-The coverage audit script (`~/.grok/skills/assura-coverage-audit/`)
-tracks each feature across 13 compiler layers. After implementing a
-feature in a new layer, the coverage score for that feature must
-increase. If it does not increase, the implementation is not wired
-in correctly.
 
 All files above must parse successfully. If a parser change breaks any
 demo file, the change is wrong. Fix it before pushing.
@@ -1036,9 +1003,6 @@ When extracting code from a monolith into separate modules:
 2. After extraction, count `#[test]` functions in EACH new module
 3. Any module with zero tests is incomplete
 4. Every extracted module must have at least one direct test
-
-This rule exists because the SMT module extraction created 10 new files
-with zero tests each, leaving all 205 tests in the original lib.rs.
 
 ### Never commit code that breaks `cargo build`
 
@@ -1309,21 +1273,7 @@ The same principle applies project-wide:
   `literal_to_string(lit)` instead of inlining the collect/join/map and
   literal arms in every impl.
 
-When you introduce a new helper, document it here and in
-`~/.grok/skills/assura-contrib/SKILL.md`.
-
-### Skill vs AGENTS (mirror non-secret conventions)
-
-- **`AGENTS.md` (this file, in-repo):** rules, decision trees, entrypoints, and
-  conventions any agent/tool must see. After ergonomics PRs, mirror **non-secret**
-  lessons here (pipeline invariants, test-support footguns, guards, error-index
-  maintenance).
-- **`~/.grok/skills/assura-contrib/SKILL.md`:** session history, PR numbers,
-  maintainer notes, and anything not suitable for the public repo. Other tools
-  (Copilot, Cursor without your skill dir) **never** see the skill.
-- **Do not** store only-in-skill guidance that affects how to edit this codebase
-  correctly; if an agent needs it to avoid a bug, put it in `AGENTS.md` (or
-  `docs/error-codes.md` / `CHECKER-LAYERS.md` as appropriate).
+When you introduce a new helper, document it here.
 
 ### Parser / CST helpers (for correct spans after trivia capture)
 
@@ -1607,10 +1557,6 @@ produce counterexamples.
 - `ensures`: Z3 does validity checking (assert NOT clause; UNSAT = valid)
 - `invariant`: Z3 does satisfiability checking (assert clause; SAT = ok)
 
-This was learned when `demos/taint-tracking.assura` broke CI with
-counterexamples from unconstrained output variables, and
-`demos/heartbleed.assura` initially failed because `feature_max`
-constants were treated as unconstrained by the encoder.
 
 ## SMT API Shape
 

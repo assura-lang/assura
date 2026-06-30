@@ -63,7 +63,7 @@ echo ""
 
 # Step 5: Coverage score
 echo "--- Step 5: Coverage score ---"
-SCRIPT="$HOME/.grok/skills/assura-coverage-audit/scripts/coverage-matrix.sh"
+SCRIPT="$HOME/.assura/scripts/coverage-matrix.sh"
 if [ -f "$SCRIPT" ]; then
   LINE=$(bash "$SCRIPT" "$REPO" 2>&1 | grep -F "**${FEATURE}**" | head -1)
   if [ -n "$LINE" ]; then

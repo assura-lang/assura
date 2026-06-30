@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   fuzz:
-    runs-on: assura-mac-1
+    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:
       CARGO_TARGET_DIR: target/fuzz-ci
