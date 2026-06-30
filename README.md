@@ -77,6 +77,9 @@ cargo build
 
 # Install the CLI to your PATH
 cargo install --path crates/assura-cli
+
+# (Optional) Install the LSP server for editor support
+cargo install --path crates/assura-lsp
 ```
 
 ### Usage

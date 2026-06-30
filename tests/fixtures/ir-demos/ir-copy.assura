@@ -1,6 +1,6 @@
 // Demo: implementation IR sidecar constrains `result` during SMT verify.
 //
-// `assura check demos/ir-copy.assura --verbose` loads `demos/ir-copy.ir` (or
+// `assura check tests/fixtures/ir-demos/ir-copy.assura --verbose` loads the adjacent `ir-copy.ir` (or
 // `demos/generated/CopyBytes.ir`) and uses havoc+assume so
 // `ensures result.length() <= raw.length()` verifies via identity copy IR.
 //

@@ -831,8 +831,8 @@ passes on the latest SHA (not only `test` / `clippy`).
 4. `VerifyOptions::enable_cache` defaults **off** (IR sidecar / encoder
    footgun). Opt in for watch/incremental only.
 5. IR sidecars load as `{JobName}.ir` beside the source or under `generated/`
-   (gitignored); commit `demos/IncOne.ir` style files, not only
-   `demos/generated/`.
+   (gitignored); commit `.ir` fixture files beside their `.assura`
+   source, not only under `generated/`.
 6. `CVC5_IR_BODY_CONSTRAINTS_IS_STUB` must stay `false`; feature-matrix and
    `ir_parity` guard regressions.
 

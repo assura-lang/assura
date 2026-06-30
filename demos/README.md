@@ -38,18 +38,6 @@ motivation.
 | `effect-handler.assura` | TYPE.7-TYPE.8 | I/O effect containment |
 | `concurrent-lock.assura` | CONC.1-CONC.3 | Deadlock prevention via lock ordering |
 
-## Compiler Internal Demos
-
-These exercise specific compiler/verifier paths and are not intended as
-user-facing examples.
-
-| File | Purpose |
-|------|---------|
-| `ir-copy.assura` | IR sidecar loading (havoc+assume identity copy) |
-| `ir-inc.assura` | Arithmetic IR body constraining `result` |
-| `trigger-quant.assura` | Quantifier trigger surface for e-matching |
-| `frame-old.assura` | Frame condition + `old()` encoder path |
-
 ## Running Demos
 
 ```bash
@@ -67,5 +55,6 @@ for f in demos/*.assura; do cargo run --bin assura -- check "$f"; done
 
 The `generated/` subdirectory contains IR sidecar files (`.ir`) produced
 by `assura build`. These are gitignored artifacts, not source files.
-Top-level `.ir` files (`IncOne.ir`, `ir-copy.ir`, `ir-inc.ir`) are
-committed fixtures used by the internal demos.
+
+Internal compiler test contracts and IR fixtures live in
+`tests/fixtures/ir-demos/`.
