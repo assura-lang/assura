@@ -702,10 +702,7 @@ fn call_llm_for_ir(
     for attempt in 0..MAX_RETRIES {
         let raw_response = if ai_config.mode == "cli" {
             // CLI mode: shell out to the configured command
-            let cmd = ai_config
-                .command
-                .as_deref()
-                .unwrap_or("claude");
+            let cmd = ai_config.command.as_deref().unwrap_or("claude");
             let args: Vec<String> = if ai_config.args.is_empty() {
                 vec!["-p".to_string(), prompt.clone()]
             } else {
@@ -722,9 +719,7 @@ fn call_llm_for_ir(
                 .output();
 
             match output {
-                Ok(o) if o.status.success() => {
-                    String::from_utf8_lossy(&o.stdout).to_string()
-                }
+                Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).to_string(),
                 Ok(o) => {
                     let stderr = String::from_utf8_lossy(&o.stderr);
                     if verbosity == Verbosity::Verbose {
@@ -748,10 +743,8 @@ fn call_llm_for_ir(
             }
         } else {
             // API mode: use assura-llm HttpProvider
-            let llm_config = assura_llm::LlmConfig::from_provider(
-                &ai_config.provider,
-                Some(&ai_config.model),
-            );
+            let llm_config =
+                assura_llm::LlmConfig::from_provider(&ai_config.provider, Some(&ai_config.model));
             let provider = match assura_llm::HttpProvider::new(llm_config) {
                 Ok(p) => p,
                 Err(e) => {
