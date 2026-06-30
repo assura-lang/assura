@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="g14" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4F46E5"/>
+      <stop offset="100%" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+  <!-- Shield -->
+  <path d="M256 28 L460 108 L460 260 C460 380 368 460 256 492 C144 460 52 380 52 260 L52 108 Z"
+        fill="url(#g14)"/>
+  <!-- Thin inner shield outline -->
+  <path d="M256 62 L428 130 L428 258 C428 364 348 434 256 460 C164 434 84 364 84 258 L84 130 Z"
+        fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
+  <!-- Outlined triangle A (style of #2) inside shield (#8 shape) -->
+  <g transform="translate(256,270)" fill="none" stroke="white" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="-92,108 0,-148 92,108"/>
+    <line x1="-54" y1="10" x2="54" y2="10"/>
+  </g>
+</svg>
