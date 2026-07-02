@@ -1,49 +1,33 @@
-# Assura Project Governance
+# Governance
 
 ## Overview
 
-Assura is currently maintained by a single maintainer. As the project and
-community grow, this governance model may evolve to include additional
-maintainers and a more formal decision process.
-
-## Current Maintainer
-
-- **Seb Tardif** ([@SebTardif](https://github.com/SebTardif))
+Assura is maintained by [Seb Tardif](https://github.com/SebTardif) as a
+single-maintainer project. All design decisions, releases, and merge
+authority rest with the maintainer.
 
 ## Decision Process
 
-The maintainer has final authority on all project decisions, including design
-direction, feature scope, release timing, and code standards. Community input
-is welcome and encouraged through:
+- **Feature requests** are welcome as GitHub Issues. The maintainer
+  evaluates each against the project roadmap and specification.
+- **Pull requests** are reviewed by the maintainer. Contributions that
+  align with the specification and pass CI are merged promptly.
+- **Breaking changes** are discussed in an issue before implementation.
 
-- [GitHub Issues](https://github.com/assura-lang/assura/issues) for bug reports,
-  feature requests, and technical proposals
-- [GitHub Discussions](https://github.com/assura-lang/assura/discussions) for
-  open-ended questions and ideas
-- Pull request reviews for implementation feedback
+## Releases
 
-All contributions are reviewed by the maintainer before merging.
+The maintainer controls release cadence. Releases follow semantic
+versioning. Release PRs (created by release-please) require explicit
+maintainer approval before merging.
 
-## Release Authority
+## Security
 
-Only the maintainer may authorize and publish releases. Release cadence is
-determined by the maintainer based on the state of the codebase and roadmap
-priorities.
+Security vulnerabilities should be reported through
+[GitHub Security Advisories](https://github.com/assura-lang/assura/security/advisories/new).
+See [SECURITY.md](SECURITY.md) for details.
 
-## Becoming a Maintainer
+## Future Governance
 
-Contributors who demonstrate sustained, high-quality contributions over time
-may be invited to take on a maintainer role. Qualities that are valued:
-
-- Consistent, well-tested contributions across multiple areas of the compiler
-- Thorough code reviews and constructive feedback on others' pull requests
-- A solid understanding of the language specification and compiler architecture
-- Responsiveness to issues and community questions
-
-There is no formal application process. The current maintainer will reach out
-to contributors who have earned that trust through their work.
-
-## Code of Conduct
-
-All participants in the Assura project are expected to follow the
-[Code of Conduct](CODE_OF_CONDUCT.md).
+As the project grows, governance will evolve to include additional
+maintainers and a more formal decision process. Changes to governance
+will be documented in this file.

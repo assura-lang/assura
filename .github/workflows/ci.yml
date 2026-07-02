@@ -24,19 +24,18 @@ permissions:
 # native jobs) runs regularly even without pushes/PRs.
 #
 # When self-hosted runners are available (via the RUNNER repo variable),
-# heavy Rust jobs run in parallel for maximum throughput. Otherwise,
-# jobs fall back to ubuntu-latest.
+# heavy Rust jobs use them for push/schedule/dispatch events. Fork PRs
+# always use ubuntu-latest for security (prevents arbitrary code
+# execution on self-hosted infrastructure).
 #
 # sccache caches compiler outputs across runs on the persistent local disk.
 # Per-job CARGO_TARGET_DIR prevents cache thrashing between clippy/test/codegen.
 # CARGO_INCREMENTAL=0 ensures all compilation goes through sccache.
-# CARGO_BUILD_JOBS=4 limits parallel rustc processes per job so 3
-# concurrent jobs (one per runner) stay within available RAM.
+# CARGO_BUILD_JOBS=4 limits parallel rustc processes per job to stay
+# within available RAM.
 #
 # benchmark, codegen, and cvc5 are serialized after clippy/test
-# to limit concurrent resource usage (at most 2 heavy jobs at once:
-# clippy + test).  Both self-hosted runners share one physical
-# machine, so more than 2 concurrent Rust builds cause OOM/SIGKILL.
+# to limit concurrent resource usage (at most 2 heavy jobs at once).
 #
 # Filter groups:
 #   rust           - any Rust crate or workspace file changed
@@ -48,7 +47,7 @@ permissions:
 # ---------------------------------------------------------------------------
 jobs:
   changes:
-    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name != 'pull_request' && vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 2
     permissions:
       contents: read
@@ -111,7 +110,7 @@ jobs:
   clippy:
     needs: changes
     if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
-    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name != 'pull_request' && vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     env:
       CARGO_TARGET_DIR: target/ci-clippy
@@ -131,7 +130,7 @@ jobs:
         with:
           shared-key: ci-clippy
           toolchain-components: clippy, rustfmt
-          is-self-hosted: ${{ vars.RUNNER && 'true' || 'false' }}
+          is-self-hosted: ${{ github.event_name != 'pull_request' && vars.RUNNER && 'true' || 'false' }}
 
       - name: Format check
         run: cargo fmt --check --all
@@ -147,14 +146,14 @@ jobs:
         run: cargo clippy --workspace --locked -- -D warnings
 
       - name: Cleanup target (self-hosted)
-        if: ${{ always() && vars.RUNNER }}
+        if: ${{ always() && github.event_name != 'pull_request' && vars.RUNNER }}
         run: rm -rf "$CARGO_TARGET_DIR"
 
   # ── Tests (runner 2, parallel with clippy) ───────────────────────────────
   test:
     needs: changes
     if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
-    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name != 'pull_request' && vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
       CARGO_TARGET_DIR: target/ci-test
@@ -173,7 +172,7 @@ jobs:
       - uses: ./.github/actions/setup-rust-ci
         with:
           shared-key: ci-test
-          is-self-hosted: ${{ vars.RUNNER && 'true' || 'false' }}
+          is-self-hosted: ${{ github.event_name != 'pull_request' && vars.RUNNER && 'true' || 'false' }}
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@0c80bcf54d007ab0e714c95f3bcc43c387707535 # nextest
@@ -184,7 +183,7 @@ jobs:
         run: cargo nextest run --workspace --locked
 
       - name: Cleanup target (self-hosted)
-        if: ${{ always() && vars.RUNNER }}
+        if: ${{ always() && github.event_name != 'pull_request' && vars.RUNNER }}
         run: rm -rf "$CARGO_TARGET_DIR"
 
   # ── Pipeline benchmarks (compile + smoke run; no timing thresholds) ─────
@@ -195,7 +194,7 @@ jobs:
     # Benchmark gets warm sccache from clippy.
     # Only run on codegen/tooling changes (incl. assura-bench) or manual dispatch.
     if: ${{ always() && !failure() && !cancelled() && (needs.changes.outputs.codegen == 'true' || needs.changes.outputs.tooling-only == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
-    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name != 'pull_request' && vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     env:
       CARGO_TARGET_DIR: target/ci-bench
@@ -214,7 +213,7 @@ jobs:
       - uses: ./.github/actions/setup-rust-ci
         with:
           shared-key: ci-bench
-          is-self-hosted: ${{ vars.RUNNER && 'true' || 'false' }}
+          is-self-hosted: ${{ github.event_name != 'pull_request' && vars.RUNNER && 'true' || 'false' }}
 
       - name: Run pipeline benchmarks (smoke + compile check only)
         # Run only full_pipeline bench in CI (smoke to ensure it compiles/runs).
@@ -230,18 +229,17 @@ jobs:
           if-no-files-found: ignore
 
       - name: Cleanup target (self-hosted)
-        if: ${{ always() && vars.RUNNER }}
+        if: ${{ always() && github.event_name != 'pull_request' && vars.RUNNER }}
         run: rm -rf "$CARGO_TARGET_DIR"
 
   # ── Generated code compiles (serialized after test) ──────────────────────
   # Serialized after test to limit concurrent resource usage on self-hosted
-  # runners (both runners share the same physical machine).  Running clippy +
-  # test + codegen in parallel caused OOM/SIGKILL on the MacBook Pro.
+  # runners.  Running clippy + test + codegen in parallel risks OOM/SIGKILL.
   codegen-validation:
     name: Generated code compiles
     needs: [changes, test]
     if: ${{ always() && !failure() && !cancelled() && (needs.changes.outputs.codegen == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
-    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name != 'pull_request' && vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
       CARGO_TARGET_DIR: target/ci-codegen
@@ -260,7 +258,7 @@ jobs:
       - uses: ./.github/actions/setup-rust-ci
         with:
           shared-key: ci-codegen
-          is-self-hosted: ${{ vars.RUNNER && 'true' || 'false' }}
+          is-self-hosted: ${{ github.event_name != 'pull_request' && vars.RUNNER && 'true' || 'false' }}
 
       - name: Build compiler
         run: cargo build --bin assura --locked
@@ -289,14 +287,14 @@ jobs:
           done
 
       - name: Cleanup target (self-hosted)
-        if: ${{ always() && vars.RUNNER }}
+        if: ${{ always() && github.event_name != 'pull_request' && vars.RUNNER }}
         run: rm -rf "$CARGO_TARGET_DIR"
 
   # ── No-Z3 fallback check (~30s on ubuntu) ───────────────────────────────
   no-z3:
     needs: changes
     if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
-    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name != 'pull_request' && vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - name: Harden runner
@@ -310,7 +308,7 @@ jobs:
         with:
           shared-key: ci-no-z3
           install-system-deps: 'false'
-          is-self-hosted: ${{ vars.RUNNER && 'true' || 'false' }}
+          is-self-hosted: ${{ github.event_name != 'pull_request' && vars.RUNNER && 'true' || 'false' }}
 
       - name: Build without Z3 (graceful fallback)
         run: cargo check -p assura-smt --no-default-features --locked
@@ -322,7 +320,7 @@ jobs:
     # Serialized after test to limit concurrent resource usage.
     # CVC5 gets warm sccache from test.
     if: ${{ always() && !failure() && !cancelled() && (needs.changes.outputs.smt == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
-    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name != 'pull_request' && vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
       CARGO_TARGET_DIR: target/ci-cvc5
@@ -341,7 +339,7 @@ jobs:
       - uses: ./.github/actions/setup-rust-ci
         with:
           shared-key: ci-cvc5
-          is-self-hosted: ${{ vars.RUNNER && 'true' || 'false' }}
+          is-self-hosted: ${{ github.event_name != 'pull_request' && vars.RUNNER && 'true' || 'false' }}
 
       - name: Install CVC5 prebuilt library
         run: |
@@ -372,7 +370,7 @@ jobs:
           cargo run --locked --bin assura --features cvc5-verify -- check --solver cvc5 demos/libwebp-huffman.assura
 
       - name: Cleanup target (self-hosted)
-        if: ${{ always() && vars.RUNNER }}
+        if: ${{ always() && github.event_name != 'pull_request' && vars.RUNNER }}
         run: rm -rf "$CARGO_TARGET_DIR"
 
   # ── Tree-sitter grammar tests ───────────────────────────────────────────
@@ -380,7 +378,7 @@ jobs:
     name: Tree-sitter grammar tests
     needs: changes
     if: ${{ needs.changes.outputs.editors-ts == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
-    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name != 'pull_request' && vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - name: Harden runner
@@ -413,7 +411,7 @@ jobs:
     name: VS Code extension compiles
     needs: changes
     if: ${{ needs.changes.outputs.editors-vscode == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
-    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name != 'pull_request' && vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - name: Harden runner

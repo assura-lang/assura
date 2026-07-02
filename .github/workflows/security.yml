@@ -19,7 +19,7 @@ permissions:
 jobs:
   cargo-audit:
     name: Dependency audit
-    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name != 'pull_request' && vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - name: Harden runner
@@ -39,19 +39,24 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  # CodeQL is disabled while the repo is private (GHAS required for
-  # code scanning SARIF uploads on private repos). Re-enable when
-  # the repo goes public by uncommenting below.
-  #
+  # ---------------------------------------------------------------------------
+  # The following jobs require GHAS (paid) for private repos.
+  # Uncomment when the repo becomes public.
+  # ---------------------------------------------------------------------------
+
   # codeql:
   #   name: CodeQL analysis
-  #   runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+  #   runs-on: ubuntu-latest
   #   timeout-minutes: 30
   #   permissions:
   #     actions: read
   #     contents: read
   #     security-events: write
   #   steps:
+  #     - name: Harden runner
+  #       uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+  #       with:
+  #         egress-policy: audit
   #     - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
   #     - name: Initialize CodeQL
   #       uses: github/codeql-action/init@v3
@@ -59,3 +64,37 @@ jobs:
   #         languages: actions
   #     - name: Perform CodeQL Analysis
   #       uses: github/codeql-action/analyze@v3
+
+  # dependency-review:
+  #   name: Dependency review
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 10
+  #   if: github.event_name == 'pull_request'
+  #   steps:
+  #     - name: Harden runner
+  #       uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+  #       with:
+  #         egress-policy: audit
+  #     - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+  #     - name: Dependency Review
+  #       uses: actions/dependency-review-action@da24556b548a50705dd671f47852072ea4c105d9 # v4
+  #       with:
+  #         fail-on-severity: high
+
+  gitleaks:
+    name: Secret scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196e0e48de2 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
