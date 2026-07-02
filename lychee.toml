@@ -7,6 +7,8 @@ exclude = [
   "github\\.com/.*/releases/tag/.*v\\d",
   # Placeholder domains used in examples
   "example\\.com",
+  # Sites that block CI runner IPs
+  "dl\\.acm\\.org",
   # Badge services that may rate-limit CI runners
   "scorecard\\.dev",
   # Private repo URLs that are not accessible until public
