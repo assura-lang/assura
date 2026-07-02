@@ -59,11 +59,11 @@ jobs:
   #         egress-policy: audit
   #     - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
   #     - name: Initialize CodeQL
-  #       uses: github/codeql-action/init@v3
+  #       uses: github/codeql-action/init@703b9949c65fcfced30e2f9f41569c4adfcb657f # v3.36.3
   #       with:
   #         languages: actions
   #     - name: Perform CodeQL Analysis
-  #       uses: github/codeql-action/analyze@v3
+  #       uses: github/codeql-action/analyze@703b9949c65fcfced30e2f9f41569c4adfcb657f # v3.36.3
 
   # dependency-review:
   #   name: Dependency review
@@ -95,6 +95,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196e0e48de2 # v2.3.9
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
