@@ -9,6 +9,7 @@ exclude = [
   "example\\.com",
   # Sites that block CI runner IPs
   "dl\\.acm\\.org",
+  "reddit\\.com",
   # Badge services that may rate-limit CI runners
   "scorecard\\.dev",
   # Private repo URLs that are not accessible until public
