@@ -20,6 +20,7 @@ permissions: read-all
 jobs:
   scorecard:
     name: Scorecard analysis
+    if: github.repository_visibility == 'public'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
