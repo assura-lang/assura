@@ -7,6 +7,8 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - dependencies
+    commit-message:
+      prefix: "deps"
     ignore:
       # Architectural pins -- see AGENTS.md "Crate Versioning (CRITICAL)"
       # ariadne 0.5+ changes the Report/Label API.
@@ -33,6 +35,8 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - dependencies
+    commit-message:
+      prefix: "ci"
     groups:
       # upload-artifact and download-artifact must move together.
       artifact-actions:

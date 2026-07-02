@@ -29,13 +29,13 @@ runs:
 
     - name: Setup Rust toolchain
       if: ${{ inputs.is-self-hosted != 'true' }}
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
       with:
         components: ${{ inputs.toolchain-components }}
 
     - name: Cache dependencies
       if: ${{ inputs.is-self-hosted != 'true' }}
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
       with:
         shared-key: ${{ inputs.shared-key }}
 

@@ -118,11 +118,7 @@ It generates Rust with `debug_assert!(b != 0)` and
 `debug_assert!(result * b + (a % b) == a)`. The contract is
 not SMT-verified yet; that comes in Phase 1.
 
-**Phase 0 team**: 1-2 engineers. One strong Rust developer who has
-built a parser before. A second person can work on the CLI and
-codegen in parallel.
-
-**Phase 0 effort**: ~3 person-months.
+**Phase 0 deliverables**: A working parser for the core grammar, structural type checker for base types, Rust codegen with contract assertions, and a functional CLI. The parser and codegen can be developed in parallel.
 
 ---
 
@@ -236,11 +232,7 @@ service HuffmanDecoder {
 }
 ```
 
-**Phase 1 team**: 2-3 engineers. The Z3 integration requires someone
-with SMT solver experience (or willingness to learn; the `z3` crate
-docs and Dafny's Z3 encoding are good references).
-
-**Phase 1 effort**: ~8-10 person-months.
+**Phase 1 deliverables**: Z3-backed refinement type verification, linear and effect type checking, ghost code and lemma infrastructure, MEM.1 and SEC.1 domain checkers, the libwebp CVE demo verified end-to-end, and complete error reporting for all Phase 1 features. SMT solver experience (or study of the `z3` crate docs and Dafny's Z3 encoding) is essential for this phase.
 
 ---
 
@@ -306,11 +298,7 @@ features work. Layer 2 verification handles quantified invariants.
 Developers have editor support. The zlib and mbedTLS demos work
 end-to-end.
 
-**Phase 2 team**: 3-4 engineers. One focused on SMT encoding (Layer 2
-is significantly harder than Layer 1). One on the feature categories.
-One on LSP and tooling. One floating for integration testing and demos.
-
-**Phase 2 effort**: ~16-20 person-months.
+**Phase 2 deliverables**: All MEM, SEC, TYPE, CONC, and FMT feature categories complete; Layer 2 quantified verification operational; LSP server with VS Code extension; property-based test generation; and the zlib and mbedTLS demos verified end-to-end. Layer 2 SMT encoding is significantly harder than Layer 1 and should be treated as its own workstream.
 
 ---
 
@@ -342,11 +330,11 @@ extend Assura beyond what Dafny, F\*, or SPARK offer.
 | CORE.7 Prophecy variables | 2 weeks | Hard | Ghost state with deferred resolution. Needed for linearizability proofs of lock-free data structures (Michael-Scott queue, Treiber stack). The variable's value is determined by a future event but constrained now. SMT encoding uses Skolemization. |
 | CORE.8 Liveness contracts | 3 weeks | Hard | `eventually`, `leads_to`, `eventually_within`. Verification via liveness-to-safety reduction (Biere et al.). BMC with lasso detection at Layer 2. K-induction for unbounded proofs at Layer 3. Fairness encoding (compassion, justice). |
 
-**Honest assessment**: CONC.6 and CORE.7 are research-adjacent. The
-techniques exist (GPS, RSL, Iris, prophecy variables in Verus) but
+**Technical note**: CONC.6 and CORE.7 are research-adjacent. The
+techniques exist individually (GPS, RSL, Iris, prophecy variables in Verus) but
 have not been integrated into a single tool targeting Rust codegen.
-Expect 1.5x-2x the estimated effort on these features. Budget for
-dead ends and redesigns.
+These features carry higher technical risk than the rest of the roadmap
+and may require iteration on the encoding strategy.
 
 ### Months 19-20: NUM, PLAT, PERF, MISC + AI Agent API
 
@@ -371,10 +359,7 @@ submit code via gRPC and get streaming verification results. The
 full demo portfolio (libwebp, zlib, mbedTLS, FreeRTOS, sudo, PX4)
 has working contract files.
 
-**Phase 3 team**: 4-5 engineers. CONC.6 and CORE.7/CORE.8 each need
-a dedicated engineer with formal methods background.
-
-**Phase 3 effort**: ~22-28 person-months.
+**Phase 3 deliverables**: All 50 verification features implemented; Layer 3 (BMC/k-induction) operational for liveness proofs; AI Agent gRPC API; and the full demo portfolio with working contract files. CONC.6, CORE.7, and CORE.8 each require deep formal methods expertise.
 
 ---
 
@@ -402,7 +387,7 @@ Comprehensive standard library. CI/CD integrations. Documentation.
 | Showcase builds | 4 weeks | Complete the demo portfolio: libwebp (CVE-2023-4863), zlib (CVE-2022-37434), mbedTLS (4 CVSS 9.8 CVEs). Full differential testing. CVE replay demonstrations. |
 | Cranelift backend | 3 weeks | Dev-mode fast compilation. Cranelift for `assura build` (10x faster than rustc). Keep rustc for `assura build --release`. This is the v2 backend from the INVESTIGATION.md roadmap. |
 
-**Phase 4 effort**: ~20-25 person-months.
+**Phase 4 deliverables**: Production-quality standard library, full module system with publishable contract packages, CI/CD integrations (GitHub Action, Docker), comprehensive documentation, verified showcase builds for all target CVEs, and optional Cranelift backend for fast dev-mode compilation.
 
 ---
 
@@ -547,8 +532,7 @@ for pre-commit.
 
 Parser + Layer 0 type checking + MEM.1 + SEC.1 + Rust codegen
 
-This is approximately Phase 0 + the first half of Phase 1 (~5 months
-for 1-2 people).
+This corresponds to Phase 0 plus the first half of Phase 1.
 
 **What it can do**: Parse contracts, check basic types and linearity,
 check buffer bounds (MEM.1) and taint propagation (SEC.1) via Z3,

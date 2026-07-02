@@ -1,0 +1,14 @@
+exclude = [
+  "localhost",
+  "127\\.0\\.0\\.1",
+  "file://",
+  # release-please compare/tag URLs reference versions that may not exist yet
+  "github\\.com/.*/compare/.*v.*\\.\\.\\..*v",
+  "github\\.com/.*/releases/tag/.*v\\d",
+  # Placeholder domains used in examples
+  "example\\.com",
+  # Badge services that may rate-limit CI runners
+  "scorecard\\.dev",
+  # Private repo URLs that are not accessible until public
+  "github\\.com/assura-lang/assura/discussions",
+]
