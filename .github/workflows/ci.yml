@@ -33,8 +33,10 @@ permissions:
 # CARGO_BUILD_JOBS=4 limits parallel rustc processes per job so 3
 # concurrent jobs (one per runner) stay within available RAM.
 #
-# benchmark and cvc5 are serialized after clippy/test respectively
-# to limit concurrent resource usage (at most 3 heavy jobs at once).
+# benchmark, codegen, and cvc5 are serialized after clippy/test
+# to limit concurrent resource usage (at most 2 heavy jobs at once:
+# clippy + test).  Both self-hosted runners share one physical
+# machine, so more than 2 concurrent Rust builds cause OOM/SIGKILL.
 #
 # Filter groups:
 #   rust           - any Rust crate or workspace file changed
@@ -231,11 +233,14 @@ jobs:
         if: ${{ always() && vars.RUNNER }}
         run: rm -rf "$CARGO_TARGET_DIR"
 
-  # ── Generated code compiles (runner 3, parallel with clippy + test) ─────
+  # ── Generated code compiles (serialized after test) ──────────────────────
+  # Serialized after test to limit concurrent resource usage on self-hosted
+  # runners (both runners share the same physical machine).  Running clippy +
+  # test + codegen in parallel caused OOM/SIGKILL on the MacBook Pro.
   codegen-validation:
     name: Generated code compiles
-    needs: changes
-    if: ${{ needs.changes.outputs.codegen == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    needs: [changes, test]
+    if: ${{ always() && !failure() && !cancelled() && (needs.changes.outputs.codegen == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
     runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
