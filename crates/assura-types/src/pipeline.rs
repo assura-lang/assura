@@ -708,9 +708,8 @@ impl TypeChecker {
 
         let generated_tests = generate_tests_from_contracts(&resolved.source);
 
-        // Collect non-fatal warnings (clause quality, feature_max in clauses)
-        let mut warnings = run_unconstrained_output_checks(&resolved.source);
-        warnings.extend(run_feature_max_in_clause_checks(&resolved.source));
+        // Collect non-fatal warnings (clause quality)
+        let warnings = run_unconstrained_output_checks(&resolved.source);
 
         Ok(TypedFile {
             resolved: Arc::new(resolved),
