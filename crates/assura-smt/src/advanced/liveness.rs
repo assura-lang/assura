@@ -149,30 +149,28 @@ impl Default for LivenessChecker {
 
 /// Monitor state for `eventually P` (2-state automaton).
 ///
-/// Documents the integer encoding used in `MonitorReduction::eventually()`:
-/// `Waiting = 0`, `Satisfied = 1`.
+/// Integer encoding used in `MonitorReduction::eventually()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[expect(dead_code)]
+#[repr(i64)]
 pub enum EventuallyState {
     /// Waiting for P to become true
-    Waiting,
+    Waiting = 0,
     /// P has been observed
-    Satisfied,
+    Satisfied = 1,
 }
 
 /// Monitor state for `leads_to(A, B)` (3-state automaton).
 ///
-/// Documents the integer encoding used in `MonitorReduction::leads_to()`:
-/// `Idle = 0`, `Triggered = 1`, `Fulfilled = 2`.
+/// Integer encoding used in `MonitorReduction::leads_to()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[expect(dead_code)]
+#[repr(i64)]
 pub enum LeadsToState {
     /// Neither A nor B has been seen
-    Idle,
+    Idle = 0,
     /// A has been seen, waiting for B
-    Triggered,
+    Triggered = 1,
     /// B has been seen after A
-    Fulfilled,
+    Fulfilled = 2,
 }
 
 /// A liveness property reduced to a safety property via a monitor automaton.
@@ -210,19 +208,21 @@ impl MonitorReduction {
     /// - Transition: if state == 0 && P holds, next_state = 1; else next_state = state
     /// - Bad state for lasso: state == 0 (stuck waiting forever)
     pub fn eventually(name: String, goal: String) -> Self {
+        let waiting = EventuallyState::Waiting as i64;
+        let satisfied = EventuallyState::Satisfied as i64;
         let monitor_var = format!("__monitor_eventually_{}", sanitize_name(&name));
-        let transition_predicate = format!("if ({goal}) then 1 else {monitor_var}");
+        let transition_predicate = format!("if ({goal}) then {satisfied} else {monitor_var}");
         let transition_constraints = vec![format!(
-            "{monitor_var}' == (if ({goal}') then 1 else {monitor_var})"
+            "{monitor_var}' == (if ({goal}') then {satisfied} else {monitor_var})"
         )];
         Self {
             transition_predicate,
-            safety_bad_predicate: format!("{monitor_var} == 0"),
+            safety_bad_predicate: format!("{monitor_var} == {waiting}"),
             goal_predicate: goal,
             extra_state_vars: vec![(monitor_var.clone(), "Int".into())],
-            initial_constraints: vec![format!("{monitor_var} == 0")],
+            initial_constraints: vec![format!("{monitor_var} == {waiting}")],
             transition_constraints,
-            initial_state: 0,
+            initial_state: waiting,
             monitor_var,
             name,
         }
@@ -240,25 +240,28 @@ impl MonitorReduction {
     ///   - Fulfilled stays Fulfilled
     /// - Bad state for lasso: state == 1 (stuck triggered forever, B never comes)
     pub fn leads_to(name: String, premise: String, conclusion: String) -> Self {
+        let idle = LeadsToState::Idle as i64;
+        let triggered = LeadsToState::Triggered as i64;
+        let fulfilled = LeadsToState::Fulfilled as i64;
         let monitor_var = format!("__monitor_leads_to_{}", sanitize_name(&name));
         let transition_predicate = format!(
-            "if ({monitor_var} == 1 && ({conclusion})) then 2 \
-             else if ({monitor_var} == 0 && ({premise})) then 1 \
+            "if ({monitor_var} == {triggered} && ({conclusion})) then {fulfilled} \
+             else if ({monitor_var} == {idle} && ({premise})) then {triggered} \
              else {monitor_var}"
         );
         let transition_constraints = vec![format!(
-            "{monitor_var}' == (if ({monitor_var} == 1 && ({conclusion}')) then 2 \
-             else if ({monitor_var} == 0 && ({premise}')) then 1 \
+            "{monitor_var}' == (if ({monitor_var} == {triggered} && ({conclusion}')) then {fulfilled} \
+             else if ({monitor_var} == {idle} && ({premise}')) then {triggered} \
              else {monitor_var})"
         )];
         Self {
             transition_predicate,
-            safety_bad_predicate: format!("{monitor_var} == 1"),
+            safety_bad_predicate: format!("{monitor_var} == {triggered}"),
             goal_predicate: conclusion,
             extra_state_vars: vec![(monitor_var.clone(), "Int".into())],
-            initial_constraints: vec![format!("{monitor_var} == 0")],
+            initial_constraints: vec![format!("{monitor_var} == {idle}")],
             transition_constraints,
-            initial_state: 0,
+            initial_state: idle,
             monitor_var,
             name,
         }
@@ -270,12 +273,14 @@ impl MonitorReduction {
     /// `counter >= bound && state == 0` (P not observed within bound steps).
     /// This is actually a bounded safety property (no lasso needed).
     pub fn eventually_within(name: String, goal: String, bound: u64) -> Self {
+        let waiting = EventuallyState::Waiting as i64;
+        let satisfied = EventuallyState::Satisfied as i64;
         let monitor_var = format!("__monitor_ev_within_{}", sanitize_name(&name));
         let counter_var = format!("__counter_ev_within_{}", sanitize_name(&name));
-        let transition_predicate = format!("if ({goal}) then 1 else {monitor_var}");
-        let safety_bad = format!("{counter_var} >= {bound} && {monitor_var} == 0");
+        let transition_predicate = format!("if ({goal}) then {satisfied} else {monitor_var}");
+        let safety_bad = format!("{counter_var} >= {bound} && {monitor_var} == {waiting}");
         let transition_constraints = vec![
-            format!("{monitor_var}' == (if ({goal}') then 1 else {monitor_var})"),
+            format!("{monitor_var}' == (if ({goal}') then {satisfied} else {monitor_var})"),
             format!("{counter_var}' == {counter_var} + 1"),
         ];
         Self {
@@ -286,9 +291,12 @@ impl MonitorReduction {
                 (monitor_var.clone(), "Int".into()),
                 (counter_var.clone(), "Int".into()),
             ],
-            initial_constraints: vec![format!("{monitor_var} == 0"), format!("{counter_var} == 0")],
+            initial_constraints: vec![
+                format!("{monitor_var} == {waiting}"),
+                format!("{counter_var} == 0"),
+            ],
             transition_constraints,
-            initial_state: 0,
+            initial_state: waiting,
             monitor_var,
             name,
         }
@@ -510,8 +518,15 @@ mod tests {
     #[test]
     fn monitor_eventually_has_correct_states() {
         let m = MonitorReduction::eventually("progress".into(), "done == true".into());
-        assert_eq!(m.initial_state, 0);
-        assert!(m.safety_bad_predicate.contains("== 0"));
+        assert_eq!(m.initial_state, EventuallyState::Waiting as i64);
+        assert!(
+            m.safety_bad_predicate
+                .contains(&format!("== {}", EventuallyState::Waiting as i64))
+        );
+        assert!(
+            m.transition_predicate
+                .contains(&format!("then {}", EventuallyState::Satisfied as i64))
+        );
         assert!(m.monitor_var.contains("__monitor_eventually_"));
         assert_eq!(m.extra_state_vars.len(), 1);
         assert_eq!(m.initial_constraints.len(), 1);
@@ -525,8 +540,11 @@ mod tests {
             "request == true".into(),
             "response == true".into(),
         );
-        assert_eq!(m.initial_state, 0);
-        assert!(m.safety_bad_predicate.contains("== 1"));
+        assert_eq!(m.initial_state, LeadsToState::Idle as i64);
+        assert!(
+            m.safety_bad_predicate
+                .contains(&format!("== {}", LeadsToState::Triggered as i64))
+        );
         assert!(m.monitor_var.contains("__monitor_leads_to_"));
         assert_eq!(m.extra_state_vars.len(), 1);
         assert_eq!(m.initial_constraints.len(), 1);
