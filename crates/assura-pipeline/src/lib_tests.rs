@@ -1053,8 +1053,8 @@ fn verify_ir_serializes_to_json() {
     let ir = "module Echo {\n  fn #0 : ($0: Int) -> Int ! pure\n  {\n    $result = load $0 : Int\n  }\n}\n";
     let config = CompilerConfig::default();
     let result = verify_ir(contract, ir, &config);
-    let json_str = serde_json::to_string_pretty(&result)
-        .expect("IrVerifyResult should serialize to JSON");
+    let json_str =
+        serde_json::to_string_pretty(&result).expect("IrVerifyResult should serialize to JSON");
     assert!(json_str.contains("\"status\""));
     assert!(json_str.contains("\"progress\""));
     assert!(json_str.contains("\"clauses\""));
