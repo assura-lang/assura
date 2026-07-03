@@ -108,3 +108,5 @@ jobs:
           set -euo pipefail
           echo "Dispatching Release for tag=${TAG}"
           gh workflow run Release --repo "${GITHUB_REPOSITORY}" --ref main -f "tag=${TAG}"
+
+# verified push trigger after workflow registration
