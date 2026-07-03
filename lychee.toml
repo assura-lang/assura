@@ -12,6 +12,4 @@ exclude = [
   "reddit\\.com",
   # Badge services that may rate-limit CI runners
   "scorecard\\.dev",
-  # Private repo URLs that are not accessible until public
-  "github\\.com/assura-lang/assura/discussions",
 ]
