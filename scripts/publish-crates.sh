@@ -19,7 +19,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 DRY_RUN=0
+PLAN_ONLY=0
 if [[ "${1:-}" == "--dry-run" ]]; then
+  DRY_RUN=1
+elif [[ "${1:-}" == "--plan-only" ]]; then
+  PLAN_ONLY=1
   DRY_RUN=1
 fi
 
@@ -138,6 +142,10 @@ if [[ ${#ORDER[@]} -eq 0 ]]; then
 fi
 
 echo "Publish plan (${#ORDER[@]} crates): ${ORDER[*]}"
+
+if [[ "$PLAN_ONLY" -eq 1 ]]; then
+  exit 0
+fi
 
 publish_one() {
   local crate="$1"
