@@ -41,7 +41,7 @@ jobs:
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get install -y protobuf-compiler libz3-dev
+        run: sudo apt-get install -y protobuf-compiler libz3-dev z3 ripgrep
         env:
           DEBIAN_FRONTEND: noninteractive
 
