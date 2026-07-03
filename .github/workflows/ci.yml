@@ -124,7 +124,14 @@ jobs:
         with:
           shared-key: ci-lint-fast
           toolchain-components: rustfmt
+          # Skip Z3/protobuf/OpenSSL: this job only runs fmt, guards, cargo-deny.
           install-system-deps: 'false'
+
+      # guards.sh uses ripgrep; full system-deps install is unnecessary here.
+      - name: Install ripgrep
+        run: sudo apt-get install -y ripgrep
+        env:
+          DEBIAN_FRONTEND: noninteractive
 
       - name: Install cargo-deny
         uses: taiki-e/install-action@0c80bcf54d007ab0e714c95f3bcc43c387707535 # v2
