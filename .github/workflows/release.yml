@@ -323,6 +323,26 @@ jobs:
         with:
           subject-path: artifacts/*
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign release artifacts
+        run: |
+          for artifact in artifacts/*; do
+            [ -f "$artifact" ] || continue
+            echo "Signing ${artifact}..."
+            cosign sign-blob --yes --bundle "${artifact}.sigstore.json" "${artifact}"
+          done
+          echo "Signing SBOM..."
+          cosign sign-blob --yes --bundle assura-sbom.cdx.json.sigstore.json assura-sbom.cdx.json
+
+      - name: Upload signatures to release
+        run: |
+          gh release upload "${{ needs.plan.outputs.tag }}" \
+            artifacts/*.sigstore.json \
+            assura-sbom.cdx.json.sigstore.json \
+            --clobber
+
   # Publish all workspace crates to crates.io in dependency order
   publish-crates:
     needs:
