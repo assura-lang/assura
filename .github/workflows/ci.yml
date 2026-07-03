@@ -51,6 +51,7 @@ jobs:
       editors-ts:     ${{ steps.filter.outputs.editors-ts }}
       editors-vscode: ${{ steps.filter.outputs.editors-vscode }}
       smt:            ${{ steps.filter.outputs.smt }}
+      workflows:      ${{ steps.filter.outputs.workflows }}
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -65,6 +66,7 @@ jobs:
               - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - 'deny.toml'
               - 'scripts/**'
               - 'AGENTS.md'
               - '.github/workflows/ci.yml'
@@ -93,6 +95,10 @@ jobs:
               - 'crates/assura-smt/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+            workflows:
+              - '.github/workflows/**'
+              - '.github/actions/**'
+              - '.github/zizmor.yml'
 
   # ── Clippy + fmt ──────────────────────────────────────────────────────────
   clippy:
@@ -117,6 +123,12 @@ jobs:
           shared-key: ci-clippy
           toolchain-components: clippy, rustfmt
 
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@0c80bcf54d007ab0e714c95f3bcc43c387707535 # v2
+        with:
+          tool: cargo-deny
+        env:
+          HOME: ${{ runner.temp }}/install-action-home
 
       - name: Format check
         run: cargo fmt --check --all
@@ -127,9 +139,42 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash scripts/guards.sh
 
+      - name: Check dependencies
+        if: ${{ !cancelled() }}
+        run: cargo deny check
+
       - name: Clippy
         if: ${{ !cancelled() }}
         run: cargo clippy --workspace --locked -- -D warnings
+
+  # ── Workflow linting (actionlint + zizmor) ────────────────────────────────
+  workflow-sanity:
+    name: Workflow sanity
+    needs: changes
+    if: ${{ needs.changes.outputs.workflows == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install linters
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          python3 -m pip install --user "zizmor==1.25.2"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run actionlint
+        run: actionlint -color
+
+      - name: Run zizmor
+        run: zizmor --config .github/zizmor.yml .github/workflows/*.yml
 
   # ── Tests (parallel with clippy) ──────────────────────────────────────────
   test:

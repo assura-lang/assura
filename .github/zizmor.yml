@@ -1,0 +1,27 @@
+# zizmor configuration
+# https://docs.zizmor.sh/configuration/
+
+rules:
+  # changes job omits persist-credentials: false intentionally: dorny/paths-filter
+  # must fetch the base commit for PR/push diffs (see AGENTS.md Rule 8 exception).
+  artipacked:
+    ignore:
+      - ci.yml
+
+  # release.yml is cargo-dist generated. Template expansions and container images
+  # come from the plan job's trusted outputs, not untrusted PR input.
+  template-injection:
+    ignore:
+      - release.yml
+  unpinned-images:
+    ignore:
+      - release.yml
+  use-trusted-publishing:
+    ignore:
+      - release.yml
+  cache-poisoning:
+    ignore:
+      - release.yml
+  superfluous-actions:
+    ignore:
+      - release.yml
