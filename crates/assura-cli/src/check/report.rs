@@ -205,7 +205,13 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                 .filter(|d| d.severity == assura_diagnostics::Severity::Warning)
                 .count();
             if !*has_errors {
-                if warning_count > 0 {
+                // Vacuous success: empty / comment-only sources pass every
+                // phase without checking anything. Surface that so users and
+                // agents do not treat "check passed" as proof of coverage.
+                let no_decls = file.as_ref().is_some_and(|f| f.decls.is_empty());
+                if no_decls {
+                    eprintln!("{filename}: check passed (no contracts or functions to verify)");
+                } else if warning_count > 0 {
                     eprintln!(
                         "{filename}: check passed ({warning_count} warning{})",
                         if warning_count == 1 { "" } else { "s" }

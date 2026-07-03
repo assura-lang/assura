@@ -741,6 +741,19 @@ mod tests {
     }
 
     #[test]
+    fn test_render_advice_only_suggestion_no_empty_backticks() {
+        // Advice-only suggestions use empty replacement text. Rendering must
+        // not produce "Help: message: ``".
+        let d = Diagnostic::error("A03006", "requires clause must be Bool", 0..1).with_suggestion(
+            "Ensure clauses are boolean expressions",
+            0..1,
+            "",
+        );
+        render_diagnostic(&d, "test.assura", "x");
+        assert_eq!(d.suggestion.as_ref().unwrap().replacement, "");
+    }
+
+    #[test]
     fn test_report_diagnostics_human_empty() {
         // Empty list should not panic
         report_diagnostics_human(&[], "empty.assura", "");

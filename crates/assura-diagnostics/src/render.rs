@@ -29,11 +29,15 @@ pub fn render_diagnostic(diag: &Diagnostic, filename: &str, source: &str) {
         );
     }
     // Render suggestion as a help note when present.
+    // Advice-only suggestions may have an empty replacement (no text edit);
+    // avoid rendering empty backticks like "Help: message: ``".
     if let Some(ref suggestion) = diag.suggestion {
-        builder = builder.with_help(format!(
-            "{}: `{}`",
-            suggestion.message, suggestion.replacement
-        ));
+        let help = if suggestion.replacement.is_empty() {
+            suggestion.message.clone()
+        } else {
+            format!("{}: `{}`", suggestion.message, suggestion.replacement)
+        };
+        builder = builder.with_help(help);
     }
     // Add an explain hint for errors so users know how to get more detail.
     if diag.severity == Severity::Error {
