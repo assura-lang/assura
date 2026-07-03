@@ -315,7 +315,6 @@ mod tests {
         assura_types::type_check(resolved).expect("type check should succeed")
     }
 
-
     #[test]
     fn metadata_extracts_contract_info() {
         let source = r#"
