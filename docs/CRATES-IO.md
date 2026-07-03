@@ -47,6 +47,7 @@ push to main
 
 Important details (from project skills / past incidents):
 
+- **Auto-merge with `GITHUB_TOKEN` does not start push workflows** (including `release-please.yml`). Prefer a human merge for release-related PRs, use the hourly cron catch-up, or `gh workflow run "Release Please"`. See issue #785.
 - Tags created with `GITHUB_TOKEN` **do not** start a separate `push: tags`
   workflow. `release-please.yml` therefore **workflow_dispatch**es
   `release.yml` with the tag input when a release is created (issue #785).
