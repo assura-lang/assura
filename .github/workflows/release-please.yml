@@ -8,10 +8,16 @@
 # (issue #785). A minimal dedicated workflow matches the official
 # release-please pattern and is reliable on push.
 name: Release Please
+# Why schedule exists: merges performed by github-actions (auto-merge with GITHUB_TOKEN) do not create new workflow runs. Human merges and this hourly cron still run release-please.
 
 on:
   push:
     branches: [main]
+  # GITHUB_TOKEN merges (auto-approve + auto-merge) do not trigger push workflows.
+  # Hourly catch-up opens/updates the release PR when human merges were not used.
+  # See issue #785.
+  schedule:
+    - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
