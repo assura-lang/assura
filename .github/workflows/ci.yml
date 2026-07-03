@@ -355,7 +355,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: editors/tree-sitter-assura
-        run: npm install
+        run: npm ci
 
       - name: Generate parser
         working-directory: editors/tree-sitter-assura
@@ -388,7 +388,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: editors/vscode
-        run: npm install
+        run: npm ci
 
       - name: Compile TypeScript
         working-directory: editors/vscode
