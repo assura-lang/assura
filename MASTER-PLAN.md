@@ -63,7 +63,8 @@
 - [x] Stdlib contracts auto-import (abs, min, max, clamp available without explicit import)
 - [x] Large-scale verification benchmarks (500+, 1000+, 5000+ clauses)
 - [x] LLM verification success rate benchmark (20 graded contracts, 4 reference IRs)
-- [ ] Make repo public, publish to crates.io, enable CodeQL
+- [x] Make repo public, enable CodeQL
+- [ ] Publish to crates.io
 
 ### Future directions
 
@@ -79,9 +80,8 @@ These are not blocking the initial release but are on the radar:
 
 ## Development History
 
-Phases 1 through 11 are complete (106/108 tasks). The 2 remaining items
-from that era are blocked on the repo being private (CodeQL scanning,
-crates.io publish).
+Phases 1 through 11 are complete (107/109 tasks). The repo is public and
+CodeQL is enabled. The 1 remaining item is crates.io publish.
 
 | Phase | Tasks | Summary |
 |-------|-------|---------|
