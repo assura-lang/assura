@@ -11,7 +11,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -59,7 +59,7 @@ jobs:
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
         with:
-          category: "/language:${{ matrix.language || 'actions' }}"
+          category: "/language:actions-and-javascript-typescript"
 
   dependency-review:
     name: Dependency review

@@ -19,3 +19,5 @@ fuzz/Cargo.lock
 .vscode/
 *.pem
 *.key
+node_modules/
+*.vsix

@@ -56,13 +56,13 @@ jobs:
         run: cargo fmt --check --all
 
       - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --locked -- -D warnings
 
       - name: Full test suite
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
 
       - name: Build compiler
-        run: cargo build --bin assura
+        run: cargo build --locked --bin assura
 
       - name: E2E check all demos
         run: |
@@ -117,4 +117,4 @@ jobs:
         with:
           shared-key: ci-nightly-no-z3
       - name: Build without Z3
-        run: cargo check -p assura-smt --no-default-features
+        run: cargo check -p assura-smt --no-default-features --locked
