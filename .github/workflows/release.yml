@@ -14,50 +14,131 @@
 # title/body based on your changelogs.
 
 name: Release
+# Job-level permissions only. Workflow-level pull-requests: write trips zizmor
+# excessive-permissions (release-please job grants it where needed).
 permissions:
   contents: read
 
-# This task will run whenever you push a git tag that looks like a version
-# like "1.0.0", "v0.1.0-prerelease.1", "my-app/0.1.0", "releases/v1.0.0", etc.
-# Various formats will be parsed into a VERSION and an optional PACKAGE_NAME, where
-# PACKAGE_NAME must be the name of a Cargo package in your workspace, and VERSION
-# must be a Cargo-style SemVer Version (must have at least major.minor.patch).
+# Release flow (release-please + cargo-dist + crates.io):
 #
-# If PACKAGE_NAME is specified, then the announcement will be for that
-# package (erroring out if it doesn't have the given version or isn't dist-able).
+# 1. Every push to main runs release-please, which opens/updates a release PR
+#    from conventional commits (label: autorelease: pending).
+# 2. Maintainer merges that PR explicitly (never auto-merge).
+# 3. On the merge push, release-please creates the tag + GitHub Release and sets
+#    release_created=true. The same workflow run then builds installers (cargo-dist)
+#    and publishes libraries (scripts/publish-crates.sh).
 #
-# If PACKAGE_NAME isn't specified, then the announcement will be for all
-# (dist-able) packages in the workspace with that version (this mode is
-# intended for workspaces with only one dist-able package, or with all dist-able
-# packages versioned/released in lockstep).
+# GITHUB_TOKEN tags do not trigger a separate push:tags workflow, so plan/build/host
+# MUST run in this same workflow when release_created is true (not only on tag push).
 #
-# If you push multiple tags at once, separate instances of this workflow will
-# spin up, creating an independent announcement for each one. However, GitHub
-# will hard limit this to 3 tags per commit, as it will assume more tags is a
-# mistake.
-#
-# If there's a prerelease-style suffix to the version, then the release(s)
-# will be marked as a prerelease.
+# Manual re-runs: workflow_dispatch with tag input (e.g. v0.1.0).
+# Optional: human tag push still supported for break-glass.
 on:
   push:
+    branches: [main]
     tags:
       - '**[0-9]+.[0-9]+.[0-9]+*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0) for manual re-runs only"
+        required: false
+        type: string
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  # release-please opens/updates the release PR on main, or creates tag+release
+  # when that PR is merged.
+  release-please:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+      pr: ${{ steps.rp.outputs.pr }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: rp
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # Keep path-dep version= pins aligned with workspace version on the release PR.
+  sync-path-dep-versions:
+    needs: [release-please]
+    if: >-
+      needs.release-please.outputs.release_created != 'true' &&
+      needs.release-please.outputs.pr != ''
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: Get PR branch
+        id: pr-branch
+        env:
+          PR_JSON: ${{ needs.release-please.outputs.pr }}
+        run: |
+          branch=$(echo "$PR_JSON" | jq -r .headBranchName)
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ steps.pr-branch.outputs.branch }}
+          # false for zizmor artipacked; push uses an explicit token below.
+          persist-credentials: false
+      - name: Sync path-dep versions
+        run: bash scripts/sync-path-dep-versions.sh
+      - name: Commit and push if changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet; then
+            echo "path-dep versions already aligned"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/*/Cargo.toml
+          git commit -s -m "chore: sync path-dep versions with workspace version"
+          # GITHUB_TOKEN push will not re-trigger workflows; that is fine.
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push
+          # NOTE: Do NOT edit the release-please PR body. release-please parses
+          # it on merge to create the tag.
+
   # Run 'dist plan' (or host) to determine what tasks we need to do
   plan:
+    needs: [release-please]
+    # always() required: release-please is skipped on tag/dispatch events.
+    # Run when a release was just created, a version tag was pushed, or a
+    # manual dispatch with a tag input was requested.
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.release-please.outputs.release_created == 'true' ||
+       startsWith(github.ref, 'refs/tags/') ||
+       (github.event_name == 'workflow_dispatch' && inputs.tag != ''))
     runs-on: "ubuntu-22.04"
     timeout-minutes: 10
     outputs:
       val: ${{ steps.plan.outputs.manifest }}
-      tag: ${{ !github.event.pull_request && github.ref_name || '' }}
-      tag-flag: ${{ !github.event.pull_request && format('--tag={0}', github.ref_name) || '' }}
-      publishing: ${{ !github.event.pull_request }}
+      tag: ${{ steps.resolve-tag.outputs.tag }}
+      tag-flag: ${{ steps.resolve-tag.outputs.tag && format('--tag={0}', steps.resolve-tag.outputs.tag) || '' }}
+      publishing: ${{ steps.resolve-tag.outputs.tag != '' }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -65,10 +146,26 @@ jobs:
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
+      - name: Resolve release tag
+        id: resolve-tag
+        env:
+          RP_TAG: ${{ needs.release-please.outputs.tag_name }}
+          DISPATCH_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          elif [[ -n "${RP_TAG}" ]]; then
+            echo "tag=${RP_TAG}" >> "$GITHUB_OUTPUT"
+          elif [[ -n "${DISPATCH_TAG}" ]]; then
+            echo "tag=${DISPATCH_TAG}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
           submodules: recursive
+          ref: ${{ steps.resolve-tag.outputs.tag || github.ref }}
       - name: Install dist
         # we specify bash to get pipefail; it guards against the `curl` command
         # failing. otherwise `sh` won't catch that `curl` returned non-0
@@ -102,7 +199,8 @@ jobs:
     # Let the initial task tell us to not run (currently very blunt)
     needs:
       - plan
-    if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload') }}
+    # always() prevents transitive skip when release-please is skipped (tag/dispatch).
+    if: ${{ always() && !failure() && !cancelled() && needs.plan.result == 'success' && fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload') }}
     strategy:
       fail-fast: false
       # Target platforms/runners are computed by dist in create-release.
@@ -187,6 +285,8 @@ jobs:
     needs:
       - plan
       - build-local-artifacts
+    # always() prevents transitive skip when release-please is skipped (tag/dispatch).
+    if: ${{ always() && !failure() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' }}
     runs-on: "ubuntu-22.04"
     timeout-minutes: 15
     env:
@@ -242,7 +342,8 @@ jobs:
       - build-local-artifacts
       - build-global-artifacts
     # Only run if we're "publishing", and only if plan, local and global didn't fail (skipped is fine)
-    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
+    # always() + !cancelled: release-please may be skipped on tag/dispatch paths.
+    if: ${{ always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
     permissions:
       contents: write
       id-token: write
@@ -262,63 +363,90 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+          ref: ${{ needs.plan.outputs.tag }}
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
-      - name: Install cached dist
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: cargo-dist-cache
-          path: ~/.cargo/bin/
-      - run: chmod +x ~/.cargo/bin/dist
-      # Fetch artifacts from scratch-storage
-      - name: Fetch artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          pattern: artifacts-*
-          path: target/distrib/
-          merge-multiple: true
-      - id: host
-        shell: bash
-        run: |
-          dist host ${{ needs.plan.outputs.tag-flag }} --steps=upload --steps=release --output-format=json > dist-manifest.json
-          echo "artifacts uploaded and released successfully"
-          cat dist-manifest.json
-          echo "manifest=$(jq -c "." dist-manifest.json)" >> "$GITHUB_OUTPUT"
-      - name: "Upload dist-manifest.json"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          # Overwrite the previous copy
-          name: artifacts-dist-manifest
-          path: dist-manifest.json
-      # Create a GitHub Release while uploading all files to it
+      # Create/reuse GitHub Release and attach cargo-dist artifacts.
+      # Do NOT run `dist host --steps=release`: release-please already creates
+      # the GitHub Release when its PR merges, and a second create fails.
       - name: "Download GitHub Artifacts"
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: artifacts-*
           path: artifacts
           merge-multiple: true
-      - name: Cleanup
-        run: |
-          # Remove the granular manifests
-          rm -f artifacts/*-dist-manifest.json
-      - name: Create GitHub Release
+      - name: Create or update GitHub Release
+        id: host
         env:
-          PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
-          ANNOUNCEMENT_TITLE: "${{ fromJson(steps.host.outputs.manifest).announcement_title }}"
-          ANNOUNCEMENT_BODY: "${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}"
+          PRERELEASE_FLAG: "${{ fromJson(needs.plan.outputs.val).announcement_is_prerelease && '--prerelease' || '' }}"
+          ANNOUNCEMENT_TITLE: "${{ fromJson(needs.plan.outputs.val).announcement_title }}"
           RELEASE_COMMIT: "${{ github.sha }}"
+          TAG: ${{ needs.plan.outputs.tag }}
+        shell: bash
         run: |
-          # Write and read notes from a file to avoid quoting breaking things
-          echo "$ANNOUNCEMENT_BODY" > "$RUNNER_TEMP/notes.txt"
+          set -euo pipefail
+          # Prefer cargo-dist plan notes when present; release-please body stays
+          # if we only upload to an existing release.
+          plan_manifest=""
+          if [ -f artifacts/plan-dist-manifest.json ]; then
+            plan_manifest=artifacts/plan-dist-manifest.json
+          else
+            # download-artifact may nest by artifact name
+            plan_manifest=$(find artifacts -name 'plan-dist-manifest.json' 2>/dev/null | head -1 || true)
+          fi
+          if [ -n "${plan_manifest}" ] && [ -f "${plan_manifest}" ]; then
+            jq -r '.announcement_github_body // empty' "${plan_manifest}" > "$RUNNER_TEMP/notes.txt"
+            jq -c '{ci, announcement_is_prerelease, announcement_title, releases, publish_prereleases}' \
+              "${plan_manifest}" > "$RUNNER_TEMP/slim-manifest.json"
+          else
+            : > "$RUNNER_TEMP/notes.txt"
+            echo '{}' > "$RUNNER_TEMP/slim-manifest.json"
+          fi
 
-          # shellcheck disable=SC2086 # PRERELEASE_FLAG is empty or --prerelease
-          gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+          # Drop granular manifests so only distributable files are uploaded.
+          find artifacts -name '*-dist-manifest.json' -delete 2>/dev/null || true
+
+          mapfile -t asset_files < <(find artifacts -type f ! -name '.*' | sort)
+          if [[ ${#asset_files[@]} -eq 0 ]]; then
+            echo "error: no release artifacts found under artifacts/" >&2
+            exit 1
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists (created by release-please). Uploading artifacts..."
+            gh release upload "$TAG" "${asset_files[@]}" --clobber
+          else
+            # shellcheck disable=SC2086 # PRERELEASE_FLAG is empty or --prerelease
+            gh release create "$TAG" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG \
+              --title "${ANNOUNCEMENT_TITLE:-$TAG}" \
+              --notes-file "$RUNNER_TEMP/notes.txt" \
+              "${asset_files[@]}"
+          fi
+
+          # Optional curated override (commit RELEASE_NOTES.md to main before merge).
+          if [ -f RELEASE_NOTES.md ]; then
+            echo "Applying RELEASE_NOTES.md override..."
+            gh release edit "$TAG" --notes-file RELEASE_NOTES.md
+          fi
+
+          echo "manifest=$(cat "$RUNNER_TEMP/slim-manifest.json")" >> "$GITHUB_OUTPUT"
 
       - name: Generate SBOM
         run: |
           cargo install cargo-cyclonedx --locked
           cargo cyclonedx --format json --all
-          mv bom.json assura-sbom.cdx.json
+          # cargo-cyclonedx may write bom.json or assura-*.cdx.json depending on version
+          if [ -f bom.json ]; then
+            mv bom.json assura-sbom.cdx.json
+          else
+            sbom=$(find . -maxdepth 1 -name '*.cdx.json' -print -quit)
+            if [ -n "$sbom" ]; then
+              mv "$sbom" assura-sbom.cdx.json
+            else
+              echo "error: no CycloneDX SBOM produced" >&2
+              exit 1
+            fi
+          fi
 
       - name: Upload SBOM to release
         run: gh release upload "${{ needs.plan.outputs.tag }}" assura-sbom.cdx.json --clobber
@@ -353,7 +481,7 @@ jobs:
     needs:
       - plan
       - host
-    if: ${{ always() && needs.host.result == 'success' && needs.plan.outputs.publishing == 'true' }}
+    if: ${{ always() && !cancelled() && needs.host.result == 'success' && needs.plan.outputs.publishing == 'true' }}
     runs-on: "ubuntu-22.04"
     timeout-minutes: 30
     steps:
@@ -364,6 +492,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
+          ref: ${{ needs.plan.outputs.tag }}
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
@@ -390,20 +519,21 @@ jobs:
     needs:
       - plan
       - host
-    # use "always() && ..." to allow us to wait for all publish jobs while
-    # still allowing individual publish jobs to skip themselves (for prereleases).
-    # "host" however must run to completion, no skipping allowed!
-    if: ${{ always() && needs.host.result == 'success' }}
+      - publish-crates
+    # Wait for publish while still allowing publish to be the only blocker when host ok.
+    if: ${{ always() && !cancelled() && needs.host.result == 'success' && (needs.publish-crates.result == 'skipped' || needs.publish-crates.result == 'success') }}
     runs-on: "ubuntu-22.04"
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          persist-credentials: false
-          submodules: recursive
+      - name: Announce release complete
+        run: |
+          echo "Release pipeline finished for tag: ${TAG}"
+          gh release view "$TAG" --json url,tagName,isDraft,isPrerelease \
+            --jq '"url=\(.url) tag=\(.tagName) draft=\(.isDraft) prerelease=\(.isPrerelease)"'
