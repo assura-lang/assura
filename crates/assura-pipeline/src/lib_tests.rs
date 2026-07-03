@@ -944,16 +944,29 @@ fn decl_summary_formats_extern_name() {
 }
 
 // -------------------------------------------------------------------
-// assura_test_support helpers (#634): at least one external caller each
+// In-crate verify helpers (no assura-test-support; keeps package publishable)
 // -------------------------------------------------------------------
 
+fn test_config() -> CompilerConfig {
+    CompilerConfig {
+        verify: assura_config::VerifyOptions::for_tests(),
+        ..CompilerConfig::default()
+    }
+}
+
 #[test]
-fn support_verify_strict_ok_on_trivial_contract() {
+fn verify_strict_ok_on_trivial_contract() {
     // A contract whose ensures is implied by its requires.
-    // Z3 should verify this with no Unknown results.
-    let output = assura_test_support::verify_strict_ok(
+    let output = compile_full(
         "contract StrictTest {\n  input(x: Int)\n  requires { x > 0 }\n  ensures { x > 0 }\n}",
         "strict.assura",
+        &test_config(),
+    );
+    assert!(!output.has_errors, "diagnostics: {:?}", output.diagnostics);
+    assert!(
+        crate::verification_strict_succeeded(&output.verification),
+        "got: {:?}",
+        output.verification
     );
     assert!(
         !output.verification.is_empty(),
@@ -962,12 +975,12 @@ fn support_verify_strict_ok_on_trivial_contract() {
 }
 
 #[test]
-fn support_verify_result_returns_output() {
-    let output = assura_test_support::verify_result(
+fn verify_result_returns_output() {
+    let output = compile_full(
         "contract VR {\n  input(n: Int)\n  requires { n >= 0 }\n  ensures { n >= 0 }\n}",
         "vr.assura",
+        &test_config(),
     );
-    // verify_result does not assert; we inspect manually.
     assert!(!output.has_errors, "valid source should not have errors");
     assert!(
         !output.verification.is_empty(),
@@ -976,22 +989,34 @@ fn support_verify_result_returns_output() {
 }
 
 #[test]
-fn support_expect_error_codes_catches_type_mismatch() {
-    let output = assura_test_support::verify_result(
+fn expect_error_codes_catches_type_mismatch() {
+    let output = compile(
         "contract Bad {\n  input(x: Int)\n  requires { x + \"hello\" }\n}",
         "bad.assura",
+        &CompilerConfig::default(),
     );
     assert!(output.has_errors);
-    assura_test_support::expect_error_codes(&output, &["A03001"]);
+    let codes: Vec<_> = output
+        .diagnostics
+        .iter()
+        .filter(|d| d.severity == assura_diagnostics::Severity::Error)
+        .map(|d| d.code.as_str().to_string())
+        .collect();
+    assert!(
+        codes.iter().any(|c| c == "A03001"),
+        "expected A03001, got {codes:?}"
+    );
 }
 
 #[test]
-fn support_expect_verify_limitation_on_incremental() {
-    // The zlib demo's incremental_contract feature is not encoded in SMT,
-    // producing a known-limitation Unknown.
-    let src = assura_test_support::load_fixture("demos/zlib-inflate.assura");
-    let output = assura_test_support::expect_verify_limitation(&src, "zlib.assura");
-    // Should have at least one Unknown with the limitation marker.
+fn expect_verify_limitation_on_incremental() {
+    // The zlib demo's incremental_contract feature is not encoded in SMT.
+    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest.parent().and_then(|p| p.parent()).expect("root");
+    let src =
+        std::fs::read_to_string(root.join("demos/zlib-inflate.assura")).expect("read zlib demo");
+    let output = compile_full(&src, "zlib.assura", &test_config());
+    assert!(!output.has_errors, "diagnostics: {:?}", output.diagnostics);
     let has_limitation = output.verification.iter().any(|r| {
         matches!(
             r,
@@ -999,7 +1024,11 @@ fn support_expect_verify_limitation_on_incremental() {
                 if assura_smt::is_known_smt_limitation(reason)
         )
     });
-    assert!(has_limitation);
+    assert!(
+        has_limitation,
+        "expected known SMT limitation, got: {:?}",
+        output.verification
+    );
 }
 
 // -------------------------------------------------------------------

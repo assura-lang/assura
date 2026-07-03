@@ -171,11 +171,8 @@ name = "assura-codegen"
 version = "0.1.0"
 dependencies = [
  "assura-ast",
- "assura-config",
  "assura-parser",
- "assura-pipeline",
  "assura-resolve",
- "assura-test-support",
  "assura-types",
  "prettyplease",
  "serde",
@@ -289,7 +286,6 @@ dependencies = [
  "assura-parser",
  "assura-resolve",
  "assura-smt",
- "assura-test-support",
  "assura-types",
  "serde",
  "serde_json",
@@ -346,9 +342,8 @@ version = "0.1.0"
 dependencies = [
  "assura-ast",
  "assura-config",
- "assura-pipeline",
+ "assura-parser",
  "assura-resolve",
- "assura-test-support",
  "assura-types",
  "cvc5",
  "rayon",
@@ -388,7 +383,6 @@ dependencies = [
  "assura-diagnostics",
  "assura-parser",
  "assura-resolve",
- "assura-test-support",
 ]
 
 [[package]]

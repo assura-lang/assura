@@ -15,5 +15,3 @@ assura-resolve = { version = "0.1.0", path = "../assura-resolve" }
 assura-config = { version = "0.1.0", path = "../assura-config" }
 assura-diagnostics = { version = "0.1.0", path = "../assura-diagnostics" }
 
-[dev-dependencies]
-assura-test-support = { version = "0.1.0", path = "../assura-test-support" }

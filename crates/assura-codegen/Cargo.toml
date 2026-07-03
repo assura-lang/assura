@@ -13,14 +13,9 @@ categories.workspace = true
 assura-ast = { version = "0.1.0", path = "../assura-ast" }
 assura-resolve = { version = "0.1.0", path = "../assura-resolve" }
 assura-types = { version = "0.1.0", path = "../assura-types" }
+assura-parser = { version = "0.1.0", path = "../assura-parser" }
 prettyplease = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 syn = "2"
 
-[dev-dependencies]
-assura-parser = { version = "0.1.0", path = "../assura-parser" }
-assura-pipeline = { version = "0.1.0", path = "../assura-pipeline" }
-assura-config = { version = "0.1.0", path = "../assura-config" }
-assura-resolve = { version = "0.1.0", path = "../assura-resolve" }
-assura-test-support = { version = "0.1.0", path = "../assura-test-support" }

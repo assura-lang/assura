@@ -794,13 +794,6 @@ mod tests {
                 ensures(result: Int)
             }
         "#;
-        let out = assura_test_support::compile_result(src, "fx.assura");
-        assert!(
-            assura_test_support::has_error_code(&out, "A07003"),
-            "expected A07003 for unknown effect 'memory', got: {:?}",
-            assura_test_support::error_codes(&out)
-        );
-        // Keep legacy shape check for type_check direct path (errors vec)
         let file = assura_parser::parse_unwrap(src);
         let resolved = assura_resolve::resolve(&file).expect("resolve failed");
         let result = type_check(resolved);
@@ -825,13 +818,6 @@ mod tests {
                 ensures(result: Int)
             }
         "#;
-        // compile_result is fine here (no TypedFile return from support into this crate)
-        let out = assura_test_support::compile_result(src, "add.assura");
-        assert!(
-            !out.has_errors,
-            "valid contract should type-check: {:?}",
-            assura_test_support::error_codes(&out)
-        );
         let file = assura_parser::parse_unwrap(src);
         let resolved = assura_resolve::resolve(&file).expect("resolve failed");
         let result = type_check(resolved);

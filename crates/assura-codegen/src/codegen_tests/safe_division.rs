@@ -9,12 +9,7 @@ fn e2e_safe_division_check_passes() {
     // Parse the e2e test file through the full pipeline
     let source = std::fs::read_to_string("../../tests/e2e/safe_division.assura")
         .expect("failed to read safe_division.assura");
-    let out = assura_pipeline::compile(
-        &source,
-        "test.assura",
-        &assura_config::CompilerConfig::default(),
-    );
-    let file = out.file.expect("parse");
+    let file = assura_parser::parse_unwrap(&source);
     let resolved = assura_resolve::resolve(&file).expect("resolution should succeed");
     let typed = assura_types::type_check(resolved).expect("type check should succeed");
 

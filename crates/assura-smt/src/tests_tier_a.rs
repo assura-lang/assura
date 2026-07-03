@@ -216,7 +216,7 @@ fn tier_a3_frame_preserves_unmodified_param_not_in_ensures_text() {
             ensures { y == old(y) }
         }
     "#;
-    let typed = assura_test_support::typecheck_ok(src);
+    let typed = crate::test_util::typecheck_ok(src);
     let results = verify(&typed);
     assert!(
         results
@@ -262,7 +262,7 @@ module copy {
     .unwrap();
 
     let src = std::fs::read_to_string(&assura_path).unwrap();
-    let typed = assura_test_support::typecheck_ok(&src);
+    let typed = crate::test_util::typecheck_ok(&src);
     let loaded = crate::ir_loader::LoadedVerifyExtras::load(&assura_path, &typed);
     assert!(
         !loaded.is_empty(),
@@ -301,7 +301,7 @@ fn tier_a3_old_ident_in_ensures_with_modifies_verifies_tautology() {
             ensures { old(b) >= 0 || old(b) < 0 }
         }
     "#;
-    let typed = assura_test_support::typecheck_ok(src);
+    let typed = crate::test_util::typecheck_ok(src);
     let results = verify(&typed);
     let ensures = results.iter().find(|r| match r {
         VerificationResult::Verified { clause_desc, .. }

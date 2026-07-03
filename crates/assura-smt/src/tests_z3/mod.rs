@@ -2,7 +2,7 @@ use super::*;
 use assura_ast::{BinOp, Expr, Literal, SpExpr, Spanned};
 
 fn verify_source(source: &str) -> Vec<VerificationResult> {
-    let typed = assura_test_support::typecheck_ok(source);
+    let typed = crate::test_util::typecheck_ok(source);
     verify(&typed)
 }
 

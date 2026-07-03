@@ -714,21 +714,21 @@ fn fs_cache_entry_count() {
 #[test]
 fn has_verifiable_clauses_true_for_requires() {
     let src = "contract Foo { requires x > 0 }";
-    let file = assura_test_support::parse_ok(src);
+    let file = crate::test_util::parse_ok(src);
     assert!(has_verifiable_clauses(&file));
 }
 
 #[test]
 fn has_verifiable_clauses_false_for_effects_only() {
     let src = "contract Bar { effects io }";
-    let file = assura_test_support::parse_ok(src);
+    let file = crate::test_util::parse_ok(src);
     assert!(!has_verifiable_clauses(&file));
 }
 
 #[test]
 fn has_verifiable_clauses_false_for_empty() {
     let src = "contract Empty { }";
-    let file = assura_test_support::parse_ok(src);
+    let file = crate::test_util::parse_ok(src);
     assert!(!has_verifiable_clauses(&file));
 }
 

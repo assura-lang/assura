@@ -1,12 +1,15 @@
 use super::*;
 
-/// Helper: parse + resolve + type-check via shared test support, then local codegen.
-///
-/// Uses `typecheck_ok` (not `codegen_ok`) so `GeneratedProject` is always
-/// produced by *this* crate instance (avoiding duplicate assura-codegen types
-/// when assura-test-support also depends on assura-codegen).
+/// Parse + resolve + type-check using published workspace deps only.
+fn typecheck_ok(source: &str) -> assura_types::TypedFile {
+    let file = assura_parser::parse_unwrap(source);
+    let resolved = assura_resolve::resolve(&file).expect("resolve should succeed");
+    assura_types::type_check(resolved).expect("type check should succeed")
+}
+
+/// Type-check then run local codegen.
 fn codegen_ok(source: &str) -> GeneratedProject {
-    let typed = assura_test_support::typecheck_ok(source);
+    let typed = typecheck_ok(source);
     codegen(&typed)
 }
 

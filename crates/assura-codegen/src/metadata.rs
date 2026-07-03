@@ -309,6 +309,12 @@ pub fn implementation_guidance_comment(c: &ContractDecl) -> String {
 mod tests {
     use super::*;
 
+    fn typecheck_ok(source: &str) -> assura_types::TypedFile {
+        let file = assura_parser::parse_unwrap(source);
+        let resolved = assura_resolve::resolve(&file).expect("resolve should succeed");
+        assura_types::type_check(resolved).expect("type check should succeed")
+    }
+
     #[test]
     fn metadata_extracts_contract_info() {
         let source = r#"
@@ -318,7 +324,7 @@ contract SafeDiv {
     ensures { result == a / b }
 }
 "#;
-        let typed = assura_test_support::typecheck_ok(source);
+        let typed = typecheck_ok(source);
         let meta = extract_metadata(&typed, "test.assura");
 
         assert_eq!(meta.source, "test.assura");
@@ -338,7 +344,7 @@ extern fn compute(x: Int, y: Int) -> Int
     requires { y > 0 }
     effects { io }
 "#;
-        let typed = assura_test_support::typecheck_ok(source);
+        let typed = typecheck_ok(source);
         let meta = extract_metadata(&typed, "test.assura");
 
         assert!(!meta.contracts.is_empty());
@@ -378,7 +384,7 @@ contract Add {
     ensures { result == a + b }
 }
 "#;
-        let typed = assura_test_support::typecheck_ok(source);
+        let typed = typecheck_ok(source);
         let meta = extract_metadata(&typed, "test.assura");
         let json = serde_json::to_string_pretty(&meta).unwrap();
         assert!(json.contains("\"name\": \"Add\""));

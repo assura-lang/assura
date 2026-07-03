@@ -30,8 +30,8 @@ fn sanitize(raw: Bytes) -> Bytes
 
 #[test]
 fn test_result_length_verifies() {
-    let src = assura_test_support::load_fixture("tests/fixtures/test_sec.assura");
-    let typed = assura_test_support::typecheck_ok(&src);
+    let src = crate::test_util::load_fixture("tests/fixtures/test_sec.assura");
+    let typed = crate::test_util::typecheck_ok(&src);
     let results = verify(&typed);
     let sanitize_ensures = results.iter().find(|r| match r {
         VerificationResult::Verified { clause_desc, .. }
@@ -128,6 +128,6 @@ module copy {
 }
 
 fn verify_source(source: &str) -> Vec<VerificationResult> {
-    let typed = assura_test_support::typecheck_ok(source);
+    let typed = crate::test_util::typecheck_ok(source);
     verify(&typed)
 }
