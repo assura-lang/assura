@@ -26,8 +26,10 @@ permissions:
 # Per-job CARGO_TARGET_DIR prevents cache key collisions.
 # CARGO_INCREMENTAL=0 avoids wasting disk on incremental artifacts.
 #
-# benchmark, codegen, and cvc5 are serialized after clippy/test
-# to limit concurrent resource usage.
+# Jobs run on free GitHub-hosted VMs (one machine per job). Heavy work
+# (clippy, test, bench, codegen, cvc5, no-z3) is intentionally parallel
+# after `changes`; do not re-serialize them "to save resources" unless
+# returning to a shared self-hosted runner with limited RAM/disk.
 #
 # Filter groups:
 #   rust           - any Rust crate or workspace file changed
@@ -100,15 +102,15 @@ jobs:
               - '.github/actions/**'
               - '.github/zizmor.yml'
 
-  # ── Clippy + fmt ──────────────────────────────────────────────────────────
-  clippy:
+  # ── Fast lint (fmt, guards, cargo-deny; no workspace compile) ─────────────
+  # Separate from clippy so the heavy compile does not wait on deny/fmt, and
+  # so deny failures do not force a full re-clippy when only deny.toml changed.
+  lint-fast:
+    name: Fast lint
     needs: changes
     if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      CARGO_TARGET_DIR: target/ci-clippy
-      CARGO_INCREMENTAL: '0'
+    timeout-minutes: 10
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -120,8 +122,16 @@ jobs:
 
       - uses: ./.github/actions/setup-rust-ci
         with:
-          shared-key: ci-clippy
-          toolchain-components: clippy, rustfmt
+          shared-key: ci-lint-fast
+          toolchain-components: rustfmt
+          # Skip Z3/protobuf/OpenSSL: this job only runs fmt, guards, cargo-deny.
+          install-system-deps: 'false'
+
+      # guards.sh uses ripgrep; full system-deps install is unnecessary here.
+      - name: Install ripgrep
+        run: sudo apt-get install -y ripgrep
+        env:
+          DEBIAN_FRONTEND: noninteractive
 
       - name: Install cargo-deny
         uses: taiki-e/install-action@0c80bcf54d007ab0e714c95f3bcc43c387707535 # v2
@@ -143,8 +153,30 @@ jobs:
         if: ${{ !cancelled() }}
         run: cargo deny check
 
+  # ── Clippy (parallel with test / lint-fast / heavy jobs) ──────────────────
+  clippy:
+    needs: changes
+    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_TARGET_DIR: target/ci-clippy
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-rust-ci
+        with:
+          shared-key: ci-clippy
+          toolchain-components: clippy
+
       - name: Clippy
-        if: ${{ !cancelled() }}
         run: cargo clippy --workspace --locked -- -D warnings
 
   # ── Workflow linting (actionlint + zizmor) ────────────────────────────────
@@ -209,11 +241,11 @@ jobs:
 
 
 
-  # ── Pipeline benchmarks (compile + smoke run; no timing thresholds) ─────
+  # ── Pipeline benchmarks (parallel; free hosted VMs, no self-host throttle) ─
   benchmark:
     name: Pipeline benchmarks
-    needs: [changes, clippy]
-    if: ${{ always() && !failure() && !cancelled() && (needs.changes.outputs.codegen == 'true' || needs.changes.outputs.tooling-only == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
+    needs: changes
+    if: ${{ needs.changes.outputs.codegen == 'true' || needs.changes.outputs.tooling-only == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -248,11 +280,11 @@ jobs:
 
 
 
-  # ── Generated code compiles (serialized after test) ──────────────────────
+  # ── Generated code compiles (parallel with test on free hosted runners) ──
   codegen-validation:
     name: Generated code compiles
-    needs: [changes, test]
-    if: ${{ always() && !failure() && !cancelled() && (needs.changes.outputs.codegen == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
+    needs: changes
+    if: ${{ needs.changes.outputs.codegen == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -323,11 +355,11 @@ jobs:
       - name: Build without Z3 (graceful fallback)
         run: cargo check -p assura-smt --no-default-features --locked
 
-  # ── CVC5 native integration tests ───────────────────────────────────────
+  # ── CVC5 native integration tests (parallel with test) ──────────────────
   cvc5:
     name: CVC5 native tests
-    needs: [changes, test]
-    if: ${{ always() && !failure() && !cancelled() && (needs.changes.outputs.smt == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') }}
+    needs: changes
+    if: ${{ needs.changes.outputs.smt == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -442,7 +474,7 @@ jobs:
   # ── Gate job (single required status check for branch protection) ────
   ci:
     if: always()
-    needs: [clippy, test, benchmark, codegen-validation, no-z3, cvc5, tree-sitter, vscode-extension, workflow-sanity]
+    needs: [lint-fast, clippy, test, benchmark, codegen-validation, no-z3, cvc5, tree-sitter, vscode-extension, workflow-sanity]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
