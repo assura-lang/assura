@@ -82,5 +82,9 @@
     "@vscode/test-electron": "^3.0.0",
     "mocha": "^11.7.6",
     "glob": "^13.0.6"
+  },
+  "overrides": {
+    "serialize-javascript": "^7.0.5",
+    "diff": "^8.0.3"
   }
 }
