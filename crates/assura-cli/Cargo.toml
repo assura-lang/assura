@@ -8,6 +8,9 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
+# Binary ships via cargo-dist GitHub Releases. Normal deps include
+# unpublished workspace crates (pipeline, lsp, mcp, llm, …).
+publish = false
 
 [lib]
 name = "assura"
