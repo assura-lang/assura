@@ -25,12 +25,7 @@ fn backend_cranelift_fast_dev() {
 }
 
 fn codegen_with_config_ok(source: &str, config: super::BackendConfig) -> super::GeneratedProject {
-    let out = assura_pipeline::compile(
-        source,
-        "test.assura",
-        &assura_config::CompilerConfig::default(),
-    );
-    let file = out.file.expect("parse");
+    let file = assura_parser::parse_unwrap(source);
     let resolved = assura_resolve::resolve(&file).expect("resolve failed");
     let typed = assura_types::type_check(resolved).expect("type check failed");
     super::codegen_with_config(&typed, &config)
@@ -269,9 +264,7 @@ fn codegen_with_config_produces_profile() {
         ..Default::default()
     };
     let project = {
-        let out =
-            assura_pipeline::compile("", "test.assura", &assura_config::CompilerConfig::default());
-        let file = out.file.expect("parse");
+        let file = assura_parser::parse_unwrap("");
         let resolved = assura_resolve::resolve(&file).expect("resolve failed");
         let typed = assura_types::type_check(resolved).expect("type check failed");
         super::codegen_with_config(&typed, &config)
@@ -1561,12 +1554,7 @@ contract NoErrors {
 // --- WASM target tests ---
 
 fn codegen_wasm(source: &str) -> GeneratedProject {
-    let out = assura_pipeline::compile(
-        source,
-        "test.assura",
-        &assura_config::CompilerConfig::default(),
-    );
-    let file = out.file.expect("parse");
+    let file = assura_parser::parse_unwrap(source);
     let resolved = assura_resolve::resolve(&file).expect("resolve failed");
     let typed = assura_types::type_check(resolved).expect("type check failed");
     let config = BackendConfig {
@@ -3475,8 +3463,7 @@ service DataStore {
 
 #[test]
 fn runtime_checks_via_codegen_with_config() {
-    let source =
-        "contract SafeDiv { requires(a: Int, b: Int) { b != 0 } ensures(result: Int) { true } }";
+    let source = "contract SafeDiv {\n  requires(a: Int, b: Int)\n  requires { b != 0 }\n  ensures(result: Int)\n  ensures { true }\n}";
     let project = codegen_with_config_ok(
         source,
         super::BackendConfig {
@@ -3498,8 +3485,8 @@ fn runtime_checks_via_codegen_with_config() {
 #[test]
 fn multi_file_ir_bodies_propagate_to_per_contract_files() {
     let source = "\
-contract Alpha { requires(x: Int) { x > 0 } ensures(result: Int) { true } }
-contract Beta { requires(y: Int) { y >= 0 } ensures(result: Int) { true } }";
+contract Alpha {\n  requires(x: Int)\n  requires { x > 0 }\n  ensures(result: Int)\n  ensures { true }\n}
+contract Beta {\n  requires(y: Int)\n  requires { y >= 0 }\n  ensures(result: Int)\n  ensures { true }\n}";
     let mut ir_bodies = std::collections::HashMap::new();
     ir_bodies.insert("Alpha".to_string(), "x + 1".to_string());
     ir_bodies.insert("Beta".to_string(), "y * 2".to_string());

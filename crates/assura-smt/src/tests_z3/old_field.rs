@@ -145,7 +145,7 @@ fn test_invariant_always_true() {
 
 #[test]
 fn test_e2e_verified_positive_file() {
-    let src = assura_test_support::load_fixture("tests/e2e/verified_positive.assura");
+    let src = crate::test_util::load_fixture("tests/e2e/verified_positive.assura");
     let results = verify_source(&src);
     assert!(!results.is_empty());
     assert!(
@@ -157,7 +157,7 @@ fn test_e2e_verified_positive_file() {
 
 #[test]
 fn test_e2e_counterexample_file() {
-    let src = assura_test_support::load_fixture("tests/e2e/counterexample_simple.assura");
+    let src = crate::test_util::load_fixture("tests/e2e/counterexample_simple.assura");
     let results = verify_source(&src);
     assert!(!results.is_empty());
     assert!(
@@ -169,7 +169,7 @@ fn test_e2e_counterexample_file() {
 
 #[test]
 fn test_e2e_arithmetic_file() {
-    let src = assura_test_support::load_fixture("tests/e2e/verified_arithmetic.assura");
+    let src = crate::test_util::load_fixture("tests/e2e/verified_arithmetic.assura");
     let results = verify_source(&src);
     // Should have results for both contracts
     assert!(

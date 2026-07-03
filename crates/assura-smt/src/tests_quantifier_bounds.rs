@@ -1,7 +1,7 @@
 use super::*;
 
 fn type_check_source(source: &str) -> assura_types::TypedFile {
-    assura_test_support::typecheck_ok(source)
+    crate::test_util::typecheck_ok(source)
 }
 
 #[test]

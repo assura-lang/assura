@@ -18,6 +18,8 @@ cvc5-verify = ["dep:cvc5"]
 assura-ast = { version = "0.1.0", path = "../assura-ast" }
 assura-types = { version = "0.1.0", path = "../assura-types" }
 assura-config = { version = "0.1.0", path = "../assura-config" }
+assura-parser = { version = "0.1.0", path = "../assura-parser" }
+assura-resolve = { version = "0.1.0", path = "../assura-resolve" }
 z3 = { version = "0.20", optional = true, features = ["gh-release"] }
 cvc5 = { version = "0.4", optional = true, features = ["static"] }
 serde = { version = "1", features = ["derive"] }
@@ -26,8 +28,4 @@ rayon = "1"
 sha2 = "0.11"
 
 [dev-dependencies]
-assura-pipeline = { version = "0.1.0", path = "../assura-pipeline" }
-assura-config = { version = "0.1.0", path = "../assura-config" }
-assura-resolve = { version = "0.1.0", path = "../assura-resolve" }
-assura-test-support = { version = "0.1.0", path = "../assura-test-support" }
 tempfile = "3"

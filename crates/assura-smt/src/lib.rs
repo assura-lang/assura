@@ -251,6 +251,10 @@ mod z3_backend;
 // Tests
 // ---------------------------------------------------------------------------
 
+#[cfg(test)]
+mod test_util;
+
+
 #[cfg(all(test, feature = "z3-verify"))]
 mod tests_z3;
 
