@@ -57,7 +57,7 @@ use assura_parser::features::FeatureCategory;
 /// selective execution, and pipeline introspection. `dispatch` is used at
 /// runtime; `name` and `category` are read in tests (uniqueness, non-empty,
 /// category coverage).
-#[expect(dead_code)]
+#[cfg_attr(not(test), expect(dead_code))]
 struct CheckerEntry {
     /// Human-readable name for error attribution and logging.
     name: &'static str,

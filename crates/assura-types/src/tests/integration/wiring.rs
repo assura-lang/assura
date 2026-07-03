@@ -899,7 +899,6 @@ liveness GoodBlock {
 }
 
 #[test]
-#[ignore = "A31007 fairness checking not yet implemented; liveness clauses now parse correctly (#716)"]
 fn liveness_leads_to_without_fair_emits_a_core_031() {
     let source = r#"
 liveness LeadsToNoFair {
@@ -911,6 +910,26 @@ liveness LeadsToNoFair {
     assert!(
         errs.iter().any(|e| e.code == "A31007"),
         "expected A31007 for leads_to without assume fair, got: {errs:?}"
+    );
+}
+
+#[test]
+fn liveness_leads_to_with_assume_fair_ok() {
+    let source = r#"
+liveness LeadsToWithFair {
+    assume: fair
+    prove: leads_to(waiting, served)
+}
+"#;
+    let resolved = resolve_ok(source);
+    let result = type_check(resolved);
+    assert!(
+        result.is_ok()
+            || result
+                .as_ref()
+                .err()
+                .is_some_and(|errs| !errs.iter().any(|e| e.code == "A31007")),
+        "should not emit A31007 when assume fair is present, got: {result:?}"
     );
 }
 
