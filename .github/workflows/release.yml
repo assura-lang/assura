@@ -42,6 +42,7 @@ on:
   push:
     tags:
       - '**[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
 
 concurrency:
   group: release-${{ github.ref }}
@@ -123,6 +124,7 @@ jobs:
       BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
     steps:
       - name: Harden runner
+        if: runner.os == 'Linux'
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
@@ -341,7 +343,7 @@ jobs:
           # Publish in dependency order with retry
           for crate in assura-diagnostics assura-ast assura-macros assura-parser assura-stdlib assura-resolve assura-types assura-config assura-fmt assura-smt assura-codegen assura; do
             echo "=== Publishing $crate ==="
-            cargo publish -p "$crate" --no-verify
+            cargo publish -p "$crate" --no-verify || true
             # Wait for crates.io index to update
             sleep 30
           done

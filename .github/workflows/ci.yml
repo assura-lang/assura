@@ -11,7 +11,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -393,3 +393,27 @@ jobs:
       - name: Compile TypeScript
         working-directory: editors/vscode
         run: npx tsc -p ./
+
+  # ── Gate job (single required status check for branch protection) ────
+  ci:
+    if: always()
+    needs: [clippy, test, benchmark, codegen-validation, no-z3, cvc5, tree-sitter, vscode-extension]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: Check job results
+        run: |
+          # Fail if any needed job failed (skipped is OK for path-filtered jobs)
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
+            echo "One or more CI jobs failed"
+            exit 1
+          fi
+          if [[ "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more CI jobs were cancelled"
+            exit 1
+          fi
+          echo "All CI jobs passed or were skipped"

@@ -28,6 +28,26 @@ updates:
           - "prost"
           - "prost-*"
 
+  - package-ecosystem: npm
+    directory: "/editors/vscode"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: npm
+    directory: "/editors/tree-sitter-assura"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "deps"
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
