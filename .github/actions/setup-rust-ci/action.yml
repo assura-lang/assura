@@ -11,30 +11,16 @@ inputs:
   toolchain-components:
     description: Extra rustup components (e.g. "clippy, rustfmt")
     default: ''
-  is-self-hosted:
-    description: "'true' when running on a self-hosted runner (vars context is unavailable in composite actions)"
-    default: 'false'
 
 runs:
   using: composite
   steps:
-    - name: Setup self-hosted Rust environment
-      if: ${{ inputs.is-self-hosted == 'true' }}
-      shell: bash
-      run: |
-        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-        export SCCACHE_CACHE_SIZE="5G"
-        echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
-        sccache --start-server 2>/dev/null || true
-
     - name: Setup Rust toolchain
-      if: ${{ inputs.is-self-hosted != 'true' }}
       uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
       with:
         components: ${{ inputs.toolchain-components }}
 
     - name: Cache dependencies
-      if: ${{ inputs.is-self-hosted != 'true' }}
       uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
       with:
         shared-key: ${{ inputs.shared-key }}

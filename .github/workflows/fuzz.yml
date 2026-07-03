@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   fuzz:
-    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       CARGO_TARGET_DIR: target/fuzz-ci

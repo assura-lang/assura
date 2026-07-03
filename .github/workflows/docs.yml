@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Harden runner
@@ -48,7 +48,7 @@ jobs:
 
   deploy:
     needs: build
-    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     environment:
       name: github-pages

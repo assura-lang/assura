@@ -15,13 +15,11 @@ permissions:
 jobs:
   full-test:
     name: Full test suite
-    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       CARGO_TARGET_DIR: target/ci-nightly
-      RUSTC_WRAPPER: sccache
       CARGO_INCREMENTAL: '0'
-      CARGO_BUILD_JOBS: '6'
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -31,34 +29,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup self-hosted Rust environment
-        if: ${{ vars.RUNNER }}
-        run: |
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          export SCCACHE_CACHE_SIZE="5G"
-          echo "SCCACHE_CACHE_SIZE=5G" >> "$GITHUB_ENV"
-          sccache --start-server 2>/dev/null || true
-
-      - name: Check disk space
-        run: |
-          avail=$(df -k / | awk 'NR==2{print $4}')
-          echo "Available disk: $(df -h / | awk 'NR==2{print $4}')"
-          if [ "$avail" -lt 20971520 ]; then
-            echo "::warning::Less than 20GB free disk space. Compilation may fail with SIGKILL."
-          fi
-          if [ "$avail" -lt 5242880 ]; then
-            echo "::error::Less than 5GB free disk space. Aborting to prevent SIGKILL during compilation."
-            exit 1
-          fi
-
       - name: Setup Rust toolchain
-        if: ${{ !vars.RUNNER }}
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           components: clippy, rustfmt
 
       - name: Cache dependencies
-        if: ${{ !vars.RUNNER }}
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: ci-nightly
@@ -122,13 +98,9 @@ jobs:
             rm -rf "$gen_dir"
           done
 
-      - name: Cleanup target (self-hosted)
-        if: ${{ always() && vars.RUNNER }}
-        run: rm -rf "$CARGO_TARGET_DIR"
-
   no-z3-fallback:
     name: No-Z3 fallback
-    runs-on: ${{ vars.RUNNER && fromJSON(vars.RUNNER) || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Harden runner
@@ -138,14 +110,9 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
-      - name: Setup self-hosted Rust environment
-        if: ${{ vars.RUNNER }}
-        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Setup Rust toolchain
-        if: ${{ !vars.RUNNER }}
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
       - name: Cache dependencies
-        if: ${{ !vars.RUNNER }}
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: ci-nightly-no-z3
