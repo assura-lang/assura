@@ -79,6 +79,7 @@ rewritten accidentally:
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --locked -- -D warnings
+cargo deny check
 cargo clippy -p assura-smt --features cvc5-verify -- -D warnings
 cargo test --workspace --locked
 cargo check --no-default-features -p assura-smt
@@ -91,6 +92,17 @@ cargo fmt -- <changed files>
 cargo clippy -p <crate> --locked -- -D warnings
 cargo check -p <crate> --locked
 cargo test -p <crate> --locked --lib
+```
+
+`cargo deny check` enforces license, advisory, and source policies from
+`deny.toml` (same step as the CI clippy job). Install with
+`cargo install cargo-deny` if needed.
+
+When editing `.github/workflows/**` or `.github/actions/**`, also run:
+
+```bash
+actionlint -color
+zizmor --config .github/zizmor.yml .github/workflows/*.yml
 ```
 
 The `cvc5-verify` clippy pass mirrors the CI `cvc5` job and catches
