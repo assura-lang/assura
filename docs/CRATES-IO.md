@@ -104,7 +104,7 @@ CARGO_REGISTRY_TOKEN=… bash scripts/publish-crates.sh
 ### 1. Land release-please wiring on main
 
 Merge the CI PR that adds release-please. The next push to `main` runs
-`release-please`. With manifest last-version `0.0.0` and current workspace
+`release-please`. Config uses temporary `release-as: 0.1.0` for the first cut (otherwise hundreds of historical commits can compute `1.0.0`). With manifest last-version `0.0.0` and current workspace
 `0.1.0` history, it should open a release PR for the first version
 (typically `v0.1.0` when the highest conventional-commit signal is a feat
 or the computed next minor/patch under pre-1.0 rules).

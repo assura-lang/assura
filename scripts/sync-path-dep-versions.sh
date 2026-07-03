@@ -9,19 +9,23 @@ python3 - <<'PY'
 from __future__ import annotations
 
 import re
-import tomllib
 from pathlib import Path
 
 root = Path(".")
-data = tomllib.loads((root / "Cargo.toml").read_text())
-ver = data["workspace"]["package"]["version"]
+cargo = (root / "Cargo.toml").read_text()
+# Prefer workspace.package.version (works on Python 3.10 without tomllib).
+m = re.search(
+    r"(?ms)^\[workspace\.package\]\s*.*?^version\s*=\s*\"([^\"]+)\"",
+    cargo,
+)
+if not m:
+    raise SystemExit("could not find [workspace.package] version in Cargo.toml")
+ver = m.group(1)
 print(f"workspace version: {ver}")
 
-# Match version = "x.y.z" on lines that also declare path = (path deps only).
 line_re = re.compile(
     r'^(?P<pre>.*\bversion\s*=\s*)"(?P<old>[^"]+)"(?P<post>.*\bpath\s*=\s*".*".*)$'
 )
-# Also handle path before version on the same line.
 line_re_alt = re.compile(
     r'^(?P<pre>.*\bpath\s*=\s*"[^"]+".*\bversion\s*=\s*)"(?P<old>[^"]+)"(?P<post>.*)$'
 )
@@ -34,9 +38,9 @@ for path in sorted((root / "crates").glob("*/Cargo.toml")):
     for line in text.splitlines(keepends=True):
         raw = line.rstrip("\n")
         ending = line[len(raw) :]
-        m = line_re.match(raw) or line_re_alt.match(raw)
-        if m and m.group("old") != ver:
-            raw = f'{m.group("pre")}"{ver}"{m.group("post")}'
+        match = line_re.match(raw) or line_re_alt.match(raw)
+        if match and match.group("old") != ver:
+            raw = f'{match.group("pre")}"{ver}"{match.group("post")}'
             file_changed = True
         out_lines.append(raw + ending)
     if file_changed:
