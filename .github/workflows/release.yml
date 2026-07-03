@@ -14,9 +14,10 @@
 # title/body based on your changelogs.
 
 name: Release
+# Job-level permissions only. Workflow-level pull-requests: write trips zizmor
+# excessive-permissions (release-please job grants it where needed).
 permissions:
   contents: read
-  pull-requests: write
 
 # Release flow (release-please + cargo-dist + crates.io):
 #
@@ -98,11 +99,13 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           ref: ${{ steps.pr-branch.outputs.branch }}
-          # Default token is enough to push to the release-please branch in-repo.
-          # Push with GITHUB_TOKEN will not re-trigger workflows; that is fine.
+          # false for zizmor artipacked; push uses an explicit token below.
+          persist-credentials: false
       - name: Sync path-dep versions
         run: bash scripts/sync-path-dep-versions.sh
       - name: Commit and push if changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if git diff --quiet; then
             echo "path-dep versions already aligned"
@@ -112,6 +115,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add crates/*/Cargo.toml
           git commit -s -m "chore: sync path-dep versions with workspace version"
+          # GITHUB_TOKEN push will not re-trigger workflows; that is fine.
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push
           # NOTE: Do NOT edit the release-please PR body. release-please parses
           # it on merge to create the tag.
