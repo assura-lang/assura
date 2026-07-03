@@ -109,18 +109,31 @@ fn verify_and_print(
     (results, verify_ms)
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn run_build(
-    filename: &str,
-    output_mode: OutputMode,
-    verbosity: Verbosity,
-    cli_output: &str,
-    cli_target: Option<assura_codegen::CompileTarget>,
-    no_check: bool,
-    cli_solver: Option<assura_smt::SolverChoice>,
-    runtime_checks: bool,
-    auto_implement: bool,
-) {
+/// Options for `assura build`.
+pub(crate) struct BuildOpts<'a> {
+    pub filename: &'a str,
+    pub output_mode: OutputMode,
+    pub verbosity: Verbosity,
+    pub cli_output: &'a str,
+    pub cli_target: Option<assura_codegen::CompileTarget>,
+    pub no_check: bool,
+    pub cli_solver: Option<assura_smt::SolverChoice>,
+    pub runtime_checks: bool,
+    pub auto_implement: bool,
+}
+
+pub(crate) fn run_build(opts: BuildOpts<'_>) {
+    let BuildOpts {
+        filename,
+        output_mode,
+        verbosity,
+        cli_output,
+        cli_target,
+        no_check,
+        cli_solver,
+        runtime_checks,
+        auto_implement,
+    } = opts;
     let mut config_output_buf = String::new();
     let bc = resolve_build_config(
         filename,
