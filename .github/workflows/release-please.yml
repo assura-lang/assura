@@ -1,0 +1,110 @@
+# Opens/updates the release PR on every push to main, and when a release is
+# created (release PR merged), dispatches the cargo-dist Release workflow with
+# the new tag. GITHUB_TOKEN tags do not trigger on.push.tags, so we must
+# explicitly workflow_dispatch Release (see ci-build-release skill).
+#
+# Why a separate file: the cargo-dist Release workflow historically only ran
+# on tags and, after adding branches: [main], still recorded zero push events
+# (issue #785). A minimal dedicated workflow matches the official
+# release-please pattern and is reliable on push.
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+      pr: ${{ steps.rp.outputs.pr }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: rp
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  sync-path-dep-versions:
+    needs: [release-please]
+    if: >-
+      needs.release-please.outputs.release_created != 'true' &&
+      needs.release-please.outputs.pr != ''
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: Get PR branch
+        id: pr-branch
+        env:
+          PR_JSON: ${{ needs.release-please.outputs.pr }}
+        run: |
+          branch=$(echo "$PR_JSON" | jq -r .headBranchName)
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ steps.pr-branch.outputs.branch }}
+          persist-credentials: false
+      - name: Sync path-dep versions
+        run: bash scripts/sync-path-dep-versions.sh
+      - name: Commit and push if changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet; then
+            echo "path-dep versions already aligned"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/*/Cargo.toml
+          git commit -s -m "chore: sync path-dep versions with workspace version"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push
+
+  # GITHUB_TOKEN cannot trigger on.push.tags for the cargo-dist workflow.
+  # Explicitly dispatch Release with the new tag when a release is created.
+  dispatch-release:
+    needs: [release-please]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: Dispatch cargo-dist Release workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          echo "Dispatching Release for tag=${TAG}"
+          gh workflow run Release --repo "${GITHUB_REPOSITORY}" --ref main -f "tag=${TAG}"

@@ -35,12 +35,12 @@ those pins aligned on release PRs.
 
 ```
 push to main
-  └─ release-please
+  └─ release-please.yml
        ├─ opens/updates release PR (label: autorelease: pending)
        │    └─ sync-path-dep-versions (align path dep pins on that branch)
-       └─ when release PR is merged:
-            tag + GitHub Release (release_created=true)
-            └─ same workflow run:
+       └─ when release PR is merged (release_created=true):
+            tag + GitHub Release
+            └─ dispatches release.yml with tag=…
                  plan → build-local/global (cargo-dist) → host (upload assets)
                  → publish-crates (scripts/publish-crates.sh) → announce
 ```
@@ -48,8 +48,8 @@ push to main
 Important details (from project skills / past incidents):
 
 - Tags created with `GITHUB_TOKEN` **do not** start a separate `push: tags`
-  workflow. Builds and publish therefore run in the **same** workflow when
-  `release_created` is true (not “merge then hope a tag push fires”).
+  workflow. `release-please.yml` therefore **workflow_dispatch**es
+  `release.yml` with the tag input when a release is created (issue #785).
 - Auto-approve skips PRs labeled `autorelease: pending`. Release PRs must
   be merged by a human.
 - Use `chore:` for CI/docs/refactor. Reserve `fix:` / `feat:` for
@@ -65,7 +65,8 @@ Config files:
 | `.release-please-manifest.json` | Last released version per package (root `"."`) |
 | `scripts/publish-crates.sh` | Fail-closed graph filter + topo publish |
 | `scripts/sync-path-dep-versions.sh` | Path-dep `version=` pins = workspace version |
-| `.github/workflows/release.yml` | release-please + cargo-dist + publish-crates |
+| `.github/workflows/release-please.yml` | Opens release PR on main push; dispatches Release on create |
+| `.github/workflows/release.yml` | cargo-dist installers + publish-crates (tag / dispatch) |
 | `dist-workspace.toml` | cargo-dist targets / installers |
 
 ## Local dry-run (packaging only)
