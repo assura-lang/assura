@@ -10,10 +10,10 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-assura-parser = { path = "../assura-parser" }
-assura-resolve = { path = "../assura-resolve" }
-assura-config = { path = "../assura-config" }
-assura-diagnostics = { path = "../assura-diagnostics" }
+assura-parser = { version = "0.1.0", path = "../assura-parser" }
+assura-resolve = { version = "0.1.0", path = "../assura-resolve" }
+assura-config = { version = "0.1.0", path = "../assura-config" }
+assura-diagnostics = { version = "0.1.0", path = "../assura-diagnostics" }
 
 [dev-dependencies]
-assura-test-support = { path = "../assura-test-support" }
+assura-test-support = { version = "0.1.0", path = "../assura-test-support" }

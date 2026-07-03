@@ -8,6 +8,5 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
-publish = false
 
 [dependencies]
