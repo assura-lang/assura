@@ -3,13 +3,14 @@ exclude = [
   "127\\.0\\.0\\.1",
   "file://",
   # release-please compare/tag URLs reference versions that may not exist yet
-  "github\\.com/.*/compare/.*v.*\\.\\.\\..*v",
+  "github\\.com/.*/compare/",
   "github\\.com/.*/releases/tag/.*v\\d",
   # Placeholder domains used in examples
   "example\\.com",
   # Sites that block CI runner IPs
   "dl\\.acm\\.org",
   "reddit\\.com",
-  # Badge services that may rate-limit CI runners
+  # Badge services and sites that block/reset CI runner connections
   "scorecard\\.dev",
+  "contributor-covenant\\.org",
 ]
