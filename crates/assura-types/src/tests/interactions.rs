@@ -1283,7 +1283,7 @@ fn lemma_fn_no_effects_clause_passes() {
     let file = assura_parser::parse_unwrap(src);
     let resolved = assura_resolve::resolve(&file).unwrap();
     let result = type_check(resolved);
-    assert!(result.is_ok(), "lemma with no effects clause should pass");
+    result.expect("lemma with no effects clause should pass");
 }
 
 #[test]
