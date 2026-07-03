@@ -223,7 +223,7 @@ fn square(x: Int) -> Int
     // type_check should succeed; the `result >= 0` comparison is
     // Int >= Int which is valid
     let typed = type_check(resolved);
-    assert!(typed.is_ok(), "type_check failed: {:?}", typed.err());
+    typed.expect("type_check failed");
 }
 
 #[test]
@@ -1057,8 +1057,7 @@ ensures { true }
 "#;
     let resolved = resolve_ok(src);
     let typed = type_check(resolved);
-    assert!(typed.is_ok(), "no-io op should pass: {:?}", typed.err());
-    let typed = typed.unwrap();
+    let typed = typed.expect("no-io op should pass");
     if let Some(Type::Fn { params, ret }) = typed.type_env.lookup("Ping") {
         assert!(params.is_empty(), "Ping should have 0 params");
         assert_eq!(**ret, Type::Unit, "Ping should return Unit");

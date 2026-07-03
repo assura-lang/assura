@@ -274,10 +274,9 @@ fn cross_file_import_resolves_contract_type() {
         .modules(modules)
         .check(main_resolved);
     // Should succeed: imported Add is known, main's own types are valid
-    assert!(result.is_ok(), "cross-file type check should succeed");
+    let typed = result.expect("cross-file type check should succeed");
 
     // Verify the imported type is concrete (not Unknown)
-    let typed = result.unwrap();
     let add_ty = typed.type_env.lookup("Add");
     assert!(
         add_ty.is_some(),
@@ -322,9 +321,8 @@ fn cross_file_import_resolves_type_def() {
     let result = crate::TypeChecker::new()
         .modules(modules)
         .check(main_resolved);
-    assert!(result.is_ok(), "cross-file type check should succeed");
+    let typed = result.expect("cross-file type check should succeed");
 
-    let typed = result.unwrap();
     // Verify struct fields were injected
     assert!(
         typed.type_env.struct_fields.contains_key("Vector"),
@@ -571,7 +569,7 @@ fn same_type_comparison_passes() {
     "#;
     let resolved = resolve_ok(src);
     let result = type_check(resolved);
-    assert!(result.is_ok(), "Int >= Int should pass: {:?}", result.err());
+    result.expect("Int >= Int should pass");
 }
 
 // =========================================================================
