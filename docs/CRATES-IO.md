@@ -74,6 +74,7 @@ Config files:
 
 ```bash
 git status   # should be clean for a release candidate
+bash scripts/check-publish-plan.sh   # fast graph/order check
 bash scripts/publish-crates.sh --dry-run
 ```
 

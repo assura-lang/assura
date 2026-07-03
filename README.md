@@ -70,11 +70,15 @@ Three verification tiers, fastest first:
 
 ## Quick Start
 
-### Build from source
+### Install the CLI
 
-Only a [Rust toolchain](https://rustup.rs/) is required. The Z3 SMT solver
-is downloaded automatically during `cargo build` (via the `z3` crate's
-`gh-release` feature). No manual Z3 installation needed.
+**Preferred:** download a prebuilt binary from
+[GitHub Releases](https://github.com/assura-lang/assura/releases) (cargo-dist
+installers; multi-platform). The `assura` CLI package is **not** published to
+crates.io yet (it depends on unpublished frontends). See
+[docs/CRATES-IO.md](docs/CRATES-IO.md).
+
+**From source** (requires a [Rust toolchain](https://rustup.rs/)):
 
 ```bash
 git clone https://github.com/assura-lang/assura.git
@@ -87,6 +91,15 @@ cargo install --path crates/assura-cli
 # (Optional) Install the LSP server for editor support
 cargo install --path crates/assura-lsp
 ```
+
+The Z3 SMT solver is downloaded automatically during `cargo build` (via the
+`z3` crate's `gh-release` feature). No manual Z3 installation needed.
+
+**Embedding as a library:** the public compile/verify facade is
+`assura-pipeline` (and its graph of library crates). First crates.io publish
+is cut via release-please; until versions appear on crates.io, depend on the
+git path or wait for the [v0.1.0](https://github.com/assura-lang/assura/releases)
+library release notes.
 
 ### Usage
 
