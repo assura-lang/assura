@@ -61,7 +61,7 @@ Config files:
 
 | Path | Role |
 |------|------|
-| `release-please-config.json` | `release-type: rust`, `CHANGELOG.md`, `bump-minor-pre-major` |
+| `release-please-config.json` | `release-type: simple` (workspace root has no `[package]`), updates `workspace.package.version`, `CHANGELOG.md`, `bump-minor-pre-major` |
 | `.release-please-manifest.json` | Last released version per package (root `"."`) |
 | `scripts/publish-crates.sh` | Fail-closed graph filter + topo publish |
 | `scripts/sync-path-dep-versions.sh` | Path-dep `version=` pins = workspace version |
