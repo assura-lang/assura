@@ -129,16 +129,15 @@ pub(crate) fn build_module_graph_with_deps(
     }
 
     // Recursively load all imports
-    resolve_imports_recursive(
-        &root_module,
-        project_root,
+    let mut state = ResolveImportsState {
         deps,
-        &mut modules,
-        &mut visiting,
-        &mut visited,
-        &mut order,
-        &mut errors,
-    );
+        modules: &mut modules,
+        visiting: &mut visiting,
+        visited: &mut visited,
+        order: &mut order,
+        errors: &mut errors,
+    };
+    resolve_imports_recursive(&root_module, project_root, &mut state);
 
     // The root itself is last in topological order
     if !order.contains(&root_module) {
@@ -152,23 +151,27 @@ pub(crate) fn build_module_graph_with_deps(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Mutable state shared across recursive import resolution.
+struct ResolveImportsState<'a> {
+    deps: &'a DependencyMap,
+    modules: &'a mut ModuleMap,
+    visiting: &'a mut HashSet<String>,
+    visited: &'a mut HashSet<String>,
+    order: &'a mut Vec<String>,
+    errors: &'a mut Vec<ModuleError>,
+}
+
 fn resolve_imports_recursive(
     module_path: &str,
     project_root: &std::path::Path,
-    deps: &DependencyMap,
-    modules: &mut ModuleMap,
-    visiting: &mut HashSet<String>,
-    visited: &mut HashSet<String>,
-    order: &mut Vec<String>,
-    errors: &mut Vec<ModuleError>,
+    state: &mut ResolveImportsState<'_>,
 ) {
-    if visited.contains(module_path) {
+    if state.visited.contains(module_path) {
         return;
     }
-    if !visiting.insert(module_path.to_string()) {
+    if !state.visiting.insert(module_path.to_string()) {
         // Circular import
-        errors.push(ModuleError {
+        state.errors.push(ModuleError {
             module_path: module_path.to_string(),
             message: "circular import detected".to_string(),
         });
@@ -176,32 +179,24 @@ fn resolve_imports_recursive(
     }
 
     // Get the imports for this module
-    let imports: Vec<Vec<String>> = modules
+    let imports: Vec<Vec<String>> = state
+        .modules
         .get(module_path)
         .map(|source| source.imports.iter().map(|i| i.path.clone()).collect())
         .unwrap_or_default();
 
     for imp_path in &imports {
         let path_str = imp_path.join(".");
-        if modules.contains_key(&path_str) {
+        if state.modules.contains_key(&path_str) {
             // Already loaded, just recurse for transitive imports
-            resolve_imports_recursive(
-                &path_str,
-                project_root,
-                deps,
-                modules,
-                visiting,
-                visited,
-                order,
-                errors,
-            );
+            resolve_imports_recursive(&path_str, project_root, state);
             continue;
         }
 
         // Try local filesystem first, then external dependencies
         let resolved_file = resolve_module_path(project_root, imp_path)
             .map(|fp| (path_str.clone(), fp))
-            .or_else(|| resolve_dep_module_path(imp_path, deps));
+            .or_else(|| resolve_dep_module_path(imp_path, state.deps));
 
         match resolved_file {
             Some((module_key, file_path)) => {
@@ -209,7 +204,7 @@ fn resolve_imports_recursive(
                     Ok(source) => {
                         let (ast, parse_errs) = assura_parser::parse(&source);
                         if !parse_errs.is_empty() {
-                            errors.push(ModuleError {
+                            state.errors.push(ModuleError {
                                 module_path: module_key.clone(),
                                 message: format!(
                                     "{}: {} parse error(s)",
@@ -219,7 +214,7 @@ fn resolve_imports_recursive(
                             });
                         }
                         if let Some(ast) = ast {
-                            modules.insert(module_key.clone(), ast);
+                            state.modules.insert(module_key.clone(), ast);
                         }
                         // Recursively resolve this module's imports
                         // For dep imports, the dep_root becomes the effective project root
@@ -229,19 +224,10 @@ fn resolve_imports_recursive(
                         } else {
                             project_root.to_path_buf()
                         };
-                        resolve_imports_recursive(
-                            &module_key,
-                            &effective_root,
-                            deps,
-                            modules,
-                            visiting,
-                            visited,
-                            order,
-                            errors,
-                        );
+                        resolve_imports_recursive(&module_key, &effective_root, state);
                     }
                     Err(e) => {
-                        errors.push(ModuleError {
+                        state.errors.push(ModuleError {
                             module_path: module_key,
                             message: format!("{}: {e}", file_path.display()),
                         });
@@ -250,7 +236,7 @@ fn resolve_imports_recursive(
             }
             None => {
                 // Module not found locally or in dependencies.
-                errors.push(ModuleError {
+                state.errors.push(ModuleError {
                     module_path: path_str.clone(),
                     message: format!("module not found: {}", imp_path.join("/")),
                 });
@@ -258,11 +244,11 @@ fn resolve_imports_recursive(
         }
     }
 
-    visiting.remove(module_path);
-    visited.insert(module_path.to_string());
+    state.visiting.remove(module_path);
+    state.visited.insert(module_path.to_string());
     let mp = module_path.to_string();
-    if !order.contains(&mp) {
-        order.push(mp);
+    if !state.order.contains(&mp) {
+        state.order.push(mp);
     }
 }
 

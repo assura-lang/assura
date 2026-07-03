@@ -2,19 +2,32 @@
 
 use super::super::*;
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn run_suggest_from_crash(
-    crash_input: Option<&str>,
-    crash_dir: Option<&str>,
-    target: &str,
-    stacktrace_file: Option<&str>,
-    llm_provider: &str,
-    llm_model: Option<&str>,
-    output_mode: OutputMode,
-    verbosity: Verbosity,
-) {
+/// Options for `assura suggest-from-crash`.
+pub(crate) struct SuggestFromCrashOpts<'a> {
+    pub crash_input: Option<&'a str>,
+    pub crash_dir: Option<&'a str>,
+    pub target: &'a str,
+    pub stacktrace_file: Option<&'a str>,
+    pub llm_provider: &'a str,
+    pub llm_model: Option<&'a str>,
+    pub output_mode: OutputMode,
+    pub verbosity: Verbosity,
+}
+
+pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
     use assura_llm::fuzz::*;
     use assura_llm::{cache::LlmCache, types::LlmConfig};
+
+    let SuggestFromCrashOpts {
+        crash_input,
+        crash_dir,
+        target,
+        stacktrace_file,
+        llm_provider,
+        llm_model,
+        output_mode,
+        verbosity,
+    } = opts;
 
     // Load crash artifacts
     let artifacts: Vec<CrashArtifact> = if let Some(input) = crash_input {
