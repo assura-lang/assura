@@ -1013,8 +1013,8 @@ fn expect_verify_limitation_on_incremental() {
     // The zlib demo's incremental_contract feature is not encoded in SMT.
     let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let root = manifest.parent().and_then(|p| p.parent()).expect("root");
-    let src = std::fs::read_to_string(root.join("demos/zlib-inflate.assura"))
-        .expect("read zlib demo");
+    let src =
+        std::fs::read_to_string(root.join("demos/zlib-inflate.assura")).expect("read zlib demo");
     let output = compile_full(&src, "zlib.assura", &test_config());
     assert!(!output.has_errors, "diagnostics: {:?}", output.diagnostics);
     let has_limitation = output.verification.iter().any(|r| {
