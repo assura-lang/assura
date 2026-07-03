@@ -1,0 +1,274 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <!-- Background gradient -->
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0C0B16"/>
+      <stop offset="50%" stop-color="#12102A"/>
+      <stop offset="100%" stop-color="#0E0D1C"/>
+    </linearGradient>
+
+    <!-- Shield gradient (from logo.svg) -->
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4F46E5"/>
+      <stop offset="100%" stop-color="#7C3AED"/>
+    </linearGradient>
+
+    <!-- Glow behind shield -->
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#7C3AED" stop-opacity="0.30"/>
+      <stop offset="60%" stop-color="#4F46E5" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#4F46E5" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Pill gradient (indigo) -->
+    <linearGradient id="pillGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4F46E5" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#7C3AED" stop-opacity="0.18"/>
+    </linearGradient>
+
+    <!-- Accent stripe gradient -->
+    <linearGradient id="accentLine" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4F46E5" stop-opacity="0"/>
+      <stop offset="30%" stop-color="#6366F1"/>
+      <stop offset="70%" stop-color="#7C3AED"/>
+      <stop offset="100%" stop-color="#7C3AED" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Code block background -->
+    <linearGradient id="codeBg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1A1836"/>
+      <stop offset="100%" stop-color="#151328"/>
+    </linearGradient>
+
+    <!-- Drop shadow -->
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="4" stdDeviation="16" flood-color="#7C3AED" flood-opacity="0.30"/>
+    </filter>
+
+    <!-- Subtle grid -->
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.015)" stroke-width="0.5"/>
+    </pattern>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#grid)"/>
+
+  <!-- Decorative diagonal lines (top-right) -->
+  <g opacity="0.035" stroke="white" stroke-width="1">
+    <line x1="920" y1="0" x2="1280" y2="360"/>
+    <line x1="980" y1="0" x2="1280" y2="300"/>
+    <line x1="1040" y1="0" x2="1280" y2="240"/>
+    <line x1="1100" y1="0" x2="1280" y2="180"/>
+  </g>
+
+  <!-- Decorative diagonal lines (bottom-left) -->
+  <g opacity="0.035" stroke="white" stroke-width="1">
+    <line x1="0" y1="400" x2="280" y2="640"/>
+    <line x1="0" y1="460" x2="220" y2="640"/>
+    <line x1="0" y1="520" x2="160" y2="640"/>
+  </g>
+
+  <!-- ==================== TOP: Logo + Identity ==================== -->
+
+  <!-- Glow behind shield -->
+  <ellipse cx="140" cy="105" rx="160" ry="160" fill="url(#glow)"/>
+
+  <!-- Shield logo (from logo.svg, scaled up) -->
+  <g transform="translate(140, 105) scale(0.44)" filter="url(#shadow)">
+    <path d="M0 -228 L204 -148 L204 4 C204 124 112 204 0 236 C-112 204 -204 124 -204 4 L-204 -148 Z"
+          fill="url(#shieldGrad)"/>
+    <path d="M0 -194 L172 -122 L172 2 C172 106 92 178 0 200 C-92 178 -172 106 -172 2 L-172 -122 Z"
+          fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
+    <g transform="translate(0, 14)" fill="none" stroke="white" stroke-width="28"
+       stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="-92,108 0,-148 92,108"/>
+      <line x1="-54" y1="10" x2="54" y2="10"/>
+    </g>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="250" y="100" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, sans-serif"
+        font-size="68" font-weight="800" fill="white" text-anchor="start"
+        letter-spacing="2">Assura</text>
+
+  <!-- Tagline (two short lines) -->
+  <text x="254" y="132" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, sans-serif"
+        font-size="20" font-weight="400" fill="rgba(255,255,255,0.50)" text-anchor="start"
+        letter-spacing="0.5">Write what it should do.</text>
+  <text x="254" y="158" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, sans-serif"
+        font-size="20" font-weight="400" fill="rgba(255,255,255,0.50)" text-anchor="start"
+        letter-spacing="0.5">AI proves it does.</text>
+
+  <!-- ==================== Pipeline flow (horizontal, mid-left) ==================== -->
+
+  <!-- Horizontal divider line -->
+  <line x1="55" y1="200" x2="620" y2="200" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+
+  <!-- Three-step pipeline -->
+  <!-- Step 1: Contract -->
+  <g transform="translate(120, 260)">
+    <circle cx="0" cy="0" r="26" fill="none" stroke="#6366F1" stroke-width="1.5" opacity="0.5"/>
+    <text x="0" y="1" font-family="system-ui, sans-serif" font-size="16" font-weight="700"
+          fill="#A5B4FC" text-anchor="middle" dominant-baseline="middle">1</text>
+    <text x="0" y="42" font-family="system-ui, sans-serif" font-size="15" font-weight="600"
+          fill="rgba(255,255,255,0.75)" text-anchor="middle">Contract</text>
+    <text x="0" y="60" font-family="system-ui, sans-serif" font-size="12" font-weight="400"
+          fill="rgba(255,255,255,0.35)" text-anchor="middle">Define specs</text>
+  </g>
+
+  <!-- Arrow 1-2 -->
+  <line x1="166" y1="260" x2="238" y2="260" stroke="#6366F1" stroke-width="1" opacity="0.3"/>
+  <polygon points="238,256 246,260 238,264" fill="#6366F1" opacity="0.4"/>
+
+  <!-- Step 2: Verify -->
+  <g transform="translate(300, 260)">
+    <circle cx="0" cy="0" r="26" fill="none" stroke="#7C3AED" stroke-width="1.5" opacity="0.5"/>
+    <text x="0" y="1" font-family="system-ui, sans-serif" font-size="16" font-weight="700"
+          fill="#C4B5FD" text-anchor="middle" dominant-baseline="middle">2</text>
+    <text x="0" y="42" font-family="system-ui, sans-serif" font-size="15" font-weight="600"
+          fill="rgba(255,255,255,0.75)" text-anchor="middle">Verify</text>
+    <text x="0" y="60" font-family="system-ui, sans-serif" font-size="12" font-weight="400"
+          fill="rgba(255,255,255,0.35)" text-anchor="middle">Z3 / CVC5 proof</text>
+  </g>
+
+  <!-- Arrow 2-3 -->
+  <line x1="346" y1="260" x2="418" y2="260" stroke="#7C3AED" stroke-width="1" opacity="0.3"/>
+  <polygon points="418,256 426,260 418,264" fill="#7C3AED" opacity="0.4"/>
+
+  <!-- Step 3: Compile -->
+  <g transform="translate(480, 260)">
+    <circle cx="0" cy="0" r="26" fill="none" stroke="#A78BFA" stroke-width="1.5" opacity="0.5"/>
+    <text x="0" y="1" font-family="system-ui, sans-serif" font-size="16" font-weight="700"
+          fill="#DDD6FE" text-anchor="middle" dominant-baseline="middle">3</text>
+    <text x="0" y="42" font-family="system-ui, sans-serif" font-size="15" font-weight="600"
+          fill="rgba(255,255,255,0.75)" text-anchor="middle">Compile</text>
+    <text x="0" y="60" font-family="system-ui, sans-serif" font-size="12" font-weight="400"
+          fill="rgba(255,255,255,0.35)" text-anchor="middle">Native / WASM</text>
+  </g>
+
+  <!-- ==================== Feature pills (bottom-left, 3 rows) ==================== -->
+
+  <g transform="translate(55, 375)">
+    <!-- Row 1: Core tech -->
+    <rect x="0" y="0" width="126" height="32" rx="16" fill="url(#pillGrad)"
+          stroke="rgba(99,102,241,0.25)" stroke-width="1"/>
+    <text x="63" y="21" font-family="system-ui, sans-serif" font-size="12.5" font-weight="600"
+          fill="#A5B4FC" text-anchor="middle">SMT Verified</text>
+
+    <rect x="136" y="0" width="110" height="32" rx="16" fill="url(#pillGrad)"
+          stroke="rgba(99,102,241,0.25)" stroke-width="1"/>
+    <text x="191" y="21" font-family="system-ui, sans-serif" font-size="12.5" font-weight="600"
+          fill="#A5B4FC" text-anchor="middle">AI Native</text>
+
+    <rect x="256" y="0" width="132" height="32" rx="16" fill="url(#pillGrad)"
+          stroke="rgba(99,102,241,0.25)" stroke-width="1"/>
+    <text x="322" y="21" font-family="system-ui, sans-serif" font-size="12.5" font-weight="600"
+          fill="#A5B4FC" text-anchor="middle">Rust Codegen</text>
+
+    <rect x="398" y="0" width="104" height="32" rx="16" fill="url(#pillGrad)"
+          stroke="rgba(99,102,241,0.25)" stroke-width="1"/>
+    <text x="450" y="21" font-family="system-ui, sans-serif" font-size="12.5" font-weight="600"
+          fill="#A5B4FC" text-anchor="middle">LSP + MCP</text>
+
+    <!-- Row 2: Verification domains -->
+    <rect x="0" y="42" width="108" height="32" rx="16" fill="url(#pillGrad)"
+          stroke="rgba(124,58,237,0.20)" stroke-width="1"/>
+    <text x="54" y="63" font-family="system-ui, sans-serif" font-size="12.5" font-weight="600"
+          fill="#C4B5FD" text-anchor="middle">Security</text>
+
+    <rect x="118" y="42" width="132" height="32" rx="16" fill="url(#pillGrad)"
+          stroke="rgba(124,58,237,0.20)" stroke-width="1"/>
+    <text x="184" y="63" font-family="system-ui, sans-serif" font-size="12.5" font-weight="600"
+          fill="#C4B5FD" text-anchor="middle">Concurrency</text>
+
+    <rect x="260" y="42" width="148" height="32" rx="16" fill="url(#pillGrad)"
+          stroke="rgba(124,58,237,0.20)" stroke-width="1"/>
+    <text x="334" y="63" font-family="system-ui, sans-serif" font-size="12.5" font-weight="600"
+          fill="#C4B5FD" text-anchor="middle">Memory Safety</text>
+
+    <rect x="418" y="42" width="102" height="32" rx="16" fill="url(#pillGrad)"
+          stroke="rgba(124,58,237,0.20)" stroke-width="1"/>
+    <text x="469" y="63" font-family="system-ui, sans-serif" font-size="12.5" font-weight="600"
+          fill="#C4B5FD" text-anchor="middle">Effects</text>
+
+    <!-- Row 3: More domains -->
+    <rect x="0" y="84" width="128" height="32" rx="16" fill="url(#pillGrad)"
+          stroke="rgba(124,58,237,0.15)" stroke-width="1"/>
+    <text x="64" y="105" font-family="system-ui, sans-serif" font-size="12.5" font-weight="600"
+          fill="#C4B5FD" text-anchor="middle">Taint Tracking</text>
+
+    <rect x="138" y="84" width="140" height="32" rx="16" fill="url(#pillGrad)"
+          stroke="rgba(124,58,237,0.15)" stroke-width="1"/>
+    <text x="208" y="105" font-family="system-ui, sans-serif" font-size="12.5" font-weight="600"
+          fill="#C4B5FD" text-anchor="middle">Binary Formats</text>
+
+    <rect x="288" y="84" width="110" height="32" rx="16" fill="url(#pillGrad)"
+          stroke="rgba(124,58,237,0.15)" stroke-width="1"/>
+    <text x="343" y="105" font-family="system-ui, sans-serif" font-size="12.5" font-weight="600"
+          fill="#C4B5FD" text-anchor="middle">Linearity</text>
+
+    <rect x="408" y="84" width="162" height="32" rx="16" fill="url(#pillGrad)"
+          stroke="rgba(124,58,237,0.15)" stroke-width="1"/>
+    <text x="489" y="105" font-family="system-ui, sans-serif" font-size="12.5" font-weight="600"
+          fill="#C4B5FD" text-anchor="middle">50 Verify Features</text>
+  </g>
+
+  <!-- Bottom-left note -->
+  <text x="100" y="540" font-family="system-ui, sans-serif" font-size="12" font-weight="400"
+        fill="rgba(255,255,255,0.25)" text-anchor="start"
+        letter-spacing="2">TRANSPILES TO RUST  &#x2022;  NATIVE &amp; WASM BINARIES</text>
+
+  <!-- ==================== RIGHT: Code snippet ==================== -->
+
+  <!-- Code block background -->
+  <rect x="660" y="30" width="590" height="580" rx="12" fill="url(#codeBg)"
+        stroke="rgba(99,102,241,0.12)" stroke-width="1"/>
+
+  <!-- Code block top bar (fake window chrome) -->
+  <rect x="660" y="30" width="590" height="32" rx="12" fill="rgba(255,255,255,0.03)"/>
+  <rect x="660" y="50" width="590" height="12" fill="url(#codeBg)"/>
+  <circle cx="682" cy="46" r="4.5" fill="#FF5F57" opacity="0.6"/>
+  <circle cx="698" cy="46" r="4.5" fill="#FEBC2E" opacity="0.6"/>
+  <circle cx="714" cy="46" r="4.5" fill="#28C840" opacity="0.6"/>
+  <text x="955" y="50" font-family="'SF Mono', 'Fira Code', 'Cascadia Code', monospace"
+        font-size="10" fill="rgba(255,255,255,0.25)" text-anchor="middle">safe_transfer.assura</text>
+
+  <!-- Code content: each line is one <text> with <tspan> for colors.
+       Indentation via x: 688=col0, 706=col1 (2-space), 724=col2 (4-space).
+       Line height 22px, font-size 14. -->
+  <g font-family="'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace" font-size="14">
+    <text x="688" y="82" fill="rgba(255,255,255,0.28)">// CVE-2024-21762: FortiOS out-of-bounds write</text>
+
+    <text x="688" y="120" fill="#E2E8F0"><tspan fill="#C084FC">contract</tspan> SafeTransfer {</text>
+
+    <text x="706" y="148" fill="#E2E8F0"><tspan fill="#7C3AED">requires</tspan> {</text>
+    <text x="724" y="170" fill="#E2E8F0"><tspan fill="#A5B4FC">amount</tspan> &gt; <tspan fill="#FCD34D">0</tspan> &amp;&amp; <tspan fill="#A5B4FC">amount</tspan> &lt;= <tspan fill="#A5B4FC">balance</tspan></text>
+    <text x="706" y="192" fill="#E2E8F0">}</text>
+
+    <text x="706" y="222" fill="#E2E8F0"><tspan fill="#7C3AED">ensures</tspan> {</text>
+    <text x="724" y="244" fill="#E2E8F0"><tspan fill="#A5B4FC">balance</tspan> == <tspan fill="#6EE7B7">old</tspan>(<tspan fill="#A5B4FC">balance</tspan>) - <tspan fill="#A5B4FC">amount</tspan></text>
+    <text x="706" y="266" fill="#E2E8F0">}</text>
+
+    <text x="706" y="296" fill="#E2E8F0"><tspan fill="#F472B6">taint</tspan> { <tspan fill="#A5B4FC">amount</tspan>: <tspan fill="#6EE7B7">validated</tspan> }</text>
+    <text x="706" y="320" fill="#E2E8F0"><tspan fill="#F472B6">effects</tspan>: <tspan fill="#6EE7B7">database</tspan></text>
+    <text x="706" y="344" fill="#F472B6">constant_time</text>
+
+    <text x="706" y="374" fill="#E2E8F0"><tspan fill="#C084FC">fn</tspan> transfer(</text>
+    <text x="724" y="396" fill="#E2E8F0"><tspan fill="#A5B4FC">amount</tspan>: <tspan fill="#7DD3FC">Nat</tspan>,</text>
+    <text x="724" y="418" fill="#E2E8F0"><tspan fill="#A5B4FC">balance</tspan>: <tspan fill="#7DD3FC">Nat</tspan></text>
+    <text x="706" y="440" fill="#E2E8F0">) -&gt; <tspan fill="#7DD3FC">Nat</tspan></text>
+
+    <text x="688" y="468" fill="#E2E8F0">}</text>
+
+    <text x="688" y="500" fill="rgba(255,255,255,0.28)">// AI generates implementation</text>
+    <text x="688" y="522" fill="rgba(255,255,255,0.28)">// Z3 proves correctness &#x2713;</text>
+    <text x="688" y="544" fill="rgba(255,255,255,0.28)">// Compiles to Rust &#x2192; native binary</text>
+    <text x="688" y="566" fill="rgba(255,255,255,0.28)">// 50 verification features built-in</text>
+  </g>
+
+  <!-- ==================== Accent stripes ==================== -->
+  <rect x="0" y="0" width="1280" height="2" fill="url(#accentLine)" opacity="0.5"/>
+  <rect x="0" y="614" width="1280" height="4" fill="url(#accentLine)"/>
+</svg>
