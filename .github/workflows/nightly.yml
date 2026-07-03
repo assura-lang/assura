@@ -48,9 +48,11 @@ jobs:
       - name: Set Linux Z3 paths
         if: runner.os == 'Linux'
         run: |
-          echo "Z3_SYS_Z3_HEADER=/usr/include/z3.h" >> "$GITHUB_ENV"
-          echo "CPATH=/usr/include" >> "$GITHUB_ENV"
-          echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
+          {
+            echo "Z3_SYS_Z3_HEADER=/usr/include/z3.h"
+            echo "CPATH=/usr/include"
+            echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu"
+          } >> "$GITHUB_ENV"
 
       - name: Format check
         run: cargo fmt --check --all

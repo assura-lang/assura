@@ -442,7 +442,7 @@ jobs:
   # ── Gate job (single required status check for branch protection) ────
   ci:
     if: always()
-    needs: [clippy, test, benchmark, codegen-validation, no-z3, cvc5, tree-sitter, vscode-extension]
+    needs: [clippy, test, benchmark, codegen-validation, no-z3, cvc5, tree-sitter, vscode-extension, workflow-sanity]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
