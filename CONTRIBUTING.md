@@ -221,6 +221,6 @@ Use `assura explain <code>` to look up any error code.
 
 ## License
 
-Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE),
+Dual-licensed under [MIT](LICENSE) or [Apache-2.0](LICENSE-APACHE),
 at your option. By contributing, you agree to license your contribution
 under the same terms.

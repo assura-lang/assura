@@ -611,7 +611,7 @@ Examples:
 ### License
 
 MIT OR Apache-2.0 (dual license, Rust ecosystem standard).
-Both `LICENSE-MIT` and `LICENSE-APACHE` files must exist at repo root.
+Both `LICENSE` (MIT) and `LICENSE-APACHE` files must exist at repo root.
 
 ## Architecture Decisions
 
