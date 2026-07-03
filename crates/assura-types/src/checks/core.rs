@@ -32,13 +32,19 @@ pub(crate) fn run_liveness_checks(source: &assura_parser::ast::SourceFile) -> Ve
                     suggestion: None,
                 });
             }
-            let has_leads_to = body.iter().any(|c| {
-                matches!(&c.kind, ClauseKind::Other(k) if k == "prove")
-                    && expr_contains_text(&c.body, "leads_to")
+            // Parser may attach `leads_to(...)` as the body of a `prove`
+            // clause, or (when using `prove: leads_to(...)` colon form) emit
+            // a separate `Other("leads_to")` clause with an empty prove body.
+            let has_leads_to = body.iter().any(|c| match &c.kind {
+                ClauseKind::Other(k) if k == "leads_to" => true,
+                ClauseKind::Other(k) if k == "prove" => expr_contains_text(&c.body, "leads_to"),
+                _ => false,
             });
-            let has_fair = body.iter().any(|c| {
-                matches!(&c.kind, ClauseKind::Other(k) if k == "assume")
-                    && expr_contains_text(&c.body, "fair")
+            // Same dual form for `assume fair` / `assume: fair`.
+            let has_fair = body.iter().any(|c| match &c.kind {
+                ClauseKind::Other(k) if k == "fair" || k == "assume_fair" => true,
+                ClauseKind::Other(k) if k == "assume" => expr_contains_text(&c.body, "fair"),
+                _ => false,
             });
             if has_leads_to && !has_fair {
                 errors.push(TypeError {

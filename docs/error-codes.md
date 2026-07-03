@@ -25,6 +25,7 @@
 | A11xxx | smt+types | assura-smt / assura-types | entry/, invariant checks |
 | A12xxx | types | assura-types | checks/concurrency.rs, checkers/security/ |
 | A13xxx | types | assura-types | checks/numeric.rs, domain/numeric.rs |
+| A31xxx | types | assura-types | checks/core.rs (liveness prove/fairness) |
 | A05 (impl) | smt+cli | assura-smt / assura-cli | `A05100` SMT inconclusive / limitation |
 
 ## Codes from SPEC §7.2 (plus a few high-traffic impl codes)
@@ -147,6 +148,8 @@ this table over guessing the phase.
 | A54001 | types | assura-types | Meta / feature checker (impl) | checks/meta.rs |
 | A55001 | types | assura-types | Meta / feature checker (impl) | checks/meta.rs, domain/ |
 | A64001 | types | assura-types | FFI / error propagation (impl) | checks/ffi_error.rs |
+| A31006 | types | assura-types | Liveness block missing `prove` | checks/core.rs (`run_liveness_checks`) |
+| A31007 | types | assura-types | `leads_to` without `assume fair` | checks/core.rs (`run_liveness_checks`); colon form splits `prove`/`leads_to` clauses |
 
 If a code is still missing: `rg 'A0xxxx' crates --glob '*.rs'` then add a row here
 in the same PR when agents are likely to hit it again.
@@ -165,6 +168,7 @@ in the same PR when agents are likely to hit it again.
 | `A08xxx` taint/flow | `checks/info_flow.rs` / `checkers/taint.rs` |
 | `A09xxx` / `A10xxx` match/totality | `checks/meta.rs` / `checkers/totality.rs`; parser arm trivia footgun |
 | `A14xxx` frame/modifies | `checks/frame_totality.rs` |
+| `A31xxx` liveness | `checks/core.rs`; parser may split `prove: leads_to(...)` into two clauses |
 | `A05100` counterexample / `A05101` timeout / `A05102` limitation / `A05103` inconclusive | `check/report.rs`; limitation (A05102) = warning, else error |
 | `A52xxx` / `A54xxx` / high A-series | domain/meta features: `checks/meta.rs`, `domain/`, then `rg 'Axxxxx' crates` |
 | Wrong phase suspicion | `bash scripts/guards.sh` then re-read AGENTS decision tree |

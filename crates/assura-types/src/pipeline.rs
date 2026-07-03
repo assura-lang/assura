@@ -57,7 +57,7 @@ use assura_parser::features::FeatureCategory;
 /// selective execution, and pipeline introspection. `dispatch` is used at
 /// runtime; `name` and `category` are read in tests (uniqueness, non-empty,
 /// category coverage).
-#[expect(dead_code)]
+#[cfg_attr(not(test), expect(dead_code))]
 struct CheckerEntry {
     /// Human-readable name for error attribution and logging.
     name: &'static str,
@@ -708,9 +708,8 @@ impl TypeChecker {
 
         let generated_tests = generate_tests_from_contracts(&resolved.source);
 
-        // Collect non-fatal warnings (clause quality, feature_max in clauses)
-        let mut warnings = run_unconstrained_output_checks(&resolved.source);
-        warnings.extend(run_feature_max_in_clause_checks(&resolved.source));
+        // Collect non-fatal warnings (clause quality)
+        let warnings = run_unconstrained_output_checks(&resolved.source);
 
         Ok(TypedFile {
             resolved: Arc::new(resolved),

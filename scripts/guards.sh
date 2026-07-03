@@ -334,6 +334,11 @@ while IFS= read -r line; do
   case "$file" in
     *tests*|*test*.rs|*_test.rs|*_tests.rs|*tests_*|*/tests/*) continue ;;
   esac
+  # Inline unit tests under mod tests { } live in production filenames.
+  # Skip assert!/assert_eq! lines (test-only convenience matching).
+  case "$line" in
+    *assert!*|*assert_eq!*|*assert_ne!*) continue ;;
+  esac
   warn "contains(\"ensures\") in production code (use ends_with(\"::ensures\")): $line"
   jfind 11 "$file" "contains ensures in production"
   s_warn=1

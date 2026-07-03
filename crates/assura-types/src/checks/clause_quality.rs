@@ -226,22 +226,6 @@ fn is_output_param(name: &str, clauses: &[assura_parser::ast::Clause]) -> bool {
     false
 }
 
-// ---------------------------------------------------------------------------
-// #619: feature_max in verification clause warning
-// ---------------------------------------------------------------------------
-
-/// Previously warned when `feature_max` constants were used in verification
-/// clauses (A04009). The SMT encoder now binds feature_max constants to their
-/// declared integer values in the Z3 var map and CVC5 prelude assertions,
-/// so the warning was factually wrong. Removed in #714 follow-up.
-///
-/// The function is kept as a no-op so CHECKER_PIPELINE callers do not break.
-pub(crate) fn run_feature_max_in_clause_checks(
-    _source: &assura_parser::ast::SourceFile,
-) -> Vec<TypeError> {
-    Vec::new()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,66 +343,6 @@ mod tests {
             imports: vec![],
         };
         let warnings = run_unconstrained_output_checks(&source);
-        assert!(warnings.is_empty());
-    }
-
-    // --- feature_max in clause tests ---
-
-    #[test]
-    fn no_warning_for_feature_max_in_requires() {
-        // The SMT encoder now binds feature_max constants to their declared
-        // integer values, so this is no longer a warning condition.
-        let source = SourceFile {
-            decls: vec![
-                Spanned::no_span(Decl::Block {
-                    kind: BlockKind::FeatureMax,
-                    name: "HEADER_SIZE".into(),
-                    value: Some(vec!["3".into()]),
-                    body: vec![],
-                }),
-                Spanned::no_span(Decl::Contract(ContractDecl {
-                    name: "CheckLen".into(),
-                    fn_params: vec![Param {
-                        name: "data".into(),
-                        ty: None,
-                    }],
-                    clauses: vec![make_requires_clause(binop(
-                        ident("data"),
-                        BinOp::Gte,
-                        ident("HEADER_SIZE"),
-                    ))],
-                    type_params: vec![],
-                })),
-            ],
-            project: None,
-            module: None,
-            imports: vec![],
-        };
-        let warnings = run_feature_max_in_clause_checks(&source);
-        assert!(warnings.is_empty());
-    }
-
-    #[test]
-    fn no_warning_when_no_feature_max() {
-        let source = SourceFile {
-            decls: vec![Spanned::no_span(Decl::Contract(ContractDecl {
-                name: "NoMax".into(),
-                fn_params: vec![Param {
-                    name: "x".into(),
-                    ty: None,
-                }],
-                clauses: vec![make_requires_clause(binop(
-                    ident("x"),
-                    BinOp::Gte,
-                    int_lit("0"),
-                ))],
-                type_params: vec![],
-            }))],
-            project: None,
-            module: None,
-            imports: vec![],
-        };
-        let warnings = run_feature_max_in_clause_checks(&source);
         assert!(warnings.is_empty());
     }
 }
