@@ -199,12 +199,25 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                         } else {
                             name.clone()
                         };
-                        eprintln!("  {display}:  (no verifiable clauses)");
+                        // has_clauses means requires/ensures/invariant exist, but
+                        // the SMT job collector may still emit nothing (e.g.
+                        // requires-only: preconditions are assumed, not proved).
+                        if has_clauses {
+                            eprintln!("  {display}:  (no SMT proof obligations)");
+                        } else {
+                            eprintln!("  {display}:  (no verifiable clauses)");
+                        }
                     }
                     eprintln!();
-                    eprintln!(
-                        "  hint: add `requires`, `ensures`, or `invariant` clauses to enable verification"
-                    );
+                    if has_clauses {
+                        eprintln!(
+                            "  hint: `requires` alone is assumed; add `ensures` or `invariant` to prove postconditions"
+                        );
+                    } else {
+                        eprintln!(
+                            "  hint: add `requires`, `ensures`, or `invariant` clauses to enable verification"
+                        );
+                    }
                 }
             }
 
@@ -230,7 +243,13 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                 if no_decls {
                     eprintln!("{filename}: check passed (no contracts or functions to verify)");
                 } else if contracts_without_results {
-                    eprintln!("{filename}: check passed (no verifiable clauses)");
+                    if has_clauses {
+                        eprintln!(
+                            "{filename}: check passed (no SMT proof obligations; add ensures or invariant)"
+                        );
+                    } else {
+                        eprintln!("{filename}: check passed (no verifiable clauses)");
+                    }
                 } else if warning_count > 0 {
                     eprintln!(
                         "{filename}: check passed ({warning_count} warning{})",
