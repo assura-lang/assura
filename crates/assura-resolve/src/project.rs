@@ -978,9 +978,8 @@ mod tests {
         let mut deps = DependencyMap::new();
         deps.insert("dep_lib".to_string(), dep_dir.clone());
 
-        let result = discover_and_resolve_project_with_deps(&consumer_dir, &deps);
-        assert!(result.is_ok(), "expected Ok, got: {result:?}");
-        let (resolved, _warnings) = result.unwrap();
+        let (resolved, _warnings) = discover_and_resolve_project_with_deps(&consumer_dir, &deps)
+            .expect("project with path dep should resolve");
         // Should resolve at least the consumer module
         assert!(!resolved.is_empty(), "expected resolved modules");
         // The dep module must actually be resolved (not silently dropped)

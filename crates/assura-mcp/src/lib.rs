@@ -602,9 +602,7 @@ contract Bar {
     fn check_pipeline_serializes_to_json() {
         let source = "contract Test {\n  input(x: Int)\n  output(result: Int)\n  ensures { result >= 0 }\n}\n";
         let result = run_check_pipeline(source, "<inline>");
-        let json = serde_json::to_string(&result);
-        assert!(json.is_ok(), "result should serialize to JSON");
-        let json_str = json.unwrap();
+        let json_str = serde_json::to_string(&result).expect("result should serialize to JSON");
         assert!(json_str.contains("\"success\""));
         assert!(json_str.contains("\"declarations\""));
     }

@@ -63,7 +63,7 @@ Do not improvise a parallel pipeline. Follow the branch that matches your task.
 |-------------|--------------|----------|
 | Adding a **type checker** (Layer 0) | `bash scripts/new-checker.sh <name> [--category <stem>]` then implement; register in `CHECKER_PIPELINE` same PR; `bash scripts/guards.sh` | Struct + unit tests only (orphan / dead code) |
 | Adding **SMT encoding** (Layer 1–3) | Encode in `assura-smt`; wire from `verify()` / entry; for unimplemented paths emit `Unknown` with `KNOWN_SMT_LIMITATION_MARKER` via smt helpers | Hand-roll `Verifier` in CLI/LSP/MCP; invent a different limitation string |
-| Asking “did verify succeed?” | `verification_succeeded` (lenient) or `verification_strict_succeeded` (strict) | `!output.has_errors` alone (SMT does not set `has_errors`) |
+| Asking “did verify succeed?” | `verification_succeeded` (lenient) or `verification_strict_succeeded` (strict). **Empty `[]` is success** (no counterexamples/timeouts). Pair with CLI `file_info.vacuous` / human “no SMT proof obligations” so empty coverage is not mistaken for proof. | `!output.has_errors` alone (SMT does not set `has_errors`) |
 | Adding a **`Decl` variant** | `bash scripts/new-decl.sh VariantName` then fix every non-exhaustive match | Grep only one crate and ship |
 | Walking existing decls | `DeclVisitor` / `walk_decls` / `Decl` accessors (`clauses`, `name`) | Copy-paste 20-arm `match Decl` in a new pass |
 | Writing a **test** in smt/cli/pipeline | `assura_test_support::{typecheck_ok, compile_result, expect_type_errors, verify_ok, verify_strict_ok}` | Re-implement parse→resolve→type_check |

@@ -263,8 +263,8 @@ mod tests {
             api_key_env: env_var.to_string(),
             ..LlmConfig::default()
         };
-        let result = HttpProvider::new(config);
-        assert!(result.is_ok(), "should succeed when env var is set");
+        let _provider = HttpProvider::new(config)
+            .expect("HttpProvider::new should succeed when env var is set");
 
         // SAFETY: cleaning up test env var
         unsafe { std::env::remove_var(env_var) };
