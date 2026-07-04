@@ -15,11 +15,11 @@ z3-verify = ["dep:z3"]
 cvc5-verify = ["dep:cvc5"]
 
 [dependencies]
-assura-ast = { version = "0.1.0", path = "../assura-ast" }
-assura-types = { version = "0.1.0", path = "../assura-types" }
-assura-config = { version = "0.1.0", path = "../assura-config" }
-assura-parser = { version = "0.1.0", path = "../assura-parser" }
-assura-resolve = { version = "0.1.0", path = "../assura-resolve" }
+assura-ast = { version = "0.2.0", path = "../assura-ast" }
+assura-types = { version = "0.2.0", path = "../assura-types" }
+assura-config = { version = "0.2.0", path = "../assura-config" }
+assura-parser = { version = "0.2.0", path = "../assura-parser" }
+assura-resolve = { version = "0.2.0", path = "../assura-resolve" }
 z3 = { version = "0.20", optional = true, features = ["gh-release"] }
 cvc5 = { version = "0.4", optional = true, features = ["static"] }
 serde = { version = "1", features = ["derive"] }
