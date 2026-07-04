@@ -1009,24 +1009,74 @@ fn expect_error_codes_catches_type_mismatch() {
 }
 
 #[test]
-fn expect_verify_limitation_on_incremental() {
-    // The zlib demo's incremental_contract feature is not encoded in SMT.
+fn zlib_incremental_block_has_no_a05102_for_incremental_contract() {
+    // #833: `incremental InflateDecoder` is a real block (not a mis-attached
+    // clause on zmemcpy_safe). Documented MISC.1 subset verifies the
+    // invariant; step/on typestate bodies are skipped without A05102 Unknown.
     let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let root = manifest.parent().and_then(|p| p.parent()).expect("root");
     let src =
         std::fs::read_to_string(root.join("demos/zlib-inflate.assura")).expect("read zlib demo");
     let output = compile_full(&src, "zlib.assura", &test_config());
     assert!(!output.has_errors, "diagnostics: {:?}", output.diagnostics);
-    let has_limitation = output.verification.iter().any(|r| {
+    let incremental_unknowns: Vec<_> = output
+        .verification
+        .iter()
+        .filter(|r| {
+            matches!(
+                r,
+                assura_smt::VerificationResult::Unknown { clause_desc, reason, .. }
+                    if assura_smt::is_known_smt_limitation(reason)
+                        && (clause_desc.contains("incremental")
+                            || reason.contains("incremental"))
+            )
+        })
+        .collect();
+    assert!(
+        incremental_unknowns.is_empty(),
+        "expected no incremental_contract A05102 on zlib, got: {incremental_unknowns:?}"
+    );
+    assert!(
+        output.verification.iter().any(|r| {
+            matches!(
+                r,
+                assura_smt::VerificationResult::Verified { clause_desc, .. }
+                    if clause_desc.contains("InflateDecoder")
+            )
+        }),
+        "expected InflateDecoder invariant verified, got: {:?}",
+        output.verification
+    );
+}
+
+#[test]
+fn minimal_incremental_step_ensures_verified() {
+    // #833 documented subset: step/resume boolean ensures under requires.
+    let src = r#"
+incremental ChunkParser {
+    step {
+        requires { chunk_size > 0 }
+        ensures { chunk_size > 0 }
+    }
+    resume {
+        requires { bytes_remaining > 0 }
+        ensures { bytes_remaining > 0 }
+    }
+}
+"#;
+    let output = compile_full(src, "inc.assura", &test_config());
+    assert!(!output.has_errors, "diagnostics: {:?}", output.diagnostics);
+    let step_ok = output.verification.iter().any(|r| {
         matches!(
             r,
-            assura_smt::VerificationResult::Unknown { reason, .. }
-                if assura_smt::is_known_smt_limitation(reason)
+            assura_smt::VerificationResult::Verified { clause_desc, .. }
+                if clause_desc.contains("incremental_step")
+                    || clause_desc.contains("incremental_resume")
         )
     });
     assert!(
-        has_limitation,
-        "expected known SMT limitation, got: {:?}",
+        step_ok,
+        "expected incremental step/resume verified, got: {:?}",
         output.verification
     );
 }

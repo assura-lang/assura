@@ -443,6 +443,84 @@ mod tests {
         assert!(file.is_none());
     }
 
+    #[test]
+    fn fn_then_incremental_block_are_separate_decls() {
+        // #833: INCREMENTAL_KW must not be absorbed as a clause on the prior fn.
+        let src = r#"
+fn helper(x: Int) -> Int
+  requires { x > 0 }
+  ensures { x > 0 }
+  effects: pure
+
+incremental Machine {
+  states { A, B }
+  transition A -> B via step
+  invariant { true }
+  step {
+    requires { n > 0 }
+    ensures { n > 0 }
+  }
+}
+
+fn after(y: Int) -> Int
+  requires { y >= 0 }
+  ensures { y >= 0 }
+"#;
+        let (file, errs) = parse(src);
+        assert!(errs.is_empty(), "parse errors: {errs:?}");
+        let file = file.expect("parsed");
+        let names: Vec<_> = file
+            .decls
+            .iter()
+            .filter_map(|d| d.node.name().map(|s| s.to_string()))
+            .collect();
+        assert!(
+            names.iter().any(|n| n == "helper"),
+            "missing helper: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n == "Machine"),
+            "missing Machine block: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n == "after"),
+            "missing after: {names:?}"
+        );
+        // helper must not carry an Other("incremental") clause
+        for d in &file.decls {
+            if let assura_ast::Decl::FnDef(f) = &d.node {
+                if f.name == "helper" {
+                    for c in &f.clauses {
+                        if let assura_ast::ClauseKind::Other(k) = &c.kind {
+                            assert_ne!(
+                                k.as_str(),
+                                "incremental",
+                                "helper must not absorb incremental block as clause"
+                            );
+                        }
+                    }
+                }
+            }
+            if let assura_ast::Decl::Block {
+                kind: assura_ast::BlockKind::Incremental,
+                name,
+                body,
+                ..
+            } = &d.node
+            {
+                assert_eq!(name, "Machine");
+                assert!(
+                    body.iter()
+                        .any(|c| matches!(c.kind, assura_ast::ClauseKind::Invariant)),
+                    "expected invariant in Machine body: {:?}",
+                    body.iter()
+                        .map(|c| format!("{:?}", c.kind))
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
+    }
+
     // --- Error recovery sync tests (#632) ---
 
     #[test]

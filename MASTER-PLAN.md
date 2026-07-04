@@ -84,7 +84,7 @@ These are not blocking the initial release but are on the radar:
 - Editor support beyond VS Code (Neovim, Emacs, JetBrains)
 - [x] `feature_max` SMT binding + resolve registration (names in clauses, no false A02001)
 - Richer stdlib postconditions (e.g., `abs` ensures `result >= 0`)
-- Encode `incremental_contract` in SMT (zlib demo still has known-limitation Unknown)
+- Encode `incremental_contract` in SMT (MISC.1 / #833: parser block form + step/resume subset; zlib InflateDecoder invariant verifies)
 - CI integration action (`assura-lang/assura-action`)
 - Package registry for shareable contract libraries
 

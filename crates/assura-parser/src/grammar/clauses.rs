@@ -68,7 +68,10 @@ pub(crate) fn at_clause_start(p: &mut Parser) -> bool {
 /// These are a subset of the stopper keywords: everything that starts a clause
 /// also stops the previous one, but not vice versa.
 const IDENT_CLAUSE_STARTERS: &[&str] = &[
-    "step",
+    // `step` / `resume` are MISC.1 nested heads inside `incremental` blocks.
+    // They are parsed via `loose_clause` in generic_block bodies rather than as
+    // global starters so `transition A -> B via step` keeps `step` in the
+    // transition raw body (#833).
     "resume",
     "assume",
     "prove",
@@ -204,6 +207,11 @@ const IDENT_CLAUSE_STARTERS: &[&str] = &[
     "write_ahead",
     "buffer_pool",
     "behavioral_equivalence",
+    // MISC.1 incremental block metadata (also used as stoppers between heads).
+    // `on` is intentionally omitted: `on step { ... }` is handled by
+    // `loose_clause` so the secondary label is not treated as a new clause head.
+    "yields",
+    "completes",
 ];
 
 /// Ident-based keywords that STOP a clause body but do NOT start one.
@@ -212,6 +220,14 @@ const IDENT_CLAUSE_STARTERS: &[&str] = &[
 const IDENT_CLAUSE_STOPPERS_ONLY: &[&str] = &["feature_max", "incremental", "safety", "security"];
 
 /// Check if a SyntaxKind is a domain keyword clause starter (without needing Parser).
+///
+/// Note: `INCREMENTAL_KW` is intentionally **not** a clause starter. It introduces
+/// a top-level `incremental Name { ... }` block (MISC.1 / `BlockKind::Incremental`).
+/// Treating it as a clause head made the following fn absorb the block as
+/// `Other("incremental")` with body `Ident(Name)` and drop the block body (#833).
+/// Use the ident clause form `incremental_contract { ... }` for annotations on
+/// functions. `INCREMENTAL_KW` remains a clause **stopper** so prior clause bodies
+/// end correctly before a following incremental block.
 pub(crate) fn is_domain_keyword_clause_kind(k: SyntaxKind) -> bool {
     matches!(
         k,
@@ -230,7 +246,6 @@ pub(crate) fn is_domain_keyword_clause_kind(k: SyntaxKind) -> bool {
             | SyntaxKind::PLATFORM_KW
             | SyntaxKind::COMPLEXITY_KW
             | SyntaxKind::EQUIVALENT_KW
-            | SyntaxKind::INCREMENTAL_KW
             | SyntaxKind::OPAQUE_KW
             | SyntaxKind::STRUCTURAL_INVARIANT_KW
             | SyntaxKind::UNSAFE_ESCAPE_KW
@@ -257,45 +272,13 @@ pub(crate) fn is_ident_clause_text(text: &str) -> bool {
     IDENT_CLAUSE_STARTERS.contains(&text)
 }
 
-/// Ident-based clause starters that aren't keyword tokens.
 /// Domain-specific keyword tokens that can start a clause inside contract/fn bodies.
 /// These have dedicated SyntaxKind variants (not plain IDENT) but are used as clause
 /// keywords by the type checker's wiring functions.
+///
+/// `INCREMENTAL_KW` is excluded: see [`is_domain_keyword_clause_kind`].
 fn is_domain_keyword_clause(p: &mut Parser) -> bool {
-    matches!(
-        p.current(),
-        SyntaxKind::ALLOCATOR_KW
-            | SyntaxKind::ATOMIC_KW
-            | SyntaxKind::CIRCULAR_BUFFER_KW
-            | SyntaxKind::REGION_KW
-            | SyntaxKind::SHARED_MEMORY_KW
-            | SyntaxKind::CALLBACK_KW
-            | SyntaxKind::DEADLINE_KW
-            | SyntaxKind::DETERMINISTIC_KW
-            | SyntaxKind::LOCK_ORDER_KW
-            | SyntaxKind::TIMEOUT_KW
-            | SyntaxKind::MONOTONIC_KW
-            | SyntaxKind::PRECISION_KW
-            | SyntaxKind::PLATFORM_KW
-            | SyntaxKind::COMPLEXITY_KW
-            | SyntaxKind::EQUIVALENT_KW
-            | SyntaxKind::INCREMENTAL_KW
-            | SyntaxKind::OPAQUE_KW
-            | SyntaxKind::STRUCTURAL_INVARIANT_KW
-            | SyntaxKind::UNSAFE_ESCAPE_KW
-            | SyntaxKind::LIMIT_KW
-            | SyntaxKind::FEATURE_KW
-            | SyntaxKind::FORMAT_KW
-            | SyntaxKind::CODEC_KW
-            | SyntaxKind::SNAPSHOT_KW
-            | SyntaxKind::RECOVERY_KW
-            | SyntaxKind::FENCE_KW
-            | SyntaxKind::ACQUIRE_KW
-            | SyntaxKind::RELEASE_KW
-            | SyntaxKind::SPEC_KW
-            | SyntaxKind::REFINEMENT_KW
-            | SyntaxKind::LAYOUT_KW
-    )
+    is_domain_keyword_clause_kind(p.current())
 }
 
 fn is_ident_clause_start(p: &mut Parser) -> bool {
@@ -443,7 +426,10 @@ fn is_expr_clause_kind(k: SyntaxKind) -> bool {
             | SyntaxKind::MUST_NOT_KW
             | SyntaxKind::CONFORMS_KW
             | SyntaxKind::MONOTONIC_KW
-            | SyntaxKind::TRANSITION_KW
+            // TRANSITION_KW intentionally uses a raw body: incremental / protocol
+            // forms are `transition A -> B via step` or `transition s(a, b)`, not a
+            // single expression. Expression mode stopped at the first atom and left
+            // `->` / `via` as unparsable residues (#833).
             | SyntaxKind::PROTOCOL_KW
             | SyntaxKind::EQUIVALENT_KW
     )
@@ -465,6 +451,28 @@ pub(crate) fn clause(p: &mut Parser) {
         clause_body(p);
     }
 
+    m.complete(p, SyntaxKind::CLAUSE);
+}
+
+/// Parse a clause whose head is any keyword/ident (not necessarily a registered
+/// starter). Used inside generic blocks for MISC.1 metadata forms such as
+/// `yields: T`, `completes: T`, and `on step { ... }`.
+///
+/// Always uses a raw body so tokens like `via step` and nested braces are kept.
+/// Supports a secondary label before a brace body (`on step { ... }`,
+/// `on abort { ... }`) even when the secondary word is itself a clause starter.
+pub(crate) fn loose_clause(p: &mut Parser) {
+    let m = p.open();
+    if p.at_keyword_or_ident() {
+        p.bump();
+    } else {
+        p.error_at_current("expected clause keyword".into());
+    }
+    // `on step { ... }` / `on abort { ... }`: absorb the event name, then the brace.
+    if p.at_keyword_or_ident() && p.nth(1) == SyntaxKind::L_BRACE {
+        p.bump(); // step / abort / ...
+    }
+    clause_body(p);
     m.complete(p, SyntaxKind::CLAUSE);
 }
 

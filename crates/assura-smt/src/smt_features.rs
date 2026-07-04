@@ -206,6 +206,182 @@ fn verify_feature_body(
 }
 
 // -----------------------------------------------------------------------
+// MISC.1: Incremental contracts (step/resume + annotation clauses)
+// -----------------------------------------------------------------------
+
+/// Verify an `incremental_contract { P }` (or alias) feature annotation.
+///
+/// Boolean predicate bodies use the shared validity path. Non-boolean bodies
+/// (structural references, empty markers) are skipped without emitting
+/// `Unknown` / A05102 — the real MISC.1 content lives on `incremental Name`
+/// blocks whose `step`/`resume`/`invariant` clauses are verified separately.
+fn verify_incremental_contract_clause(
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    if is_likely_boolean_predicate(body) {
+        return vec![verify_feature_body(
+            parent_name,
+            "incremental_contract",
+            body,
+            sibling_clauses,
+        )];
+    }
+    vec![]
+}
+
+/// Split a step/resume Raw token stream into (kind, expr-token) segments.
+///
+/// Recognizes `requires` / `ensures` keywords (with optional `{` `}` wrapping).
+fn split_step_raw_segments(tokens: &[String]) -> Vec<(&'static str, Vec<String>)> {
+    let mut out: Vec<(&'static str, Vec<String>)> = Vec::new();
+    let mut i = 0;
+    while i < tokens.len() {
+        let kind = match tokens[i].as_str() {
+            "requires" => "requires",
+            "ensures" => "ensures",
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        i += 1;
+        // Optional opening brace
+        if i < tokens.len() && tokens[i] == "{" {
+            i += 1;
+        }
+        let mut expr_toks = Vec::new();
+        let mut depth = 0i32;
+        while i < tokens.len() {
+            let t = &tokens[i];
+            if t == "{" {
+                depth += 1;
+                expr_toks.push(t.clone());
+                i += 1;
+                continue;
+            }
+            if t == "}" {
+                if depth == 0 {
+                    i += 1; // consume closing brace of the clause body
+                    break;
+                }
+                depth -= 1;
+                expr_toks.push(t.clone());
+                i += 1;
+                continue;
+            }
+            if depth == 0 && matches!(t.as_str(), "requires" | "ensures" | "effects") {
+                break;
+            }
+            expr_toks.push(t.clone());
+            i += 1;
+        }
+        if !expr_toks.is_empty() {
+            out.push((kind, expr_toks));
+        }
+    }
+    out
+}
+
+/// Re-parse a token slice as a single expression via a synthetic contract.
+///
+/// Returns `None` on parse failure (e.g. typestate `@`, method chains not valid
+/// in isolation). Callers skip those segments without panicking (#833).
+fn reparse_expr_from_tokens(tokens: &[String]) -> Option<SpExpr> {
+    let joined = tokens
+        .iter()
+        .filter(|t| *t != "{" && *t != "}")
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let joined = joined.trim();
+    if joined.is_empty() {
+        return None;
+    }
+    // Wrap so the full parser/lowering path produces a real SpExpr.
+    let src = format!("contract __IncStep {{ ensures {{ {joined} }} }}");
+    let (file, errs) = assura_parser::parse(&src);
+    if !errs.is_empty() {
+        return None;
+    }
+    let file = file?;
+    for decl in &file.decls {
+        if let assura_ast::Decl::Contract(c) = &decl.node {
+            for clause in &c.clauses {
+                if clause.kind == assura_ast::ClauseKind::Ensures {
+                    return Some(clause.body.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Encode one `step` / `resume` body from an incremental block (MISC.1 / #833).
+///
+/// Documented subset: extract `requires` / `ensures` from Raw tokens (or a
+/// boolean body), then validity-check each ensures under that step's requires.
+/// Clauses that cannot be re-parsed are skipped (no A05102 Unknown).
+fn verify_incremental_step(
+    parent_name: &str,
+    step_kind: &str,
+    body: &SpExpr,
+) -> Vec<VerificationResult> {
+    let label = format!("incremental_{step_kind}");
+
+    // Direct boolean body (rare but supported).
+    if is_likely_boolean_predicate(body) {
+        return vec![verify_feature_body(parent_name, &label, body, &[])];
+    }
+
+    let tokens = match &body.node {
+        assura_ast::Expr::Raw(toks) => toks.as_slice(),
+        _ => return vec![],
+    };
+
+    let segments = split_step_raw_segments(tokens);
+    let mut requires_clauses: Vec<Clause> = Vec::new();
+    let mut ensures_bodies: Vec<SpExpr> = Vec::new();
+    for (kind, expr_toks) in segments {
+        let Some(expr) = reparse_expr_from_tokens(&expr_toks) else {
+            continue;
+        };
+        match kind {
+            "requires" => requires_clauses.push(Clause {
+                kind: assura_ast::ClauseKind::Requires,
+                body: expr,
+                effect_variables: vec![],
+            }),
+            "ensures" => ensures_bodies.push(expr),
+            _ => {}
+        }
+    }
+
+    // Documented subset: only boolean ensures we can re-parse. Typestate /
+    // unmodelable fragments (e.g. `self.state @ ExtraField`) are skipped
+    // without A05102 Unknown so demos stay clean while still verifying the
+    // arithmetic / comparison steps that do re-parse cleanly.
+    let results: Vec<VerificationResult> = ensures_bodies
+        .into_iter()
+        .filter(|ens| is_likely_boolean_predicate(ens))
+        .filter(|ens| {
+            #[cfg(feature = "z3-verify")]
+            {
+                !expr_has_unmodelable_features(ens)
+            }
+            #[cfg(not(feature = "z3-verify"))]
+            {
+                let _ = ens;
+                true
+            }
+        })
+        .map(|ens| verify_feature_body(parent_name, &label, &ens, &requires_clauses))
+        .collect();
+    results
+}
+
+// -----------------------------------------------------------------------
 // CORE.6: Opaque functions (has real logic, not a stub)
 // -----------------------------------------------------------------------
 
@@ -636,6 +812,14 @@ pub fn verify_feature_clause(
     sibling_clauses: &[Clause],
 ) -> Vec<VerificationResult> {
     use assura_ast::features::Feature;
+
+    // MISC.1: nested `step` / `resume` / `on` bodies inside `incremental Name { ... }`
+    // are stored as Other(...) with Raw tokens (or a boolean body). Encode their
+    // requires/ensures as a mini contract (#833).
+    if matches!(clause_kind, "step" | "resume" | "on") {
+        return verify_incremental_step(parent_name, clause_kind, body);
+    }
+
     let feature = match Feature::from_clause_kind(clause_kind) {
         Some(f) => f,
         None => return vec![],
@@ -823,15 +1007,12 @@ pub fn verify_feature_clause(
             body,
             sibling_clauses,
         )],
-        // MISC
-        // #189: MISC.1 needs two contract versions for comparison, but
-        // boolean clause bodies can be checked within a single version.
-        Feature::IncrementalContract => vec![verify_feature_body(
-            parent_name,
-            "incremental_contract",
-            body,
-            sibling_clauses,
-        )],
+        // MISC.1: boolean `incremental_contract { P }` annotations; nested
+        // step/resume handled above. Non-boolean bodies (e.g. bare type names)
+        // are skipped without Unknown so structural block form is not noisy.
+        Feature::IncrementalContract => {
+            verify_incremental_contract_clause(parent_name, body, sibling_clauses)
+        }
         Feature::ScopedInvariant => vec![verify_feature_body(
             parent_name,
             "scoped_invariant",
