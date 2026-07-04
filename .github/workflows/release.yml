@@ -57,11 +57,15 @@ jobs:
           else
             echo "tag=" >> "$GITHUB_OUTPUT"
           fi
+      # Tag push: build the tagged commit.
+      # workflow_dispatch: build the selected branch tip (github.sha) so a
+      # post-tag fix on main can re-publish the same announcement tag without
+      # force-moving the git tag (v0.1.0 first cut failed before dist=true).
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
           submodules: recursive
-          ref: ${{ steps.resolve-tag.outputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || steps.resolve-tag.outputs.tag || github.ref }}
       - name: Install dist
         # we specify bash to get pipefail; it guards against the `curl` command
         # failing. otherwise `sh` won't catch that `curl` returned non-0
