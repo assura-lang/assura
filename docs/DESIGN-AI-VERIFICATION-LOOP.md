@@ -661,7 +661,7 @@ Phase C scales it.
 | `crates/assura-smt/src/result.rs` | Add `root_cause`, `repair_hint`, `slot_trace` to results |
 | `crates/assura-smt/src/ir_modules/ir_exec.rs` | Add slot value evaluation for trace |
 | `crates/assura-server/src/main.rs` | Add `VerifyIR` streaming RPC |
-| `templates/ir/base.md` | Update prompt to reference `assura_ir_verify` tool |
+| `crates/assura-smt/templates/ir/base.md` | Update prompt to reference `assura_ir_verify` tool |
 
 ---
 

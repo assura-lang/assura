@@ -143,6 +143,13 @@ bash scripts/new-decl.sh Widget
 # Decl variant touch list (grep sites; then cargo build for non-exhaustive)
 bash scripts/check-decl-variant.sh
 
+# crates.io packaging preflight (every publishable crate; also CI job)
+# Catches include_str! / assets that only resolve in the monorepo (#814).
+bash scripts/check-publish-plan.sh
+bash scripts/check-cargo-package.sh            # full package + verify
+bash scripts/check-cargo-package.sh --list-only # fast list only
+# Ops guide: docs/CRATES-IO.md  |  IR templates: crates/assura-smt/templates/ir/
+
 # Targeted compile/test (agent tools with short timeouts)
 cargo check -p assura-types --locked
 cargo test -p assura-types --locked --lib

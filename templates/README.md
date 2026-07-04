@@ -12,9 +12,10 @@ configured LLM provider, which returns an implementation in Assura IR.
 - `concurrency.md` -- concurrent data structures (CONC features)
 - `error-propagation.md` -- Result/Option error handling
 - `cve-patterns.md` -- CVE prevention patterns
-- `ir/` -- IR-specific templates
-  - `base.md` -- base IR generation prompt
-  - `patterns/` -- common IR patterns (arithmetic, bounds checks, etc.)
+- `ir/README.md` -- pointer only; **canonical IR prompts live in**
+  [`crates/assura-smt/templates/ir/`](../crates/assura-smt/templates/ir/)
+  (required for `include_str!` / crates.io packaging; do not duplicate
+  markdown bodies under monorepo `templates/ir/`)
 
 ## Configuration
 

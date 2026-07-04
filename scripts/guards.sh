@@ -455,6 +455,30 @@ else
   jsec 12 "features-parser-sync" "ok" "all features.rs clause_kinds are in parser keyword lists"
 fi
 
+# ---------------------------------------------------------------------------
+# 13) IR prompt templates: crate-local is canonical; monorepo root must not
+#     re-introduce pattern markdown bodies (drift caused crates.io package miss).
+#     See issue #812.
+# ---------------------------------------------------------------------------
+s13_fail=0
+if [[ ! -f crates/assura-smt/templates/ir/base.md ]]; then
+  die "missing canonical IR template: crates/assura-smt/templates/ir/base.md"
+  jfind 13 "crates/assura-smt/templates/ir/base.md" "canonical base template missing"
+  s13_fail=1
+fi
+# Root templates/ir/ may only hold a README pointer, not pattern bodies.
+while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
+  die "duplicated IR template under monorepo root (use crate-local only): $line"
+  jfind 13 "$line" "IR template body under monorepo templates/ir/ (canonical is crates/assura-smt/templates/ir/)"
+  s13_fail=1
+done < <(find templates/ir -type f \( -name '*.md' ! -name 'README.md' \) 2>/dev/null || true)
+if [[ $s13_fail -eq 1 ]]; then
+  jsec 13 "IR template single source" "fail" "IR templates missing under crate or duplicated at monorepo root"
+else
+  jsec 13 "IR template single source" "ok" "crate-local IR templates present; root has no pattern bodies"
+fi
+
 # ── Final output ─────────────────────────────────────────────────────────────
 if $json_mode; then
   python3 - "$_jdata" << 'PYEOF'

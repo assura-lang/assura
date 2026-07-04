@@ -471,10 +471,38 @@ jobs:
         working-directory: editors/vscode
         run: npx tsc -p ./
 
+  # ── cargo package all publishable crates (crates.io preflight, #814) ──
+  # Workspace cargo test/clippy do not catch include_str! paths that only
+  # resolve inside the monorepo. cargo package --locked verifies each tarball.
+  cargo-package:
+    name: Cargo package (publishable)
+    needs: changes
+    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TARGET_DIR: target/ci-package
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-rust-ci
+        with:
+          shared-key: ci-cargo-package
+
+      - name: cargo package all publishable crates
+        run: bash scripts/check-cargo-package.sh
+
   # ── Gate job (single required status check for branch protection) ────
   ci:
     if: always()
-    needs: [lint-fast, clippy, test, benchmark, codegen-validation, no-z3, cvc5, tree-sitter, vscode-extension, workflow-sanity]
+    needs: [lint-fast, clippy, test, benchmark, codegen-validation, no-z3, cvc5, tree-sitter, vscode-extension, workflow-sanity, cargo-package]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
