@@ -77,9 +77,18 @@ jobs:
       # functionality based on whether this is a pull_request, and whether it's from a fork.
       # (PRs run on the *source* but secrets are usually on the *target* -- that's *good*
       # but also really annoying to build CI around when it needs secrets to work right.)
+      # Always use the resolved release tag (tag push or workflow_dispatch input).
+      # Do not use github.ref_name here: on workflow_dispatch from main it is
+      # "main", which cargo-dist cannot parse as a version.
       - id: plan
+        env:
+          RELEASE_TAG: ${{ steps.resolve-tag.outputs.tag }}
         run: |
-          dist ${{ (!github.event.pull_request && format('host --steps=create --tag={0}', github.ref_name)) || 'plan' }} --output-format=json > plan-dist-manifest.json
+          if [[ -z "${RELEASE_TAG}" ]]; then
+            echo "No release tag resolved; refusing to plan a publish." >&2
+            exit 1
+          fi
+          dist host --steps=create --tag="${RELEASE_TAG}" --output-format=json > plan-dist-manifest.json
           echo "dist ran successfully"
           cat plan-dist-manifest.json
           echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"

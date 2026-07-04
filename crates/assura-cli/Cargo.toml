@@ -12,6 +12,10 @@ categories.workspace = true
 # unpublished workspace crates (pipeline, lsp, mcp, llm, …).
 publish = false
 
+# cargo-dist ignores publish=false packages unless dist is forced on.
+[package.metadata.dist]
+dist = true
+
 [lib]
 name = "assura"
 path = "src/lib.rs"
