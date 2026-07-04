@@ -149,6 +149,12 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash scripts/guards.sh
 
+      # Assert publish set/order (catches wrong expected graph in docs/scripts).
+      # Full cargo package verify lives in the cargo-package job.
+      - name: Check crates.io publish plan
+        if: ${{ !cancelled() }}
+        run: bash scripts/check-publish-plan.sh
+
       - name: Check dependencies
         if: ${{ !cancelled() }}
         run: cargo deny check

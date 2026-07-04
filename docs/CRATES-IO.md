@@ -29,10 +29,14 @@ The temporary `release-as: 0.1.0` pin used for the first cut has been
 
 Library crates in dependency order (computed by `scripts/publish-crates.sh`):
 
-`assura-ast` → `assura-config` → `assura-diagnostics` → `assura-macros` →
-`assura-runtime` → `assura-parser` → `assura-fmt` → `assura-stdlib` →
+`assura-ast` → `assura-config` → `assura-diagnostics` → `assura-runtime` →
+`assura-parser` → `assura-macros` → `assura-fmt` → `assura-stdlib` →
 `assura-resolve` → `assura-types` → `assura-codegen` → `assura-smt` →
 **`assura-pipeline`** (preferred public embed API).
+
+Order is graph-derived (all path deps including **dev**). Example:
+`assura-macros` has a path dev-dependency on `assura-runtime`, so runtime
+publishes first.
 
 All of the above share `[workspace.package] version` in the root
 `Cargo.toml`. Path dependencies also pin `version = "…"` so packaging can

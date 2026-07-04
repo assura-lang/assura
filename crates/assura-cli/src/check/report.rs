@@ -205,12 +205,20 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                 .filter(|d| d.severity == assura_diagnostics::Severity::Warning)
                 .count();
             if !*has_errors {
-                // Vacuous success: empty / comment-only sources pass every
-                // phase without checking anything. Surface that so users and
-                // agents do not treat "check passed" as proof of coverage.
+                // Vacuous success: empty sources, or contracts present but no
+                // SMT-checkable clauses, pass every phase without proving
+                // anything. Surface that so users/agents do not treat
+                // "check passed" as proof of coverage (PM lesson, MPI).
                 let no_decls = file.as_ref().is_some_and(|f| f.decls.is_empty());
+                let contracts_without_results = layer >= 1
+                    && verification_results.is_empty()
+                    && file.as_ref().is_some_and(|f| {
+                        !assura_smt::display::collect_contract_names(f).is_empty()
+                    });
                 if no_decls {
                     eprintln!("{filename}: check passed (no contracts or functions to verify)");
+                } else if contracts_without_results {
+                    eprintln!("{filename}: check passed (no verifiable clauses)");
                 } else if warning_count > 0 {
                     eprintln!(
                         "{filename}: check passed ({warning_count} warning{})",
