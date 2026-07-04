@@ -401,7 +401,8 @@ jobs:
       - host
     if: ${{ always() && !cancelled() && needs.host.result == 'success' && needs.plan.outputs.publishing == 'true' }}
     runs-on: "ubuntu-24.04"
-    timeout-minutes: 30
+    # Multi-crate first cuts: 60s between new uploads + 429 backoff (see #811).
+    timeout-minutes: 90
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
