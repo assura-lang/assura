@@ -7,7 +7,7 @@ use crate::encode_atom_policy::canonical_length_name;
 use crate::encode_atom_policy::sanitize_smt_name;
 use crate::havoc_assume::{RESULT_SLOT, ir_param_names};
 use crate::ir::{IrArithOp, IrCmpOp, IrFunction, IrLiteral, IrPred, IrPredArg};
-use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, slot_type_map};
+use crate::ir_encode::{IrEncodeContext, is_collection_ir_type};
 use crate::ir_lower::{IrSlotContext, IrTermBuilder};
 use crate::ir_type_ctx::base_type_name;
 
@@ -20,11 +20,7 @@ struct SmtlibIrBuilder<'a, 'b> {
     enc: &'a mut IrSmtlibEncoder,
     script: &'a mut String,
     vars: &'a mut HashSet<String>,
-    /// Retained so field/construct helpers match Z3/CVC5 builder shape (ctx uses copies).
-    #[expect(dead_code)]
-    slot_to_name: &'b HashMap<usize, String>,
-    #[expect(dead_code)]
-    slot_types: &'b HashMap<usize, String>,
+    /// Slot maps live on `enc_ctx` (used via `IrTermBuilder::enc_ctx`).
     enc_ctx: IrEncodeContext<'b>,
 }
 
@@ -352,17 +348,10 @@ pub(crate) fn append_ir_body_constraints_smtlib(
         crate::encode_atom_policy::RESULT_VAR_NAME.to_string(),
     );
 
-    let slot_to_name: HashMap<usize, String> = ir_param_names(func, contract_param_names)
-        .into_iter()
-        .collect();
-    let slot_types = slot_type_map(func);
-
     let mut builder = SmtlibIrBuilder {
         enc: &mut enc,
         script,
         vars,
-        slot_to_name: &slot_to_name,
-        slot_types: &slot_types,
         enc_ctx,
     };
 
