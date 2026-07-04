@@ -10,7 +10,8 @@
 #   - package.publish is not false
 #   - every path dependency (normal/build/dev) on a workspace crate is also
 #     publishable (otherwise cargo packaging cannot resolve it from crates.io)
-#   - topological order by normal+build path dependencies among that set
+#   - topological order by ALL path deps among that set (normal, build, AND
+#     dev): cargo publish resolves [dev-dependencies] against crates.io
 #
 # Usage (from repo root):
 #   CARGO_REGISTRY_TOKEN=... bash scripts/publish-crates.sh
