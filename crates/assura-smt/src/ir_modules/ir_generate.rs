@@ -391,7 +391,6 @@ fn length_pair_to_param_slot(
     }
 }
 
-
 fn is_result_length_call(expr: &SpExpr) -> bool {
     matches!(
         &expr.node,
