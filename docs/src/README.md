@@ -22,8 +22,11 @@ contract SafeDivision {
 ## Quick Start
 
 ```bash
-# Install
-cargo install assura
+# Preferred: prebuilt binary from GitHub Releases (cargo-dist)
+# https://github.com/assura-lang/assura/releases
+#
+# From a clone (the CLI is not published to crates.io yet):
+cargo install --path crates/assura-cli
 
 # Check a contract
 assura check my_contract.assura
@@ -31,6 +34,10 @@ assura check my_contract.assura
 # Build (generates verified Rust)
 assura build my_contract.assura
 ```
+
+Do **not** run `cargo install assura`: that name is only a crates.io
+placeholder and will not install this toolchain. See
+[CRATES-IO.md](../CRATES-IO.md) and the root README.
 
 ## Documentation
 

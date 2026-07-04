@@ -101,7 +101,7 @@ The Z3 SMT solver is downloaded automatically during `cargo build` (via the
 
 ```toml
 [dependencies]
-assura-pipeline = "0.1"
+assura-pipeline = "0.2"
 ```
 
 Prefer crates.io for apps; use a git path dependency only when tracking

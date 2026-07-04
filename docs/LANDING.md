@@ -195,8 +195,18 @@ dedicated features.
 
 ## Get Started
 
+**Preferred:** download a prebuilt binary from
+[GitHub Releases](https://github.com/assura-lang/assura/releases)
+(cargo-dist installers; multi-platform). The `assura` CLI package name is
+reserved on crates.io as a placeholder only; **do not** `cargo install assura`
+for the real toolchain (see [docs/CRATES-IO.md](CRATES-IO.md)).
+
+**From source** (requires a [Rust toolchain](https://rustup.rs/)):
+
 ```bash
-cargo install assura
+git clone https://github.com/assura-lang/assura.git
+cd assura
+cargo install --path crates/assura-cli
 ```
 
 ```bash
@@ -212,7 +222,7 @@ assura build contracts/ --target rust --compile
 
 **Repository:** [github.com/assura-lang/assura](https://github.com/assura-lang/assura)
 
-**License:** Apache 2.0 with LLVM Exception (same as Rust, Swift, LLVM)
+**License:** MIT OR Apache-2.0 (dual license)
 
 ---
 

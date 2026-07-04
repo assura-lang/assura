@@ -460,3 +460,77 @@ jobs:
           echo "Release pipeline finished for tag: ${TAG}"
           gh api "repos/${GH_REPO}/releases/tags/${TAG}" \
             --jq '"url=\(.html_url) tag=\(.tag_name) draft=\(.draft) prerelease=\(.prerelease)"'
+
+  # Remove curated RELEASE_NOTES.md from main after it was applied to the
+  # GitHub Release body (host job). Branch protection requires a PR; use the
+  # auto-approve app so the cleanup PR can auto-merge. Non-fatal: notes left
+  # on main are wrong only for the *next* release override window.
+  cleanup-release-notes:
+    needs:
+      - plan
+      - host
+      - announce
+    if: ${{ always() && !cancelled() && needs.host.result == 'success' }}
+    runs-on: "ubuntu-24.04"
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: cleanup-token
+        continue-on-error: true
+        with:
+          client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
+          private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
+      - name: Open PR to remove RELEASE_NOTES.md
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.cleanup-token.outputs.token || secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if ! gh api "repos/${GH_REPO}/contents/RELEASE_NOTES.md?ref=main" --jq '.sha' >/dev/null 2>&1; then
+            echo "No RELEASE_NOTES.md on main; nothing to clean up."
+            exit 0
+          fi
+          BRANCH="chore/cleanup-release-notes-${TAG}"
+          # Reuse branch if a prior cleanup attempt left it.
+          if ! gh api "repos/${GH_REPO}/git/ref/heads/${BRANCH}" >/dev/null 2>&1; then
+            MAIN_SHA=$(gh api "repos/${GH_REPO}/git/ref/heads/main" --jq '.object.sha')
+            gh api "repos/${GH_REPO}/git/refs" \
+              -f ref="refs/heads/${BRANCH}" \
+              -f sha="${MAIN_SHA}"
+          fi
+          if gh api "repos/${GH_REPO}/contents/RELEASE_NOTES.md?ref=${BRANCH}" --jq '.sha' >/dev/null 2>&1; then
+            FILE_SHA=$(gh api "repos/${GH_REPO}/contents/RELEASE_NOTES.md?ref=${BRANCH}" --jq '.sha')
+            gh api --method DELETE "repos/${GH_REPO}/contents/RELEASE_NOTES.md" \
+              -f message="chore: remove release notes override after ${TAG}" \
+              -f sha="${FILE_SHA}" \
+              -f branch="${BRANCH}"
+          else
+            echo "RELEASE_NOTES.md already absent on ${BRANCH}"
+          fi
+          EXISTING=$(gh pr list --repo "${GH_REPO}" --head "${BRANCH}" --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "${EXISTING}" ]; then
+            echo "Cleanup PR already open: #${EXISTING}"
+            gh pr merge "${EXISTING}" --repo "${GH_REPO}" --auto --squash || true
+            exit 0
+          fi
+          # If the branch tip already matches main (file gone via earlier merge), skip.
+          if ! gh api "repos/${GH_REPO}/contents/RELEASE_NOTES.md?ref=main" >/dev/null 2>&1 \
+            && ! gh api "repos/${GH_REPO}/contents/RELEASE_NOTES.md?ref=${BRANCH}" >/dev/null 2>&1; then
+            echo "RELEASE_NOTES.md already gone from main and ${BRANCH}"
+            exit 0
+          fi
+          PR_URL=$(gh pr create --repo "${GH_REPO}" --base main --head "${BRANCH}" \
+            --title "chore: remove release notes override" \
+            --body "Auto-cleanup after ${TAG}: curated RELEASE_NOTES.md was applied to the GitHub Release and should not stay on main for the next cut.")
+          gh pr merge "$PR_URL" --repo "${GH_REPO}" --auto --squash || true
+          echo "Opened cleanup PR: ${PR_URL}"
