@@ -106,6 +106,8 @@ topological order (including path **dev**-dependencies).
 `check-cargo-package.sh` runs `cargo package -p <crate> --locked` for each
 publishable crate so monorepo-only `include_str!` paths fail before a
 release (CI job **Cargo package (publishable)**).
+Refresh `MASTER-PLAN.md` crate LOC/test counts with
+`bash scripts/count-crates.sh`.
 
 When editing `.github/workflows/**` or `.github/actions/**`, also run:
 

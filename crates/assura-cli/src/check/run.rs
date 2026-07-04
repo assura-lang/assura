@@ -239,6 +239,32 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
                 "file": filename,
                 "success": !has_errors,
             });
+            // Vacuous success for agents/automation (mirrors human-mode wording).
+            // Empty sources and contracts with zero SMT results look like
+            // "success" without proving anything.
+            if !has_errors {
+                let no_decls = file.as_ref().is_some_and(|f| f.decls.is_empty());
+                let has_clause_kinds = file
+                    .as_ref()
+                    .is_some_and(assura_smt::has_verifiable_clauses);
+                let has_contracts = file
+                    .as_ref()
+                    .is_some_and(|f| !assura_smt::display::collect_contract_names(f).is_empty());
+                let contracts_without_results =
+                    layer >= 1 && verification_results.is_empty() && has_contracts;
+                if no_decls {
+                    file_info["vacuous"] = serde_json::json!(true);
+                    file_info["vacuous_reason"] =
+                        serde_json::json!("no contracts or functions to verify");
+                } else if contracts_without_results {
+                    file_info["vacuous"] = serde_json::json!(true);
+                    file_info["vacuous_reason"] = if has_clause_kinds {
+                        serde_json::json!("no SMT proof obligations; add ensures or invariant")
+                    } else {
+                        serde_json::json!("no verifiable clauses")
+                    };
+                }
+            }
             if let Some(ref f) = file {
                 if let Some(ref p) = f.project {
                     file_info["project"] = serde_json::json!({
