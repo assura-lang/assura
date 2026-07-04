@@ -379,24 +379,18 @@ fn length_pair_to_param_slot(
     match &other_side.node {
         Expr::MethodCall {
             receiver, method, ..
-        } if method == "length"
-            && matches!(&receiver.as_ref().node, Expr::Ident(name) if name_to_slot.contains_key(name.as_str())) =>
-        {
-            name_to_slot
-                .get(receiver_as_ident(receiver).expect("match guard ensures ident is in map"))
-                .copied()
+        } if method == "length" => {
+            // Prefer structured match over expect-after-guard (Developer/MPI).
+            match &receiver.as_ref().node {
+                Expr::Ident(name) => name_to_slot.get(name.as_str()).copied(),
+                _ => None,
+            }
         }
         Expr::Ident(name) => name_to_slot.get(name.as_str()).copied(),
         _ => None,
     }
 }
 
-fn receiver_as_ident(expr: &SpExpr) -> Option<&str> {
-    match &expr.node {
-        Expr::Ident(name) => Some(name.as_str()),
-        _ => None,
-    }
-}
 
 fn is_result_length_call(expr: &SpExpr) -> bool {
     matches!(

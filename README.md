@@ -120,6 +120,9 @@ assura check demos/libwebp-huffman.assura
 
 # Check with JSON output
 assura check demos/libwebp-huffman.assura --json
+# Agents: on success, inspect file_info.vacuous / vacuous_reason so empty
+# sources or contracts with no SMT proof obligations are not treated as
+# verified coverage (see also human-mode check-passed summaries).
 
 # Check with verbose timing info
 assura check demos/libwebp-huffman.assura --verbose

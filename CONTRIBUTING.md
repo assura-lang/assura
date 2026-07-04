@@ -41,6 +41,11 @@ Good first areas: adding test fixtures in `tests/fixtures/`, improving
 error messages in `assura-diagnostics`, and expanding demo contracts in
 `demos/`.
 
+**Not part of the default workspace:** `crates/assura-driver` is an
+exploratory rustc driver (`publish = false`, listed in root
+`Cargo.toml` `exclude`). It needs nightly + `rustc-dev`. Do not expect
+`cargo test --workspace` to build it.
+
 ## Project Structure
 
 The compiler is a Cargo workspace with one crate per pipeline stage:
