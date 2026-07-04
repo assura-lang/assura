@@ -102,7 +102,7 @@ Config files:
 | `scripts/sync-path-dep-versions.sh` | Path-dep `version=` pins = workspace version |
 | `scripts/sync-cargo-lock-workspace-versions.sh` | Align `Cargo.lock` workspace member versions after a version bump (required for CI `--locked`) |
 | `scripts/check-publish-plan.sh` | Assert publish order matches the 13-crate library stack |
-| `scripts/check-cargo-package.sh` | `cargo package -p <crate> --locked` for every publishable crate (CI gate, #814) |
+| `scripts/check-cargo-package.sh` | `cargo package` gate; full verify when version is on crates.io, `--list` on co-publish version-bump PRs (#814, co-publish skew) |
 | `.github/workflows/release-please.yml` | Opens release PR on main push; syncs path-deps + lock on that PR; dispatches Release on create |
 | `.github/workflows/release.yml` | cargo-dist installers + publish-crates (`tag` / dispatch) |
 | `dist-workspace.toml` | cargo-dist targets / installers |
@@ -112,10 +112,17 @@ Config files:
 ```bash
 git status   # clean working tree preferred
 bash scripts/check-publish-plan.sh
-bash scripts/check-cargo-package.sh   # full package + verify per crate
+bash scripts/check-cargo-package.sh   # full package+verify if version on crates.io;
+                                      # auto --list on pre-publish version-bump PRs
 # Optional dry-run of the publish script (no token required):
 bash scripts/publish-crates.sh --dry-run
 ```
+
+On a release-please PR that bumps to a version not yet on crates.io, full
+`cargo package` cannot resolve path+version deps against the registry
+(only the old version exists). The script falls back to `--list` so CI still
+checks tarball membership; co-publish (`publish-crates.sh`) is the ordered
+full verify at release time.
 
 `check-cargo-package.sh` is the gate that would have caught the v0.1.0
 `assura-smt` failure (monorepo `include_str!` paths outside the package
