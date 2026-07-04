@@ -1,6 +1,6 @@
 //! AI prompt assembly for Implementation IR generation.
 //!
-//! Loads a shared base template plus thin pattern overlays from `templates/ir/`.
+//! Loads a shared base template plus thin pattern overlays from `crates/assura-smt/templates/ir/` (shipped with the crate).
 //! Pattern detection reuses `ir_generate::classify_ensures_shape` — no duplicated
 //! clause analysis logic.
 
@@ -201,27 +201,27 @@ fn param_slot_types(ctx: &IrPromptContext) -> Vec<(usize, String)> {
         .collect()
 }
 
-const BASE_TEMPLATE: &str = include_str!("../../../../templates/ir/base.md");
+const BASE_TEMPLATE: &str = include_str!("../../templates/ir/base.md");
 
 fn load_pattern_overlay(pattern: IrPromptPattern) -> &'static str {
     match pattern {
         IrPromptPattern::Identity | IrPromptPattern::Auto => {
-            include_str!("../../../../templates/ir/patterns/identity.md")
+            include_str!("../../templates/ir/patterns/identity.md")
         }
         IrPromptPattern::Arithmetic => {
-            include_str!("../../../../templates/ir/patterns/arithmetic.md")
+            include_str!("../../templates/ir/patterns/arithmetic.md")
         }
         IrPromptPattern::LengthCopy => {
-            include_str!("../../../../templates/ir/patterns/length-copy.md")
+            include_str!("../../templates/ir/patterns/length-copy.md")
         }
         IrPromptPattern::CallChain => {
-            include_str!("../../../../templates/ir/patterns/call-chain.md")
+            include_str!("../../templates/ir/patterns/call-chain.md")
         }
         IrPromptPattern::BoundsCheck => {
-            include_str!("../../../../templates/ir/patterns/bounds-check.md")
+            include_str!("../../templates/ir/patterns/bounds-check.md")
         }
         IrPromptPattern::FieldAccess => {
-            include_str!("../../../../templates/ir/patterns/field-access.md")
+            include_str!("../../templates/ir/patterns/field-access.md")
         }
     }
 }
