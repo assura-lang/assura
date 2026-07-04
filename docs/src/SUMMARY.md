@@ -15,4 +15,5 @@
 
 - [Language Specification](SPECIFICATION.md)
 - [Compiler Internals](INTERNALS.md)
+- [crates.io packaging](CRATES-IO.md)
 - [Roadmap](ROADMAP.md)
