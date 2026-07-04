@@ -7,16 +7,26 @@
 # Usage (from repo root):
 #   bash scripts/check-cargo-package.sh
 #   bash scripts/check-cargo-package.sh --list-only   # fast file list only
+#
+# On co-publish version-bump PRs (workspace version not yet on crates.io),
+# full `cargo package` fails with "candidate versions found which didn't
+# match" because path deps pin version= to the *new* version that only
+# exists locally. In that case we fall back to --list (still catches bad
+# package membership) and full package+verify remains the gate once the
+# version exists on crates.io (main after release, or re-publish re-runs).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 LIST_ONLY=0
+FORCE_FULL=0
 if [[ "${1:-}" == "--list-only" ]]; then
   LIST_ONLY=1
+elif [[ "${1:-}" == "--full" ]]; then
+  FORCE_FULL=1
 elif [[ -n "${1:-}" ]]; then
-  echo "usage: $0 [--list-only]" >&2
+  echo "usage: $0 [--list-only|--full]" >&2
   exit 2
 fi
 
@@ -36,7 +46,45 @@ if [[ ${#ORDER[@]} -eq 0 ]]; then
   exit 1
 fi
 
-echo "cargo package gate: ${#ORDER[@]} publishable crates"
+# Workspace version from [workspace.package]
+WS_VER=$(
+  python3 - <<'PY'
+import re
+from pathlib import Path
+cargo = Path("Cargo.toml").read_text()
+m = re.search(
+    r"(?ms)^\[workspace\.package\]\s*.*?^version\s*=\s*\"([^\"]+)\"",
+    cargo,
+)
+if not m:
+    raise SystemExit("could not find [workspace.package] version")
+print(m.group(1))
+PY
+)
+
+if [[ "$LIST_ONLY" -eq 0 && "$FORCE_FULL" -eq 0 ]]; then
+  # Probe the first published leaf of the stack (always co-published).
+  probe="${ORDER[0]}"
+  code=$(
+    curl -sS -o /dev/null -w "%{http_code}" \
+      -A "assura-check-cargo-package/1.0 (https://github.com/assura-lang/assura)" \
+      "https://crates.io/api/v1/crates/${probe}/${WS_VER}" || echo "000"
+  )
+  if [[ "$code" != "200" ]]; then
+    echo "note: ${probe} ${WS_VER} not on crates.io yet (HTTP ${code})."
+    echo "note: co-publish version-bump PRs cannot full-package interdependent"
+    echo "note: crates (path+version deps resolve against the registry). Using"
+    echo "note: --list only; full package+verify after versions exist on crates.io."
+    LIST_ONLY=1
+  fi
+fi
+
+mode_label="full package+verify"
+if [[ "$LIST_ONLY" -eq 1 ]]; then
+  mode_label="--list only"
+fi
+echo "cargo package gate: ${#ORDER[@]} publishable crates (${mode_label}, workspace ${WS_VER})"
+
 failed=()
 for crate in "${ORDER[@]}"; do
   echo "==> cargo package -p ${crate} --locked$([ "$LIST_ONLY" -eq 1 ] && echo ' --list' || true)"
@@ -52,6 +100,8 @@ for crate in "${ORDER[@]}"; do
       echo "error: cargo package failed for ${crate}" >&2
       echo "  hint: include_str! / build scripts must only reference files" >&2
       echo "  under crates/${crate}/ so they ship in the package tarball." >&2
+      echo "  hint: if this is a pre-publish version bump and deps are not" >&2
+      echo "  on crates.io yet, re-run without --full or wait until co-publish." >&2
       failed+=("$crate")
     fi
   fi
@@ -62,4 +112,4 @@ if [[ ${#failed[@]} -gt 0 ]]; then
   exit 1
 fi
 
-echo "cargo package gate ok (${#ORDER[@]} crates)"
+echo "cargo package gate ok (${#ORDER[@]} crates, ${mode_label})"
