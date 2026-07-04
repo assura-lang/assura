@@ -272,11 +272,12 @@ jobs:
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
+      # workflow_dispatch: build notes/scripts from branch tip; tag push: use the tag.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
           submodules: recursive
-          ref: ${{ needs.plan.outputs.tag }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.plan.outputs.tag }}
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
       # Create/reuse GitHub Release and attach cargo-dist artifacts.
@@ -346,20 +347,24 @@ jobs:
 
       - name: Generate SBOM
         run: |
+          set -euo pipefail
           cargo install cargo-cyclonedx --locked
-          cargo cyclonedx --format json --all
-          # cargo-cyclonedx may write bom.json or assura-*.cdx.json depending on version
-          if [ -f bom.json ]; then
-            mv bom.json assura-sbom.cdx.json
+          # Workspace mode writes one JSON per package under crates/*/ (not repo root).
+          # SBOM the published CLI package; that is what the release ships as a binary.
+          cargo cyclonedx --format json \
+            --manifest-path crates/assura-cli/Cargo.toml \
+            --override-filename assura-sbom
+          if [ -f crates/assura-cli/assura-sbom.json ]; then
+            cp crates/assura-cli/assura-sbom.json assura-sbom.cdx.json
+          elif [ -f crates/assura-cli/assura-sbom.cdx.json ]; then
+            cp crates/assura-cli/assura-sbom.cdx.json assura-sbom.cdx.json
           else
-            sbom=$(find . -maxdepth 1 -name '*.cdx.json' -print -quit)
-            if [ -n "$sbom" ]; then
-              mv "$sbom" assura-sbom.cdx.json
-            else
-              echo "error: no CycloneDX SBOM produced" >&2
-              exit 1
-            fi
+            echo "error: no CycloneDX SBOM produced for assura-cli" >&2
+            find crates/assura-cli -maxdepth 2 -type f | head -50 >&2 || true
+            exit 1
           fi
+          test -s assura-sbom.cdx.json
+          echo "SBOM bytes: $(wc -c < assura-sbom.cdx.json)"
 
       - name: Upload SBOM to release
         run: gh release upload "${{ needs.plan.outputs.tag }}" assura-sbom.cdx.json --clobber
@@ -405,7 +410,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
-          ref: ${{ needs.plan.outputs.tag }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.plan.outputs.tag }}
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
