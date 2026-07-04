@@ -58,13 +58,17 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  sync-path-dep-versions:
+  # After release-please opens/updates the PR: align path-dep version pins
+  # and Cargo.lock workspace member versions so CI --locked stays green.
+  # release-type "simple" + workspace.package.version does NOT update the lock
+  # (unlike release-type "rust" on a single root package, e.g. patchloom).
+  sync-release-pr-versions:
     needs: [release-please]
     if: >-
       needs.release-please.outputs.release_created != 'true' &&
       needs.release-please.outputs.pr != ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
@@ -83,20 +87,23 @@ jobs:
         with:
           ref: ${{ steps.pr-branch.outputs.branch }}
           persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
       - name: Sync path-dep versions
         run: bash scripts/sync-path-dep-versions.sh
+      - name: Sync Cargo.lock workspace package versions
+        run: bash scripts/sync-cargo-lock-workspace-versions.sh
       - name: Commit and push if changed
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if git diff --quiet; then
-            echo "path-dep versions already aligned"
+            echo "path-dep versions and Cargo.lock already aligned"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add crates/*/Cargo.toml
-          git commit -s -m "chore: sync path-dep versions with workspace version"
+          git add crates/*/Cargo.toml Cargo.lock
+          git commit -s -m "chore: sync path-dep versions and Cargo.lock with workspace version"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push
 
