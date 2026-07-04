@@ -1851,3 +1851,39 @@ fn identity(n: Int) -> Int
         a02001_errors
     );
 }
+
+/// feature_max constants must resolve in clause bodies (no false A02001).
+/// SMT already binds their values; resolve must register the name.
+#[test]
+fn test_feature_max_visible_in_clauses() {
+    let src = r#"
+feature_max MAX_SIZE: Nat = 280
+feature_max MAX_LEN: Nat = 15
+
+fn check_bounds(size: Nat, max_len: Nat)
+  requires { size <= MAX_SIZE }
+  requires { max_len <= MAX_LEN }
+  ensures  { size + max_len <= 295 }
+  ensures  { MAX_SIZE == 280 }
+  effects: pure
+"#;
+    let file = assura_parser::parse_unwrap(src);
+    let resolved = resolve(&file).expect("resolve failed");
+    let a02001: Vec<_> = resolved
+        .warnings
+        .iter()
+        .filter(|e| e.code == "A02001")
+        .collect();
+    assert!(
+        a02001.is_empty(),
+        "feature_max names must not produce A02001, got: {a02001:?}"
+    );
+    assert!(
+        resolved
+            .symbols
+            .symbols
+            .iter()
+            .any(|s| s.name == "MAX_SIZE"),
+        "MAX_SIZE should be registered in the symbol table"
+    );
+}

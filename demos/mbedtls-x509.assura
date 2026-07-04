@@ -285,6 +285,37 @@ fn process_incoming_record(
   RecordResult.Ok(record_len as Nat)
 }
 
+// ---------------------------------------------------------------------------
+// Verifiable contracts (no IR): use SMT-only feature_max names.
+//
+// MAX_CONTENT_LEN / MAX_EC_POINT_SIZE / MAX_HANDSHAKE_LEN above are also used
+// as type parameters (Region<…>, refinements). Codegen emits them as type
+// stubs + NAME_VALUE consts, so value-position uses of the type name in
+// generated debug_assert! would not compile. These SMT_* aliases are
+// value-only (plain `pub const`) and are safe for requires/ensures codegen.
+// ---------------------------------------------------------------------------
+
+feature_max SMT_EC_POINT_BOUND: Nat = 256
+feature_max SMT_CONTENT_BOUND: Nat = 16384
+feature_max SMT_HANDSHAKE_BOUND: Nat = 65535
+
+fn check_ec_point_bounds(point_len: Nat, content_len: Nat)
+  requires { point_len <= SMT_EC_POINT_BOUND }
+  requires { content_len <= SMT_CONTENT_BOUND }
+  ensures  { point_len <= 256 }
+  ensures  { content_len <= 16384 }
+  ensures  { SMT_EC_POINT_BOUND == 256 }
+  ensures  { SMT_CONTENT_BOUND == 16384 }
+  effects: pure
+
+fn check_handshake_alloc_bounds(header_len: Nat, content_len: Nat)
+  requires { header_len <= SMT_HANDSHAKE_BOUND }
+  requires { content_len <= SMT_HANDSHAKE_BOUND }
+  requires { header_len + content_len <= 2 * SMT_HANDSHAKE_BOUND }
+  ensures  { header_len + content_len <= 131070 }
+  ensures  { SMT_HANDSHAKE_BOUND == 65535 }
+  effects: pure
+
 // ============================================================================
 // Summary: What Assura catches that C missed
 //

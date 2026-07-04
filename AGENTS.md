@@ -1542,22 +1542,34 @@ produce counterexamples.
    ensures  { result >= 0 }
    ```
 
-2. **Use inline integer literals, not `feature_max` constants.**
-   The SMT encoder treats `feature_max` named constants as
-   unconstrained Z3 integer variables, not their defined values
-   (see #180). Until constant folding is implemented, inline the
-   values directly.
+2. **Prefer `feature_max` for named compile-time bounds.** SMT binds
+   `feature_max NAME: Nat = N` to the concrete integer `N` (see #180 /
+   `collect_feature_max_constants`). Resolve also registers the name so
+   clause bodies do not get false A02001. Prefer named constants over
+   magic literals so changing a bound re-checks all dependent clauses.
 
    ```assura
-   # GOOD: Z3 sees the actual value 3
-   requires { 3 + payload_length + padding_length <= record_length }
+   # GOOD: named bound, SMT sees MAX_HEADER == 3
+   feature_max MAX_HEADER: Nat = 3
+   requires { MAX_HEADER + payload_length + padding_length <= record_length }
+   ensures  { MAX_HEADER == 3 }
 
-   # BAD: Z3 treats HEADER_SIZE as unconstrained (could be 0)
-   feature_max HEADER_SIZE: Nat = 3
-   requires { HEADER_SIZE + payload_length + padding_length <= record_length }
+   # Also fine: inline literals when no shared name is needed
+   requires { 3 + payload_length + padding_length <= record_length }
    ```
 
+   Narrowing: `feature_max max_page_size = 4096` also contributes
+   `page_size <= 4096` for related names (`derive_narrowings`).
+
+   **Codegen note:** when a `feature_max` name is also used as a type
+   argument (e.g. `Region<MAX_LEN>`), codegen emits a type stub plus
+   `MAX_LEN_VALUE` const. Value-position uses of that name in generated
+   `debug_assert!` can fail to compile. Prefer a separate value-only
+   `feature_max` for pure verify contracts, or only use the bound in
+   type refinements / requires that stay type-level.
+
 3. **`.length()` method calls work.** The encoder adds a background
+
    axiom `length >= 0` for Bytes/String `.length()` calls. So
    `ensures { result.length() >= 0 }` verifies on extern functions
    returning Bytes.

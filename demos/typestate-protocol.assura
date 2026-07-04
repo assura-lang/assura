@@ -18,8 +18,7 @@
 //   ClientHello -> ServerHello -> EncryptedExtensions -> Certificate
 //   -> CertificateVerify -> Finished (server) -> Finished (client)
 //
-// All constants are inlined as integer literals so Z3 sees their actual
-// values (the SMT encoder treats named constants as unconstrained).
+// Named bounds use feature_max so SMT sees concrete integer values.
 // ============================================================================
 
 project typestate_protocol {
@@ -119,18 +118,21 @@ fn message_ordering_valid(
 //
 // TLS implementations enforce a maximum certificate chain depth to prevent
 // denial of service. Z3 proves bounds after validation.
-// Max chain depth inlined as 10 (not a feature_max constant).
+// Max chain depth and ticket lifetime as feature_max (SMT-bound constants).
 // ---------------------------------------------------------------------------
+
+feature_max MAX_CHAIN_DEPTH: Nat = 10
+feature_max MAX_TICKET_LIFETIME: Nat = 604800
 
 fn certificate_chain_bounded(
     chain_depth: Nat,
     current_cert: Nat
 )
   requires { chain_depth >= 1 }
-  requires { chain_depth <= 10 }
+  requires { chain_depth <= MAX_CHAIN_DEPTH }
   requires { current_cert >= 0 }
   requires { current_cert < chain_depth }
-  ensures  { current_cert <= 9 }
+  ensures  { current_cert < MAX_CHAIN_DEPTH }
   ensures  { chain_depth - current_cert >= 1 }
   effects: pure
 
@@ -139,7 +141,6 @@ fn certificate_chain_bounded(
 //
 // TLS 1.3 session tickets have a maximum lifetime. After validation,
 // the remaining lifetime is proven non-negative and bounded.
-// Max lifetime inlined as 604800 (7 days in seconds).
 // ---------------------------------------------------------------------------
 
 fn session_ticket_lifetime_valid(
@@ -149,9 +150,9 @@ fn session_ticket_lifetime_valid(
 )
   requires { issued_at >= 0 }
   requires { current_time >= issued_at }
-  requires { max_lifetime == 604800 }
+  requires { max_lifetime == MAX_TICKET_LIFETIME }
   requires { current_time - issued_at <= max_lifetime }
-  ensures  { current_time - issued_at <= 604800 }
+  ensures  { current_time - issued_at <= MAX_TICKET_LIFETIME }
   ensures  { current_time >= issued_at }
   effects: pure
 

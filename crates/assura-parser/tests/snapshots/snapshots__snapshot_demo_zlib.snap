@@ -25,6 +25,22 @@ SourceFile {
     imports: [],
     decls: [
         Spanned {
+            node: Block {
+                kind: FeatureMax,
+                name: "EXTRA_BUFFER_CAP",
+                value: Some(
+                    [
+                        ":",
+                        "Nat",
+                        "=",
+                        "65535",
+                    ],
+                ),
+                body: [],
+            },
+            span: 988..1174,
+        },
+        Spanned {
             node: TypeDef(
                 TypeDef {
                     name: "GzipExtraBuffer",
@@ -63,7 +79,7 @@ SourceFile {
                     ),
                 },
             ),
-            span: 988..1446,
+            span: 1174..1632,
         },
         Spanned {
             node: TypeDef(
@@ -127,7 +143,7 @@ SourceFile {
                     ),
                 },
             ),
-            span: 1446..1568,
+            span: 1632..1754,
         },
         Spanned {
             node: FnDef(
@@ -161,14 +177,14 @@ SourceFile {
                                         "read",
                                     ],
                                 ),
-                                span: 2119..2138,
+                                span: 2305..2324,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 1568..2138,
+            span: 1754..2324,
         },
         Spanned {
             node: TypeDef(
@@ -202,7 +218,7 @@ SourceFile {
                     ),
                 },
             ),
-            span: 2138..2300,
+            span: 2324..2486,
         },
         Spanned {
             node: FnDef(
@@ -240,14 +256,14 @@ SourceFile {
                                 node: Ident(
                                     "pure",
                                 ),
-                                span: 2406..2422,
+                                span: 2592..2608,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 2300..2841,
+            span: 2486..3027,
         },
         Spanned {
             node: Contract(
@@ -291,7 +307,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 2841..4168,
+            span: 3027..4354,
         },
         Spanned {
             node: FnDef(
@@ -361,7 +377,7 @@ SourceFile {
                                 node: Ident(
                                     "dst",
                                 ),
-                                span: 4764..4783,
+                                span: 4950..4969,
                             },
                             effect_variables: [],
                         },
@@ -371,7 +387,7 @@ SourceFile {
                                 node: Ident(
                                     "pure",
                                 ),
-                                span: 4783..4799,
+                                span: 4969..4985,
                             },
                             effect_variables: [],
                         },
@@ -383,14 +399,14 @@ SourceFile {
                                 node: Ident(
                                     "InflateDecoder",
                                 ),
-                                span: 4799..5562,
+                                span: 4985..5748,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 4168..7449,
+            span: 4354..7635,
         },
         Spanned {
             node: FnDef(
@@ -430,11 +446,11 @@ SourceFile {
                                         node: Ident(
                                             "state",
                                         ),
-                                        span: 7808..7813,
+                                        span: 7994..7999,
                                     },
                                     "state",
                                 ),
-                                span: 7808..7819,
+                                span: 7994..8005,
                             },
                             effect_variables: [],
                         },
@@ -448,11 +464,11 @@ SourceFile {
                                                 node: Ident(
                                                     "state",
                                                 ),
-                                                span: 7854..7859,
+                                                span: 8040..8045,
                                             },
                                             "extra_bytes_copied",
                                         ),
-                                        span: 7854..7878,
+                                        span: 8040..8064,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
@@ -465,22 +481,22 @@ SourceFile {
                                                                 node: Ident(
                                                                     "state",
                                                                 ),
-                                                                span: 7881..7887,
+                                                                span: 8067..8073,
                                                             },
                                                             "head",
                                                         ),
-                                                        span: 7881..7892,
+                                                        span: 8067..8078,
                                                     },
                                                     "extra",
                                                 ),
-                                                span: 7881..7898,
+                                                span: 8067..8084,
                                             },
                                             "extra_max",
                                         ),
-                                        span: 7881..7908,
+                                        span: 8067..8094,
                                     },
                                 },
-                                span: 7854..7908,
+                                span: 8040..8094,
                             },
                             effect_variables: [],
                         },
@@ -506,7 +522,7 @@ SourceFile {
                                         "extra_bytes_remaining",
                                     ],
                                 ),
-                                span: 7912..8017,
+                                span: 8098..8203,
                             },
                             effect_variables: [],
                         },
@@ -520,11 +536,11 @@ SourceFile {
                                                 node: Ident(
                                                     "state",
                                                 ),
-                                                span: 8100..8105,
+                                                span: 8286..8291,
                                             },
                                             "extra_bytes_copied",
                                         ),
-                                        span: 8100..8124,
+                                        span: 8286..8310,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
@@ -537,22 +553,22 @@ SourceFile {
                                                                 node: Ident(
                                                                     "state",
                                                                 ),
-                                                                span: 8127..8133,
+                                                                span: 8313..8319,
                                                             },
                                                             "head",
                                                         ),
-                                                        span: 8127..8138,
+                                                        span: 8313..8324,
                                                     },
                                                     "extra",
                                                 ),
-                                                span: 8127..8144,
+                                                span: 8313..8330,
                                             },
                                             "extra_max",
                                         ),
-                                        span: 8127..8154,
+                                        span: 8313..8340,
                                     },
                                 },
-                                span: 8100..8154,
+                                span: 8286..8340,
                             },
                             effect_variables: [],
                         },
@@ -562,14 +578,304 @@ SourceFile {
                                 node: Ident(
                                     "pure",
                                 ),
-                                span: 8158..8174,
+                                span: 8344..8360,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 7449..9096,
+            span: 7635..9282,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "check_extra_max_bound",
+                    is_ghost: false,
+                    is_lemma: false,
+                    params: [
+                        Param {
+                            name: "written",
+                            ty: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "chunk",
+                            ty: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                    ],
+                    return_ty: Some(
+                        Unit,
+                    ),
+                    clauses: [
+                        Clause {
+                            kind: Requires,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "written",
+                                        ),
+                                        span: 11007..11014,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "EXTRA_BUFFER_CAP",
+                                        ),
+                                        span: 11017..11034,
+                                    },
+                                },
+                                span: 11007..11034,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Requires,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "chunk",
+                                        ),
+                                        span: 11050..11055,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "EXTRA_BUFFER_CAP",
+                                        ),
+                                        span: 11058..11075,
+                                    },
+                                },
+                                span: 11050..11075,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Requires,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: BinOp {
+                                            lhs: Spanned {
+                                                node: Ident(
+                                                    "written",
+                                                ),
+                                                span: 11091..11098,
+                                            },
+                                            op: Add,
+                                            rhs: Spanned {
+                                                node: Ident(
+                                                    "chunk",
+                                                ),
+                                                span: 11100..11106,
+                                            },
+                                        },
+                                        span: 11091..11106,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "EXTRA_BUFFER_CAP",
+                                        ),
+                                        span: 11109..11126,
+                                    },
+                                },
+                                span: 11091..11126,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: BinOp {
+                                            lhs: Spanned {
+                                                node: Ident(
+                                                    "written",
+                                                ),
+                                                span: 11142..11149,
+                                            },
+                                            op: Add,
+                                            rhs: Spanned {
+                                                node: Ident(
+                                                    "chunk",
+                                                ),
+                                                span: 11151..11157,
+                                            },
+                                        },
+                                        span: 11142..11157,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "65535",
+                                            ),
+                                        ),
+                                        span: 11160..11166,
+                                    },
+                                },
+                                span: 11142..11166,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Effects,
+                            body: Spanned {
+                                node: Ident(
+                                    "pure",
+                                ),
+                                span: 11168..11184,
+                            },
+                            effect_variables: [],
+                        },
+                    ],
+                },
+            ),
+            span: 9282..11184,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "check_xlen_cap",
+                    is_ghost: false,
+                    is_lemma: false,
+                    params: [
+                        Param {
+                            name: "raw_xlen",
+                            ty: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "extra_max",
+                            ty: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                    ],
+                    return_ty: Some(
+                        Unit,
+                    ),
+                    clauses: [
+                        Clause {
+                            kind: Requires,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "extra_max",
+                                        ),
+                                        span: 11248..11257,
+                                    },
+                                    op: Eq,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "EXTRA_BUFFER_CAP",
+                                        ),
+                                        span: 11260..11277,
+                                    },
+                                },
+                                span: 11248..11277,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Requires,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "raw_xlen",
+                                        ),
+                                        span: 11293..11301,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "extra_max",
+                                        ),
+                                        span: 11304..11314,
+                                    },
+                                },
+                                span: 11293..11314,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "raw_xlen",
+                                        ),
+                                        span: 11330..11338,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "EXTRA_BUFFER_CAP",
+                                        ),
+                                        span: 11341..11358,
+                                    },
+                                },
+                                span: 11330..11358,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "raw_xlen",
+                                        ),
+                                        span: 11374..11382,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "65535",
+                                            ),
+                                        ),
+                                        span: 11385..11391,
+                                    },
+                                },
+                                span: 11374..11391,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Effects,
+                            body: Spanned {
+                                node: Ident(
+                                    "pure",
+                                ),
+                                span: 11393..11409,
+                            },
+                            effect_variables: [],
+                        },
+                    ],
+                },
+            ),
+            span: 11184..11409,
         },
     ],
 }

@@ -20,6 +20,10 @@ project zlib_inflate {
 
 module inflate.gzip;
 
+// SMT-only bound name (must not collide with the EXTRA_MAX type parameter
+// used below; codegen would emit both const and struct EXTRA_MAX).
+feature_max EXTRA_BUFFER_CAP: Nat = 65535
+
 // ---------------------------------------------------------------------------
 // Types modeling the zlib inflate state
 // ---------------------------------------------------------------------------
@@ -281,3 +285,21 @@ fn inflate_extra_field_step(
 // write past extra_max, and the incremental contract ensures the multi-call
 // path maintains the same invariants as the single-call path.
 // ============================================================================
+
+// ---------------------------------------------------------------------------
+// Verifiable contracts without IR (feature_max + input-only ensures)
+// ---------------------------------------------------------------------------
+
+fn check_extra_max_bound(written: Nat, chunk: Nat)
+  requires { written <= EXTRA_BUFFER_CAP }
+  requires { chunk <= EXTRA_BUFFER_CAP }
+  requires { written + chunk <= EXTRA_BUFFER_CAP }
+  ensures  { written + chunk <= 65535 }
+  effects: pure
+
+fn check_xlen_cap(raw_xlen: Nat, extra_max: Nat)
+  requires { extra_max == EXTRA_BUFFER_CAP }
+  requires { raw_xlen <= extra_max }
+  ensures  { raw_xlen <= EXTRA_BUFFER_CAP }
+  ensures  { raw_xlen <= 65535 }
+  effects: pure
