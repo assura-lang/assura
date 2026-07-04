@@ -2,7 +2,8 @@
 members = ["cargo:."]
 
 [dist]
-cargo-dist-version = "0.31.0"
+# Keep in sync with the installer URL in .github/workflows/release.yml
+cargo-dist-version = "0.32.0"
 allow-dirty = ["ci"]
 ci = ["github"]
 installers = ["shell"]
@@ -13,10 +14,14 @@ targets = [
 ]
 pr-run-mode = "plan"
 
+# Current GitHub-hosted images (stable, not preview):
+# - Linux: ubuntu-24.04 == ubuntu-latest (ubuntu-26.04 is preview)
+# - macOS arm64: macos-15 == macos-latest
+# - macOS x64: macos-15-intel (macos-13 is retired)
 [dist.github-custom-runners]
-aarch64-apple-darwin = "macos-14"
-x86_64-apple-darwin = "macos-13"
-x86_64-unknown-linux-gnu = "ubuntu-22.04"
+aarch64-apple-darwin = "macos-15"
+x86_64-apple-darwin = "macos-15-intel"
+x86_64-unknown-linux-gnu = "ubuntu-24.04"
 
 [dist.dependencies.apt]
 libz3-dev = "*"
