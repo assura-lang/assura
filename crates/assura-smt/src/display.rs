@@ -27,6 +27,23 @@ pub fn clause_owner(clause_desc: &str) -> &str {
     clause_desc.split("::").next().unwrap_or(clause_desc)
 }
 
+/// Truncate a display name for terminal/JSON safety (hostile or generated ids).
+///
+/// Keeps the first `max_chars` Unicode scalar values and appends `…` when
+/// truncated. Used for verification grouping and vacuous-check listings.
+pub fn truncate_display_name(name: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    let count = name.chars().count();
+    if count <= max_chars {
+        name.to_string()
+    } else {
+        let head: String = name.chars().take(max_chars).collect();
+        format!("{head}…")
+    }
+}
+
 /// Write verification results grouped by contract/service/function name.
 ///
 /// The `indent` parameter controls the base indentation level. Each nested
@@ -72,7 +89,8 @@ pub fn write_grouped_verification_with_cores(
     }
 
     for (owner, results) in &groups {
-        writeln!(w, "{indent}{owner}:")?;
+        let owner_disp = truncate_display_name(owner, 64);
+        writeln!(w, "{indent}{owner_disp}:")?;
         for vr in results {
             match vr {
                 VerificationResult::Verified {
@@ -80,6 +98,7 @@ pub fn write_grouped_verification_with_cores(
                     unsat_core,
                 } => {
                     let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
+                    let kind = truncate_display_name(kind, 32);
                     writeln!(w, "{indent}  {kind:<20} ... verified")?;
                     if show_cores
                         && let Some(core) = unsat_core
@@ -94,6 +113,7 @@ pub fn write_grouped_verification_with_cores(
                     counter_model,
                 } => {
                     let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
+                    let kind = truncate_display_name(kind, 32);
                     writeln!(w, "{indent}  {kind:<20} ... COUNTEREXAMPLE")?;
                     for line in format_counterexample_lines(counter_model, model) {
                         writeln!(w, "{indent}    {line}")?;
@@ -101,6 +121,7 @@ pub fn write_grouped_verification_with_cores(
                 }
                 VerificationResult::Timeout { clause_desc } => {
                     let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
+                    let kind = truncate_display_name(kind, 32);
                     writeln!(w, "{indent}  {kind:<20} ... timeout")?;
                 }
                 VerificationResult::Unknown {
@@ -108,6 +129,7 @@ pub fn write_grouped_verification_with_cores(
                     reason,
                 } => {
                     let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
+                    let kind = truncate_display_name(kind, 32);
                     writeln!(w, "{indent}  {kind:<20} ... skipped ({reason})")?;
                 }
             }
@@ -333,6 +355,20 @@ pub fn dispatch_decrease_checks(typed: &TypedFile) -> Vec<VerificationResult> {
 mod tests {
     use super::*;
     use crate::CounterexampleModel;
+
+    #[test]
+    fn truncate_display_name_short_unchanged() {
+        assert_eq!(truncate_display_name("SafeDiv", 64), "SafeDiv");
+    }
+
+    #[test]
+    fn truncate_display_name_long_gets_ellipsis() {
+        let long = "x".repeat(100);
+        let out = truncate_display_name(&long, 64);
+        assert_eq!(out.chars().count(), 65); // 64 + …
+        assert!(out.ends_with('…'));
+        assert!(out.starts_with("xxxx"));
+    }
 
     #[test]
     fn test_clean_z3_value_negative_number() {

@@ -192,13 +192,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                     for name in &contract_names {
                         // Hostile/oversized names must not flood the terminal
                         // (Adversarial: 10k-char contract id).
-                        let display = if name.chars().count() > 64 {
-                            let mut it = name.chars();
-                            let head: String = it.by_ref().take(64).collect();
-                            format!("{head}…")
-                        } else {
-                            name.clone()
-                        };
+                        let display = assura_smt::display::truncate_display_name(name, 64);
                         // has_clauses means requires/ensures/invariant exist, but
                         // the SMT job collector may still emit nothing (e.g.
                         // requires-only: preconditions are assumed, not proved).
