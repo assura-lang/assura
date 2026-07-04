@@ -9,17 +9,17 @@ manually pushing `v*` tags.
 Merging it creates the tag, GitHub Release, cargo-dist artifacts, and
 crates.io publish for the version in that PR.
 
-## Current status (post-v0.1.0)
+## Current status (post-v0.2.0)
 
 | Channel | What | Notes |
 |---------|------|--------|
 | crates.io | **13 library crates** at the workspace version | Public embed surface: **`assura-pipeline`** |
 | GitHub Releases / cargo-dist | **`assura` CLI** installers | Package is `publish = false` with `[package.metadata.dist] dist = true` |
-| crates.io CLI | **Not published** | Do not `cargo install assura`; use release installers |
+| crates.io CLI | **Not published** | Do not `cargo install assura` (placeholder only); use release installers or `cargo install --path crates/assura-cli` from a clone |
 
-v0.1.0 (first public ship) completed 2026-07-04. Open release-please PRs after
-that cut (for example **0.1.1**) are **normal version bumps**, not a sign that
-0.1.0 failed. Merge them only when you intentionally want a new release.
+v0.2.0 shipped 2026-07-04 (after v0.1.0). Open release-please PRs after a cut
+are **normal version bumps**, not a sign that the prior release failed. Merge
+them only when you intentionally want a new release.
 
 The temporary `release-as: 0.1.0` pin used for the first cut has been
 **removed**. Subsequent versions follow conventional commits
@@ -151,7 +151,9 @@ CARGO_REGISTRY_TOKEN=… bash scripts/publish-crates.sh
 3. Review version bump, `CHANGELOG.md`, and path-dep pins
    (`sync-path-dep-versions` on the release workflow run).
 4. Optionally land curated `RELEASE_NOTES.md` on **main**, wait for
-   release-please to refresh the PR.
+   release-please to refresh the PR. The host job applies it to the GitHub
+   Release body; `cleanup-release-notes` then opens an auto-merge PR to
+   remove the file so the next release does not reuse stale notes.
 5. Merge the release PR with an **explicit human decision** (never auto-merge
    `autorelease: pending`).
 6. Watch the Release workflow; verify crates.io + GitHub Release assets.
@@ -166,9 +168,10 @@ gh run watch <RUN_ID>
 | `release-please` (in release-please workflow) | Tag + GitHub Release created; dispatches Release with `tag` |
 | `plan` | cargo-dist plan for that tag |
 | `build-local-artifacts` / `build-global-artifacts` | CLI installers |
-| `host` | Upload assets (idempotent if the Release already exists) |
+| `host` | Upload assets (idempotent if the Release already exists); applies `RELEASE_NOTES.md` if present |
 | `publish-crates` | Libraries via `scripts/publish-crates.sh` (skips versions already on crates.io) |
 | `announce` | Final confirmation |
+| `cleanup-release-notes` | PR to delete `RELEASE_NOTES.md` from main after apply (non-fatal) |
 
 If `publish-crates` fails mid-graph, fix on `main` and re-dispatch the same
 tag (idempotent for already-uploaded crates). You cannot overwrite a version

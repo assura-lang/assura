@@ -681,7 +681,7 @@ jobs:
       - name: Install Assura
         run: |
           if ! command -v assura &> /dev/null; then
-            cargo install --git https://github.com/assura-lang/assura.git assura-cli
+            cargo install --git https://github.com/assura-lang/assura.git assura
           fi
 
       - name: Format check

@@ -80,7 +80,7 @@ driver). Refresh counts with `bash scripts/count-crates.sh`.
 These are not blocking the initial release but are on the radar:
 
 - Online playground (try Assura without installing Z3)
-- Homebrew formula / pre-built binaries via `cargo install assura`
+- Homebrew formula / pre-built binaries (GitHub Releases / cargo-dist; full `cargo install assura` tracked in #838)
 - Editor support beyond VS Code (Neovim, Emacs, JetBrains)
 - [x] `feature_max` SMT binding + resolve registration (names in clauses, no false A02001)
 - Richer stdlib postconditions (e.g., `abs` ensures `result >= 0`)

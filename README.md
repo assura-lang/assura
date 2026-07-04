@@ -97,11 +97,11 @@ The Z3 SMT solver is downloaded automatically during `cargo build` (via the
 
 **Embedding as a library:** the public compile/verify facade is
 [`assura-pipeline`](https://crates.io/crates/assura-pipeline) on crates.io
-(v0.1.0+, with the full 13-crate library graph):
+(v0.2.0+, with the full 13-crate library graph):
 
 ```toml
 [dependencies]
-assura-pipeline = "0.1"
+assura-pipeline = "0.2"
 ```
 
 Prefer crates.io for apps; use a git path dependency only when tracking
