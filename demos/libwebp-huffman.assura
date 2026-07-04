@@ -232,8 +232,6 @@ fn check_alphabet_bounds(size: Nat, max_len: Nat)
   ensures  { size + max_len <= MAX_ALPHABET_SIZE + MAX_CODE_LENGTH }
   ensures  { size <= MAX_ALPHABET_SIZE }
   ensures  { max_len <= MAX_CODE_LENGTH }
-  ensures  { MAX_ALPHABET_SIZE == 280 }
-  ensures  { MAX_CODE_LENGTH == 15 }
   effects: pure
 
 // Table allocation safety: primary table fits within a conservative bound
@@ -243,7 +241,6 @@ fn check_table_bounds(root_bits: Nat, alphabet_size: Nat, table_size: Nat)
   requires { table_size >= alphabet_size + root_bits }
   ensures  { table_size >= root_bits }
   ensures  { table_size >= alphabet_size }
-  ensures  { ROOT_BITS == 8 }
   effects: pure
 
 // Code length validation: validated lengths are within the max

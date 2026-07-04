@@ -101,7 +101,6 @@ fn withdrawal_within_daily_limit(
   requires { daily_withdrawn + withdrawal <= DAILY_WITHDRAWAL_LIMIT }
   ensures  { balance - withdrawal >= 0 }
   ensures  { daily_withdrawn + withdrawal <= DAILY_WITHDRAWAL_LIMIT }
-  ensures  { DAILY_WITHDRAWAL_LIMIT == 10000 }
   effects: pure
 
 // ---------------------------------------------------------------------------

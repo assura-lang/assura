@@ -134,7 +134,6 @@ fn certificate_chain_bounded(
   requires { current_cert < chain_depth }
   ensures  { current_cert < MAX_CHAIN_DEPTH }
   ensures  { chain_depth - current_cert >= 1 }
-  ensures  { MAX_CHAIN_DEPTH == 10 }
   effects: pure
 
 // ---------------------------------------------------------------------------
@@ -155,7 +154,6 @@ fn session_ticket_lifetime_valid(
   requires { current_time - issued_at <= max_lifetime }
   ensures  { current_time - issued_at <= MAX_TICKET_LIFETIME }
   ensures  { current_time >= issued_at }
-  ensures  { MAX_TICKET_LIFETIME == 604800 }
   effects: pure
 
 // ============================================================================

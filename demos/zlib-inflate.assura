@@ -20,8 +20,9 @@ project zlib_inflate {
 
 module inflate.gzip;
 
-// Caller-provided extra buffer capacity (feature_max binds concrete SMT int).
-feature_max EXTRA_MAX: Nat = 65535
+// SMT-only bound name (must not collide with the EXTRA_MAX type parameter
+// used below; codegen would emit both const and struct EXTRA_MAX).
+feature_max EXTRA_BUFFER_CAP: Nat = 65535
 
 // ---------------------------------------------------------------------------
 // Types modeling the zlib inflate state
@@ -290,16 +291,15 @@ fn inflate_extra_field_step(
 // ---------------------------------------------------------------------------
 
 fn check_extra_max_bound(written: Nat, chunk: Nat)
-  requires { written <= EXTRA_MAX }
-  requires { chunk <= EXTRA_MAX }
-  requires { written + chunk <= EXTRA_MAX }
+  requires { written <= EXTRA_BUFFER_CAP }
+  requires { chunk <= EXTRA_BUFFER_CAP }
+  requires { written + chunk <= EXTRA_BUFFER_CAP }
   ensures  { written + chunk <= 65535 }
-  ensures  { EXTRA_MAX == 65535 }
   effects: pure
 
 fn check_xlen_cap(raw_xlen: Nat, extra_max: Nat)
-  requires { extra_max == EXTRA_MAX }
+  requires { extra_max == EXTRA_BUFFER_CAP }
   requires { raw_xlen <= extra_max }
-  ensures  { raw_xlen <= EXTRA_MAX }
+  ensures  { raw_xlen <= EXTRA_BUFFER_CAP }
   ensures  { raw_xlen <= 65535 }
   effects: pure

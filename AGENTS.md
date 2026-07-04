@@ -1561,7 +1561,15 @@ produce counterexamples.
    Narrowing: `feature_max max_page_size = 4096` also contributes
    `page_size <= 4096` for related names (`derive_narrowings`).
 
+   **Codegen note:** when a `feature_max` name is also used as a type
+   argument (e.g. `Region<MAX_LEN>`), codegen emits a type stub plus
+   `MAX_LEN_VALUE` const. Value-position uses of that name in generated
+   `debug_assert!` can fail to compile. Prefer a separate value-only
+   `feature_max` for pure verify contracts, or only use the bound in
+   type refinements / requires that stay type-level.
+
 3. **`.length()` method calls work.** The encoder adds a background
+
    axiom `length >= 0` for Bytes/String `.length()` calls. So
    `ensures { result.length() >= 0 }` verifies on extern functions
    returning Bytes.
