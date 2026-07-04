@@ -4,9 +4,21 @@ A hands-on guide to writing, checking, and building Assura contracts.
 
 ## Installation
 
+### Preferred: prebuilt binary
+
+Download an installer from
+[GitHub Releases](https://github.com/assura-lang/assura/releases)
+(cargo-dist; multi-platform). The CLI is **not** published to crates.io yet;
+`cargo install assura` installs only a placeholder crate name, not this
+toolchain.
+
 ### From source (requires Rust 1.85+)
 
 ```bash
+# From a clone:
+cargo install --path crates/assura-cli
+
+# Or from GitHub without cloning the tree:
 cargo install --git https://github.com/assura-lang/assura assura
 ```
 

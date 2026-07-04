@@ -9,17 +9,17 @@ manually pushing `v*` tags.
 Merging it creates the tag, GitHub Release, cargo-dist artifacts, and
 crates.io publish for the version in that PR.
 
-## Current status (post-v0.1.0)
+## Current status (post-v0.2.0)
 
 | Channel | What | Notes |
 |---------|------|--------|
 | crates.io | **13 library crates** at the workspace version | Public embed surface: **`assura-pipeline`** |
 | GitHub Releases / cargo-dist | **`assura` CLI** installers | Package is `publish = false` with `[package.metadata.dist] dist = true` |
-| crates.io CLI | **Not published** | Do not `cargo install assura`; use release installers |
+| crates.io CLI | **Not published** | Do not `cargo install assura` (placeholder only); use release installers or `cargo install --path crates/assura-cli` from a clone |
 
-v0.1.0 (first public ship) completed 2026-07-04. Open release-please PRs after
-that cut (for example **0.1.1**) are **normal version bumps**, not a sign that
-0.1.0 failed. Merge them only when you intentionally want a new release.
+v0.2.0 shipped 2026-07-04 (after v0.1.0). Open release-please PRs after a cut
+are **normal version bumps**, not a sign that the prior release failed. Merge
+them only when you intentionally want a new release.
 
 The temporary `release-as: 0.1.0` pin used for the first cut has been
 **removed**. Subsequent versions follow conventional commits
