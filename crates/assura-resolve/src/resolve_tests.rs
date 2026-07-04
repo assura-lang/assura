@@ -1700,9 +1700,8 @@ fn multi_file_valid_cross_module_import() {
     )
     .unwrap();
 
-    let result = discover_and_resolve_project(&dir);
-    assert!(result.is_ok(), "should resolve: {result:?}");
-    let (resolved, warnings) = result.unwrap();
+    let (resolved, warnings) =
+        discover_and_resolve_project(&dir).expect("multi-file project with import should resolve");
     assert!(
         resolved.contains_key("math"),
         "math module should be resolved"
@@ -1725,10 +1724,9 @@ fn multi_file_missing_import() {
     )
     .unwrap();
 
-    let result = discover_and_resolve_project(&dir);
     // Should still succeed (unresolved imports are warnings, not fatal)
-    assert!(result.is_ok(), "should resolve: {result:?}");
-    let (resolved, _) = result.unwrap();
+    let (resolved, _) = discover_and_resolve_project(&dir)
+        .expect("project should resolve even with missing import");
     assert!(
         resolved.contains_key("main"),
         "main should resolve even with missing import"
@@ -1751,12 +1749,11 @@ fn multi_file_circular_import() {
     )
     .unwrap();
 
-    let result = discover_and_resolve_project(&dir);
     // Circular imports produce errors: one module fails to resolve
     // because it sees the other in the visited set. The project-level
     // function still returns Ok with partial results + warnings.
-    assert!(result.is_ok(), "should return Ok with warnings");
-    let (resolved, warnings) = result.unwrap();
+    let (resolved, warnings) = discover_and_resolve_project(&dir)
+        .expect("circular import project should return Ok with warnings");
     // At least one module should resolve; the circular one may not
     assert!(!resolved.is_empty(), "at least one module should resolve");
     // There should be warnings about the circular import

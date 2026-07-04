@@ -190,7 +190,16 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                     eprintln!();
                     eprintln!("Verification:");
                     for name in &contract_names {
-                        eprintln!("  {name}:  (no verifiable clauses)");
+                        // Hostile/oversized names must not flood the terminal
+                        // (Adversarial: 10k-char contract id).
+                        let display = if name.chars().count() > 64 {
+                            let mut it = name.chars();
+                            let head: String = it.by_ref().take(64).collect();
+                            format!("{head}…")
+                        } else {
+                            name.clone()
+                        };
+                        eprintln!("  {display}:  (no verifiable clauses)");
                     }
                     eprintln!();
                     eprintln!(

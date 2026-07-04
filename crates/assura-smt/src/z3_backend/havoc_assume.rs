@@ -7,7 +7,7 @@ use crate::havoc_assume::{
     HavocAssumeEffects, HavocAssumeInput, RESULT_SLOT, apply_havoc_assume_policy, ir_param_names,
 };
 use crate::ir::{IrArithOp, IrCmpOp, IrFunction, IrLiteral, IrPred, IrPredArg};
-use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, slot_type_map};
+use crate::ir_encode::{IrEncodeContext, is_collection_ir_type};
 use crate::ir_lower::{IrSlotContext, IrTermBuilder};
 use crate::ir_type_ctx::base_type_name;
 use std::collections::HashMap;
@@ -15,10 +15,7 @@ use z3::ast;
 
 struct Z3IrBuilder<'a, 'b> {
     encoder: &'a mut Encoder,
-    #[expect(dead_code)]
-    slot_to_name: &'b HashMap<usize, String>,
-    #[expect(dead_code)]
-    slot_types: &'b HashMap<usize, String>,
+    /// Slot maps live on `enc_ctx` (used via `IrTermBuilder::enc_ctx`).
     enc_ctx: IrEncodeContext<'b>,
 }
 
@@ -258,16 +255,7 @@ fn apply_ir_body_constraints_z3(
     let result = encoder.get_or_create_int("result");
     slots.insert(RESULT_SLOT, result);
 
-    let slot_to_name: HashMap<usize, String> = ir_param_names(func, contract_param_names)
-        .into_iter()
-        .collect();
-    let slot_types = slot_type_map(func);
-    let mut builder = Z3IrBuilder {
-        encoder,
-        slot_to_name: &slot_to_name,
-        slot_types: &slot_types,
-        enc_ctx,
-    };
+    let mut builder = Z3IrBuilder { encoder, enc_ctx };
 
     crate::ir_exec::apply_ir_body_constraints(&mut builder, func, contract_param_names, &mut slots);
 }
