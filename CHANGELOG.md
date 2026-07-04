@@ -3,6 +3,15 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.1.0](https://github.com/assura-lang/assura/compare/v0.1.0...v0.1.0) (2026-07-04)
+
+
+### Bug Fixes
+
+* do not fail publish on already-published crates ([#804](https://github.com/assura-lang/assura/issues/804)) ([ee96c5e](https://github.com/assura-lang/assura/commit/ee96c5e5dd9c6c34f5b484c2ad79c04e8dfe215b))
+* order crates.io publish by all path deps including dev ([#801](https://github.com/assura-lang/assura/issues/801)) ([62662f8](https://github.com/assura-lang/assura/commit/62662f87a6d82bcaa995710a2abcc8141a1ba20d))
+* retry crates.io 429 and space new crate publishes ([#803](https://github.com/assura-lang/assura/issues/803)) ([e7cc20c](https://github.com/assura-lang/assura/commit/e7cc20c02d5defac2e6f6c7a9cfdd69450334171))
+
 ## 0.1.0 (2026-07-04)
 
 
