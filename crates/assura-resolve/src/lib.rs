@@ -625,13 +625,18 @@ pub fn resolve_with_modules(
                 // `feature_max NAME: Nat = N` is a module-level named constant
                 // used in requires/ensures. Register it so clause-body resolution
                 // does not emit false A02001 (SMT already binds the value).
+                //
+                // Kind is Field (not a dedicated variant) so assura-types can
+                // co-exist with crates.io `assura-resolve` 0.1.0 during
+                // `cargo package` verify of dependents. A dedicated
+                // SymbolKind::FeatureMax can land in a co-published release.
                 if *kind == BlockKind::FeatureMax && !name.is_empty() {
                     try_insert(
                         &mut table,
                         &mut errors,
                         module,
                         name,
-                        SymbolKind::FeatureMax,
+                        SymbolKind::Field,
                         decl.span.clone(),
                     );
                 } else if !name.is_empty() {

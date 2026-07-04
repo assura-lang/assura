@@ -868,5 +868,431 @@ SourceFile {
             ),
             span: 9403..10582,
         },
+        Spanned {
+            node: Block {
+                kind: FeatureMax,
+                name: "SMT_EC_POINT_BOUND",
+                value: Some(
+                    [
+                        ":",
+                        "Nat",
+                        "=",
+                        "256",
+                    ],
+                ),
+                body: [],
+            },
+            span: 10582..11228,
+        },
+        Spanned {
+            node: Block {
+                kind: FeatureMax,
+                name: "SMT_CONTENT_BOUND",
+                value: Some(
+                    [
+                        ":",
+                        "Nat",
+                        "=",
+                        "16384",
+                    ],
+                ),
+                body: [],
+            },
+            span: 11228..11271,
+        },
+        Spanned {
+            node: Block {
+                kind: FeatureMax,
+                name: "SMT_HANDSHAKE_BOUND",
+                value: Some(
+                    [
+                        ":",
+                        "Nat",
+                        "=",
+                        "65535",
+                    ],
+                ),
+                body: [],
+            },
+            span: 11271..11316,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "check_ec_point_bounds",
+                    is_ghost: false,
+                    is_lemma: false,
+                    params: [
+                        Param {
+                            name: "point_len",
+                            ty: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "content_len",
+                            ty: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                    ],
+                    return_ty: Some(
+                        Unit,
+                    ),
+                    clauses: [
+                        Clause {
+                            kind: Requires,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "point_len",
+                                        ),
+                                        span: 11390..11399,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "SMT_EC_POINT_BOUND",
+                                        ),
+                                        span: 11402..11421,
+                                    },
+                                },
+                                span: 11390..11421,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Requires,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "content_len",
+                                        ),
+                                        span: 11437..11448,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "SMT_CONTENT_BOUND",
+                                        ),
+                                        span: 11451..11469,
+                                    },
+                                },
+                                span: 11437..11469,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "point_len",
+                                        ),
+                                        span: 11485..11494,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "256",
+                                            ),
+                                        ),
+                                        span: 11497..11501,
+                                    },
+                                },
+                                span: 11485..11501,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "content_len",
+                                        ),
+                                        span: 11517..11528,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "16384",
+                                            ),
+                                        ),
+                                        span: 11531..11537,
+                                    },
+                                },
+                                span: 11517..11537,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "SMT_EC_POINT_BOUND",
+                                        ),
+                                        span: 11553..11571,
+                                    },
+                                    op: Eq,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "256",
+                                            ),
+                                        ),
+                                        span: 11574..11578,
+                                    },
+                                },
+                                span: 11553..11578,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "SMT_CONTENT_BOUND",
+                                        ),
+                                        span: 11594..11611,
+                                    },
+                                    op: Eq,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "16384",
+                                            ),
+                                        ),
+                                        span: 11614..11620,
+                                    },
+                                },
+                                span: 11594..11620,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Effects,
+                            body: Spanned {
+                                node: Ident(
+                                    "pure",
+                                ),
+                                span: 11622..11638,
+                            },
+                            effect_variables: [],
+                        },
+                    ],
+                },
+            ),
+            span: 11316..11638,
+        },
+        Spanned {
+            node: FnDef(
+                FnDef {
+                    name: "check_handshake_alloc_bounds",
+                    is_ghost: false,
+                    is_lemma: false,
+                    params: [
+                        Param {
+                            name: "header_len",
+                            ty: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                        Param {
+                            name: "content_len",
+                            ty: Some(
+                                Named(
+                                    "Nat",
+                                ),
+                            ),
+                        },
+                    ],
+                    return_ty: Some(
+                        Unit,
+                    ),
+                    clauses: [
+                        Clause {
+                            kind: Requires,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "header_len",
+                                        ),
+                                        span: 11720..11730,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "SMT_HANDSHAKE_BOUND",
+                                        ),
+                                        span: 11733..11753,
+                                    },
+                                },
+                                span: 11720..11753,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Requires,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "content_len",
+                                        ),
+                                        span: 11769..11780,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Ident(
+                                            "SMT_HANDSHAKE_BOUND",
+                                        ),
+                                        span: 11783..11803,
+                                    },
+                                },
+                                span: 11769..11803,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Requires,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: BinOp {
+                                            lhs: Spanned {
+                                                node: Ident(
+                                                    "header_len",
+                                                ),
+                                                span: 11819..11829,
+                                            },
+                                            op: Add,
+                                            rhs: Spanned {
+                                                node: Ident(
+                                                    "content_len",
+                                                ),
+                                                span: 11831..11843,
+                                            },
+                                        },
+                                        span: 11819..11843,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: BinOp {
+                                            lhs: Spanned {
+                                                node: Literal(
+                                                    Int(
+                                                        "2",
+                                                    ),
+                                                ),
+                                                span: 11846..11848,
+                                            },
+                                            op: Mul,
+                                            rhs: Spanned {
+                                                node: Ident(
+                                                    "SMT_HANDSHAKE_BOUND",
+                                                ),
+                                                span: 11850..11870,
+                                            },
+                                        },
+                                        span: 11846..11870,
+                                    },
+                                },
+                                span: 11819..11870,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: BinOp {
+                                            lhs: Spanned {
+                                                node: Ident(
+                                                    "header_len",
+                                                ),
+                                                span: 11886..11896,
+                                            },
+                                            op: Add,
+                                            rhs: Spanned {
+                                                node: Ident(
+                                                    "content_len",
+                                                ),
+                                                span: 11898..11910,
+                                            },
+                                        },
+                                        span: 11886..11910,
+                                    },
+                                    op: Lte,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "131070",
+                                            ),
+                                        ),
+                                        span: 11913..11920,
+                                    },
+                                },
+                                span: 11886..11920,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Ensures,
+                            body: Spanned {
+                                node: BinOp {
+                                    lhs: Spanned {
+                                        node: Ident(
+                                            "SMT_HANDSHAKE_BOUND",
+                                        ),
+                                        span: 11936..11955,
+                                    },
+                                    op: Eq,
+                                    rhs: Spanned {
+                                        node: Literal(
+                                            Int(
+                                                "65535",
+                                            ),
+                                        ),
+                                        span: 11958..11964,
+                                    },
+                                },
+                                span: 11936..11964,
+                            },
+                            effect_variables: [],
+                        },
+                        Clause {
+                            kind: Effects,
+                            body: Spanned {
+                                node: Ident(
+                                    "pure",
+                                ),
+                                span: 11966..11982,
+                            },
+                            effect_variables: [],
+                        },
+                    ],
+                },
+            ),
+            span: 11638..11982,
+        },
     ],
 }

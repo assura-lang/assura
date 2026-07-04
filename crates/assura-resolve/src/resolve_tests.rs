@@ -1883,7 +1883,7 @@ fn check_bounds(size: Nat, max_len: Nat)
             .symbols
             .symbols
             .iter()
-            .any(|s| s.name == "MAX_SIZE" && s.kind == SymbolKind::FeatureMax),
-        "MAX_SIZE should be registered as FeatureMax"
+            .any(|s| s.name == "MAX_SIZE"),
+        "MAX_SIZE should be registered in the symbol table"
     );
 }

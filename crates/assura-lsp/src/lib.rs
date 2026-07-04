@@ -300,7 +300,6 @@ impl LanguageServer for AssuraLanguageServer {
                 SymbolKind::EnumVariant => "enum variant",
                 SymbolKind::Prophecy => "ghost prophecy",
                 SymbolKind::CodecRegistry => "codec registry",
-                SymbolKind::FeatureMax => "feature_max constant",
             };
 
             let hover_text = format!("**{kind_label}** `{word}`\n\nType: `{type_info}`");
@@ -393,7 +392,6 @@ impl LanguageServer for AssuraLanguageServer {
                     SymbolKind::EnumVariant => CompletionItemKind::ENUM_MEMBER,
                     SymbolKind::Prophecy => CompletionItemKind::VARIABLE,
                     SymbolKind::CodecRegistry => CompletionItemKind::MODULE,
-                    SymbolKind::FeatureMax => CompletionItemKind::CONSTANT,
                     SymbolKind::BuiltinType => CompletionItemKind::CLASS,
                 };
                 let detail = match sym.kind {
@@ -412,7 +410,6 @@ impl LanguageServer for AssuraLanguageServer {
                     SymbolKind::EnumVariant => "enum variant",
                     SymbolKind::Prophecy => "ghost prophecy",
                     SymbolKind::CodecRegistry => "codec registry",
-                    SymbolKind::FeatureMax => "feature_max constant",
                     SymbolKind::BuiltinType => "builtin type",
                 };
                 items.push(CompletionItem {
