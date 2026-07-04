@@ -39,7 +39,7 @@ serde_json = "1"
 notify = "8"
 toml = "1.1"
 clap_complete = "4.6.5"
-assura-lsp = { version = "0.1.0", path = "../assura-lsp" }
+assura-lsp = { version = "0.2.0", path = "../assura-lsp" }
 assura-mcp = { path = "../assura-mcp" }
 assura-pipeline = { path = "../assura-pipeline" }
 assura-rust-analyzer = { path = "../assura-rust-analyzer" }

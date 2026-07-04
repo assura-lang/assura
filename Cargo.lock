@@ -120,7 +120,7 @@ dependencies = [
 
 [[package]]
 name = "assura"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assura-codegen",
  "assura-config",
@@ -150,11 +150,11 @@ dependencies = [
 
 [[package]]
 name = "assura-ast"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "assura-bench"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assura-codegen",
  "assura-config",
@@ -168,7 +168,7 @@ dependencies = [
 
 [[package]]
 name = "assura-codegen"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assura-ast",
  "assura-parser",
@@ -182,7 +182,7 @@ dependencies = [
 
 [[package]]
 name = "assura-config"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "tempfile",
@@ -191,7 +191,7 @@ dependencies = [
 
 [[package]]
 name = "assura-diagnostics"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ariadne",
  "serde",
@@ -200,7 +200,7 @@ dependencies = [
 
 [[package]]
 name = "assura-fmt"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assura-parser",
  "rowan",
@@ -208,7 +208,7 @@ dependencies = [
 
 [[package]]
 name = "assura-llm"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assura-rust-analyzer",
  "reqwest 0.13.4",
@@ -220,7 +220,7 @@ dependencies = [
 
 [[package]]
 name = "assura-lsp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assura-config",
  "assura-diagnostics",
@@ -240,7 +240,7 @@ dependencies = [
 
 [[package]]
 name = "assura-macros"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assura-runtime",
  "proc-macro2",
@@ -251,7 +251,7 @@ dependencies = [
 
 [[package]]
 name = "assura-mcp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assura-codegen",
  "assura-config",
@@ -267,7 +267,7 @@ dependencies = [
 
 [[package]]
 name = "assura-parser"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assura-ast",
  "assura-diagnostics",
@@ -278,7 +278,7 @@ dependencies = [
 
 [[package]]
 name = "assura-pipeline"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assura-codegen",
  "assura-config",
@@ -293,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "assura-resolve"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assura-config",
  "assura-diagnostics",
@@ -303,11 +303,11 @@ dependencies = [
 
 [[package]]
 name = "assura-runtime"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "assura-rust-analyzer"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -317,7 +317,7 @@ dependencies = [
 
 [[package]]
 name = "assura-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assura-config",
  "assura-diagnostics",
@@ -338,7 +338,7 @@ dependencies = [
 
 [[package]]
 name = "assura-smt"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assura-ast",
  "assura-config",
@@ -356,14 +356,14 @@ dependencies = [
 
 [[package]]
 name = "assura-stdlib"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assura-parser",
 ]
 
 [[package]]
 name = "assura-test-support"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assura-codegen",
  "assura-config",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "assura-types"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assura-config",
  "assura-diagnostics",
