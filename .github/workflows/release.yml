@@ -128,6 +128,9 @@ jobs:
     container: ${{ matrix.container && matrix.container.image || null }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # z3-sys gh-release uses the GitHub API; unauthenticated calls hit rate limits
+      # (assert status==200 fails on aarch64). Authenticated token avoids that.
+      READ_ONLY_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
     steps:
       - name: Harden runner
@@ -200,6 +203,7 @@ jobs:
     timeout-minutes: 15
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      READ_ONLY_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       BUILD_MANIFEST_NAME: target/distrib/global-dist-manifest.json
     steps:
       - name: Harden runner
