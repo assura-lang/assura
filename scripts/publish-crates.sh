@@ -150,8 +150,11 @@ if [[ "$PLAN_ONLY" -eq 1 ]]; then
   exit 0
 fi
 
-# Returns: 0 new publish, 1 already on index, 2 hard failure (prints error).
+# publish_one sets global LAST_PUBLISH_STATUS:
+#   new | already | failed
+# Returns 0 on success (new or already), 1 on hard failure.
 # Retries crates.io 429 (new-crate rate limit) with backoff.
+LAST_PUBLISH_STATUS=""
 publish_one() {
   local crate="$1"
   local args=(-p "$crate" --locked)
@@ -164,21 +167,24 @@ publish_one() {
   local attempt=1
   local max_attempts=8
   local out rc wait_s
+  LAST_PUBLISH_STATUS=""
 
   while true; do
     set +e
     out="$(cargo publish "${args[@]}" 2>&1)"
     rc=$?
-    set -e
+    set +e
     printf '%s\n' "$out"
 
     if [[ $rc -eq 0 ]]; then
+      LAST_PUBLISH_STATUS=new
       return 0
     fi
 
     if printf '%s\n' "$out" | grep -Eqi 'already (exists|uploaded)|is already uploaded|already exists on crates\.io'; then
       echo "note: ${crate} already published at this version; treating as success"
-      return 1
+      LAST_PUBLISH_STATUS=already
+      return 0
     fi
 
     # First-time monorepo dry-run: dependents need prior crates on the real
@@ -186,13 +192,15 @@ publish_one() {
     # still fail closed when DRY_RUN=0.
     if [[ "$DRY_RUN" -eq 1 ]] && printf '%s\n' "$out" | grep -Eq 'no matching package named `assura'; then
       echo "note: ${crate} dry-run blocked on unpublished workspace deps (expected for first release dry-run); graph preflight already passed"
-      return 1
+      LAST_PUBLISH_STATUS=already
+      return 0
     fi
 
     if [[ "$DRY_RUN" -eq 0 ]] && printf '%s\n' "$out" | grep -Eqi '429|Too Many Requests|rate.limit|published too many'; then
       if [[ $attempt -ge $max_attempts ]]; then
         echo "error: rate-limited publishing ${crate} after ${max_attempts} attempts" >&2
-        return 2
+        LAST_PUBLISH_STATUS=failed
+        return 1
       fi
       # crates.io often returns "try again after <HTTP date>"; default 90s, grow.
       wait_s=$((90 * attempt))
@@ -203,22 +211,19 @@ publish_one() {
     fi
 
     echo "error: cargo publish failed for ${crate} (exit ${rc})" >&2
-    return 2
+    LAST_PUBLISH_STATUS=failed
+    return 1
   done
 }
 
 last="${ORDER[$((${#ORDER[@]} - 1))]}"
 for crate in "${ORDER[@]}"; do
-  set +e
-  publish_one "$crate"
-  rc=$?
-  set -e
-  if [[ $rc -ge 2 ]]; then
+  if ! publish_one "$crate"; then
     exit 1
   fi
   # Space out *new* crate publishes (crates.io new-crate rate limits).
-  # Skip long sleep when the crate was already on the index (rc=1).
-  if [[ "$DRY_RUN" -eq 0 && "$crate" != "$last" && $rc -eq 0 ]]; then
+  # Skip long sleep when the crate was already on the index.
+  if [[ "$DRY_RUN" -eq 0 && "$crate" != "$last" && "$LAST_PUBLISH_STATUS" == "new" ]]; then
     echo "note: waiting 60s before next new crate publish (crates.io rate limits)"
     sleep 60
   fi
