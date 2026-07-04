@@ -1,6 +1,6 @@
 # Assura Development Status
 
-> 165,218 lines of Rust, 4,924 tests, 22 crates (re-counted 2026-07-04).
+> 164,785 lines of Rust, 4,925 tests, **21 workspace members** (re-counted 2026-07-04 via `scripts/count-crates.sh`).
 
 ## What Works Today
 
@@ -31,8 +31,11 @@
 
 ## Crate Breakdown
 
-| Crate | LOC | Tests | Role |
-|-------|-----|-------|------|
+Workspace members only (`Cargo.toml` `members = ["crates/*"]` with
+`exclude` for fuzz targets and exploratory `crates/assura-driver`).
+
+| Crate (package) | LOC | Tests | Role |
+|-----------------|-----|-------|------|
 | assura-parser | 9,597 | 188 | Lexer (logos) + recursive-descent parser (rowan CST), Pratt expressions |
 | assura-ast | 2,942 | 39 | Canonical AST, DeclVisitor, ExprVisitor, ExprFolder |
 | assura-resolve | 5,767 | 184 | Scope analysis, imports, stdlib prelude injection |
@@ -42,7 +45,7 @@
 | assura-pipeline | 2,103 | 66 | Canonical compile/compile_full/verify_typed/run_at |
 | assura-config | 1,299 | 53 | assura.toml, VerifyOptions, CompilerConfig |
 | assura-diagnostics | 4,163 | 73 | Error codes, ariadne + JSON rendering |
-| assura-cli | 12,875 | 282 | CLI binary package (`assura`): check, build, init, fmt, infer, … |
+| assura (dir: assura-cli) | 12,910 | 283 | CLI binary: check, build, init, fmt, infer, … |
 | assura-lsp | 1,965 | 55 | Language server (tower-lsp) |
 | assura-server | 809 | 27 | gRPC + HTTP/JSON API |
 | assura-mcp | 841 | 28 | MCP server for AI agent integration |
@@ -54,10 +57,10 @@
 | assura-bench | 421 | 0 | Criterion benchmarks |
 | assura-runtime | 262 | 10 | Runtime support for contracts |
 | assura-llm | 3,462 | 82 | LLM provider abstraction for auto-implement / suggest |
-| assura-driver | 468 | 0 | Custom rustc driver (exploratory) |
-| **Total** | **165,218** | **4,924** | |
+| **Total** | **164,785** | **4,925** | |
 
-Refresh counts with `bash scripts/count-crates.sh` (LOC + `#[test]` per crate).
+`crates/assura-driver` is **excluded** from the workspace (exploratory rustc
+driver). Refresh counts with `bash scripts/count-crates.sh`.
 
 ## Remaining Work
 

@@ -290,8 +290,11 @@ assura-smt        # Layer 1-3: Verifier, IR, Z3/CVC5 backends, result.rs
 assura-codegen    # Rust source generation
 assura-pipeline   # compile / compile_full / verify_typed (canonical glue)
 assura-config     # CompilerConfig, VerifyOptions (incl. for_tests())
+assura-runtime    # runtime contract monitoring hooks for generated code
+assura-llm        # LLM providers for auto-implement / suggest
 assura-test-support  # test helpers only (dev-dep from other crates)
 assura-cli / lsp / server / mcp  # frontends; must call pipeline, not re-chain passes
+# excluded: crates/assura-driver (exploratory rustc driver; not a workspace member)
 ```
 
 ### Adding a `Decl` variant
