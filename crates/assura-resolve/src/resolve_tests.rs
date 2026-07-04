@@ -1700,8 +1700,8 @@ fn multi_file_valid_cross_module_import() {
     )
     .unwrap();
 
-    let (resolved, warnings) = discover_and_resolve_project(&dir)
-        .expect("multi-file project with import should resolve");
+    let (resolved, warnings) =
+        discover_and_resolve_project(&dir).expect("multi-file project with import should resolve");
     assert!(
         resolved.contains_key("math"),
         "math module should be resolved"
