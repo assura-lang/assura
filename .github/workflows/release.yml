@@ -451,7 +451,11 @@ jobs:
         with:
           egress-policy: audit
       - name: Announce release complete
+        env:
+          # gh release view may invoke git; no checkout on this job.
+          GH_REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
           echo "Release pipeline finished for tag: ${TAG}"
-          gh release view "$TAG" --json url,tagName,isDraft,isPrerelease \
-            --jq '"url=\(.url) tag=\(.tagName) draft=\(.isDraft) prerelease=\(.isPrerelease)"'
+          gh api "repos/${GH_REPO}/releases/tags/${TAG}" \
+            --jq '"url=\(.html_url) tag=\(.tag_name) draft=\(.draft) prerelease=\(.prerelease)"'
