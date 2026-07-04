@@ -2,7 +2,9 @@
 # Publish workspace crates to crates.io in dependency order.
 #
 # Fail-closed: any unexpected publish error exits non-zero.
-# "already uploaded" for this version is treated as success (idempotent re-runs).
+# Versions already on crates.io are skipped *before* cargo publish (clean log,
+# no "error: already exists" noise). Fallback still treats that cargo message
+# as success if a race lands between the pre-check and upload.
 #
 # The set of crates and order are derived from the workspace graph:
 #   - package.publish is not false
@@ -150,6 +152,37 @@ if [[ "$PLAN_ONLY" -eq 1 ]]; then
   exit 0
 fi
 
+# name -> version map from cargo metadata (loaded once).
+CRATE_VERSIONS_JSON=""
+load_crate_versions() {
+  CRATE_VERSIONS_JSON="$(
+    cargo metadata --format-version 1 --no-deps --locked 2>/dev/null \
+      | python3 -c 'import json,sys; data=json.load(sys.stdin); print(json.dumps({p["name"]: p["version"] for p in data["packages"]}))'
+  )"
+}
+
+crate_version() {
+  local crate="$1"
+  python3 -c 'import json,sys; print(json.loads(sys.argv[1])[sys.argv[2]])' \
+    "$CRATE_VERSIONS_JSON" "$crate"
+}
+
+# True if crates.io already has this exact version (HTTP 200 on the version API).
+# Uses a UA; crates.io rejects empty/anonymous clients with 403.
+crates_io_has_version() {
+  local crate="$1"
+  local version="$2"
+  local code
+  code="$(
+    curl -sS -o /dev/null -w '%{http_code}' \
+      -A 'assura-publish-crates/1.0 (https://github.com/assura-lang/assura)' \
+      "https://crates.io/api/v1/crates/${crate}/${version}"
+  )" || return 1
+  [[ "$code" == "200" ]]
+}
+
+load_crate_versions
+
 # publish_one sets global LAST_PUBLISH_STATUS:
 #   new | already | failed
 # Returns 0 on success (new or already), 1 on hard failure.
@@ -166,8 +199,22 @@ publish_one() {
   echo "=== Publishing ${crate} ==="
   local attempt=1
   local max_attempts=8
-  local out rc wait_s
+  local out rc wait_s version
   LAST_PUBLISH_STATUS=""
+
+  # Skip before cargo publish so re-runs do not print cargo's red "error:".
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    version="$(crate_version "$crate")" || {
+      echo "error: could not resolve workspace version for ${crate}" >&2
+      LAST_PUBLISH_STATUS=failed
+      return 1
+    }
+    if crates_io_has_version "$crate" "$version"; then
+      echo "note: ${crate}@${version} already on crates.io; skipping"
+      LAST_PUBLISH_STATUS=already
+      return 0
+    fi
+  fi
 
   while true; do
     set +e
@@ -182,7 +229,7 @@ publish_one() {
     fi
 
     if printf '%s\n' "$out" | grep -Eqi 'already (exists|uploaded)|is already uploaded|already exists on crates\.io'; then
-      echo "note: ${crate} already published at this version; treating as success"
+      echo "note: ${crate} already published at this version (race with pre-check); treating as success"
       LAST_PUBLISH_STATUS=already
       return 0
     fi
