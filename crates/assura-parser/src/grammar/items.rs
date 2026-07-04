@@ -704,6 +704,14 @@ pub(crate) fn generic_block(p: &mut Parser) {
                     | SyntaxKind::SPEC_KW
             ) {
                 decl(p);
+            } else if p.at_keyword_or_ident() {
+                // Loose heads for feature/incremental block metadata that are
+                // not registered as global clause starters (e.g. `yields: T`,
+                // `completes: T`, `on step { ... }` inside MISC.1 blocks).
+                // Without this, `incremental Name { yields: ... }` failed to
+                // parse once INCREMENTAL_KW stopped being absorbed as a fn
+                // clause (#833).
+                clauses::loose_clause(p);
             } else {
                 p.err_and_sync(
                     "expected clause, declaration, or closing brace",

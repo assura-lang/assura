@@ -391,22 +391,391 @@ SourceFile {
                             },
                             effect_variables: [],
                         },
-                        Clause {
-                            kind: Other(
-                                "incremental",
-                            ),
-                            body: Spanned {
-                                node: Ident(
-                                    "InflateDecoder",
-                                ),
-                                span: 4985..5748,
-                            },
-                            effect_variables: [],
-                        },
                     ],
                 },
             ),
-            span: 4354..7635,
+            span: 4354..4985,
+        },
+        Spanned {
+            node: Block {
+                kind: Incremental,
+                name: "InflateDecoder",
+                value: None,
+                body: [
+                    Clause {
+                        kind: Other(
+                            "yields",
+                        ),
+                        body: Spanned {
+                            node: Ident(
+                                "InflateChunk",
+                            ),
+                            span: 5753..5773,
+                        },
+                        effect_variables: [],
+                    },
+                    Clause {
+                        kind: Other(
+                            "completes",
+                        ),
+                        body: Spanned {
+                            node: Ident(
+                                "InflateResult",
+                            ),
+                            span: 5773..5800,
+                        },
+                        effect_variables: [],
+                    },
+                    Clause {
+                        kind: Other(
+                            "states",
+                        ),
+                        body: Spanned {
+                            node: Raw(
+                                [
+                                    "Init",
+                                    ",",
+                                    "Header",
+                                    ",",
+                                    "ExtraField",
+                                    ",",
+                                    "Name",
+                                    ",",
+                                    "Comment",
+                                    ",",
+                                    "HdrCheck",
+                                    ",",
+                                    "Data",
+                                    ",",
+                                    "Done",
+                                ],
+                            ),
+                            span: 5800..5876,
+                        },
+                        effect_variables: [],
+                    },
+                    Clause {
+                        kind: Other(
+                            "transition",
+                        ),
+                        body: Spanned {
+                            node: Raw(
+                                [
+                                    "Init",
+                                    "->",
+                                    "Header",
+                                    "via",
+                                    "step",
+                                ],
+                            ),
+                            span: 5876..5965,
+                        },
+                        effect_variables: [],
+                    },
+                    Clause {
+                        kind: Other(
+                            "transition",
+                        ),
+                        body: Spanned {
+                            node: Raw(
+                                [
+                                    "Header",
+                                    "->",
+                                    "ExtraField",
+                                    "via",
+                                    "step",
+                                ],
+                            ),
+                            span: 5965..6008,
+                        },
+                        effect_variables: [],
+                    },
+                    Clause {
+                        kind: Other(
+                            "transition",
+                        ),
+                        body: Spanned {
+                            node: Raw(
+                                [
+                                    "Header",
+                                    "->",
+                                    "Name",
+                                    "via",
+                                    "step",
+                                ],
+                            ),
+                            span: 6008..6071,
+                        },
+                        effect_variables: [],
+                    },
+                    Clause {
+                        kind: Other(
+                            "transition",
+                        ),
+                        body: Spanned {
+                            node: Raw(
+                                [
+                                    "ExtraField",
+                                    "->",
+                                    "ExtraField",
+                                    "via",
+                                    "step",
+                                ],
+                            ),
+                            span: 6071..6156,
+                        },
+                        effect_variables: [],
+                    },
+                    Clause {
+                        kind: Other(
+                            "transition",
+                        ),
+                        body: Spanned {
+                            node: Raw(
+                                [
+                                    "ExtraField",
+                                    "->",
+                                    "Name",
+                                    "via",
+                                    "step",
+                                ],
+                            ),
+                            span: 6156..6228,
+                        },
+                        effect_variables: [],
+                    },
+                    Clause {
+                        kind: Other(
+                            "transition",
+                        ),
+                        body: Spanned {
+                            node: Raw(
+                                [
+                                    "Name",
+                                    "->",
+                                    "Comment",
+                                    "via",
+                                    "step",
+                                ],
+                            ),
+                            span: 6228..6296,
+                        },
+                        effect_variables: [],
+                    },
+                    Clause {
+                        kind: Other(
+                            "transition",
+                        ),
+                        body: Spanned {
+                            node: Raw(
+                                [
+                                    "Comment",
+                                    "->",
+                                    "HdrCheck",
+                                    "via",
+                                    "step",
+                                ],
+                            ),
+                            span: 6296..6338,
+                        },
+                        effect_variables: [],
+                    },
+                    Clause {
+                        kind: Other(
+                            "transition",
+                        ),
+                        body: Spanned {
+                            node: Raw(
+                                [
+                                    "HdrCheck",
+                                    "->",
+                                    "Data",
+                                    "via",
+                                    "step",
+                                ],
+                            ),
+                            span: 6338..6377,
+                        },
+                        effect_variables: [],
+                    },
+                    Clause {
+                        kind: Other(
+                            "transition",
+                        ),
+                        body: Spanned {
+                            node: Raw(
+                                [
+                                    "Data",
+                                    "->",
+                                    "Data",
+                                    "via",
+                                    "step",
+                                ],
+                            ),
+                            span: 6377..6412,
+                        },
+                        effect_variables: [],
+                    },
+                    Clause {
+                        kind: Other(
+                            "transition",
+                        ),
+                        body: Spanned {
+                            node: Raw(
+                                [
+                                    "Data",
+                                    "->",
+                                    "Done",
+                                    "via",
+                                    "step",
+                                ],
+                            ),
+                            span: 6412..6476,
+                        },
+                        effect_variables: [],
+                    },
+                    Clause {
+                        kind: Invariant,
+                        body: Spanned {
+                            node: Field(
+                                Spanned {
+                                    node: Ident(
+                                        "self",
+                                    ),
+                                    span: 6632..6636,
+                                },
+                                "state",
+                            ),
+                            span: 6632..6642,
+                        },
+                        effect_variables: [],
+                    },
+                    Clause {
+                        kind: Other(
+                            "on",
+                        ),
+                        body: Spanned {
+                            node: Raw(
+                                [
+                                    "step",
+                                    "requires",
+                                    "self",
+                                    ".",
+                                    "state",
+                                    "!=",
+                                    "Done",
+                                    "ensures",
+                                    "old",
+                                    "self",
+                                    ".",
+                                    "state",
+                                    "@",
+                                    "ExtraField",
+                                    "and",
+                                    "self",
+                                    ".",
+                                    "state",
+                                    "@",
+                                    "ExtraField",
+                                    "=>",
+                                    "self",
+                                    ".",
+                                    "extra_bytes_copied",
+                                    ">",
+                                    "old",
+                                    "self",
+                                    ".",
+                                    "extra_bytes_copied",
+                                    "and",
+                                    "self",
+                                    ".",
+                                    "extra_bytes_copied",
+                                    "<=",
+                                    "self",
+                                    ".",
+                                    "head",
+                                    ".",
+                                    "extra",
+                                    ".",
+                                    "extra_max",
+                                    "ensures",
+                                    "old",
+                                    "self",
+                                    ".",
+                                    "state",
+                                    "@",
+                                    "ExtraField",
+                                    "and",
+                                    "self",
+                                    ".",
+                                    "state",
+                                    "@",
+                                    "Name",
+                                    "=>",
+                                    "self",
+                                    ".",
+                                    "extra_bytes_copied",
+                                    "==",
+                                    "self",
+                                    ".",
+                                    "validated_xlen",
+                                    ".",
+                                    "capped_len",
+                                    "and",
+                                    "self",
+                                    ".",
+                                    "extra_bytes_copied",
+                                    "<=",
+                                    "self",
+                                    ".",
+                                    "head",
+                                    ".",
+                                    "extra",
+                                    ".",
+                                    "extra_max",
+                                    "effects",
+                                    ":",
+                                    "io",
+                                    ".",
+                                    "read",
+                                ],
+                            ),
+                            span: 6826..7527,
+                        },
+                        effect_variables: [],
+                    },
+                    Clause {
+                        kind: Other(
+                            "on",
+                        ),
+                        body: Spanned {
+                            node: Raw(
+                                [
+                                    "abort",
+                                    "requires",
+                                    "self",
+                                    ".",
+                                    "state",
+                                    "!=",
+                                    "Done",
+                                    "ensures",
+                                    "self",
+                                    ".",
+                                    "state",
+                                    "@",
+                                    "Done",
+                                    "effects",
+                                    ":",
+                                    "pure",
+                                ],
+                            ),
+                            span: 7527..7633,
+                        },
+                        effect_variables: [],
+                    },
+                ],
+            },
+            span: 4985..7635,
         },
         Spanned {
             node: FnDef(

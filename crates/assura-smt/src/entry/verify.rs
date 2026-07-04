@@ -146,8 +146,10 @@ impl<'a> Verifier<'a> {
                     &default_cache
                 }
                 None => {
-                    // Ephemeral in-memory cache (no disk dir from source path).
-                    default_cache = VerificationCache::new(std::path::Path::new("."));
+                    // enable_cache is off: do not read/write `./.assura-cache`
+                    // (the old "ephemeral" path still used disk and served
+                    // stale Unknown results after encoding changes; #833).
+                    default_cache = VerificationCache::disabled();
                     &default_cache
                 }
             };

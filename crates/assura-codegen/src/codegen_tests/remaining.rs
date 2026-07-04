@@ -1806,8 +1806,8 @@ fn generate_block_effects_clause_explicit() {
     let mut code = String::new();
     generate_block(&BlockKind::Feature, "test", &clauses, &mut code);
     assert!(
-        code.contains("/// Effects:"),
-        "Effects clause should produce doc comment, got:\n{code}"
+        code.contains("// Effects:"),
+        "Effects clause should produce a line comment (not trailing ///), got:\n{code}"
     );
 }
 

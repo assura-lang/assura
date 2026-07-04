@@ -174,8 +174,15 @@ fn hash_clauses(
 /// keyed by the content hash of its clauses and optional IR body fingerprint.
 /// When the contract or IR sidecar changes, the hash changes and the old entry
 /// is naturally invalidated.
+///
+/// Use [`VerificationCache::disabled`] when `enable_cache` is off so parallel
+/// verify never reads stale on-disk results (the previous "ephemeral" path
+/// still pointed at `./.assura-cache/verify` and poisoned CLI output after
+/// SMT encoding changes, e.g. #833).
 pub struct VerificationCache {
-    cache_dir: std::path::PathBuf,
+    /// `None` means a disabled cache: [`get`](Self::get) always misses and
+    /// [`put`](Self::put) is a no-op (no disk I/O).
+    cache_dir: Option<std::path::PathBuf>,
 }
 
 impl VerificationCache {
@@ -188,7 +195,15 @@ impl VerificationCache {
         // /dev/ which is not writable). The cache is a performance
         // optimization; get() and store() already handle missing dirs.
         let _ = std::fs::create_dir_all(&cache_dir);
-        Self { cache_dir }
+        Self {
+            cache_dir: Some(cache_dir),
+        }
+    }
+
+    /// No-op cache for `enable_cache: false` (parallel verify still needs a
+    /// `&VerificationCache` handle but must not touch disk).
+    pub fn disabled() -> Self {
+        Self { cache_dir: None }
     }
 
     /// Look up cached verification results for a contract.
@@ -201,8 +216,9 @@ impl VerificationCache {
         clauses: &[assura_ast::Clause],
         ir_fingerprint: Option<&str>,
     ) -> Option<Vec<VerificationResult>> {
+        let cache_dir = self.cache_dir.as_ref()?;
         let hash = hash_clauses(contract_name, clauses, ir_fingerprint);
-        let path = self.cache_dir.join(format!("{hash}.json"));
+        let path = cache_dir.join(format!("{hash}.json"));
         let data = std::fs::read_to_string(&path).ok()?;
         let cached: Vec<CachedResult> = serde_json::from_str(&data).ok()?;
         Some(cached.into_iter().map(VerificationResult::from).collect())
@@ -216,8 +232,11 @@ impl VerificationCache {
         ir_fingerprint: Option<&str>,
         results: &[VerificationResult],
     ) {
+        let Some(cache_dir) = self.cache_dir.as_ref() else {
+            return;
+        };
         let hash = hash_clauses(contract_name, clauses, ir_fingerprint);
-        let path = self.cache_dir.join(format!("{hash}.json"));
+        let path = cache_dir.join(format!("{hash}.json"));
         let cached: Vec<CachedResult> = results.iter().map(CachedResult::from).collect();
         if let Ok(json) = serde_json::to_string(&cached) {
             // Silently ignore write failures (non-writable cache dir).
@@ -227,17 +246,23 @@ impl VerificationCache {
 
     /// Remove all cached verification results.
     pub fn clear(&self) {
-        if let Err(e) = std::fs::remove_dir_all(&self.cache_dir) {
+        let Some(cache_dir) = self.cache_dir.as_ref() else {
+            return;
+        };
+        if let Err(e) = std::fs::remove_dir_all(cache_dir) {
             eprintln!("warning: could not clear verification cache: {e}");
         }
-        if let Err(e) = std::fs::create_dir_all(&self.cache_dir) {
+        if let Err(e) = std::fs::create_dir_all(cache_dir) {
             eprintln!("warning: could not recreate verification cache directory: {e}");
         }
     }
 
     /// Number of cached entries.
     pub fn entry_count(&self) -> usize {
-        std::fs::read_dir(&self.cache_dir)
+        let Some(cache_dir) = self.cache_dir.as_ref() else {
+            return 0;
+        };
+        std::fs::read_dir(cache_dir)
             .map(|rd| rd.filter(|e| e.is_ok()).count())
             .unwrap_or(0)
     }
@@ -332,6 +357,22 @@ mod tests {
         let cache = VerificationCache::new(dir.path());
         let clauses: Vec<assura_ast::Clause> = vec![];
         assert!(cache.get("test_contract", &clauses, None).is_none());
+    }
+
+    #[test]
+    fn disabled_cache_never_hits_disk() {
+        let cache = VerificationCache::disabled();
+        let clauses: Vec<assura_ast::Clause> = vec![];
+        assert!(cache.get("Any", &clauses, None).is_none());
+        cache.put(
+            "Any",
+            &clauses,
+            None,
+            &[VerificationResult::verified("Any::ensures")],
+        );
+        assert_eq!(cache.entry_count(), 0);
+        cache.clear();
+        assert!(cache.get("Any", &clauses, None).is_none());
     }
 
     #[test]
