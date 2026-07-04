@@ -3,6 +3,25 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.0](https://github.com/assura-lang/assura/compare/v0.1.0...v0.2.0) (2026-07-04)
+
+
+### Features
+
+* register feature_max in resolve; demos use named SMT bounds ([#832](https://github.com/assura-lang/assura/issues/832)) ([fd24fa8](https://github.com/assura-lang/assura/commit/fd24fa8863121905c1fb6b2835ff2cf0aafbcb21))
+
+
+### Bug Fixes
+
+* distinguish requires-only from empty contracts in check UX ([#822](https://github.com/assura-lang/assura/issues/822)) ([308eac3](https://github.com/assura-lang/assura/commit/308eac3cd4249498fee7777f1bd63f3636e44a36))
+* do not fail publish on already-published crates ([#804](https://github.com/assura-lang/assura/issues/804)) ([ee96c5e](https://github.com/assura-lang/assura/commit/ee96c5e5dd9c6c34f5b484c2ad79c04e8dfe215b))
+* drop ir_generate expect; document JSON vacuous and driver exclude ([#830](https://github.com/assura-lang/assura/issues/830)) ([a8a30ce](https://github.com/assura-lang/assura/commit/a8a30ced4805221b1de162074ae85765e751c3ce))
+* JSON vacuous flags; truncate verification display names ([#828](https://github.com/assura-lang/assura/issues/828)) ([caa1455](https://github.com/assura-lang/assura/commit/caa145577a44b49525b16a16f5cfed4c74082a1c))
+* order crates.io publish by all path deps including dev ([#801](https://github.com/assura-lang/assura/issues/801)) ([62662f8](https://github.com/assura-lang/assura/commit/62662f87a6d82bcaa995710a2abcc8141a1ba20d))
+* publish-plan order, CI wire-up, vacuous check message ([#818](https://github.com/assura-lang/assura/issues/818)) ([4686a89](https://github.com/assura-lang/assura/commit/4686a89ec0fc7ba0633d5add8f7df3adeb8a18a5))
+* retry crates.io 429 and space new crate publishes ([#803](https://github.com/assura-lang/assura/issues/803)) ([e7cc20c](https://github.com/assura-lang/assura/commit/e7cc20c02d5defac2e6f6c7a9cfdd69450334171))
+* ship IR prompt templates inside assura-smt for crates.io ([#805](https://github.com/assura-lang/assura/issues/805)) ([3bd06f0](https://github.com/assura-lang/assura/commit/3bd06f08d786e170c55b9e97dc31b36bbd12bbe5))
+
 ## 0.1.0 (2026-07-04)
 
 
