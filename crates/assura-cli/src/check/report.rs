@@ -180,8 +180,11 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                 eprintln!();
                 eprintln!("Verification skipped (--layer 0: structural checks only)");
             } else if layer >= 1
+                && !*has_errors
                 && let Some(f) = file
             {
+                // Only when parse/resolve/type already clean. On syntax errors the
+                // "no verifiable clauses" block confuses users (Adversarial/UX).
                 let contract_names = assura_smt::display::collect_contract_names(f);
                 if !contract_names.is_empty() {
                     eprintln!();
