@@ -79,6 +79,13 @@ Important details:
   `release.yml` with the **`tag` input** when a release is created.
 - Auto-approve skips PRs labeled `autorelease: pending`. Release PRs must
   be merged by a human.
+- **Virtual workspace + `release-type: simple`:** release-please only rewrites
+  `workspace.package.version` (via `extra-files`). That does **not** update
+  `Cargo.lock` the way `release-type: rust` does for a single root package
+  (e.g. patchloom). The `sync-release-pr-versions` job runs
+  `sync-path-dep-versions.sh` and `sync-cargo-lock-workspace-versions.sh` on
+  the release PR branch so CI with `--locked` stays green. Do not omit the
+  lock step when copying this layout to another monorepo.
 - Use `chore:` for CI/docs/refactor. Reserve `fix:` / `feat:` for
   user-visible changes so version bumps stay intentional.
 - Optional: commit `RELEASE_NOTES.md` on **main** (not on the release-please
@@ -93,9 +100,10 @@ Config files:
 | `.release-please-manifest.json` | Last released version per package (root `"."`) |
 | `scripts/publish-crates.sh` | Fail-closed graph filter + topo publish (pre-check, 429 handling, skip already-uploaded) |
 | `scripts/sync-path-dep-versions.sh` | Path-dep `version=` pins = workspace version |
+| `scripts/sync-cargo-lock-workspace-versions.sh` | Align `Cargo.lock` workspace member versions after a version bump (required for CI `--locked`) |
 | `scripts/check-publish-plan.sh` | Assert publish order matches the 13-crate library stack |
 | `scripts/check-cargo-package.sh` | `cargo package -p <crate> --locked` for every publishable crate (CI gate, #814) |
-| `.github/workflows/release-please.yml` | Opens release PR on main push; dispatches Release on create |
+| `.github/workflows/release-please.yml` | Opens release PR on main push; syncs path-deps + lock on that PR; dispatches Release on create |
 | `.github/workflows/release.yml` | cargo-dist installers + publish-crates (`tag` / dispatch) |
 | `dist-workspace.toml` | cargo-dist targets / installers |
 
