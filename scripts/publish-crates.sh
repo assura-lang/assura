@@ -105,9 +105,12 @@ if not publishable:
     print("error: no publishable crates remain after graph filtering", file=sys.stderr)
     sys.exit(1)
 
-# Order edges use normal+build deps only among the final publishable set.
+# Order edges must include *dev* path deps too: cargo publish resolves
+# [dev-dependencies] against crates.io while packaging (even though they are
+# not required to build the lib). Omitting them publishes macros before
+# runtime and fails with "no matching package named assura-runtime".
 graph = {
-    n: {d for d in packages[n]["order_path"] if d in publishable} for n in publishable
+    n: {d for d in packages[n]["all_path"] if d in publishable} for n in publishable
 }
 indeg = {n: 0 for n in publishable}
 rev: dict[str, set[str]] = defaultdict(set)
