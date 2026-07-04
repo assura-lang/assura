@@ -80,6 +80,9 @@ rewritten accidentally:
 cargo fmt --all -- --check
 cargo clippy --workspace --locked -- -D warnings
 cargo deny check
+bash scripts/guards.sh
+bash scripts/check-publish-plan.sh
+bash scripts/check-cargo-package.sh   # every publishable crate; see docs/CRATES-IO.md
 cargo clippy -p assura-smt --features cvc5-verify -- -D warnings
 cargo test --workspace --locked
 cargo check --no-default-features -p assura-smt
@@ -95,8 +98,14 @@ cargo test -p <crate> --locked --lib
 ```
 
 `cargo deny check` enforces license, advisory, and source policies from
-`deny.toml` (same step as the CI clippy job). Install with
+`deny.toml` (same step as the CI Fast lint job). Install with
 `cargo install cargo-deny` if needed.
+
+`check-publish-plan.sh` asserts the 13-crate library publish set and
+topological order (including path **dev**-dependencies).
+`check-cargo-package.sh` runs `cargo package -p <crate> --locked` for each
+publishable crate so monorepo-only `include_str!` paths fail before a
+release (CI job **Cargo package (publishable)**).
 
 When editing `.github/workflows/**` or `.github/actions/**`, also run:
 

@@ -82,6 +82,9 @@ else
   run_step "guards" bash scripts/guards.sh
 fi
 
+# Fast: publish set/order only (full cargo package is CI cargo-package job).
+run_step "publish-plan" bash scripts/check-publish-plan.sh
+
 for crate in "${crates[@]}"; do
   if [[ "$crate" == "assura" ]]; then
     run_step "clippy $crate" cargo clippy --bin assura --locked -- -D warnings

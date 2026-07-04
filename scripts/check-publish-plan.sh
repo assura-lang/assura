@@ -13,9 +13,11 @@ count="${BASH_REMATCH[1]}"
 # shellcheck disable=SC2206
 ORDER=(${BASH_REMATCH[2]})
 
+# Topo order uses ALL path deps (normal + build + dev). assura-macros has a
+# path dev-dependency on assura-runtime, so runtime must publish first.
 expected=(
-  assura-ast assura-config assura-diagnostics assura-macros assura-runtime
-  assura-parser assura-fmt assura-stdlib assura-resolve assura-types
+  assura-ast assura-config assura-diagnostics assura-runtime assura-parser
+  assura-macros assura-fmt assura-stdlib assura-resolve assura-types
   assura-codegen assura-smt assura-pipeline
 )
 

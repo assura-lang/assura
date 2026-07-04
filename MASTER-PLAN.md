@@ -1,6 +1,6 @@
 # Assura Development Status
 
-> 152K lines of Rust, 4,540 tests, 19 crates.
+> ~165K lines of Rust, ~4,924 tests, 19 crates.
 
 ## What Works Today
 
@@ -51,7 +51,7 @@
 | assura-rust-analyzer | 2,315 | 84 | Syn-based Rust source parser for contract inference |
 | assura-test-support | 376 | 0 | Shared test helpers |
 | assura-bench | 2 | 0 | Criterion benchmarks |
-| **Total** | **151,793** | **4,540** | |
+| **Total** | **~165K** | **~4,924** | (header counts re-audited 2026-07-04; per-crate rows may lag) |
 
 ## Remaining Work
 

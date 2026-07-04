@@ -20,6 +20,9 @@ elif [[ -n "${1:-}" ]]; then
   exit 2
 fi
 
+# Fail fast if the expected publish set/order drifts (also run in lint-fast).
+bash scripts/check-publish-plan.sh
+
 plan_line=$(bash scripts/publish-crates.sh --plan-only 2>/dev/null | head -1)
 if [[ ! "$plan_line" =~ Publish\ plan\ \(([0-9]+)\ crates\):\ (.*)$ ]]; then
   echo "error: could not parse publish plan line: $plan_line" >&2

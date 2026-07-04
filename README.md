@@ -96,10 +96,10 @@ The Z3 SMT solver is downloaded automatically during `cargo build` (via the
 `z3` crate's `gh-release` feature). No manual Z3 installation needed.
 
 **Embedding as a library:** the public compile/verify facade is
-`assura-pipeline` (and its graph of library crates). First crates.io publish
-is cut via release-please; until versions appear on crates.io, depend on the
-git path or wait for the [v0.1.0](https://github.com/assura-lang/assura/releases)
-library release notes.
+[`assura-pipeline`](https://crates.io/crates/assura-pipeline) on crates.io
+(v0.1.0+, with the full 13-crate library graph). Prefer crates.io for apps;
+use a git path dependency only when tracking unreleased `main`. Release
+process: [docs/CRATES-IO.md](docs/CRATES-IO.md).
 
 ### Usage
 
