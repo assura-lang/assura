@@ -59,6 +59,9 @@ pub(crate) fn build_type_env(
 
             // Codec registries are not types; they define dispatch tables
             SymbolKind::CodecRegistry => Type::Named(sym.name.clone()),
+
+            // feature_max NAME: Nat = N — compile-time Nat constant (SMT-bound).
+            SymbolKind::FeatureMax => Type::Named("Nat".into()),
         };
 
         env.insert(sym.name.clone(), ty);

@@ -20,6 +20,9 @@ project zlib_inflate {
 
 module inflate.gzip;
 
+// Caller-provided extra buffer capacity (feature_max binds concrete SMT int).
+feature_max EXTRA_MAX: Nat = 65535
+
 // ---------------------------------------------------------------------------
 // Types modeling the zlib inflate state
 // ---------------------------------------------------------------------------
@@ -281,3 +284,22 @@ fn inflate_extra_field_step(
 // write past extra_max, and the incremental contract ensures the multi-call
 // path maintains the same invariants as the single-call path.
 // ============================================================================
+
+// ---------------------------------------------------------------------------
+// Verifiable contracts without IR (feature_max + input-only ensures)
+// ---------------------------------------------------------------------------
+
+fn check_extra_max_bound(written: Nat, chunk: Nat)
+  requires { written <= EXTRA_MAX }
+  requires { chunk <= EXTRA_MAX }
+  requires { written + chunk <= EXTRA_MAX }
+  ensures  { written + chunk <= 65535 }
+  ensures  { EXTRA_MAX == 65535 }
+  effects: pure
+
+fn check_xlen_cap(raw_xlen: Nat, extra_max: Nat)
+  requires { extra_max == EXTRA_MAX }
+  requires { raw_xlen <= extra_max }
+  ensures  { raw_xlen <= EXTRA_MAX }
+  ensures  { raw_xlen <= 65535 }
+  effects: pure

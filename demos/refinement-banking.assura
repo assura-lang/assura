@@ -16,8 +16,7 @@
 // guaranteeing that with proper preconditions, balance violations and money
 // creation are impossible.
 //
-// All constants are inlined as integer literals so Z3 sees their actual
-// values (the SMT encoder treats named constants as unconstrained).
+// Named bounds use feature_max (SMT binds them to concrete integers).
 // ============================================================================
 
 project refinement_banking {
@@ -85,8 +84,10 @@ fn transfer_conserves_money(
 //
 // Daily withdrawal is capped. If the withdrawn amount is within the limit
 // and the account has sufficient funds, the remaining balance is valid.
-// Daily limit is inlined as 10000 (not a feature_max constant).
+// Daily limit is a feature_max so the bound is named and re-verified if changed.
 // ---------------------------------------------------------------------------
+
+feature_max DAILY_WITHDRAWAL_LIMIT: Nat = 10000
 
 fn withdrawal_within_daily_limit(
     balance: Nat,
@@ -97,9 +98,10 @@ fn withdrawal_within_daily_limit(
   requires { withdrawal > 0 }
   requires { withdrawal <= balance }
   requires { daily_withdrawn >= 0 }
-  requires { daily_withdrawn + withdrawal <= 10000 }
+  requires { daily_withdrawn + withdrawal <= DAILY_WITHDRAWAL_LIMIT }
   ensures  { balance - withdrawal >= 0 }
-  ensures  { daily_withdrawn + withdrawal <= 10000 }
+  ensures  { daily_withdrawn + withdrawal <= DAILY_WITHDRAWAL_LIMIT }
+  ensures  { DAILY_WITHDRAWAL_LIMIT == 10000 }
   effects: pure
 
 // ---------------------------------------------------------------------------

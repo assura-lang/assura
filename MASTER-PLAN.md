@@ -82,8 +82,9 @@ These are not blocking the initial release but are on the radar:
 - Online playground (try Assura without installing Z3)
 - Homebrew formula / pre-built binaries via `cargo install assura`
 - Editor support beyond VS Code (Neovim, Emacs, JetBrains)
-- Constant folding for `feature_max` named constants in SMT encoding
+- [x] `feature_max` SMT binding + resolve registration (names in clauses, no false A02001)
 - Richer stdlib postconditions (e.g., `abs` ensures `result >= 0`)
+- Encode `incremental_contract` in SMT (zlib demo still has known-limitation Unknown)
 - CI integration action (`assura-lang/assura-action`)
 - Package registry for shareable contract libraries
 

@@ -285,6 +285,29 @@ fn process_incoming_record(
   RecordResult.Ok(record_len as Nat)
 }
 
+// ---------------------------------------------------------------------------
+// Verifiable contracts (no IR): feature_max folds to concrete SMT integers.
+// These are logical consequences of requires + feature_max bindings only.
+// ---------------------------------------------------------------------------
+
+fn check_ec_point_bounds(point_len: Nat, content_len: Nat)
+  requires { point_len <= MAX_EC_POINT_SIZE }
+  requires { content_len <= MAX_CONTENT_LEN }
+  ensures  { point_len <= 256 }
+  ensures  { content_len <= 16384 }
+  ensures  { MAX_EC_POINT_SIZE == 256 }
+  ensures  { MAX_CONTENT_LEN == 16384 }
+  ensures  { MAX_HANDSHAKE_LEN == 65535 }
+  effects: pure
+
+fn check_handshake_alloc_bounds(header_len: Nat, content_len: Nat)
+  requires { header_len <= MAX_HANDSHAKE_LEN }
+  requires { content_len <= MAX_HANDSHAKE_LEN }
+  requires { header_len + content_len <= 2 * MAX_HANDSHAKE_LEN }
+  ensures  { header_len + content_len <= 131070 }
+  ensures  { MAX_HANDSHAKE_LEN == 65535 }
+  effects: pure
+
 // ============================================================================
 // Summary: What Assura catches that C missed
 //

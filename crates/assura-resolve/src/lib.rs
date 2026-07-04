@@ -16,7 +16,7 @@ mod unused;
 
 use std::collections::HashSet;
 
-use assura_parser::ast::{ClauseKind, Decl, ServiceItem, SourceFile, SpExpr, TypeBody};
+use assura_parser::ast::{BlockKind, ClauseKind, Decl, ServiceItem, SourceFile, SpExpr, TypeBody};
 
 // Re-export public API
 pub use errors::{ResolutionError, ResolvedFile};
@@ -621,11 +621,22 @@ pub fn resolve_with_modules(
                     decl.span.clone(),
                 );
             }
-            Decl::Block { name, .. } => {
-                // Generic blocks (feature, incremental, liveness, etc.)
-                // create a child scope for their body but don't register
-                // as a named symbol (they are structural, not definitions).
-                if !name.is_empty() {
+            Decl::Block { kind, name, .. } => {
+                // `feature_max NAME: Nat = N` is a module-level named constant
+                // used in requires/ensures. Register it so clause-body resolution
+                // does not emit false A02001 (SMT already binds the value).
+                if *kind == BlockKind::FeatureMax && !name.is_empty() {
+                    try_insert(
+                        &mut table,
+                        &mut errors,
+                        module,
+                        name,
+                        SymbolKind::FeatureMax,
+                        decl.span.clone(),
+                    );
+                } else if !name.is_empty() {
+                    // Other blocks (feature, incremental, liveness, …) are
+                    // structural: child scope only, not a definition name.
                     table.push_scope(name, Some(module));
                 }
             }

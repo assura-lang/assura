@@ -218,39 +218,41 @@ contract BuildHuffmanTableContract {
 }
 
 // ---------------------------------------------------------------------------
-// Verifiable contracts: ensures clauses that Z3 can check
+// Verifiable contracts: ensures clauses that Z3 can check without IR
 //
-// These contracts express safety properties using ONLY input variables
-// and inline integer literals (not feature_max constants, which the
-// encoder treats as unconstrained). Each ensures clause is a logical
-// consequence of the requires clauses.
+// Safety properties use input variables and feature_max constants (SMT binds
+// feature_max NAME = N as a concrete integer). Each ensures is a logical
+// consequence of requires + feature_max bindings — no result/output needed.
 // ---------------------------------------------------------------------------
 
-// Alphabet size bounds: the requires constraint implies the ensures
+// Alphabet size bounds: feature_max folds into concrete SMT integers
 fn check_alphabet_bounds(size: Nat, max_len: Nat)
-  requires { size <= 280 }
-  requires { max_len <= 15 }
-  ensures  { size + max_len <= 295 }
-  ensures  { size <= 280 }
-  ensures  { max_len <= 15 }
+  requires { size <= MAX_ALPHABET_SIZE }
+  requires { max_len <= MAX_CODE_LENGTH }
+  ensures  { size + max_len <= MAX_ALPHABET_SIZE + MAX_CODE_LENGTH }
+  ensures  { size <= MAX_ALPHABET_SIZE }
+  ensures  { max_len <= MAX_CODE_LENGTH }
+  ensures  { MAX_ALPHABET_SIZE == 280 }
+  ensures  { MAX_CODE_LENGTH == 15 }
   effects: pure
 
 // Table allocation safety: primary table fits within a conservative bound
 fn check_table_bounds(root_bits: Nat, alphabet_size: Nat, table_size: Nat)
-  requires { root_bits <= 15 }
-  requires { alphabet_size <= 280 }
+  requires { root_bits <= MAX_CODE_LENGTH }
+  requires { alphabet_size <= MAX_ALPHABET_SIZE }
   requires { table_size >= alphabet_size + root_bits }
   ensures  { table_size >= root_bits }
   ensures  { table_size >= alphabet_size }
+  ensures  { ROOT_BITS == 8 }
   effects: pure
 
 // Code length validation: validated lengths are within the max
 fn check_code_length_bounds(code_len: Nat, max_code_len: Nat, root_bits: Nat)
   requires { code_len <= max_code_len }
-  requires { max_code_len <= 15 }
+  requires { max_code_len <= MAX_CODE_LENGTH }
   requires { root_bits <= max_code_len }
-  ensures  { code_len <= 15 }
-  ensures  { root_bits <= 15 }
+  ensures  { code_len <= MAX_CODE_LENGTH }
+  ensures  { root_bits <= MAX_CODE_LENGTH }
   effects: pure
 
 // ---------------------------------------------------------------------------

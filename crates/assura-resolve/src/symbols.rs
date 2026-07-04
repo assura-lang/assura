@@ -34,6 +34,8 @@ pub enum SymbolKind {
     TypeParam,
     Field,
     EnumVariant,
+    /// `feature_max NAME: Nat = N` compile-time constant (bound in SMT).
+    FeatureMax,
 }
 
 /// A lexical scope that maps names to symbol indices.
