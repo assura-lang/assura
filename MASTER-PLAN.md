@@ -1,6 +1,6 @@
 # Assura Development Status
 
-> ~165K lines of Rust, ~4,924 tests, 19 crates.
+> 165,218 lines of Rust, 4,924 tests, 22 crates (re-counted 2026-07-04).
 
 ## What Works Today
 
@@ -27,31 +27,35 @@
 | Runtime contract monitoring (`--runtime-checks`) | Done |
 | Watch mode with incremental compilation | Done |
 | Parallel SMT verification | Done |
+| Library crates on crates.io (v0.1.0+) | Done (CLI via GitHub Releases / cargo-dist) |
 
 ## Crate Breakdown
 
 | Crate | LOC | Tests | Role |
 |-------|-----|-------|------|
-| assura-parser | 8,561 | 187 | Lexer (logos) + recursive-descent parser (rowan CST), Pratt expressions, 195+ productions |
-| assura-ast | 2,706 | 23 | Canonical AST, DeclVisitor, ExprVisitor, ExprFolder |
-| assura-resolve | 5,704 | 182 | Scope analysis, imports, stdlib prelude injection |
-| assura-types | 42,906 | 1,705 | 60+ checkers in CHECKER_PIPELINE, all 50 spec features |
-| assura-smt | 52,577 | 1,228 | Z3 + CVC5, Layer 2 verifier, prophecy/liveness/weak-memory passes, IR exec |
-| assura-codegen | 15,217 | 630 | Multi-file Rust projects, proptest gen, WASM, Cranelift config, IR body substitution |
-| assura-pipeline | 1,375 | 50 | Canonical compile/compile_full/verify_typed/run_at |
-| assura-config | 1,128 | 44 | assura.toml, VerifyOptions, CompilerConfig |
-| assura-diagnostics | 4,027 | 66 | ~278 error codes, ariadne + JSON rendering |
-| assura-cli | 8,586 | 253 | 22 commands (check, build, init, fmt, infer, test-gen, audit, repl, ir, doc, ...) |
-| assura-lsp | 1,975 | 55 | Language server (tower-lsp) |
-| assura-server | 798 | 16 | gRPC + HTTP/JSON API |
-| assura-mcp | 740 | 20 | MCP server (5 tools for AI agent integration) |
-| assura-fmt | 1,609 | 76 | Formatter |
-| assura-macros | 782 | 20 | Proc macros (`#[contract]`, `#[trust]`) |
-| assura-stdlib | 409 | 0 | 12 stdlib modules (math, string, collections, option, result, io, fs, net, crypto, iter, bytes, time) |
-| assura-rust-analyzer | 2,315 | 84 | Syn-based Rust source parser for contract inference |
-| assura-test-support | 376 | 0 | Shared test helpers |
-| assura-bench | 2 | 0 | Criterion benchmarks |
-| **Total** | **~165K** | **~4,924** | (header counts re-audited 2026-07-04; per-crate rows may lag) |
+| assura-parser | 9,597 | 188 | Lexer (logos) + recursive-descent parser (rowan CST), Pratt expressions |
+| assura-ast | 2,942 | 39 | Canonical AST, DeclVisitor, ExprVisitor, ExprFolder |
+| assura-resolve | 5,767 | 184 | Scope analysis, imports, stdlib prelude injection |
+| assura-types | 43,305 | 1,704 | 60+ checkers in CHECKER_PIPELINE, all 50 spec features |
+| assura-smt | 53,152 | 1,245 | Z3 + CVC5, Layer 2 verifier, prophecy/liveness/weak-memory, IR exec |
+| assura-codegen | 15,867 | 658 | Multi-file Rust projects, proptest gen, WASM, IR body substitution |
+| assura-pipeline | 2,103 | 66 | Canonical compile/compile_full/verify_typed/run_at |
+| assura-config | 1,299 | 53 | assura.toml, VerifyOptions, CompilerConfig |
+| assura-diagnostics | 4,163 | 73 | Error codes, ariadne + JSON rendering |
+| assura-cli | 12,875 | 282 | CLI binary package (`assura`): check, build, init, fmt, infer, … |
+| assura-lsp | 1,965 | 55 | Language server (tower-lsp) |
+| assura-server | 809 | 27 | gRPC + HTTP/JSON API |
+| assura-mcp | 841 | 28 | MCP server for AI agent integration |
+| assura-fmt | 648 | 52 | Formatter |
+| assura-macros | 1,973 | 58 | Proc macros (`#[contract]`, `#[trust]`) |
+| assura-stdlib | 409 | 18 | Stdlib modules (math, string, collections, …) |
+| assura-rust-analyzer | 2,514 | 92 | Syn-based Rust source parser for contract inference |
+| assura-test-support | 376 | 10 | Shared test helpers |
+| assura-bench | 421 | 0 | Criterion benchmarks |
+| assura-runtime | 262 | 10 | Runtime support for contracts |
+| assura-llm | 3,462 | 82 | LLM provider abstraction for auto-implement / suggest |
+| assura-driver | 468 | 0 | Custom rustc driver (exploratory) |
+| **Total** | **165,218** | **4,924** | |
 
 ## Remaining Work
 
@@ -64,7 +68,7 @@
 - [x] Large-scale verification benchmarks (500+, 1000+, 5000+ clauses)
 - [x] LLM verification success rate benchmark (20 graded contracts, 4 reference IRs)
 - [x] Make repo public, enable CodeQL
-- [ ] Publish to crates.io
+- [x] Publish library crates to crates.io (v0.1.0; CLI via cargo-dist / GitHub Releases only)
 
 ### Future directions
 
