@@ -364,7 +364,7 @@ fn verify_incremental_step(
     // arithmetic / comparison steps that do re-parse cleanly.
     let results: Vec<VerificationResult> = ensures_bodies
         .into_iter()
-        .filter(|ens| is_likely_boolean_predicate(ens))
+        .filter(is_likely_boolean_predicate)
         .filter(|ens| {
             #[cfg(feature = "z3-verify")]
             {

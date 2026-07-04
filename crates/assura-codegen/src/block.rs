@@ -94,6 +94,19 @@ pub(crate) fn generate_block(kind: &BlockKind, name: &str, body: &[Clause], code
         return;
     }
 
+    // MISC.1 incremental state machines: verified by SMT. Emitting a mod with
+    // typestate `self.state` asserts and trailing `///` metadata for `on` /
+    // `transition` clauses produced invalid Rust (doc comments with no
+    // following item; free-fn `self`). Keep a single compile-time marker.
+    if *kind == BlockKind::Incremental {
+        let item = RustItem::Comment(format!(
+            "incremental {name}: state machine verified by SMT (MISC.1); no runtime scaffolding"
+        ));
+        code.push_str(&render_item_raw(&item));
+        code.push('\n');
+        return;
+    }
+
     // Other blocks: generate as a module with documented constants/assertions
     let lower_name = name.to_lowercase();
     let mut items: Vec<RustItem> = Vec::new();
@@ -138,7 +151,9 @@ pub(crate) fn generate_block(kind: &BlockKind, name: &str, body: &[Clause], code
                 }));
             }
             ClauseKind::Ordering => {
-                items.push(RustItem::Raw(format!("/// Ordering: {expr}\n")));
+                // Use // not /// so trailing metadata does not leave a doc
+                // comment with no following item (invalid Rust).
+                items.push(RustItem::Raw(format!("// Ordering: {expr}\n")));
                 if let Some(ord) = resolve_ordering_variant(&clause.body) {
                     items.push(RustItem::Raw(format!(
                         "const ORDERING: std::sync::atomic::Ordering = std::sync::atomic::Ordering::{ord};\n"
@@ -146,28 +161,28 @@ pub(crate) fn generate_block(kind: &BlockKind, name: &str, body: &[Clause], code
                 }
             }
             ClauseKind::Effects => {
-                items.push(RustItem::Raw(format!("/// Effects: {expr}\n")));
+                items.push(RustItem::Raw(format!("// Effects: {expr}\n")));
             }
             ClauseKind::Modifies => {
-                items.push(RustItem::Raw(format!("/// Modifies: {expr}\n")));
+                items.push(RustItem::Raw(format!("// Modifies: {expr}\n")));
             }
             ClauseKind::Input => {
-                items.push(RustItem::Raw(format!("/// Input: {expr}\n")));
+                items.push(RustItem::Raw(format!("// Input: {expr}\n")));
             }
             ClauseKind::Output => {
-                items.push(RustItem::Raw(format!("/// Output: {expr}\n")));
+                items.push(RustItem::Raw(format!("// Output: {expr}\n")));
             }
             ClauseKind::Errors => {
-                items.push(RustItem::Raw(format!("/// Errors: {expr}\n")));
+                items.push(RustItem::Raw(format!("// Errors: {expr}\n")));
             }
             ClauseKind::DataFlow => {
-                items.push(RustItem::Raw(format!("/// DataFlow: {expr}\n")));
+                items.push(RustItem::Raw(format!("// DataFlow: {expr}\n")));
             }
             ClauseKind::Decreases => {
-                items.push(RustItem::Raw(format!("/// Decreases: {expr}\n")));
+                items.push(RustItem::Raw(format!("// Decreases: {expr}\n")));
             }
             ClauseKind::Other(ref kind_name) => {
-                items.push(RustItem::Raw(format!("/// {kind_name}: {expr}\n")));
+                items.push(RustItem::Raw(format!("// {kind_name}: {expr}\n")));
             }
         }
     }
@@ -242,6 +257,50 @@ mod tests {
         let mut code = String::new();
         generate_block(&BlockKind::Table, "lookup", &[], &mut code);
         assert!(code.contains("compile-time verified by SMT"));
+    }
+
+    #[test]
+    fn block_incremental_is_smt_marker_only() {
+        // #833 / PR #834: must not emit mod with trailing /// or free-fn `self`.
+        let clauses = vec![
+            mk_clause(
+                ClauseKind::Invariant,
+                Spanned::no_span(Expr::Field(
+                    Box::new(Spanned::no_span(Expr::Ident("self".into()))),
+                    "state".into(),
+                )),
+            ),
+            mk_clause(
+                ClauseKind::Other("on".into()),
+                Spanned::no_span(Expr::Raw(vec![
+                    "step".into(),
+                    "requires".into(),
+                    "true".into(),
+                ])),
+            ),
+        ];
+        let mut code = String::new();
+        generate_block(
+            &BlockKind::Incremental,
+            "InflateDecoder",
+            &clauses,
+            &mut code,
+        );
+        assert!(
+            code.contains("MISC.1") || code.contains("incremental InflateDecoder"),
+            "expected SMT marker, got: {code}"
+        );
+        assert!(
+            !code.contains("pub mod block_"),
+            "incremental must not emit a mod: {code}"
+        );
+        assert!(
+            !code.contains("debug_assert!(self"),
+            "must not emit free-fn self assert: {code}"
+        );
+        // Generated snippet must parse as valid Rust when embedded in a file.
+        let wrapped = format!("#![allow(dead_code)]\n{code}\n");
+        syn::parse_file(&wrapped).unwrap_or_else(|e| panic!("invalid Rust: {e}\n{wrapped}"));
     }
 
     #[test]
