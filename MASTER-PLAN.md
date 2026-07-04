@@ -57,6 +57,8 @@
 | assura-driver | 468 | 0 | Custom rustc driver (exploratory) |
 | **Total** | **165,218** | **4,924** | |
 
+Refresh counts with `bash scripts/count-crates.sh` (LOC + `#[test]` per crate).
+
 ## Remaining Work
 
 ### Public launch

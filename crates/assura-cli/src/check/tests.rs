@@ -1,6 +1,26 @@
 //! Unit tests for check / SMT Unknown classification.
 
 #[test]
+fn success_summary_distinguishes_vacuous_cases() {
+    use super::report::success_summary_message;
+
+    assert!(
+        success_summary_message(true, false, false, 0)
+            .contains("no contracts or functions to verify")
+    );
+    assert!(success_summary_message(false, true, false, 0).contains("no verifiable clauses"));
+    assert!(success_summary_message(false, true, true, 0).contains("no SMT proof obligations"));
+    assert_eq!(
+        success_summary_message(false, false, false, 0),
+        "check passed (no errors)"
+    );
+    assert_eq!(
+        success_summary_message(false, false, false, 2),
+        "check passed (2 warnings)"
+    );
+}
+
+#[test]
 fn unknown_classification_known_limitation_is_warning() {
     assert!(assura_smt::is_known_smt_limitation(
         "clause uses features not yet encoded in SMT (method call, deep field chain)"

@@ -240,24 +240,13 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                     && file.as_ref().is_some_and(|f| {
                         !assura_smt::display::collect_contract_names(f).is_empty()
                     });
-                if no_decls {
-                    eprintln!("{filename}: check passed (no contracts or functions to verify)");
-                } else if contracts_without_results {
-                    if has_clauses {
-                        eprintln!(
-                            "{filename}: check passed (no SMT proof obligations; add ensures or invariant)"
-                        );
-                    } else {
-                        eprintln!("{filename}: check passed (no verifiable clauses)");
-                    }
-                } else if warning_count > 0 {
-                    eprintln!(
-                        "{filename}: check passed ({warning_count} warning{})",
-                        if warning_count == 1 { "" } else { "s" }
-                    );
-                } else {
-                    eprintln!("{filename}: check passed (no errors)");
-                }
+                let summary = success_summary_message(
+                    no_decls,
+                    contracts_without_results,
+                    has_clauses,
+                    warning_count,
+                );
+                eprintln!("{filename}: {summary}");
             } else if warning_count > 0 {
                 eprintln!(
                     "{filename}: {error_count} error{}, {warning_count} warning{}",
@@ -290,6 +279,32 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
+
+/// Human summary after a successful check (no hard errors).
+/// Kept pure so unit tests lock the MPI vacuous-success wording.
+pub(crate) fn success_summary_message(
+    no_decls: bool,
+    contracts_without_results: bool,
+    has_clause_kinds: bool,
+    warning_count: usize,
+) -> String {
+    if no_decls {
+        "check passed (no contracts or functions to verify)".into()
+    } else if contracts_without_results {
+        if has_clause_kinds {
+            "check passed (no SMT proof obligations; add ensures or invariant)".into()
+        } else {
+            "check passed (no verifiable clauses)".into()
+        }
+    } else if warning_count > 0 {
+        format!(
+            "check passed ({warning_count} warning{})",
+            if warning_count == 1 { "" } else { "s" }
+        )
+    } else {
+        "check passed (no errors)".into()
+    }
+}
 
 /// Build a map from declaration name to source span.
 /// Used to give SMT diagnostics real source locations instead of 0..0.
