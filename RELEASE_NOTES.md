@@ -14,7 +14,19 @@ The `assura` binary package is **not** published to crates.io yet (it still depe
 cargo install --path crates/assura-cli
 ```
 
-Z3 is pulled in automatically for default builds (no manual solver install required for the usual path).
+**Solvers:**
+
+- **Z3 (default):** pulled in automatically for default builds via the `z3` crate `gh-release` feature. No manual Z3 install for the usual path.
+- **CVC5 (optional):** not vendored the same way. Portfolio / native CVC5 needs the optional `cvc5-verify` feature and local libs (or CI prebuilts). Typical local setup:
+
+```bash
+bash scripts/setup-cvc5.sh
+# export the printed CVC5_LIB_DIR and CVC5_INCLUDE_DIR
+cargo build -p assura-smt --features cvc5-verify
+# or: assura check … --solver cvc5  (when the CLI is built with CVC5 support)
+```
+
+Default CLI installers and default feature sets are Z3-first; CVC5 remains an opt-in path for contributors and advanced verification. See CONTRIBUTING.md and AGENTS.md for the CVC5 gate.
 
 ## Use as a library (crates.io)
 
@@ -30,7 +42,7 @@ Not published in this release: `assura` (CLI package), `assura-test-support`, an
 
 ## What you get
 
-- Full pipeline: parse → resolve → type-check (Layer 0 checkers) → optional SMT verify (Z3; CVC5 as an optional feature path) → Rust codegen
+- Full pipeline: parse → resolve → type-check (Layer 0 checkers) → optional SMT verify (**Z3 default**; **CVC5** via optional `cvc5-verify` / setup) → Rust codegen
 - CLI: `check`, `build`, `fmt`, `init`, and related developer commands (see README)
 - Demos under `demos/` modeling real CVE-style contract patterns
 - Dual license: MIT OR Apache-2.0
