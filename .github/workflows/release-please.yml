@@ -87,7 +87,7 @@ jobs:
         with:
           ref: ${{ steps.pr-branch.outputs.branch }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
       - name: Sync path-dep versions
         run: bash scripts/sync-path-dep-versions.sh
       - name: Sync Cargo.lock workspace package versions
