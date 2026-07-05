@@ -2,6 +2,44 @@
 
 ## Installation
 
+### Install the Assura CLI
+
+**Preferred:** download a prebuilt binary from
+[GitHub Releases](https://github.com/assura-lang/assura/releases)
+(cargo-dist installers; multi-platform).
+
+**From source** (requires a [Rust toolchain](https://rustup.rs/),
+edition 2024 / rustc 1.85+):
+
+```bash
+# From a clone:
+git clone https://github.com/assura-lang/assura.git
+cd assura
+cargo install --path crates/assura-cli
+
+# Or without cloning the full tree:
+cargo install --git https://github.com/assura-lang/assura assura
+```
+
+Do **not** run bare `cargo install assura`. That name is only a crates.io
+placeholder today and does not install this toolchain. Real co-publish of
+the CLI is tracked in
+[#838](https://github.com/assura-lang/assura/issues/838); the misleading
+registry entry is tracked in
+[#840](https://github.com/assura-lang/assura/issues/840).
+
+**More detail:** [README Quick Start](https://github.com/assura-lang/assura/blob/main/README.md#install-the-cli),
+[Tutorial installation](TUTORIAL.md#installation), and
+[CRATES-IO.md](CRATES-IO.md) (libraries vs CLI, and embedding
+`assura-pipeline` from crates.io).
+
+After install, confirm the binary:
+
+```bash
+assura --version
+assura doctor
+```
+
 ### Z3 is not found
 
 **Symptom:** `assura check` prints "Z3 is required for SMT verification"
