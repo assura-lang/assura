@@ -195,19 +195,13 @@ dedicated features.
 
 ## Get Started
 
-**Preferred:** download a prebuilt binary from
-[GitHub Releases](https://github.com/assura-lang/assura/releases)
-(cargo-dist installers; multi-platform). The `assura` CLI package name is
-reserved on crates.io as a placeholder only; **do not** `cargo install assura`
-for the real toolchain (see [docs/CRATES-IO.md](CRATES-IO.md)).
-
-**From source** (requires a [Rust toolchain](https://rustup.rs/)):
-
 ```bash
-git clone https://github.com/assura-lang/assura.git
-cd assura
-cargo install --path crates/assura-cli
+cargo install assura --locked
 ```
+
+Requires a [Rust toolchain](https://rustup.rs/) (1.85+). Prebuilt installers
+are also on [GitHub Releases](https://github.com/assura-lang/assura/releases).
+Details: [CRATES-IO.md](CRATES-IO.md).
 
 ```bash
 # Check contracts

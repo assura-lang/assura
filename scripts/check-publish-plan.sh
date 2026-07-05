@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Assert the crates.io publish plan matches the expected core library stack.
+# Assert the crates.io publish plan matches the co-publish stack (libraries +
+# frontends + CLI). See docs/CRATES-IO.md and issue #838.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -13,12 +14,12 @@ count="${BASH_REMATCH[1]}"
 # shellcheck disable=SC2206
 ORDER=(${BASH_REMATCH[2]})
 
-# Topo order uses ALL path deps (normal + build + dev). assura-macros has a
-# path dev-dependency on assura-runtime, so runtime must publish first.
+# Topo order uses ALL path deps (normal + build + dev).
 expected=(
-  assura-ast assura-config assura-diagnostics assura-runtime assura-parser
-  assura-macros assura-fmt assura-stdlib assura-resolve assura-types
-  assura-codegen assura-smt assura-pipeline
+  assura-ast assura-config assura-diagnostics assura-runtime
+  assura-rust-analyzer assura-parser assura-macros assura-llm assura-fmt
+  assura-stdlib assura-resolve assura-types assura-codegen assura-smt
+  assura-pipeline assura-lsp assura-mcp assura
 )
 
 if [[ "$count" -ne ${#expected[@]} ]] || [[ ${#ORDER[@]} -ne ${#expected[@]} ]]; then
@@ -34,7 +35,7 @@ for i in "${!expected[@]}"; do
   fi
 done
 
-for bad in assura assura-cli assura-test-support assura-lsp assura-mcp; do
+for bad in assura-cli assura-test-support assura-server assura-bench; do
   for c in "${ORDER[@]}"; do
     if [[ "$c" == "$bad" ]]; then
       echo "error: publish plan must not include $bad" >&2
@@ -43,4 +44,4 @@ for bad in assura assura-cli assura-test-support assura-lsp assura-mcp; do
   done
 done
 
-echo "publish plan ok (${#ORDER[@]} crates, ends with assura-pipeline)"
+echo "publish plan ok (${#ORDER[@]} crates, ends with assura CLI)"
