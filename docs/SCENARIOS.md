@@ -681,7 +681,7 @@ jobs:
       - name: Install Assura
         run: |
           if ! command -v assura &> /dev/null; then
-            cargo install --git https://github.com/assura-lang/assura.git assura
+            cargo install assura --locked
           fi
 
       - name: Format check
@@ -818,7 +818,7 @@ Run `assura audit` on PRs that modify Rust source (not just contracts):
         run: sudo apt-get install -y libz3-dev
 
       - name: Install Assura
-        run: cargo install --git https://github.com/assura-lang/assura.git assura-cli
+        run: cargo install assura --locked
 
       - name: Run audit
         run: |

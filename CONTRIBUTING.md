@@ -21,10 +21,25 @@ bash scripts/setup-cvc5.sh
 
 ## Getting Started
 
+**Try the released CLI** (optional, no clone required):
+
+```bash
+cargo install assura --locked
+assura doctor
+assura check demos/libwebp-huffman.assura   # needs a clone or your own .assura file
+```
+
+Prebuilt installers: [GitHub Releases](https://github.com/assura-lang/assura/releases).
+Co-publish details: [docs/CRATES-IO.md](docs/CRATES-IO.md).
+
+**Develop from a clone:**
+
 ```bash
 git clone https://github.com/assura-lang/assura.git
 cd assura
 cargo test --workspace
+# Local binary without publishing:
+cargo run --bin assura -- check demos/libwebp-huffman.assura
 ```
 
 If all tests pass, you are ready to contribute.
