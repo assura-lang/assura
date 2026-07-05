@@ -8,21 +8,19 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
-publish = false
-
 [[bin]]
 name = "assura-lsp"
 path = "src/main.rs"
 
 [dependencies]
-assura-parser = { path = "../assura-parser" }
-assura-resolve = { path = "../assura-resolve" }
-assura-types = { path = "../assura-types" }
-assura-fmt = { path = "../assura-fmt" }
-assura-pipeline = { path = "../assura-pipeline" }
-assura-config = { path = "../assura-config" }
-assura-diagnostics = { path = "../assura-diagnostics" }
-assura-rust-analyzer = { path = "../assura-rust-analyzer" }
+assura-parser = { version = "0.2.0", path = "../assura-parser" }
+assura-resolve = { version = "0.2.0", path = "../assura-resolve" }
+assura-types = { version = "0.2.0", path = "../assura-types" }
+assura-fmt = { version = "0.2.0", path = "../assura-fmt" }
+assura-pipeline = { version = "0.2.0", path = "../assura-pipeline" }
+assura-config = { version = "0.2.0", path = "../assura-config" }
+assura-diagnostics = { version = "0.2.0", path = "../assura-diagnostics" }
+assura-rust-analyzer = { version = "0.2.0", path = "../assura-rust-analyzer" }
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

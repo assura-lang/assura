@@ -72,32 +72,33 @@ Three verification tiers, fastest first:
 
 ### Install the CLI
 
-**Preferred:** download a prebuilt binary from
-[GitHub Releases](https://github.com/assura-lang/assura/releases) (cargo-dist
-installers; multi-platform). The `assura` CLI package is **not** published to
-crates.io yet (it depends on unpublished frontends). See
+**Preferred (crates.io):**
+
+```bash
+cargo install assura --locked
+```
+
+Requires a [Rust toolchain](https://rustup.rs/) (edition 2024 / rustc 1.85+).
+The first build downloads a Z3 prebuilt via the `z3` crate (`gh-release`); no
+manual Z3 install is needed for normal use. See
 [docs/CRATES-IO.md](docs/CRATES-IO.md).
 
-**From source** (requires a [Rust toolchain](https://rustup.rs/)):
+**Prebuilt binaries:** [GitHub Releases](https://github.com/assura-lang/assura/releases)
+(cargo-dist installers; multi-platform).
+
+**From a monorepo clone:**
 
 ```bash
 git clone https://github.com/assura-lang/assura.git
 cd assura
-cargo build
-
-# Install the CLI to your PATH
-cargo install --path crates/assura-cli
-
-# (Optional) Install the LSP server for editor support
-cargo install --path crates/assura-lsp
+cargo install --path crates/assura-cli --locked
+# Optional standalone LSP binary:
+cargo install --path crates/assura-lsp --locked
 ```
-
-The Z3 SMT solver is downloaded automatically during `cargo build` (via the
-`z3` crate's `gh-release` feature). No manual Z3 installation needed.
 
 **Embedding as a library:** the public compile/verify facade is
 [`assura-pipeline`](https://crates.io/crates/assura-pipeline) on crates.io
-(v0.2.0+, with the full 13-crate library graph):
+(v0.2.0+):
 
 ```toml
 [dependencies]
@@ -105,9 +106,7 @@ assura-pipeline = "0.2"
 ```
 
 Prefer crates.io for apps; use a git path dependency only when tracking
-unreleased `main`. The **CLI binary is not on crates.io** (install from
-[GitHub Releases](https://github.com/assura-lang/assura/releases) /
-cargo-dist). Release process: [docs/CRATES-IO.md](docs/CRATES-IO.md).
+unreleased `main`. Release process: [docs/CRATES-IO.md](docs/CRATES-IO.md).
 
 ### Usage
 

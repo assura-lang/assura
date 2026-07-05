@@ -22,6 +22,15 @@ fn assert_pipeline_ok(source: &str) {
     });
 }
 
+/// Load a monorepo fixture when present (workspace checkout). Returns `None`
+/// when packaging/crates.io verify has no demos/ tree next to the crate.
+fn load_monorepo_fixture(rel: &str) -> Option<String> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(rel);
+    std::fs::read_to_string(path).ok()
+}
+
 #[test]
 fn pipeline_contract() {
     assert_pipeline_ok(
@@ -71,31 +80,41 @@ contract UsePoint {
 
 #[test]
 fn pipeline_demo_libwebp() {
-    let source = assura_test_support::load_fixture("demos/libwebp-huffman.assura");
+    let Some(source) = load_monorepo_fixture("demos/libwebp-huffman.assura") else {
+        return;
+    };
     assert_pipeline_ok(&source);
 }
 
 #[test]
 fn pipeline_demo_zlib() {
-    let source = assura_test_support::load_fixture("demos/zlib-inflate.assura");
+    let Some(source) = load_monorepo_fixture("demos/zlib-inflate.assura") else {
+        return;
+    };
     assert_pipeline_ok(&source);
 }
 
 #[test]
 fn pipeline_demo_mbedtls() {
-    let source = assura_test_support::load_fixture("demos/mbedtls-x509.assura");
+    let Some(source) = load_monorepo_fixture("demos/mbedtls-x509.assura") else {
+        return;
+    };
     assert_pipeline_ok(&source);
 }
 
 #[test]
 fn pipeline_test_basic() {
-    let source = assura_test_support::load_fixture("tests/fixtures/test_basic.assura");
+    let Some(source) = load_monorepo_fixture("tests/fixtures/test_basic.assura") else {
+        return;
+    };
     assert_pipeline_ok(&source);
 }
 
 #[test]
 fn pipeline_advanced_patterns() {
-    let source = assura_test_support::load_fixture("tests/fixtures/advanced_patterns.assura");
+    let Some(source) = load_monorepo_fixture("tests/fixtures/advanced_patterns.assura") else {
+        return;
+    };
     assert_pipeline_ok(&source);
 }
 
@@ -486,9 +505,9 @@ contract CraneliftTest {
 // =======================================================================
 
 /// Helper: run the full pipeline on a demo file and return the generated project.
-fn roundtrip_demo(demo_name: &str) -> assura_codegen::GeneratedProject {
-    let source = assura_test_support::load_fixture(format!("demos/{demo_name}"));
-    full_pipeline(&source).unwrap_or_else(|e| panic!("{demo_name}: pipeline failed: {e}"))
+fn roundtrip_demo(demo_name: &str) -> Option<assura_codegen::GeneratedProject> {
+    let source = load_monorepo_fixture(&format!("demos/{demo_name}"))?;
+    Some(full_pipeline(&source).unwrap_or_else(|e| panic!("{demo_name}: pipeline failed: {e}")))
 }
 
 /// Helper: write a GeneratedProject to a temp dir and run cargo check on it.
@@ -522,7 +541,9 @@ fn cargo_check_project(project: &assura_codegen::GeneratedProject, label: &str) 
 
 #[test]
 fn roundtrip_libwebp_generates_valid_rust() {
-    let project = roundtrip_demo("libwebp-huffman.assura");
+    let Some(project) = roundtrip_demo("libwebp-huffman.assura") else {
+        return;
+    };
     // Verify syntactically valid
     for (path, content) in &project.files {
         syn::parse_file(content).unwrap_or_else(|e| {
@@ -535,7 +556,9 @@ fn roundtrip_libwebp_generates_valid_rust() {
 
 #[test]
 fn roundtrip_zlib_generates_valid_rust() {
-    let project = roundtrip_demo("zlib-inflate.assura");
+    let Some(project) = roundtrip_demo("zlib-inflate.assura") else {
+        return;
+    };
     for (path, content) in &project.files {
         syn::parse_file(content).unwrap_or_else(|e| {
             panic!("zlib {path}: invalid Rust: {e}");
@@ -546,7 +569,9 @@ fn roundtrip_zlib_generates_valid_rust() {
 
 #[test]
 fn roundtrip_mbedtls_generates_valid_rust() {
-    let project = roundtrip_demo("mbedtls-x509.assura");
+    let Some(project) = roundtrip_demo("mbedtls-x509.assura") else {
+        return;
+    };
     for (path, content) in &project.files {
         syn::parse_file(content).unwrap_or_else(|e| {
             panic!("mbedtls {path}: invalid Rust: {e}");
@@ -557,7 +582,9 @@ fn roundtrip_mbedtls_generates_valid_rust() {
 
 #[test]
 fn roundtrip_libwebp_has_debug_asserts() {
-    let project = roundtrip_demo("libwebp-huffman.assura");
+    let Some(project) = roundtrip_demo("libwebp-huffman.assura") else {
+        return;
+    };
     // Contracts with requires clauses should produce debug_assert! calls
     let all_source: String = project
         .files
@@ -575,7 +602,9 @@ fn roundtrip_libwebp_has_debug_asserts() {
 
 #[test]
 fn roundtrip_zlib_has_function_stubs() {
-    let project = roundtrip_demo("zlib-inflate.assura");
+    let Some(project) = roundtrip_demo("zlib-inflate.assura") else {
+        return;
+    };
     let all_source: String = project
         .files
         .iter()
@@ -592,7 +621,9 @@ fn roundtrip_zlib_has_function_stubs() {
 
 #[test]
 fn roundtrip_libwebp_function_signatures_present() {
-    let project = roundtrip_demo("libwebp-huffman.assura");
+    let Some(project) = roundtrip_demo("libwebp-huffman.assura") else {
+        return;
+    };
     let all_source: String = project
         .files
         .iter()
@@ -679,7 +710,9 @@ service Connection {
 
 #[test]
 fn roundtrip_project_has_valid_cargo_toml() {
-    let project = roundtrip_demo("libwebp-huffman.assura");
+    let Some(project) = roundtrip_demo("libwebp-huffman.assura") else {
+        return;
+    };
     // Verify Cargo.toml has essential sections
     assert!(
         project.cargo_toml.contains("[package]"),
