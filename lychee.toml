@@ -7,9 +7,10 @@ exclude = [
   "github\\.com/.*/releases/tag/.*v\\d",
   # Placeholder domains used in examples
   "example\\.com",
-  # Sites that block CI runner IPs
+  # Sites that block CI runner IPs or rate-limit (HTTP 429)
   "dl\\.acm\\.org",
   "reddit\\.com",
+  "news\\.ycombinator\\.com",
   # Badge services and sites that block/reset CI runner connections
   "scorecard\\.dev",
   "contributor-covenant\\.org",
