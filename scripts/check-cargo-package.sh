@@ -63,18 +63,27 @@ PY
 )
 
 if [[ "$LIST_ONLY" -eq 0 && "$FORCE_FULL" -eq 0 ]]; then
-  # Probe the first published leaf of the stack (always co-published).
-  probe="${ORDER[0]}"
-  code=$(
-    curl -sS -o /dev/null -w "%{http_code}" \
-      -A "assura-check-cargo-package/1.0 (https://github.com/assura-lang/assura)" \
-      "https://crates.io/api/v1/crates/${probe}/${WS_VER}" || echo "000"
-  )
-  if [[ "$code" != "200" ]]; then
-    echo "note: ${probe} ${WS_VER} not on crates.io yet (HTTP ${code})."
-    echo "note: co-publish version-bump PRs cannot full-package interdependent"
-    echo "note: crates (path+version deps resolve against the registry). Using"
-    echo "note: --list only; full package+verify after versions exist on crates.io."
+  # Full package requires every co-published member (and thus every path+version
+  # peer) to already exist on crates.io at WS_VER. If we only probe the first
+  # leaf (e.g. assura-ast) after expanding the set (CLI/frontends), mid-graph
+  # packages fail packaging with "no matching package named X".
+  missing=()
+  for crate in "${ORDER[@]}"; do
+    code=$(
+      curl -sS -o /dev/null -w "%{http_code}" \
+        -A "assura-check-cargo-package/1.0 (https://github.com/assura-lang/assura)" \
+        "https://crates.io/api/v1/crates/${crate}/${WS_VER}" || echo "000"
+    )
+    if [[ "$code" != "200" ]]; then
+      missing+=("${crate}")
+    fi
+  done
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "note: ${#missing[@]} co-publish member(s) at ${WS_VER} not on crates.io yet:"
+    printf 'note:   - %s\n' "${missing[@]}"
+    echo "note: co-publish cannot full-package interdependent crates (path+version"
+    echo "note: deps resolve against the registry). Using --list only; full"
+    echo "note: package+verify after all members exist on crates.io."
     LIST_ONLY=1
   fi
 fi

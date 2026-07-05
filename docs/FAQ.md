@@ -4,33 +4,27 @@
 
 ### Install the Assura CLI
 
-**Preferred:** download a prebuilt binary from
-[GitHub Releases](https://github.com/assura-lang/assura/releases)
-(cargo-dist installers; multi-platform).
-
-**From source** (requires a [Rust toolchain](https://rustup.rs/),
-edition 2024 / rustc 1.85+):
+**Preferred (crates.io):**
 
 ```bash
-# From a clone:
-git clone https://github.com/assura-lang/assura.git
-cd assura
-cargo install --path crates/assura-cli
-
-# Or without cloning the full tree:
-cargo install --git https://github.com/assura-lang/assura assura
+cargo install assura --locked
 ```
 
-Do **not** run bare `cargo install assura`. That name is only a crates.io
-placeholder today and does not install this toolchain. Real co-publish of
-the CLI is tracked in
-[#838](https://github.com/assura-lang/assura/issues/838); the misleading
-registry entry is tracked in
-[#840](https://github.com/assura-lang/assura/issues/840).
+Requires a [Rust toolchain](https://rustup.rs/) (edition 2024 / rustc 1.85+).
+Also available as prebuilt binaries from
+[GitHub Releases](https://github.com/assura-lang/assura/releases) (cargo-dist).
+
+**From a monorepo clone or git:**
+
+```bash
+cargo install --path crates/assura-cli --locked
+# or:
+cargo install --git https://github.com/assura-lang/assura assura --locked
+```
 
 **More detail:** [README Quick Start](https://github.com/assura-lang/assura/blob/main/README.md#install-the-cli),
 [Tutorial installation](TUTORIAL.md#installation), and
-[CRATES-IO.md](CRATES-IO.md) (libraries vs CLI, and embedding
+[CRATES-IO.md](CRATES-IO.md) (what co-publishes, and embedding
 `assura-pipeline` from crates.io).
 
 After install, confirm the binary:

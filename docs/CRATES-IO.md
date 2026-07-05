@@ -9,47 +9,39 @@ manually pushing `v*` tags.
 Merging it creates the tag, GitHub Release, cargo-dist artifacts, and
 crates.io publish for the version in that PR.
 
-## Current status (post-v0.2.0)
+## Current status (CLI co-publish, #838)
 
 | Channel | What | Notes |
 |---------|------|--------|
-| crates.io | **13 library crates** at the workspace version | Public embed surface: **`assura-pipeline`** |
-| GitHub Releases / cargo-dist | **`assura` CLI** installers | Package is `publish = false` with `[package.metadata.dist] dist = true` |
-| crates.io CLI | **Not published** | Do not `cargo install assura` (placeholder only); use release installers or `cargo install --path crates/assura-cli` from a clone |
+| crates.io libraries | Core graph ending at **`assura-pipeline`** | Embed API for apps |
+| crates.io frontends | **`assura-rust-analyzer`**, **`assura-llm`**, **`assura-lsp`**, **`assura-mcp`** | Shared by the CLI |
+| crates.io CLI | **`assura`** binary package | `cargo install assura --locked` |
+| GitHub Releases / cargo-dist | Same **`assura`** binary | Prebuilt multi-platform installers (`[package.metadata.dist] dist = true`) |
 
-v0.2.0 shipped 2026-07-04 (after v0.1.0). Open release-please PRs after a cut
-are **normal version bumps**, not a sign that the prior release failed. Merge
-them only when you intentionally want a new release.
-
-The temporary `release-as: 0.1.0` pin used for the first cut has been
-**removed**. Subsequent versions follow conventional commits
-(`feat:` / `fix:` / `chore:`) under `bump-minor-pre-major`.
+Versions share `[workspace.package] version`. After a release, co-publish
+uploads any package whose version is not yet on crates.io (idempotent skips
+for already-published members).
 
 ## What ships on crates.io
 
-Library crates in dependency order (computed by `scripts/publish-crates.sh`):
+Publish order is graph-derived by `scripts/publish-crates.sh` (all path deps
+including **dev**). Typical order:
 
 `assura-ast` → `assura-config` → `assura-diagnostics` → `assura-runtime` →
-`assura-parser` → `assura-macros` → `assura-fmt` → `assura-stdlib` →
-`assura-resolve` → `assura-types` → `assura-codegen` → `assura-smt` →
-**`assura-pipeline`** (preferred public embed API).
+`assura-rust-analyzer` → `assura-parser` → `assura-macros` → `assura-llm` →
+`assura-fmt` → `assura-stdlib` → `assura-resolve` → `assura-types` →
+`assura-codegen` → `assura-smt` → **`assura-pipeline`** → `assura-lsp` →
+`assura-mcp` → **`assura`** (CLI).
 
-Order is graph-derived (all path deps including **dev**). Example:
-`assura-macros` has a path dev-dependency on `assura-runtime`, so runtime
-publishes first.
-
-All of the above share `[workspace.package] version` in the root
-`Cargo.toml`. Path dependencies also pin `version = "…"` so packaging can
-resolve them from crates.io; `scripts/sync-path-dep-versions.sh` keeps
-those pins aligned on release PRs.
+Path dependencies pin `version = "…"` so packaging resolves from crates.io;
+`scripts/sync-path-dep-versions.sh` keeps pins aligned on release PRs.
 
 ## What does not ship on crates.io
 
 | Package | Reason |
 |---------|--------|
-| `assura` (CLI binary package) | `publish = false`; install via **GitHub Releases / cargo-dist** only. |
-| `assura-test-support` | Internal test helpers only (`publish = false`). |
-| `assura-lsp` / `mcp` / `llm` / `server` / … | Product frontends; not part of the library stack. |
+| `assura-test-support` | Internal monorepo test helpers only (`publish = false`). |
+| `assura-server` / `assura-bench` / editor tooling | Not co-published; use monorepo or separate install docs. |
 
 ## How the release pipeline works
 
@@ -205,10 +197,11 @@ gh release view vX.Y.Z
 gh release view vX.Y.Z --json assets --jq '.assets[].name'
 ```
 
-- [ ] All 13 library crates show the released version on crates.io.
+- [ ] Co-published crates (libraries + frontends + `assura` CLI) show the
+      released version on crates.io (`bash scripts/publish-crates.sh --plan-only`).
 - [ ] Release page has installers for configured targets.
-- [ ] Notes state experimental status and CLI install path (GitHub Release,
-      not `cargo install assura`).
+- [ ] Notes state experimental status and CLI install path
+      (`cargo install assura --locked` and/or GitHub Release installers).
 
 ## IR templates and packaging pitfalls
 
