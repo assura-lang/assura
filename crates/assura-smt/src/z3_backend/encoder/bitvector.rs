@@ -100,6 +100,14 @@ impl BitvectorEncoder {
         a.bvuge(b)
     }
 
+    pub(crate) fn bvsgt(a: &ast::BV, b: &ast::BV) -> ast::Bool {
+        a.bvsgt(b)
+    }
+
+    pub(crate) fn bvsge(a: &ast::BV, b: &ast::BV) -> ast::Bool {
+        a.bvsge(b)
+    }
+
     pub(crate) fn bvand(a: &ast::BV, b: &ast::BV) -> ast::BV {
         a.bvand(b)
     }
@@ -169,5 +177,61 @@ mod tests {
         use crate::z3_backend::encoder::Encoder;
         assert_eq!(Encoder::fixed_width_bits(&["U8".into()]), Some((8, false)));
         assert_eq!(Encoder::fixed_width_bits(&["I32".into()]), Some((32, true)));
+    }
+
+    #[test]
+    fn signed_i8_negative_is_less_than_zero() {
+        // I8 -1 must compare signed-less-than 0 (unsigned would treat 0xFF as 255).
+        let neg_one = BitvectorEncoder::bv_from_i64(-1, 8);
+        let zero = BitvectorEncoder::bv_from_u64(0, 8);
+        let signed_lt = BitvectorEncoder::bvslt(&neg_one, &zero);
+        let unsigned_lt = BitvectorEncoder::bvult(&neg_one, &zero);
+        let solver = z3::Solver::new();
+        // signed: -1 < 0 is true; unsigned: 255 < 0 is false.
+        solver.assert(signed_lt.not());
+        assert_eq!(
+            solver.check(),
+            z3::SatResult::Unsat,
+            "signed I8 -1 must be < 0"
+        );
+        let solver2 = z3::Solver::new();
+        solver2.assert(unsigned_lt);
+        assert_eq!(
+            solver2.check(),
+            z3::SatResult::Unsat,
+            "unsigned 0xFF is not < 0 (sanity)"
+        );
+    }
+
+    #[test]
+    fn encoder_signed_i8_register_uses_signed_compare_path() {
+        use crate::z3_backend::encoder::{Encoder, Z3Value};
+        use assura_ast::{BinOp, Expr, Spanned};
+
+        let mut enc = Encoder::new();
+        enc.register_fixed_width_param("x", 8, true); // I8
+        // Bind x to -1 as I8 (0xFF) and z to 0 as signed BV.
+        enc.vars.insert(
+            "x".into(),
+            Z3Value::Bv(BitvectorEncoder::bv_from_i64(-1, 8), true),
+        );
+        enc.vars.insert(
+            "z".into(),
+            Z3Value::Bv(BitvectorEncoder::bv_from_u64(0, 8), true),
+        );
+        let cmp = Spanned::no_span(Expr::BinOp {
+            op: BinOp::Lt,
+            lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            rhs: Box::new(Spanned::no_span(Expr::Ident("z".into()))),
+        });
+        let val = enc.encode_expr(&cmp);
+        let solver = z3::Solver::new();
+        // x=-1, z=0, signed: x < z must be true (negate to prove).
+        solver.assert(val.as_bool().not());
+        assert_eq!(
+            solver.check(),
+            z3::SatResult::Unsat,
+            "Encoder signed I8 path: -1 < 0 must hold; got model if sat"
+        );
     }
 }

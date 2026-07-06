@@ -51,7 +51,7 @@ impl Encoder {
     /// Register a parameter as a fixed-width bitvector variable (#265).
     pub(crate) fn register_fixed_width_param(&mut self, name: &str, width: u32, signed: bool) {
         let bv = BitvectorEncoder::bv_const(name, width);
-        self.vars.insert(name.to_string(), Z3Value::Bv(bv));
+        self.vars.insert(name.to_string(), Z3Value::Bv(bv, signed));
         self.bv_signed.insert(name.to_string(), signed);
     }
 
