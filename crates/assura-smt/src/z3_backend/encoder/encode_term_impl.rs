@@ -164,8 +164,8 @@ impl EncodeTerm for Encoder {
         Some(match op {
             BinOp::Add => {
                 // #851: modular wrap for fixed-width BV operands (not unbounded Int).
-                if let (Z3Value::Bv(l), Z3Value::Bv(r)) = (&lhs, &rhs) {
-                    Z3Value::Bv(super::BitvectorEncoder::bvadd(l, r))
+                if let (Z3Value::Bv(l, ls), Z3Value::Bv(r, rs)) = (&lhs, &rhs) {
+                    Z3Value::Bv(super::BitvectorEncoder::bvadd(l, r), *ls || *rs)
                 } else if Self::is_real(&lhs) || Self::is_real(&rhs) {
                     let l = lhs.as_real(&mut self.fresh_counter);
                     let r = rhs.as_real(&mut self.fresh_counter);
@@ -177,8 +177,8 @@ impl EncodeTerm for Encoder {
                 }
             }
             BinOp::Sub => {
-                if let (Z3Value::Bv(l), Z3Value::Bv(r)) = (&lhs, &rhs) {
-                    Z3Value::Bv(super::BitvectorEncoder::bvsub(l, r))
+                if let (Z3Value::Bv(l, ls), Z3Value::Bv(r, rs)) = (&lhs, &rhs) {
+                    Z3Value::Bv(super::BitvectorEncoder::bvsub(l, r), *ls || *rs)
                 } else if Self::is_real(&lhs) || Self::is_real(&rhs) {
                     let l = lhs.as_real(&mut self.fresh_counter);
                     let r = rhs.as_real(&mut self.fresh_counter);
@@ -190,8 +190,8 @@ impl EncodeTerm for Encoder {
                 }
             }
             BinOp::Mul => {
-                if let (Z3Value::Bv(l), Z3Value::Bv(r)) = (&lhs, &rhs) {
-                    Z3Value::Bv(super::BitvectorEncoder::bvmul(l, r))
+                if let (Z3Value::Bv(l, ls), Z3Value::Bv(r, rs)) = (&lhs, &rhs) {
+                    Z3Value::Bv(super::BitvectorEncoder::bvmul(l, r), *ls || *rs)
                 } else if Self::is_real(&lhs) || Self::is_real(&rhs) {
                     let l = lhs.as_real(&mut self.fresh_counter);
                     let r = rhs.as_real(&mut self.fresh_counter);
@@ -222,7 +222,7 @@ impl EncodeTerm for Encoder {
                 (Z3Value::Int(l), Z3Value::Int(r)) => Z3Value::Bool(l.eq(r)),
                 (Z3Value::Bool(l), Z3Value::Bool(r)) => Z3Value::Bool(l.eq(r)),
                 (Z3Value::Real(l), Z3Value::Real(r)) => Z3Value::Bool(l.eq(r)),
-                (Z3Value::Bv(l), Z3Value::Bv(r)) => Z3Value::Bool(l.eq(r)),
+                (Z3Value::Bv(l, _), Z3Value::Bv(r, _)) => Z3Value::Bool(l.eq(r)),
                 _ if Self::is_real(&lhs) || Self::is_real(&rhs) => {
                     let l = lhs.as_real(&mut self.fresh_counter);
                     let r = rhs.as_real(&mut self.fresh_counter);
@@ -240,9 +240,14 @@ impl EncodeTerm for Encoder {
                 }
             },
             BinOp::Lt => {
-                if let (Z3Value::Bv(l), Z3Value::Bv(r)) = (&lhs, &rhs) {
-                    // Default unsigned order for fixed-width (signed uses bvslt when known).
-                    Z3Value::Bool(super::BitvectorEncoder::bvult(l, r))
+                if let (Z3Value::Bv(l, ls), Z3Value::Bv(r, rs)) = (&lhs, &rhs) {
+                    // Signed types (I8/I32/…) use signed order; U* use unsigned (#MPI).
+                    let cmp = if *ls || *rs {
+                        super::BitvectorEncoder::bvslt(l, r)
+                    } else {
+                        super::BitvectorEncoder::bvult(l, r)
+                    };
+                    Z3Value::Bool(cmp)
                 } else if Self::is_real(&lhs) || Self::is_real(&rhs) {
                     let l = lhs.as_real(&mut self.fresh_counter);
                     let r = rhs.as_real(&mut self.fresh_counter);
@@ -254,8 +259,13 @@ impl EncodeTerm for Encoder {
                 }
             }
             BinOp::Lte => {
-                if let (Z3Value::Bv(l), Z3Value::Bv(r)) = (&lhs, &rhs) {
-                    Z3Value::Bool(super::BitvectorEncoder::bvule(l, r))
+                if let (Z3Value::Bv(l, ls), Z3Value::Bv(r, rs)) = (&lhs, &rhs) {
+                    let cmp = if *ls || *rs {
+                        super::BitvectorEncoder::bvsle(l, r)
+                    } else {
+                        super::BitvectorEncoder::bvule(l, r)
+                    };
+                    Z3Value::Bool(cmp)
                 } else if Self::is_real(&lhs) || Self::is_real(&rhs) {
                     let l = lhs.as_real(&mut self.fresh_counter);
                     let r = rhs.as_real(&mut self.fresh_counter);
@@ -267,8 +277,13 @@ impl EncodeTerm for Encoder {
                 }
             }
             BinOp::Gt => {
-                if let (Z3Value::Bv(l), Z3Value::Bv(r)) = (&lhs, &rhs) {
-                    Z3Value::Bool(super::BitvectorEncoder::bvugt(l, r))
+                if let (Z3Value::Bv(l, ls), Z3Value::Bv(r, rs)) = (&lhs, &rhs) {
+                    let cmp = if *ls || *rs {
+                        super::BitvectorEncoder::bvsgt(l, r)
+                    } else {
+                        super::BitvectorEncoder::bvugt(l, r)
+                    };
+                    Z3Value::Bool(cmp)
                 } else if Self::is_real(&lhs) || Self::is_real(&rhs) {
                     let l = lhs.as_real(&mut self.fresh_counter);
                     let r = rhs.as_real(&mut self.fresh_counter);
@@ -280,8 +295,13 @@ impl EncodeTerm for Encoder {
                 }
             }
             BinOp::Gte => {
-                if let (Z3Value::Bv(l), Z3Value::Bv(r)) = (&lhs, &rhs) {
-                    Z3Value::Bool(super::BitvectorEncoder::bvuge(l, r))
+                if let (Z3Value::Bv(l, ls), Z3Value::Bv(r, rs)) = (&lhs, &rhs) {
+                    let cmp = if *ls || *rs {
+                        super::BitvectorEncoder::bvsge(l, r)
+                    } else {
+                        super::BitvectorEncoder::bvuge(l, r)
+                    };
+                    Z3Value::Bool(cmp)
                 } else if Self::is_real(&lhs) || Self::is_real(&rhs) {
                     let l = lhs.as_real(&mut self.fresh_counter);
                     let r = rhs.as_real(&mut self.fresh_counter);

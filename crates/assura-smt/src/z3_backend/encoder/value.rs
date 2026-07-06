@@ -11,7 +11,10 @@ pub(crate) enum Z3Value {
     /// Native Z3 string value (only used when `use_string_theory` is enabled).
     Str(ast::String),
     /// Fixed-width bitvector (#265).
-    Bv(ast::BV),
+    ///
+    /// Second field is signedness: signed types (`I8`/`I32`/…) use signed
+    /// order for comparisons; unsigned (`U8`/…) use unsigned order.
+    Bv(ast::BV, bool),
 }
 
 impl Z3Value {
@@ -23,7 +26,7 @@ impl Z3Value {
             Z3Value::Real(r) => r.eq(ast::Real::from_rational(0, 1)).not(),
             // Str: non-empty string is truthy
             Z3Value::Str(s) => s.length().eq(ast::Int::from_i64(0)).not(),
-            Z3Value::Bv(b) => b.eq(ast::BV::from_u64(0, b.get_size())).not(),
+            Z3Value::Bv(b, _) => b.eq(ast::BV::from_u64(0, b.get_size())).not(),
         }
     }
 
@@ -43,17 +46,24 @@ impl Z3Value {
             Z3Value::Str(s) => s.length(),
             // BV: sound unsigned int interpretation (not a free UF).
             // Free `__bv_as_int_*` UFs were unsound: equal BVs could coerce to different ints.
-            Z3Value::Bv(b) => b.to_int(false),
+            Z3Value::Bv(b, signed) => b.to_int(*signed),
         }
     }
 
-    #[allow(
-        dead_code,
-        reason = "BV not yet routed through EncodeTerm::apply_binop (#602)"
+    /// Coerce to a bitvector of the given width (unsigned interpretation).
+    ///
+    /// Used by unit tests and for mixed Int/BV paths that need a common BV sort.
+    /// Production binops match `Z3Value::Bv` pairs directly and do not call this.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "mixed-sort BV coerce helper; production uses Bv pairs"
+        )
     )]
     pub(crate) fn as_bv(&self, width: u32) -> ast::BV {
         match self {
-            Z3Value::Bv(b) => b.clone(),
+            Z3Value::Bv(b, _) => b.clone(),
             Z3Value::Int(i) => ast::BV::from_int(i, width),
             Z3Value::Bool(b) => {
                 let one = ast::BV::from_u64(1, width);
@@ -81,7 +91,7 @@ impl Z3Value {
             // Str: coerce via length
             Z3Value::Str(s) => ast::Real::from_int(&s.length()),
             // BV: sound unsigned int interpretation, then to Real (fixes #514).
-            Z3Value::Bv(b) => ast::Real::from_int(&b.to_int(false)),
+            Z3Value::Bv(b, signed) => ast::Real::from_int(&b.to_int(*signed)),
         }
     }
 }
@@ -163,7 +173,7 @@ mod tests {
     #[test]
     fn as_bool_from_bv() {
         z3::with_z3_config(&z3::Config::new(), || {
-            let v = Z3Value::Bv(ast::BV::from_u64(0, 8));
+            let v = Z3Value::Bv(ast::BV::from_u64(0, 8), false);
             let _ = v.as_bool(); // bv == 0 then NOT => false
         });
     }
@@ -171,7 +181,7 @@ mod tests {
     #[test]
     fn as_int_from_bv() {
         z3::with_z3_config(&z3::Config::new(), || {
-            let v = Z3Value::Bv(ast::BV::from_u64(255, 8));
+            let v = Z3Value::Bv(ast::BV::from_u64(255, 8), false);
             let mut counter = 0u32;
             let _ = v.as_int(&mut counter); // bv2int(255, unsigned)
         });
@@ -200,7 +210,7 @@ mod tests {
     #[test]
     fn as_real_from_bv() {
         z3::with_z3_config(&z3::Config::new(), || {
-            let v = Z3Value::Bv(ast::BV::from_u64(42, 8));
+            let v = Z3Value::Bv(ast::BV::from_u64(42, 8), false);
             let mut counter = 0u32;
             let _ = v.as_real(&mut counter); // should use bv2int, not UF
         });
