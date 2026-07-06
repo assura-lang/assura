@@ -57,6 +57,41 @@ pub(crate) fn check_exhaustiveness(
 // Match exhaustiveness source walking (T017)
 // ===========================================================================
 
+/// Map enum type name → variant names.
+type EnumVariantMap = std::collections::HashMap<String, Vec<String>>;
+/// Map parameter / binding name → enum type name (from `input(c: Color)` etc.).
+type ParamTypeMap = std::collections::HashMap<String, String>;
+
+/// Resolve the enum type name for a match scrutinee ident.
+///
+/// Prefer a parameter's declared type (`input(c: Color)` → `Color`), then fall
+/// back to treating the ident itself as an enum type name (`match Status { … }`).
+fn enum_type_for_scrutinee_ident(
+    name: &str,
+    enum_variants: &EnumVariantMap,
+    param_types: &ParamTypeMap,
+) -> Option<String> {
+    if let Some(ty) = param_types.get(name)
+        && enum_variants.contains_key(ty)
+    {
+        return Some(ty.clone());
+    }
+    if enum_variants.contains_key(name) {
+        return Some(name.to_string());
+    }
+    None
+}
+
+fn simple_type_name(ty: &assura_parser::ast::TypeExpr) -> Option<String> {
+    use assura_parser::ast::TypeExpr;
+    match ty {
+        TypeExpr::Named(n) => Some(n.clone()),
+        TypeExpr::Generic(name, _) => Some(name.clone()),
+        TypeExpr::Refined { base, .. } => simple_type_name(base),
+        TypeExpr::Tuple(_) | TypeExpr::Fn { .. } | TypeExpr::Unit => None,
+    }
+}
+
 /// Walk all expressions in the source file and check match expressions
 /// for exhaustiveness against known enum types.
 pub(crate) fn run_match_exhaustiveness_source(
@@ -64,8 +99,7 @@ pub(crate) fn run_match_exhaustiveness_source(
     symbols: &assura_resolve::SymbolTable,
 ) -> Vec<TypeError> {
     let mut errors = Vec::new();
-    let mut enum_variants: std::collections::HashMap<String, Vec<String>> =
-        std::collections::HashMap::new();
+    let mut enum_variants: EnumVariantMap = std::collections::HashMap::new();
     for decl in &source.decls {
         if let Decl::EnumDef(e) = &decl.node {
             enum_variants.insert(
@@ -78,11 +112,63 @@ pub(crate) fn run_match_exhaustiveness_source(
         let Some(clauses) = clauses_contract_fn_extern(&decl.node) else {
             continue;
         };
+        // Build param-name → type-name from input clauses and fn_params / params.
+        let mut param_types: ParamTypeMap = std::collections::HashMap::new();
+        match &decl.node {
+            Decl::Contract(c) => {
+                for p in &c.fn_params {
+                    if let Some(te) = p.ty.as_ref()
+                        && let Some(tn) = simple_type_name(te)
+                    {
+                        param_types.insert(p.name.clone(), tn);
+                    }
+                }
+            }
+            Decl::FnDef(f) => {
+                for p in &f.params {
+                    if let Some(te) = p.ty.as_ref()
+                        && let Some(tn) = simple_type_name(te)
+                    {
+                        param_types.insert(p.name.clone(), tn);
+                    }
+                }
+            }
+            Decl::Extern(e) => {
+                for p in &e.params {
+                    if let Some(te) = p.ty.as_ref()
+                        && let Some(tn) = simple_type_name(te)
+                    {
+                        param_types.insert(p.name.clone(), tn);
+                    }
+                }
+            }
+            _ => {}
+        }
+        for clause in clauses {
+            if matches!(
+                &clause.kind,
+                assura_parser::ast::ClauseKind::Input | assura_parser::ast::ClauseKind::Other(_)
+            ) {
+                // Prefer structured Input; also accept other that is input-like via extract.
+                if matches!(&clause.kind, assura_parser::ast::ClauseKind::Input)
+                    || matches!(&clause.kind, assura_parser::ast::ClauseKind::Other(k) if k == "input")
+                {
+                    for p in assura_parser::ast::extract_clause_params(&clause.body) {
+                        if let Some(te) = p.ty.as_ref()
+                            && let Some(tn) = simple_type_name(te)
+                        {
+                            param_types.insert(p.name.clone(), tn);
+                        }
+                    }
+                }
+            }
+        }
         for clause in clauses {
             check_match_exhaustiveness_expr(
                 &clause.body,
                 &decl.span,
                 &enum_variants,
+                &param_types,
                 symbols,
                 &mut errors,
             );
@@ -94,13 +180,15 @@ pub(crate) fn run_match_exhaustiveness_source(
 fn check_match_exhaustiveness_expr(
     expr: &SpExpr,
     span: &std::ops::Range<usize>,
-    enum_variants: &std::collections::HashMap<String, Vec<String>>,
+    enum_variants: &EnumVariantMap,
+    param_types: &ParamTypeMap,
     _symbols: &assura_resolve::SymbolTable,
     errors: &mut Vec<TypeError>,
 ) {
     struct MatchExhaustivenessVisitor<'a> {
         span: &'a std::ops::Range<usize>,
-        enum_variants: &'a std::collections::HashMap<String, Vec<String>>,
+        enum_variants: &'a EnumVariantMap,
+        param_types: &'a ParamTypeMap,
         errors: &'a mut Vec<TypeError>,
     }
 
@@ -110,43 +198,44 @@ fn check_match_exhaustiveness_expr(
             for arm in arms {
                 self.visit_expr(&arm.body);
             }
-            if let Expr::Ident(name) = &scrutinee.node
-                && let Some(variants) = self.enum_variants.get(name)
-            {
-                let patterns: Vec<Pattern> = arms
-                    .iter()
-                    .map(|arm| match &arm.pattern {
-                        assura_parser::ast::Pattern::Ident(n) => Pattern::Variant(n.clone()),
-                        assura_parser::ast::Pattern::Wildcard => Pattern::Wildcard,
-                        assura_parser::ast::Pattern::Literal(lit) => Pattern::Literal(lit.clone()),
-                        assura_parser::ast::Pattern::Constructor { name, .. } => {
-                            Pattern::Variant(name.clone())
-                        }
-                        assura_parser::ast::Pattern::Tuple(_) => Pattern::Wildcard,
-                    })
-                    .collect();
+            let patterns: Vec<Pattern> = arms
+                .iter()
+                .map(|arm| match &arm.pattern {
+                    assura_parser::ast::Pattern::Ident(n) => Pattern::Variant(n.clone()),
+                    assura_parser::ast::Pattern::Wildcard => Pattern::Wildcard,
+                    assura_parser::ast::Pattern::Literal(lit) => Pattern::Literal(lit.clone()),
+                    assura_parser::ast::Pattern::Constructor { name, .. } => {
+                        Pattern::Variant(name.clone())
+                    }
+                    assura_parser::ast::Pattern::Tuple(_) => Pattern::Wildcard,
+                })
+                .collect();
 
-                if let Some(missing) = check_exhaustiveness(&patterns, variants) {
-                    self.errors.push(TypeError {
-                        code: "A10001".into(),
-                        message: format!(
-                            "non-exhaustive match: missing variants {}",
-                            missing.join(", ")
-                        ),
-                        span: self.span.clone(),
-                        secondary: None,
-                        suggestion: None,
-                    });
-                }
+            let enum_ty = if let Expr::Ident(name) = &scrutinee.node {
+                enum_type_for_scrutinee_ident(name, self.enum_variants, self.param_types)
+            } else {
+                None
+            };
+
+            if let Some(ref ty_name) = enum_ty
+                && let Some(variants) = self.enum_variants.get(ty_name)
+                && let Some(missing) = check_exhaustiveness(&patterns, variants)
+            {
+                self.errors.push(TypeError {
+                    code: "A10001".into(),
+                    message: format!(
+                        "non-exhaustive match: missing variants {}",
+                        missing.join(", ")
+                    ),
+                    span: self.span.clone(),
+                    secondary: None,
+                    suggestion: None,
+                });
             }
             let has_wildcard = arms
                 .iter()
                 .any(|arm| matches!(arm.pattern, assura_parser::ast::Pattern::Wildcard));
-            let has_enum_coverage = if let Expr::Ident(name) = &scrutinee.node {
-                self.enum_variants.contains_key(name)
-            } else {
-                false
-            };
+            let has_enum_coverage = enum_ty.is_some();
             if !has_wildcard && !has_enum_coverage && !arms.is_empty() {
                 self.errors.push(TypeError {
                     code: "A10002".into(),
@@ -164,6 +253,7 @@ fn check_match_exhaustiveness_expr(
     let mut visitor = MatchExhaustivenessVisitor {
         span,
         enum_variants,
+        param_types,
         errors,
     };
     visitor.visit_expr(expr);

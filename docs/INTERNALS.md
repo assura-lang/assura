@@ -312,6 +312,15 @@ Orchestrates multi-file compilation. Discovers `.assura` files,
 resolves cross-module imports, and runs the pipeline on each file
 in dependency order.
 
+**`verify_ir` / multi-contract selection (#853):**
+`assura_pipeline::verify_ir(source, ir, config)` validates IR against the
+**first** `Decl::Contract` in the source (historical default). For files
+with multiple contracts, use
+`verify_ir_for_contract(source, ir, config, Some("ContractName"))` so
+structural validation and IR extras target that contract; SMT results are
+filtered to its clauses. Auto-implement historically worked around this by
+building single-contract source via `build_single_contract_source()`.
+
 ### assura-macros
 
 Procedural macros for Rust interop:

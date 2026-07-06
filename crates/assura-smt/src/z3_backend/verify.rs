@@ -137,6 +137,8 @@ fn verify_clauses_with_types(
             base_encoder.register_fixed_width_param(&param.name, width, signed);
         }
     }
+    // #851: result / __result must share fixed-width sort with output type.
+    base_encoder.register_fixed_width_return(types.return_ty);
 
     // Bind named constants so Z3 uses concrete values, not free vars.
     for (name, value) in types.constants {
@@ -271,6 +273,7 @@ fn verify_clauses_with_types(
                 clause_encoder.register_fixed_width_param(&param.name, width, signed);
             }
         }
+        clause_encoder.register_fixed_width_return(types.return_ty);
         for (name, value) in types.constants {
             let concrete = ast::Int::from_i64(*value);
             clause_encoder

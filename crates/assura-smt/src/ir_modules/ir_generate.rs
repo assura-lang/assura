@@ -219,16 +219,11 @@ fn plan_if_branch_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan>
 
 /// Plans IR for `ensures { result == match x { p1 => e1, p2 => e2 } }`.
 ///
-/// `ensures { result == match x { pat => e, ... } }` → one block per arm.
-///
-/// # Limitation (#307)
-///
-/// Pattern guards and scrutinee matching semantics are ignored. The first
-/// two match arms are mapped to `if $scrut then #1 else #2` without
-/// comparing the scrutinee against pattern literals. For example,
-/// `match x { 0 => 0, _ => x }` treats any non-zero `x` as the wildcard
-/// arm, but does not verify that `x == 0` selects the first arm.
+/// Emits a real IR `match` instruction with arm patterns (int / bool / string /
+/// wildcard) so discrimination is not a pure boolean `if $scrut` (#854 / #307).
 fn plan_match_arm_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    use assura_ast::Pattern;
+
     let (lhs, rhs) = equality_operands(expr)?;
     let match_expr = if is_result_ident(lhs) {
         rhs
@@ -244,20 +239,61 @@ fn plan_match_arm_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan>
         return None;
     }
     let scrut_slot = expr_to_param_slot(scrutinee, &ctx.name_to_slot)?;
-    let then_body = plan_branch_result(&arms[0].body, ctx)?;
-    let else_body = plan_branch_result(&arms[1].body, ctx)?;
+
+    let mut arm_texts = Vec::with_capacity(arms.len());
+    let mut siblings = Vec::with_capacity(arms.len());
+    for (i, arm) in arms.iter().enumerate() {
+        let block_id = i + 1;
+        let pat_text = ir_match_pattern_text(&arm.pattern)?;
+        let body = plan_branch_result(&arm.body, ctx)?;
+        arm_texts.push(format!("{pat_text} => #{block_id}"));
+        siblings.push((block_id, body));
+    }
+
+    // Ensure a wildcard arm exists so the IR match is total; if none, add `_ => #last`.
+    let has_wildcard = arms.iter().any(|a| match &a.pattern {
+        Pattern::Wildcard => true,
+        Pattern::Ident(n) if n == "_" => true,
+        _ => false,
+    });
+    if !has_wildcard {
+        // Fall back: last arm already planned; no extra sibling (IR may still be partial).
+        // Prefer explicit wildcard when the last arm is not one, by reusing last body.
+        if let Some((_, last_body)) = siblings.last().cloned() {
+            let wid = siblings.len() + 1;
+            arm_texts.push(format!("_ => #{wid}"));
+            siblings.push((wid, last_body));
+        }
+    }
+
+    let arms_joined = arm_texts.join(", ");
     Some(IrGenPlan {
         main: IrGenBody {
             lines: vec![
                 format!(
-                    "    $1 = if ${scrut_slot} then #1 else #2 : {}",
+                    "    $1 = match ${scrut_slot} {{ {arms_joined} }} : {}",
                     ctx.return_ty
                 ),
                 format!("    $result = load $1 : {}", ctx.return_ty),
             ],
         },
-        siblings: vec![(1, then_body), (2, else_body)],
+        siblings,
     })
+}
+
+/// Format an AST pattern for IR `match $N { … }` arms.
+fn ir_match_pattern_text(pat: &assura_ast::Pattern) -> Option<String> {
+    use assura_ast::Pattern;
+    match pat {
+        Pattern::Wildcard => Some("_".into()),
+        Pattern::Ident(n) if n == "_" => Some("_".into()),
+        Pattern::Ident(n) => Some(format!("\"{n}\"")),
+        Pattern::Constructor { name, .. } => Some(format!("\"{name}\"")),
+        Pattern::Literal(Literal::Int(s)) => Some(s.clone()),
+        Pattern::Literal(Literal::Bool(b)) => Some(if *b { "true".into() } else { "false".into() }),
+        Pattern::Literal(Literal::Str(s)) => Some(format!("\"{s}\"")),
+        Pattern::Literal(_) | Pattern::Tuple(_) => None,
+    }
 }
 
 /// Plans IR for `ensures { result == f(x) }` call chains.
@@ -757,9 +793,72 @@ mod tests {
             "Int",
             &clauses,
         );
-        assert!(text.contains("if $0 then #1 else #2"));
+        // #854: must emit IR match with patterns, not boolean if on scrutinee alone.
+        assert!(
+            text.contains("match $0"),
+            "expected IR match instruction, got:\n{text}"
+        );
+        assert!(
+            text.contains("0 => #1") || text.contains("0 =>#1"),
+            "expected pattern arm for literal 0, got:\n{text}"
+        );
+        assert!(
+            text.contains("_ => #2") || text.contains("_ =>#2"),
+            "expected wildcard arm, got:\n{text}"
+        );
+        assert!(
+            !text.contains("if $0 then #1 else #2"),
+            "must not use pattern-blind boolean if, got:\n{text}"
+        );
         assert!(text.contains("fn #1"));
         assert!(text.contains("fn #2"));
+    }
+
+    #[test]
+    fn test_ir_generate_match_constructor_patterns() {
+        use assura_ast::{MatchArm, Pattern};
+
+        // match status { "Ok" => 1, "Err" => 0 } style via Ident patterns
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Match {
+                    scrutinee: spb(Expr::Ident("status".into())),
+                    arms: vec![
+                        MatchArm {
+                            pattern: Pattern::Ident("Ok".into()),
+                            body: sp(Expr::Literal(Literal::Int("1".into()))),
+                        },
+                        MatchArm {
+                            pattern: Pattern::Ident("Err".into()),
+                            body: sp(Expr::Literal(Literal::Int("0".into()))),
+                        },
+                    ],
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "StatusMatch",
+            &[int_param("status", 0)],
+            &["status".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(
+            text.contains("match $0"),
+            "constructor-style match should use IR match:\n{text}"
+        );
+        assert!(
+            text.contains("\"Ok\"") && text.contains("\"Err\""),
+            "arms should record pattern discriminators:\n{text}"
+        );
+        assert!(
+            !text.contains("if $0 then"),
+            "must not ignore patterns via boolean if:\n{text}"
+        );
     }
 
     #[test]

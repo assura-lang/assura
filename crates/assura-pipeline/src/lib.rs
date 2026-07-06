@@ -517,16 +517,35 @@ impl IrVerifyResult {
 
 /// Verify IR implementation text against an Assura contract source.
 ///
+/// Defaults to the **first** `Decl::Contract` for structural validation and
+/// IR mapping (historical behavior). For multi-contract sources, use
+/// [`verify_ir_for_contract`] with an explicit name (#853).
+///
 /// This is the core of the AI verification loop (task 12.01). It:
 /// 1. Compiles the contract (parse + resolve + typecheck)
 /// 2. Parses the IR text
-/// 3. Validates IR structure against the contract
+/// 3. Validates IR structure against the selected contract
 /// 4. Runs SMT verification with the IR body constraints
 /// 5. Returns per-clause results with progress tracking
 pub fn verify_ir(
     contract_source: &str,
     ir_source: &str,
     config: &CompilerConfig,
+) -> IrVerifyResult {
+    verify_ir_for_contract(contract_source, ir_source, config, None)
+}
+
+/// Like [`verify_ir`], but validate and attribute IR to a named contract.
+///
+/// When `contract_name` is `None`, the first `Decl::Contract` is used (same as
+/// [`verify_ir`]). When `Some(name)`, structural validation and IR extras use
+/// that contract, and SMT results are filtered to its clauses so sibling
+/// contracts in the same file do not dominate the status (#853).
+pub fn verify_ir_for_contract(
+    contract_source: &str,
+    ir_source: &str,
+    config: &CompilerConfig,
+    contract_name: Option<&str>,
 ) -> IrVerifyResult {
     // 1. Compile contract through the pipeline
     let output = compile(contract_source, "<contract>", config);
@@ -550,16 +569,35 @@ pub fn verify_ir(
         Err(errors) => return IrVerifyResult::ir_parse_error(errors),
     };
 
-    // 3. Structural validation: find the first contract decl and validate
-    let contract_decl = typed
+    // 3. Structural validation against the selected contract (#853)
+    let contracts: Vec<&assura_parser::ast::ContractDecl> = typed
         .resolved
         .source
         .decls
         .iter()
-        .find_map(|d| match &d.node {
+        .filter_map(|d| match &d.node {
             Decl::Contract(c) => Some(c),
             _ => None,
-        });
+        })
+        .collect();
+
+    let contract_decl = if let Some(want) = contract_name {
+        match contracts.iter().find(|c| c.name == want) {
+            Some(c) => Some(*c),
+            None => {
+                return IrVerifyResult::validation_error(vec![format!(
+                    "no contract named `{want}` in source (found: {})",
+                    contracts
+                        .iter()
+                        .map(|c| c.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )]);
+            }
+        }
+    } else {
+        contracts.first().copied()
+    };
 
     if let Some(contract) = contract_decl {
         let validation = assura_smt::validate_ir_against_contract(&ir_module, contract);
@@ -568,11 +606,11 @@ pub fn verify_ir(
         }
     }
 
-    // 4. Build VerifyFileExtras from in-memory IR (mapped to the contract name)
-    let contract_name = contract_decl
+    // 4. Build VerifyFileExtras from in-memory IR (mapped to the selected contract)
+    let selected_name = contract_decl
         .map(|c| c.name.as_str())
         .unwrap_or(&ir_module.name);
-    let loaded = match assura_smt::LoadedVerifyExtras::from_ir_text(ir_source, contract_name) {
+    let loaded = match assura_smt::LoadedVerifyExtras::from_ir_text(ir_source, selected_name) {
         Ok(l) => l,
         Err(errors) => return IrVerifyResult::ir_parse_error(errors),
     };
@@ -601,6 +639,21 @@ pub fn verify_ir(
         .with_extras(&loaded)
         .apply_options(config.verify.clone())
         .verify();
+
+    // When a contract was named, only report that contract's clauses so sibling
+    // contracts without this IR do not flip the overall status (#853).
+    let results = if contract_name.is_some() {
+        let prefix = format!("{selected_name}::");
+        results
+            .into_iter()
+            .filter(|r| {
+                let desc = r.clause_desc();
+                desc.starts_with(&prefix) || desc == selected_name
+            })
+            .collect()
+    } else {
+        results
+    };
 
     IrVerifyResult::from_results(results)
 }

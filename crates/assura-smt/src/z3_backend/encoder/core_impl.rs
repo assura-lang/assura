@@ -55,6 +55,18 @@ impl Encoder {
         self.bv_signed.insert(name.to_string(), signed);
     }
 
+    /// Register `result` / `__result` when the contract return type is fixed-width (#851).
+    pub(crate) fn register_fixed_width_return(&mut self, return_ty: &[String]) {
+        if let Some((width, signed)) = Self::fixed_width_bits(return_ty) {
+            self.register_fixed_width_param("result", width, signed);
+            self.register_fixed_width_param(
+                crate::encode_atom_policy::RESULT_VAR_NAME,
+                width,
+                signed,
+            );
+        }
+    }
+
     /// Touch bitvector infrastructure (ensures helpers are linked in verify path).
     pub(crate) fn init_bitvector_infrastructure(&mut self) {
         BITVECTOR_API_WIRED.call_once(|| {

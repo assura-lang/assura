@@ -68,22 +68,24 @@ pub(crate) fn is_nat_type_tokens(ty: &[String]) -> bool {
     ty.len() == 1 && ty[0] == "Nat"
 }
 
-/// Return bit width and signedness for fixed-width type tokens (`u8`, `i32`, etc.).
+/// Return bit width and signedness for fixed-width type tokens.
 ///
-/// Shared between Z3 and CVC5 backends (parity: #453).
+/// Accepts language names (`U8`, `I32`, …) and lowercase aliases (`u8`, `i32`).
+/// Shared between Z3 and CVC5 backends (parity: #453, #851).
 pub(crate) fn fixed_width_bits(ty: &[String]) -> Option<(u32, bool)> {
     if ty.len() != 1 {
         return None;
     }
+    // Case-insensitive: surface language uses U8/I32; some paths use u8/i32.
     match ty[0].as_str() {
-        "u8" => Some((8, false)),
-        "u16" => Some((16, false)),
-        "u32" => Some((32, false)),
-        "u64" => Some((64, false)),
-        "i8" => Some((8, true)),
-        "i16" => Some((16, true)),
-        "i32" => Some((32, true)),
-        "i64" => Some((64, true)),
+        "u8" | "U8" => Some((8, false)),
+        "u16" | "U16" => Some((16, false)),
+        "u32" | "U32" => Some((32, false)),
+        "u64" | "U64" => Some((64, false)),
+        "i8" | "I8" => Some((8, true)),
+        "i16" | "I16" => Some((16, true)),
+        "i32" | "I32" => Some((32, true)),
+        "i64" | "I64" => Some((64, true)),
         _ => None,
     }
 }
@@ -300,5 +302,19 @@ mod tests {
         assert!(track_requires_unsat_cores(2));
         assert!(!use_incremental_clause_push_pop(1));
         assert!(use_incremental_clause_push_pop(2));
+    }
+
+    #[test]
+    fn fixed_width_bits_accepts_language_and_lowercase_names() {
+        // #851: surface language uses U8/I32; shared policy must match both.
+        assert_eq!(fixed_width_bits(&["U8".into()]), Some((8, false)));
+        assert_eq!(fixed_width_bits(&["u8".into()]), Some((8, false)));
+        assert_eq!(fixed_width_bits(&["I32".into()]), Some((32, true)));
+        assert_eq!(fixed_width_bits(&["i32".into()]), Some((32, true)));
+        assert_eq!(fixed_width_bits(&["U64".into()]), Some((64, false)));
+        assert_eq!(fixed_width_bits(&["I8".into()]), Some((8, true)));
+        assert_eq!(fixed_width_bits(&["Int".into()]), None);
+        assert_eq!(fixed_width_bits(&["Nat".into()]), None);
+        assert_eq!(fixed_width_bits(&["u8".into(), "extra".into()]), None);
     }
 }

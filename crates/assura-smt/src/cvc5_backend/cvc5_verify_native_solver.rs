@@ -50,6 +50,22 @@ pub(crate) fn register_cvc5_fixed_width_params<'a>(
     }
 }
 
+/// Register `result` / `__result` when the contract return type is fixed-width (#851).
+pub(crate) fn register_cvc5_fixed_width_return<'a>(
+    tm: &'a cvc5::TermManager,
+    return_ty: &[String],
+    var_map: &mut HashMap<String, cvc5::Term<'a>>,
+    enc_state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
+) {
+    if let Some((width, signed)) = crate::prelude_policy::fixed_width_bits(return_ty) {
+        for name in ["result", crate::encode_atom_policy::RESULT_VAR_NAME] {
+            let bv = super::cvc5_bitvector_encode::bv_const(tm, name, width);
+            var_map.insert(name.to_string(), bv);
+            enc_state.bv_signed.insert(name.to_string(), signed);
+        }
+    }
+}
+
 pub(crate) fn assert_cvc5_solver_prelude<'a>(
     tm: &'a cvc5::TermManager,
     solver: &mut cvc5::Solver<'a>,
