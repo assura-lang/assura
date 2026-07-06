@@ -86,6 +86,18 @@ A contract-first language that compiles to Rust. You write behavioral
 contracts (preconditions, postconditions, invariants). The compiler
 proves correctness via Z3 SMT solver, then generates Rust source code.
 
+## Install the CLI
+
+```bash
+cargo install assura --locked
+# or prebuilt: https://github.com/assura-lang/assura/releases
+assura doctor
+assura check path/to/file.assura
+```
+
+Prefer the monorepo `cargo run --bin assura -- …` only when developing the
+compiler itself.
+
 ## Contract Syntax
 
 ```assura
