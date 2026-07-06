@@ -44,6 +44,21 @@ cargo run --bin assura -- check demos/libwebp-huffman.assura
 
 If all tests pass, you are ready to contribute.
 
+### Fuzzing (optional, needs nightly)
+
+The weekly **Fuzz** workflow and local fuzzing require a **nightly** toolchain
+(sanitizer / coverage flags). Targets live under `fuzz/`:
+
+```bash
+rustup toolchain install nightly --component rust-src
+cargo install cargo-fuzz --locked
+cargo +nightly fuzz run fuzz_lex -- -max_total_time=30
+cargo +nightly fuzz run fuzz_parse -- -max_total_time=30
+cargo +nightly fuzz run fuzz_typecheck -- -max_total_time=30
+```
+
+See `fuzz/README.md` for details. Crash artifacts land under `fuzz/artifacts/`.
+
 ### Where to start
 
 Look for issues labeled

@@ -33,14 +33,21 @@ jobs:
         with:
           persist-credentials: false
 
+      # cargo-fuzz needs nightly (-Zsanitizer=address, coverage passes).
+      - name: Install nightly + rust-src
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable action; pin toolchain below
+        with:
+          toolchain: nightly
+          components: rust-src
+
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked 2>/dev/null || true
+        run: cargo +nightly install cargo-fuzz --locked
 
       - name: Fuzz lexer
         env:
           FUZZ_DURATION: ${{ inputs.duration || '60' }}
         run: |
-          cargo fuzz run fuzz_lex -- \
+          cargo +nightly fuzz run fuzz_lex -- \
             -max_total_time="${FUZZ_DURATION}" \
             -max_len=4096
 
@@ -48,7 +55,7 @@ jobs:
         env:
           FUZZ_DURATION: ${{ inputs.duration || '60' }}
         run: |
-          cargo fuzz run fuzz_parse -- \
+          cargo +nightly fuzz run fuzz_parse -- \
             -max_total_time="${FUZZ_DURATION}" \
             -max_len=4096
 
@@ -56,7 +63,7 @@ jobs:
         env:
           FUZZ_DURATION: ${{ inputs.duration || '60' }}
         run: |
-          cargo fuzz run fuzz_typecheck -- \
+          cargo +nightly fuzz run fuzz_typecheck -- \
             -max_total_time="${FUZZ_DURATION}" \
             -max_len=4096
 
