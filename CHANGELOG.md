@@ -3,6 +3,13 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- Co-publish the `assura` CLI and frontends to crates.io so
+  `cargo install assura --locked` installs the real toolchain (#838, #845)
+
 ## [0.2.0](https://github.com/assura-lang/assura/compare/v0.1.0...v0.2.0) (2026-07-04)
 
 
@@ -47,22 +54,7 @@ All notable changes to Assura are documented here. Format follows
 * wire liveness monitor state enums (closes [#770](https://github.com/assura-lang/assura/issues/770)) ([#771](https://github.com/assura-lang/assura/issues/771)) ([8f043cd](https://github.com/assura-lang/assura/commit/8f043cd89d2293c3857c731d635378cff4df6cf0))
 * Z3Value soundness fixes, dead code removal, dep bumps ([#515](https://github.com/assura-lang/assura/issues/515)) ([ec58897](https://github.com/assura-lang/assura/commit/ec588970bc18df66f049e7151b48dea122f94064))
 
-## [Unreleased]
-
-### Added
-
-- `assura completions <shell>` command for bash/zsh/fish/powershell tab completion
-- `assura doctor` command to check installation (Z3, CVC5, Rust toolchain, WASM target)
-- `assura coverage` command to report contract coverage of a Rust project
-- `assura agent-instructions` command for AI coding agent quick reference
-- `CONTRIBUTING.md` contributor guide
-- `docs/CHEATSHEET.md` one-page quick reference
-- `docs/FAQ.md` troubleshooting guide
-- `docs/COOKBOOK.md` with 25 contract patterns
-- `docs/SCENARIOS.md` with 5 practical walkthroughs
-- AI agent templates: service-typestate, concurrency (CONC.1-6), error propagation
-
-## [0.1.0] - 2025-06-14
+### Initial public description (historical notes, 2025-06-14)
 
 Initial release of the Assura compiler.
 

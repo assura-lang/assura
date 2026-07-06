@@ -44,4 +44,4 @@ for bad in assura-cli assura-test-support assura-server assura-bench; do
   done
 done
 
-echo "publish plan ok (${#ORDER[@]} crates, ends with assura CLI)"
+echo "publish plan ok (${#ORDER[@]} crates, ends with assura (CLI crate name))"

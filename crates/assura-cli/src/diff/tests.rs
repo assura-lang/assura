@@ -530,13 +530,15 @@ fn cargo_check_project(project: &assura_codegen::GeneratedProject, label: &str) 
         .stderr(std::process::Stdio::piped())
         .output()
         .expect("cargo check failed to start");
+    if !output.status.success() {
+        // Keep temp dir on failure so the path in the panic is still valid.
+        panic!(
+            "{label}: generated Rust failed cargo check (temp: {}):\n{}",
+            tmp.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
     let _ = std::fs::remove_dir_all(&tmp);
-    assert!(
-        output.status.success(),
-        "{label}: generated Rust failed cargo check (temp: {}):\n{}",
-        tmp.display(),
-        String::from_utf8_lossy(&output.stderr)
-    );
 }
 
 #[test]
@@ -1404,7 +1406,8 @@ fn discover_rs_files_results_are_sorted() {
     std::fs::write(dir.join("c.rs"), "").unwrap();
 
     let found = crate::discover_rs_files(&dir);
-    let sorted = found.clone();
+    let mut sorted = found.clone();
+    sorted.sort();
     assert_eq!(found, sorted, "results should be sorted");
     let _ = std::fs::remove_dir_all(&dir);
 }
