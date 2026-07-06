@@ -17,6 +17,6 @@ fuzz_target!(|data: &[u8]| {
             Err(_) => return,
         };
         // The type checker must never panic on any resolved input
-        let _ = assura_types::type_check(&resolved);
+        let _ = assura_types::type_check(resolved);
     }
 });
