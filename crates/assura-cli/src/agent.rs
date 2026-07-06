@@ -288,6 +288,20 @@ contract WriteLog {{
 #[cfg(test)]
 mod tests {
     #[test]
+    fn agent_instructions_include_cargo_install() {
+        // Install section must stay in the printed reference after co-publish.
+        let src = include_str!("agent.rs");
+        assert!(
+            src.contains("cargo install assura --locked"),
+            "agent-instructions must document crates.io install"
+        );
+        assert!(
+            src.contains("## Install the CLI"),
+            "agent-instructions must have an Install the CLI section"
+        );
+    }
+
+    #[test]
     fn type_mapping_pairs_are_correct() {
         // The agent instructions rely on rust_type_to_assura; verify key mappings.
         use assura_codegen::type_map::rust_type_to_assura;
