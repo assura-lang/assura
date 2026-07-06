@@ -19,9 +19,18 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT"
 
-# Any always-present workspace member is enough to force a lock rewrite
-# of path/workspace package version entries.
-cargo check -p assura-ast
+# Any workspace member is enough to force a lock rewrite of path/workspace
+# package version entries. Derive one dynamically so we are not coupled to a
+# single hardcoded crate name (historically assura-ast, always co-published).
+workspace_member="$(
+  cargo metadata --no-deps --format-version 1 \
+    | python3 -c 'import json,sys; m=json.load(sys.stdin); ws=set(m.get("workspace_members",[])); pkgs=m.get("packages",[]); print(next((p["name"] for p in pkgs if p.get("id") in ws), ""))'
+)"
+if [ -z "$workspace_member" ]; then
+  echo "Failed to determine a workspace member package from cargo metadata" >&2
+  exit 1
+fi
+cargo check -p "$workspace_member"
 
 cargo metadata --locked --format-version 1 >/dev/null
 echo "Cargo.lock aligned with workspace package versions (cargo metadata --locked ok)"

@@ -544,7 +544,8 @@ contract SortedArray {
   input(arr: List<Int>, n: Nat)
 
   requires { n >= 0 }
-  invariant { forall i in Nat: i >= 0 || i < 0 }
+  // Every element is non-negative (real property of `arr`, not a tautology).
+  invariant { forall i in arr: i >= 0 }
 
   ensures { n >= 0 }
 }
