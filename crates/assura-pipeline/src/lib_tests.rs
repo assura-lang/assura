@@ -1104,6 +1104,93 @@ fn verify_ir_identity_contract_verified() {
 }
 
 #[test]
+fn verify_ir_second_contract_by_name() {
+    // #853: multi-contract source; IR matches Second (1 param). Against First
+    // (2 params) structural validation would fail on arity.
+    let contract = r#"
+contract First {
+  input(a: Int, b: Int)
+  output(result: Int)
+  ensures { result == a }
+}
+contract Second {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == x }
+}
+"#;
+    let ir = "module Second {\n  fn #0 : ($0: Int) -> Int ! pure\n  {\n    $result = load $0 : Int\n  }\n}\n";
+    let config = CompilerConfig::default();
+
+    // Default (first contract): IR for Second fails validation against First.
+    let wrong = verify_ir(contract, ir, &config);
+    assert_eq!(
+        wrong.status, "error",
+        "default first-contract selection should reject Second's IR: {:?}",
+        wrong.validation_errors
+    );
+    assert!(!wrong.validation_errors.is_empty());
+
+    // Explicit Second: validates and verifies.
+    let ok = verify_ir_for_contract(contract, ir, &config, Some("Second"));
+    assert!(
+        ok.validation_errors.is_empty(),
+        "Second should validate: {:?}",
+        ok.validation_errors
+    );
+    assert_eq!(
+        ok.status, "verified",
+        "Second identity IR should verify; clauses: {:?}",
+        ok.clauses
+    );
+}
+
+#[test]
+fn verify_ir_unknown_contract_name_errors() {
+    let contract =
+        "contract Echo {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n";
+    let ir = "module Echo {\n  fn #0 : ($0: Int) -> Int ! pure\n  {\n    $result = load $0 : Int\n  }\n}\n";
+    let config = CompilerConfig::default();
+    let result = verify_ir_for_contract(contract, ir, &config, Some("Missing"));
+    assert_eq!(result.status, "error");
+    assert!(
+        result
+            .validation_errors
+            .iter()
+            .any(|e| e.contains("Missing")),
+        "expected missing-contract error: {:?}",
+        result.validation_errors
+    );
+}
+
+#[test]
+fn verify_ir_u8_identity_nonneg_ensures() {
+    // #851: language-level U8 must register as fixed-width so result >= 0
+    // cannot be counterexampled with a negative Int.
+    let contract = r#"
+contract EchoU8 {
+  input(x: U8)
+  output(result: U8)
+  ensures { result == x }
+  ensures { result >= 0 }
+}
+"#;
+    let ir = "module EchoU8 {\n  fn #0 : ($0: U8) -> U8 ! pure\n  {\n    $result = load $0 : U8\n  }\n}\n";
+    let config = CompilerConfig::default();
+    let result = verify_ir(contract, ir, &config);
+    assert!(
+        result.validation_errors.is_empty(),
+        "U8 identity should validate: {:?}",
+        result.validation_errors
+    );
+    assert_eq!(
+        result.status, "verified",
+        "U8 identity + result >= 0 should verify under fixed-width: {:?}",
+        result.clauses
+    );
+}
+
+#[test]
 fn verify_ir_compile_error_on_bad_contract() {
     let contract = "contract { @@@ }";
     let ir =

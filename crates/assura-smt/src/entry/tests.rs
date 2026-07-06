@@ -584,3 +584,37 @@ fn evolution_new_removes_requires_passes() {
         result.precondition_weakening
     );
 }
+
+#[test]
+fn evolution_nat_prelude_accepts_nonneg_requires_on_nat_param() {
+    // #855: Thin implication (no types) treats empty old requires => (x >= 0) as
+    // invalid (x free Int can be -1). With shared Nat prelude from input(x: Nat),
+    // x is non-negative so the evolution is valid under full-prelude semantics.
+    let input = Clause {
+        kind: ClauseKind::Input,
+        body: Spanned::no_span(Expr::Raw(vec!["x".into(), ":".into(), "Nat".into()])),
+        effect_variables: vec![],
+    };
+    let old_clauses = vec![input.clone()];
+    let new_clauses = vec![
+        input,
+        Clause {
+            kind: ClauseKind::Requires,
+            body: Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+                op: BinOp::Gte,
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            }),
+            effect_variables: vec![],
+        },
+    ];
+    let result = verify_evolution("NatContract", &old_clauses, &new_clauses);
+    assert!(
+        matches!(
+            result.precondition_weakening,
+            VerificationResult::Verified { .. }
+        ),
+        "Nat prelude should make empty => (x >= 0) hold for Nat x: {:?}",
+        result.precondition_weakening
+    );
+}

@@ -268,7 +268,9 @@ fn test_cvc5_fixed_width_bits_shared() {
     // Verify the shared fixed_width_bits function (moved from Z3 Encoder).
     use crate::prelude_policy::fixed_width_bits;
     assert_eq!(fixed_width_bits(&["u8".into()]), Some((8, false)));
+    assert_eq!(fixed_width_bits(&["U8".into()]), Some((8, false)));
     assert_eq!(fixed_width_bits(&["i64".into()]), Some((64, true)));
+    assert_eq!(fixed_width_bits(&["I64".into()]), Some((64, true)));
     assert_eq!(fixed_width_bits(&["Int".into()]), None);
     assert_eq!(fixed_width_bits(&["u8".into(), "extra".into()]), None);
 }

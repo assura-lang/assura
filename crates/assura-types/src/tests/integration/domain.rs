@@ -957,6 +957,56 @@ fn match_unknown_scrutinee_no_wildcard_a10002() {
     );
 }
 
+#[test]
+fn match_param_typed_as_enum_missing_variant_a10001() {
+    // #852: scrutinee is param `c` typed as Color; incomplete match must be A10001
+    // (missing Blue), not A10002 (unknown type / no wildcard).
+    let src = r#"
+        enum Color { Red, Green, Blue }
+        contract Paint {
+            input(c: Color)
+            ensures { match c { Red => true, Green => false } }
+        }
+    "#;
+    let resolved = resolve_ok(src);
+    let result = type_check(resolved);
+    let errs = result.err().unwrap_or_default();
+    assert!(
+        errs.iter().any(|e| e.code == "A10001"),
+        "missing Blue on Color-typed param should produce A10001: {errs:?}"
+    );
+    assert!(
+        !errs.iter().any(|e| e.code == "A10002"),
+        "must not misclassify as A10002 when enum type is known via param: {errs:?}"
+    );
+    let a10001 = errs.iter().find(|e| e.code == "A10001").unwrap();
+    assert!(
+        a10001.message.contains("Blue"),
+        "A10001 message should name missing variant Blue: {}",
+        a10001.message
+    );
+}
+
+#[test]
+fn match_param_typed_as_enum_all_variants_no_a10001() {
+    let src = r#"
+        enum Color { Red, Green, Blue }
+        contract Paint {
+            input(c: Color)
+            ensures { match c { Red => true, Green => false, Blue => true } }
+        }
+    "#;
+    let resolved = resolve_ok(src);
+    let result = type_check(resolved);
+    let errs = result.err().unwrap_or_default();
+    assert!(
+        !errs
+            .iter()
+            .any(|e| e.code == "A10001" || e.code == "A10002"),
+        "exhaustive Color match should not produce A10001/A10002: {errs:?}"
+    );
+}
+
 // ===========================================================================
 // Extern trust boundary check (A11005)
 // ===========================================================================

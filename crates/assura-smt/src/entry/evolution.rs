@@ -59,6 +59,20 @@ pub fn verify_evolution(
         .map(|c| &c.body)
         .collect();
 
+    // #855: reuse input params / output type from either version for prelude.
+    let mut typed_params = crate::entry::extract_input_params(old_clauses);
+    if typed_params.is_empty() {
+        typed_params = crate::entry::extract_input_params(new_clauses);
+    }
+    let return_ty = {
+        let old_ty = crate::entry::extract_output_return_type(old_clauses);
+        if old_ty.is_empty() {
+            crate::entry::extract_output_return_type(new_clauses)
+        } else {
+            old_ty
+        }
+    };
+
     // ---- Precondition weakening: old_requires => new_requires ----
     // All old preconditions must imply all new preconditions.
     // If old has no requires, it accepts everything, so new must also accept
@@ -72,6 +86,8 @@ pub fn verify_evolution(
             &old_requires,
             &new_requires,
             &format!("{contract_name}: precondition weakening"),
+            &typed_params,
+            &return_ty,
         )
     };
 
@@ -95,6 +111,8 @@ pub fn verify_evolution(
             &new_ensures,
             &old_ensures,
             &format!("{contract_name}: postcondition strengthening"),
+            &typed_params,
+            &return_ty,
         )
     };
 
@@ -110,10 +128,15 @@ pub fn verify_evolution(
 /// Encodes: `(and antecedents) => (and consequents)` via
 /// `(assert antecedents) (assert (not (and consequents))) (check-sat)`
 /// UNSAT = implication holds.
+///
+/// Applies shared Nat / fixed-width prelude from `input` clauses present in
+/// either clause set so evolution matches normal verify typing (#855).
 fn check_implication(
     antecedents: &[&SpExpr],
     consequents: &[&SpExpr],
     desc: &str,
+    typed_params: &[assura_ast::Param],
+    return_ty: &[String],
 ) -> VerificationResult {
     #[cfg(feature = "z3-verify")]
     {
@@ -137,6 +160,37 @@ fn check_implication(
         params.set_u32("timeout", 2000);
         solver.set_params(&params);
         let mut encoder = Encoder::new();
+        encoder.init_bitvector_infrastructure();
+
+        // #855: register fixed-width params/result and assert Nat non-negativity
+        // from shared prelude_policy (same helpers as normal verify).
+        for param in typed_params {
+            let pt = crate::prelude_policy::param_type_tokens(param);
+            if let Some((width, signed)) = Encoder::fixed_width_bits(&pt) {
+                encoder.register_fixed_width_param(&param.name, width, signed);
+            }
+        }
+        encoder.register_fixed_width_return(return_ty);
+
+        let prelude =
+            crate::prelude_policy::collect_prelude_constraints(typed_params, return_ty, &[], &[]);
+        for c in &prelude {
+            match c {
+                crate::prelude_policy::PreludeConstraint::NatNonNegative(name) => {
+                    let v = encoder.get_or_create_int(name);
+                    let zero = z3::ast::Int::from_i64(0);
+                    solver.assert(v.ge(&zero));
+                }
+                crate::prelude_policy::PreludeConstraint::ConstantEq(name, value) => {
+                    let v = encoder.get_or_create_int(name);
+                    solver.assert(v.eq(z3::ast::Int::from_i64(*value)));
+                }
+                crate::prelude_policy::PreludeConstraint::NarrowingLe(name, bound) => {
+                    let v = encoder.get_or_create_int(name);
+                    solver.assert(v.le(z3::ast::Int::from_i64(*bound)));
+                }
+            }
+        }
 
         // Assert all antecedents
         for expr in antecedents {
@@ -182,7 +236,7 @@ fn check_implication(
     }
     #[cfg(not(feature = "z3-verify"))]
     {
-        let _ = (antecedents, consequents);
+        let _ = (antecedents, consequents, typed_params, return_ty);
         VerificationResult::Unknown {
             clause_desc: desc.to_string(),
             reason: "Z3 not available (compiled without z3-verify feature)".into(),

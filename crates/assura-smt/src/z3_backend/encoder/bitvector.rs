@@ -64,26 +64,14 @@ impl BitvectorEncoder {
         ast::BV::new_const(name, width)
     }
 
-    #[allow(
-        dead_code,
-        reason = "BV not yet routed through EncodeTerm::apply_binop (#602)"
-    )]
     pub(crate) fn bvadd(a: &ast::BV, b: &ast::BV) -> ast::BV {
         a.bvadd(b)
     }
 
-    #[allow(
-        dead_code,
-        reason = "BV not yet routed through EncodeTerm::apply_binop (#602)"
-    )]
     pub(crate) fn bvsub(a: &ast::BV, b: &ast::BV) -> ast::BV {
         a.bvsub(b)
     }
 
-    #[allow(
-        dead_code,
-        reason = "BV not yet routed through EncodeTerm::apply_binop (#602)"
-    )]
     pub(crate) fn bvmul(a: &ast::BV, b: &ast::BV) -> ast::BV {
         a.bvmul(b)
     }
@@ -96,16 +84,20 @@ impl BitvectorEncoder {
         a.bvsle(b)
     }
 
-    #[allow(
-        dead_code,
-        reason = "BV not yet routed through EncodeTerm::apply_binop (#602)"
-    )]
     pub(crate) fn bvult(a: &ast::BV, b: &ast::BV) -> ast::Bool {
         a.bvult(b)
     }
 
     pub(crate) fn bvule(a: &ast::BV, b: &ast::BV) -> ast::Bool {
         a.bvule(b)
+    }
+
+    pub(crate) fn bvugt(a: &ast::BV, b: &ast::BV) -> ast::Bool {
+        a.bvugt(b)
+    }
+
+    pub(crate) fn bvuge(a: &ast::BV, b: &ast::BV) -> ast::Bool {
+        a.bvuge(b)
     }
 
     pub(crate) fn bvand(a: &ast::BV, b: &ast::BV) -> ast::BV {
@@ -148,5 +140,34 @@ impl BitvectorEncoder {
         let sum_trunc = sum_ext.extract(width - 1, 0);
         let sum_trunc_ext = sum_trunc.sign_ext(1);
         sum_ext.eq(&sum_trunc_ext).not()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fixed_width_u8_add_wraps_mod_256() {
+        // #851: 255 + 1 mod 2^8 = 0 (modular BV semantics, not Int 256).
+        let a = BitvectorEncoder::bv_from_u64(255, 8);
+        let b = BitvectorEncoder::bv_from_u64(1, 8);
+        let sum = BitvectorEncoder::bvadd(&a, &b);
+        let zero = BitvectorEncoder::bv_from_u64(0, 8);
+        let solver = z3::Solver::new();
+        solver.assert(sum.eq(&zero).not());
+        // Unsat means sum is necessarily 0 (wrap).
+        assert_eq!(
+            solver.check(),
+            z3::SatResult::Unsat,
+            "U8 255+1 must wrap to 0 under BV add"
+        );
+    }
+
+    #[test]
+    fn fixed_width_bits_language_names_via_encoder() {
+        use crate::z3_backend::encoder::Encoder;
+        assert_eq!(Encoder::fixed_width_bits(&["U8".into()]), Some((8, false)));
+        assert_eq!(Encoder::fixed_width_bits(&["I32".into()]), Some((32, true)));
     }
 }

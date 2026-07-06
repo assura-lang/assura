@@ -17,6 +17,7 @@ use crate::cvc5_verify_native_solver::{
     assert_cvc5_frame_axioms, assert_cvc5_requires, assert_cvc5_requires_tracked,
     assert_cvc5_solver_prelude, build_cvc5_var_map, finish_cvc5_clause_check,
     inject_cvc5_lemma_assumptions_for_bodies, new_cvc5_solver, register_cvc5_fixed_width_params,
+    register_cvc5_fixed_width_return,
 };
 use crate::cvc5_verify_shared::{
     cvc5_clause_cache_key, cvc5_encode_failure, cvc5_lookup_cached_clause,
@@ -82,6 +83,7 @@ fn verify_contract_cvc5_native_incremental(
 
     let mut enc_state = default_cvc5_encoder_state();
     register_cvc5_fixed_width_params(&tm, contract.params, &mut var_map, &mut enc_state);
+    register_cvc5_fixed_width_return(&tm, contract.return_ty, &mut var_map, &mut enc_state);
     seed_cvc5_trigger_manager_from_clauses(&mut enc_state, contract.clauses);
 
     // Havoc+assume: parity with per-clause path (fixes #451).
