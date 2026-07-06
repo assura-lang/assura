@@ -56,7 +56,10 @@ impl Z3Value {
     /// Production binops match `Z3Value::Bv` pairs directly and do not call this.
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "mixed-sort BV coerce helper; production uses Bv pairs")
+        expect(
+            dead_code,
+            reason = "mixed-sort BV coerce helper; production uses Bv pairs"
+        )
     )]
     pub(crate) fn as_bv(&self, width: u32) -> ast::BV {
         match self {
