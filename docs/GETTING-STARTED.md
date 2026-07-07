@@ -1,6 +1,6 @@
 # Getting Started with Assura
 
-One boring path from install to a verified, runnable implementation.
+One simple path from install to a verified, runnable implementation.
 
 This guide works on a clean machine (no monorepo required). It uses a
 tiny result-bearing showcase contract plus a co-located Implementation IR
@@ -74,7 +74,7 @@ same-file pure call chains, match/if patterns the planner knows),
 
 Unanalyzable shapes (e.g. `result > 0` with no body) still report
 **Unknown** (not a fake pass), with a tip to write co-located IR,
-`assura build --write-ir`, or `--auto-implement`. That keeps proof honest.
+`assura build --write-ir`, or `--auto-implement`. That keeps proof expectations clear.
 
 ## 4. Build (IR becomes the implementation)
 

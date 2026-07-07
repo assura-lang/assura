@@ -18,7 +18,7 @@ Header markers (first lines of the file):
 // EXPECT FAIL: adversarial / audit model — counterexamples or errors are intentional.
 ```
 
-## Quick start (boring path)
+## Quick start (simple path)
 
 End-to-end install → check → build → `cargo test` (no monorepo required):
 see [docs/GETTING-STARTED.md](../docs/GETTING-STARTED.md).

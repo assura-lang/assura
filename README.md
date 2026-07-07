@@ -123,7 +123,7 @@ assura init my-project
 assura check demos/heartbleed.assura
 # Result-bearing postconditions need IR (`ShowcaseEcho.ir` next to the source):
 assura check demos/showcase-echo.assura
-# Full boring path (verify + inject IR into Rust + cargo test):
+# Full simple path (verify + inject IR into Rust + cargo test):
 #   assura build demos/showcase-echo.assura --output /tmp/assura-out
 #   (cd /tmp/assura-out && cargo test)
 
