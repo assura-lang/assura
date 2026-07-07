@@ -954,8 +954,7 @@ fn rust_bodies_from_ir_sidecars(
         .map(Path::to_path_buf)
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     let names = assura_smt::collect_verification_job_names(typed);
-    let ir_funcs =
-        assura_smt::load_ir_bodies_for_contracts(&[parent.as_path()], &names);
+    let ir_funcs = assura_smt::load_ir_bodies_for_contracts(&[parent.as_path()], &names);
     if ir_funcs.is_empty() {
         return std::collections::HashMap::new();
     }
