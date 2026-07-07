@@ -1792,7 +1792,7 @@ module branch {
 }
 
 #[test]
-fn build_writes_stub_ir_sidecars_to_generated() {
+fn build_does_not_write_identity_stub_ir_for_unanalyzable_ensures() {
     let tmp = unique_temp("assura_ir_build");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
@@ -1822,15 +1822,65 @@ contract StubContract {
         "build should succeed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
+    // Identity "Stub IR" must not be persisted (would poison co-located load/codegen).
     let ir_path = tmp.join("generated/StubContract.ir");
     assert!(
+        !ir_path.exists(),
+        "build must not write identity stub IR for unanalyzable ensures"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn build_write_ir_writes_analyzable_colocated_sidecar() {
+    let tmp = unique_temp("assura_write_ir_ok");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let assura_path = tmp.join("Echo.assura");
+    std::fs::write(
+        &assura_path,
+        r#"
+contract Echo {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == x }
+}
+"#,
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args([
+            "build",
+            assura_path.to_str().unwrap(),
+            "--write-ir",
+            "--output",
+            tmp.join("out").to_str().unwrap(),
+        ])
+        .current_dir(&tmp)
+        .output()
+        .expect("failed to run assura build --write-ir");
+
+    assert!(
+        out.status.success(),
+        "build --write-ir should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let ir_path = tmp.join("Echo.ir");
+    assert!(
         ir_path.exists(),
-        "build should write stub IR sidecar to generated/StubContract.ir"
+        "analyzable ensures should get co-located Echo.ir"
     );
     let ir_text = std::fs::read_to_string(&ir_path).unwrap();
     assert!(
-        ir_text.contains("$result = load $0"),
-        "stub IR should identity-load first param"
+        !ir_text.contains("Stub IR"),
+        "must not be a labeled stub"
+    );
+    assert!(
+        ir_text.contains("load $0") || ir_text.contains("$result"),
+        "expected identity-style body, got: {ir_text}"
     );
 
     let _ = std::fs::remove_dir_all(&tmp);
