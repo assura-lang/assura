@@ -487,7 +487,10 @@ pub(crate) fn verify_file_with_cvc5(
     let mut session_cache = SessionCache::new();
 
     // Clause-level verification via CVC5
-    for (name, clauses, params, return_ty) in collect_verification_jobs(typed) {
+    let jobs = collect_verification_jobs(typed);
+    // Same-file pure callees for ensures-side equating (Z3 parity).
+    let callee_specs = crate::encode_callee_policy::collect_callee_functional_specs(&jobs);
+    for (name, clauses, params, return_ty) in &jobs {
         // #708: Skip ensures clauses referencing result when no IR body
         // is loaded (same logic as Z3 parallel/non-parallel paths, #703).
         let has_ir = extras
@@ -495,8 +498,8 @@ pub(crate) fn verify_file_with_cvc5(
             .is_some_and(|m| m.contains_key(name.as_str()));
         let ir_loading_attempted = extras.is_some_and(|e| e.ir_loading_attempted);
         let skip_results = crate::entry::verify::unconstrained_result_unknowns(
-            &name,
-            &clauses,
+            name,
+            clauses,
             has_ir,
             ir_loading_attempted,
         );
@@ -516,17 +519,17 @@ pub(crate) fn verify_file_with_cvc5(
                 )
             }) {
                 let ctx = ContractVerifyContext {
-                    contract_name: &name,
+                    contract_name: name,
                     clauses: &filtered,
-                    params: &params,
-                    return_ty: &return_ty,
+                    params,
+                    return_ty,
                     constants: &constants,
                     ir: crate::verify_context::LoadedIrContext::for_contract(
-                        &name,
+                        name,
                         extras,
                         Some(&typed.type_env),
                     ),
-                    callee_specs: None,
+                    callee_specs: Some(&callee_specs),
                 };
                 results.extend(crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
                     &ctx,
@@ -539,17 +542,17 @@ pub(crate) fn verify_file_with_cvc5(
         }
 
         let ctx = ContractVerifyContext {
-            contract_name: &name,
-            clauses: &clauses,
-            params: &params,
-            return_ty: &return_ty,
+            contract_name: name,
+            clauses,
+            params,
+            return_ty,
             constants: &constants,
             ir: crate::verify_context::LoadedIrContext::for_contract(
-                &name,
+                name,
                 extras,
                 Some(&typed.type_env),
             ),
-            callee_specs: None,
+            callee_specs: Some(&callee_specs),
         };
         results.extend(crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
             &ctx,

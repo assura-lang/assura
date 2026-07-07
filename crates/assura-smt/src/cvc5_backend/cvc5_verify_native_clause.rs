@@ -67,6 +67,9 @@ pub(crate) fn check_clause_cvc5_native(
         );
 
         let mut enc_state = default_cvc5_encoder_state();
+        if let Some(specs) = contract.callee_specs {
+            enc_state.callee_specs.clone_from(specs);
+        }
         register_cvc5_fixed_width_params(&tm, contract.params, &mut var_map, &mut enc_state);
         register_cvc5_fixed_width_return(&tm, contract.return_ty, &mut var_map, &mut enc_state);
         seed_cvc5_trigger_manager_from_clauses(&mut enc_state, contract.clauses);

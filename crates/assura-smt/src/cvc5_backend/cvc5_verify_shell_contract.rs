@@ -84,10 +84,14 @@ fn verify_contract_cvc5_shellout_incremental(
             resolved.push((index, precheck));
             continue;
         }
-        if crate::cvc5_expr_smtlib::with_smtlib_side_effects(|| expr_to_smtlib(&clause.body))
-            .0
-            .is_none()
-        {
+        let empty_specs = std::collections::HashMap::new();
+        let specs = session.contract.callee_specs.unwrap_or(&empty_specs);
+        let encode_ok = crate::encode_callee_policy::with_shell_callee_specs(specs, || {
+            crate::cvc5_expr_smtlib::with_smtlib_side_effects(|| expr_to_smtlib(&clause.body))
+                .0
+                .is_some()
+        });
+        if !encode_ok {
             resolved.push((
                 index,
                 crate::clause_gate_policy::clause_encode_failure(&desc, "SMT-LIB2"),
@@ -111,7 +115,12 @@ fn verify_contract_cvc5_shellout_incremental(
             lemma_defs: session.lemma_defs,
             pending: &pending,
         };
-        let script = build_incremental_shell_script(&script_input, session.havoc_assume_input());
+        let empty_specs = std::collections::HashMap::new();
+        let specs = session.contract.callee_specs.unwrap_or(&empty_specs);
+        let havoc = session.havoc_assume_input();
+        let script = crate::encode_callee_policy::with_shell_callee_specs(specs, || {
+            build_incremental_shell_script(&script_input, havoc)
+        });
 
         match run_cvc5_binary_queries(&script) {
             Ok(query_results) if query_results.len() == pending_count => {

@@ -9,7 +9,32 @@
 //! `result == double(x)` still treated `double` as a free UF (#P1 call equating).
 
 use assura_ast::{BinOp, Clause, ClauseKind, Expr, Param, SpExpr};
+use std::cell::RefCell;
 use std::collections::HashMap;
+
+thread_local! {
+    /// Shell SMT-LIB path: active callee specs for the current encode session.
+    static SHELL_CALLEE_SPECS: RefCell<HashMap<String, CalleeFunctionalSpec>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Install callee specs for shell SMT-LIB encoding (restored after `f` returns).
+pub fn with_shell_callee_specs<R>(
+    specs: &HashMap<String, CalleeFunctionalSpec>,
+    f: impl FnOnce() -> R,
+) -> R {
+    SHELL_CALLEE_SPECS.with(|cell| {
+        let prev = cell.replace(specs.clone());
+        let out = f();
+        *cell.borrow_mut() = prev;
+        out
+    })
+}
+
+/// Look up a shell-session callee functional spec by declaration name.
+pub fn shell_callee_spec(name: &str) -> Option<CalleeFunctionalSpec> {
+    SHELL_CALLEE_SPECS.with(|cell| cell.borrow().get(name).cloned())
+}
 
 /// Pure functional definition extracted from a helper's ensures clauses.
 #[derive(Debug, Clone)]
@@ -145,6 +170,28 @@ mod tests {
             &spec.result_body.node,
             Expr::BinOp { op: BinOp::Add, .. }
         ));
+    }
+
+    #[test]
+    fn shell_thread_local_specs_roundtrip() {
+        let mut specs = HashMap::new();
+        specs.insert(
+            "double".into(),
+            CalleeFunctionalSpec {
+                param_names: vec!["x".into()],
+                result_body: sp(Expr::BinOp {
+                    op: BinOp::Add,
+                    lhs: spb(Expr::Ident("x".into())),
+                    rhs: spb(Expr::Ident("x".into())),
+                }),
+            },
+        );
+        assert!(shell_callee_spec("double").is_none());
+        let seen = with_shell_callee_specs(&specs, || {
+            shell_callee_spec("double").map(|s| s.param_names)
+        });
+        assert_eq!(seen, Some(vec!["x".into()]));
+        assert!(shell_callee_spec("double").is_none());
     }
 
     #[test]
