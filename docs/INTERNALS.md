@@ -321,10 +321,12 @@ structural validation and IR extras target that contract; SMT results are
 filtered to its clauses. Auto-implement historically worked around this by
 building single-contract source via `build_single_contract_source()`.
 
-**Fixed-width signedness (Z3):** Parameters and results registered as
-`U8`/`U16`/… use unsigned BV order; `I8`/`I32`/… use signed order for
-comparisons. Modular BV add/sub/mul is the same for both. CVC5 still uses
-unsigned order for all BV comparisons (tracked in #858).
+**Fixed-width signedness (Z3 and CVC5 native):** Parameters and results
+registered as `U8`/`U16`/… use unsigned BV order; `I8`/`I32`/… use signed
+order for comparisons (`bvslt` / `BitvectorSlt`, …). Modular BV add/sub/mul
+is the same for both. CVC5 consults `enc_state.bv_signed` and walks free
+constant symbols in BV terms so derived expressions (e.g. `x + 0`) inherit
+signedness (#858).
 
 ### assura-macros
 
