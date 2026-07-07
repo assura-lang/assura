@@ -253,7 +253,6 @@ pub(crate) fn run_build(opts: BuildOpts<'_>) {
         target: bc.compile_target.clone(),
         runtime_checks,
         ir_bodies,
-        emit_bin: bin,
         ..assura_codegen::BackendConfig::default()
     };
     let mut project = assura_codegen::codegen_with_config(&typed, &backend_config);
