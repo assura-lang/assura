@@ -33,28 +33,25 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
             // `generated/{Name}.ir`) before verify so agents/users see when
             // implementation bodies constrain result/post-state.
             if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
-                let loaded = assura_smt::LoadedVerifyExtras::load_or_synthesize(
-                    std::path::Path::new(filename),
-                    typed,
-                );
+                // Only report co-located disk sidecars here. In-memory heuristic
+                // fill (analyzable ensures without a `.ir` file) runs inside
+                // assura-smt `Verifier` and must not be called from the CLI so
+                // co-publish package checks against crates.io assura-smt still
+                // compile.
+                let loaded =
+                    assura_smt::LoadedVerifyExtras::load(std::path::Path::new(filename), typed);
                 if loaded.is_empty() {
                     eprintln!(
-                        "  ir:        no co-located sidecars and no synthesizable ensures shapes"
+                        "  ir:        no co-located sidecars (verify may still synthesize \
+                         analyzable ensures shapes in-memory)"
                     );
                 } else {
                     let names = loaded.loaded_names();
                     eprintln!(
-                        "  ir:        {} body(ies) for verify: {}",
+                        "  ir:        {} co-located sidecar(s): {}",
                         names.len(),
                         names.join(", ")
                     );
-                    let heuristics = loaded.heuristic_names();
-                    if !heuristics.is_empty() {
-                        eprintln!(
-                            "  ir:        synthesized in-memory (no .ir file): {}",
-                            heuristics.join(", ")
-                        );
-                    }
                 }
             }
             let config = assura_config::CompilerConfig {
