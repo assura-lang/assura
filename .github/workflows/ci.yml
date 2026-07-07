@@ -322,6 +322,10 @@ jobs:
             cargo run --locked --bin assura -- check "$demo"
           done
 
+      - name: Getting-started smoke (check + write-ir + bin + cargo test)
+        if: ${{ !cancelled() }}
+        run: bash scripts/smoke-getting-started.sh
+
       - name: Validate generated code for demos
         if: ${{ !cancelled() }}
         run: |

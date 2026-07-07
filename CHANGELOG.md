@@ -21,11 +21,6 @@ All notable changes to Assura are documented here. Format follows
 
 ## [Unreleased]
 
-### Added
-
-- Co-publish the `assura` CLI and frontends to crates.io so
-  `cargo install assura --locked` installs the real toolchain (#838, #845)
-
 ## [0.2.0](https://github.com/assura-lang/assura/compare/v0.1.0...v0.2.0) (2026-07-04)
 
 

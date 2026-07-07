@@ -227,16 +227,19 @@ Full pipeline tests in `tests/e2e/` exercise parsing through verification.
 
 ### Demo files
 
-The five files in `demos/` are regression guards. Every PR must not
-break them. They model real CVEs (libwebp, zlib, mbedtls, heartbleed,
-taint-tracking).
+Files under `demos/` are regression guards and teaching examples. See
+[`demos/README.md`](demos/README.md) for the SHOWCASE vs EXPECT FAIL
+taxonomy. Prefer showcase demos for first-time checks; `*-audit.assura`
+files are intentional red. CI runs non-audit demos on every PR.
 
 ## Adding a New Compiler Pass
 
 When adding a new crate or major feature:
 
 1. Create `crates/assura-{name}/` with workspace-inherited metadata
-2. Wire it into the CLI pipeline in `crates/assura-cli/src/main.rs`
+2. Wire it through `assura_pipeline` (and thin CLI wrappers in
+   `crates/assura-cli/src/shared.rs` / `check/` / `build.rs`). Do not
+   re-chain parse/resolve/type_check in frontends.
 3. Add at least one integration test that feeds output from the
    previous pass
 4. Verify end-to-end: `cargo run --bin assura -- check demos/libwebp-huffman.assura`
