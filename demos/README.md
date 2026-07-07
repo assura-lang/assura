@@ -72,7 +72,7 @@ Prefer `heartbleed` or `showcase-echo` for a first green check.
 | File | Intent |
 |------|--------|
 | `defi-audit.assura` | DeFi exploit patterns (CE expected) |
-| `boring-vault-audit.assura` / `boring-vault-audit-deep.assura` | Vault attack models |
+| `vault-audit.assura` / `vault-audit-deep.assura` | Vault attack models |
 | `concurrency-audit.assura` | Concurrency attack models |
 | `image-crate-audit.assura` | Image decoding attack models |
 | `libssh2-audit.assura` | SSH buffer / window attacks |
