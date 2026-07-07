@@ -959,8 +959,7 @@ timeout = 2000
     std::fs::write(&file, "").unwrap();
 
     let result = crate::load_project_config(&file);
-    assert!(result.is_some(), "should find config");
-    let (cfg, root) = result.unwrap();
+    let (cfg, root) = result.expect("should find config");
     assert_eq!(cfg.package.name, "disk-test");
     assert_eq!(cfg.package.version, "0.3.0");
     assert_eq!(cfg.verify.layer, 0);

@@ -244,8 +244,7 @@ mod tests {
             effect_variables: vec![],
         }];
         let result = super::extract_testable(Some("my_fn"), &params, &clauses, None);
-        assert!(result.is_some(), "fn with params should be testable");
-        let tc = result.unwrap();
+        let tc = result.expect("fn with params should be testable");
         assert_eq!(tc.name, "my_fn");
         assert_eq!(tc.params.len(), 1);
         assert_eq!(tc.requires.len(), 1);
