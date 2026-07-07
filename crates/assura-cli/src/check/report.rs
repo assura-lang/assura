@@ -33,17 +33,28 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
             // `generated/{Name}.ir`) before verify so agents/users see when
             // implementation bodies constrain result/post-state.
             if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
-                let loaded =
-                    assura_smt::LoadedVerifyExtras::load(std::path::Path::new(filename), typed);
+                let loaded = assura_smt::LoadedVerifyExtras::load_or_synthesize(
+                    std::path::Path::new(filename),
+                    typed,
+                );
                 if loaded.is_empty() {
-                    eprintln!("  ir:        no sidecars (searched source dir + generated/)");
+                    eprintln!(
+                        "  ir:        no co-located sidecars and no synthesizable ensures shapes"
+                    );
                 } else {
                     let names = loaded.loaded_names();
                     eprintln!(
-                        "  ir:        {} sidecar(s) loaded: {}",
+                        "  ir:        {} body(ies) for verify: {}",
                         names.len(),
                         names.join(", ")
                     );
+                    let heuristics = loaded.heuristic_names();
+                    if !heuristics.is_empty() {
+                        eprintln!(
+                            "  ir:        synthesized in-memory (no .ir file): {}",
+                            heuristics.join(", ")
+                        );
+                    }
                 }
             }
             let config = assura_config::CompilerConfig {
@@ -143,10 +154,11 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                     )
                     .with_file(filename);
                     if reason.contains("result is unconstrained")
-                        || reason.contains("`result` is unconstrained")
+                        || reason.contains("`result` stays unconstrained")
+                        || reason.contains("not auto-synthesizable")
                     {
                         diag = diag.with_suggestion(
-                            "add IR or use --write-ir / co-located .ir",
+                            "add co-located IR or simplify ensures to a synthesizable shape",
                             span.clone(),
                             "assura build --write-ir path/to/file.assura",
                         );
