@@ -274,3 +274,111 @@ fn test_cvc5_fixed_width_bits_shared() {
     assert_eq!(fixed_width_bits(&["Int".into()]), None);
     assert_eq!(fixed_width_bits(&["u8".into(), "extra".into()]), None);
 }
+
+/// #858: signed I8 -1 < 0 must hold under CVC5 (unsigned would treat 0xFF as 255).
+#[cfg(feature = "cvc5-verify")]
+#[test]
+fn test_cvc5_signed_i8_neg_one_lt_zero() {
+    use crate::cvc5_binop_encode::{bv_ast_binop_cvc5_kind, cvc5_bv_operand_signed};
+    use crate::cvc5_bitvector_encode::*;
+    use crate::cvc5_encoder_state::default_cvc5_encoder_state;
+    use assura_ast::BinOp;
+
+    let tm = cvc5::TermManager::new();
+    let mut state = default_cvc5_encoder_state();
+    state.bv_signed.insert("x".into(), true); // I8
+
+    let x = bv_const(&tm, "x", 8);
+    let neg_one = bv_from_i64(&tm, -1, 8);
+    let zero = bv_from_u64(&tm, 0, 8);
+
+    assert!(
+        cvc5_bv_operand_signed(&x, &state),
+        "registered I8 symbol must count as signed"
+    );
+    assert!(
+        !cvc5_bv_operand_signed(&zero, &state),
+        "literal BV zero is not a signed binding"
+    );
+
+    // Kind selection for signed order.
+    assert_eq!(
+        bv_ast_binop_cvc5_kind(&BinOp::Lt, true),
+        Some(cvc5::Kind::BitvectorSlt)
+    );
+
+    // Solver: assert x = -1 and NOT (x < 0) signed → unsat.
+    let mut solver = cvc5::Solver::new(&tm);
+    solver.set_logic("ALL");
+    solver.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[x.clone(), neg_one]));
+    let signed_lt = bvslt(&tm, &x, &zero);
+    solver.assert_formula(tm.mk_term(cvc5::Kind::Not, &[signed_lt]));
+    assert!(
+        solver.check_sat().is_unsat(),
+        "signed I8: -1 < 0 must hold (negate is unsat)"
+    );
+
+    // Sanity: unsigned order would not prove -1 < 0.
+    let mut solver_u = cvc5::Solver::new(&tm);
+    solver_u.set_logic("ALL");
+    let xu = bv_const(&tm, "xu", 8);
+    solver_u.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[xu.clone(), bv_from_i64(&tm, -1, 8)]));
+    let unsigned_lt = bvult(&tm, &xu, &zero);
+    solver_u.assert_formula(unsigned_lt);
+    assert!(
+        solver_u.check_sat().is_unsat(),
+        "unsigned: 0xFF < 0 is false (asserting it is unsat)"
+    );
+}
+
+/// #858: encode_ast_binop_cvc5 picks signed order when either operand is signed.
+#[cfg(feature = "cvc5-verify")]
+#[test]
+fn test_cvc5_encode_binop_uses_signed_order_for_i8() {
+    use crate::cvc5_binop_encode::encode_ast_binop_cvc5;
+    use crate::cvc5_bitvector_encode::{bv_const, bv_from_i64, bv_from_u64};
+    use crate::cvc5_encoder_state::default_cvc5_encoder_state;
+    use assura_ast::BinOp;
+
+    let tm = cvc5::TermManager::new();
+    let mut state = default_cvc5_encoder_state();
+    state.bv_signed.insert("x".into(), true);
+
+    let x = bv_const(&tm, "x", 8);
+    let zero = bv_from_u64(&tm, 0, 8);
+    let cmp = encode_ast_binop_cvc5(&tm, &BinOp::Lt, x.clone(), zero.clone(), &mut state)
+        .expect("encode BV Lt");
+
+    // Prove: x = -1 => x < 0 under the encoded comparison.
+    let mut solver = cvc5::Solver::new(&tm);
+    solver.set_logic("ALL");
+    solver.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[x, bv_from_i64(&tm, -1, 8)]));
+    solver.assert_formula(tm.mk_term(cvc5::Kind::Not, &[cmp]));
+    assert!(
+        solver.check_sat().is_unsat(),
+        "encode_ast_binop_cvc5 must use signed Lt for I8 so -1 < 0 holds"
+    );
+}
+
+/// Derived BV terms (e.g. x + 0) inherit signedness from free symbols (#858).
+#[cfg(feature = "cvc5-verify")]
+#[test]
+fn test_cvc5_signedness_propagates_through_bv_add() {
+    use crate::cvc5_binop_encode::{cvc5_bv_operand_signed, encode_ast_binop_cvc5};
+    use crate::cvc5_bitvector_encode::{bv_const, bv_from_u64, is_bv};
+    use crate::cvc5_encoder_state::default_cvc5_encoder_state;
+    use assura_ast::BinOp;
+
+    let tm = cvc5::TermManager::new();
+    let mut state = default_cvc5_encoder_state();
+    state.bv_signed.insert("x".into(), true);
+
+    let x = bv_const(&tm, "x", 8);
+    let z = bv_from_u64(&tm, 0, 8);
+    let sum = encode_ast_binop_cvc5(&tm, &BinOp::Add, x, z, &mut state).expect("add");
+    assert!(is_bv(&sum));
+    assert!(
+        cvc5_bv_operand_signed(&sum, &state),
+        "x + 0 should still count as signed via child walk"
+    );
+}

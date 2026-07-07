@@ -81,6 +81,22 @@ pub(crate) fn bvsle<'a>(
     tm.mk_term(cvc5::Kind::BitvectorSle, &[a.clone(), b.clone()])
 }
 
+pub(crate) fn bvsgt<'a>(
+    tm: &'a cvc5::TermManager,
+    a: &cvc5::Term<'a>,
+    b: &cvc5::Term<'a>,
+) -> cvc5::Term<'a> {
+    tm.mk_term(cvc5::Kind::BitvectorSgt, &[a.clone(), b.clone()])
+}
+
+pub(crate) fn bvsge<'a>(
+    tm: &'a cvc5::TermManager,
+    a: &cvc5::Term<'a>,
+    b: &cvc5::Term<'a>,
+) -> cvc5::Term<'a> {
+    tm.mk_term(cvc5::Kind::BitvectorSge, &[a.clone(), b.clone()])
+}
+
 // ── Unsigned comparisons ────────────────────────────────────────────────
 
 pub(crate) fn bvult<'a>(
@@ -97,6 +113,22 @@ pub(crate) fn bvule<'a>(
     b: &cvc5::Term<'a>,
 ) -> cvc5::Term<'a> {
     tm.mk_term(cvc5::Kind::BitvectorUle, &[a.clone(), b.clone()])
+}
+
+pub(crate) fn bvugt<'a>(
+    tm: &'a cvc5::TermManager,
+    a: &cvc5::Term<'a>,
+    b: &cvc5::Term<'a>,
+) -> cvc5::Term<'a> {
+    tm.mk_term(cvc5::Kind::BitvectorUgt, &[a.clone(), b.clone()])
+}
+
+pub(crate) fn bvuge<'a>(
+    tm: &'a cvc5::TermManager,
+    a: &cvc5::Term<'a>,
+    b: &cvc5::Term<'a>,
+) -> cvc5::Term<'a> {
+    tm.mk_term(cvc5::Kind::BitvectorUge, &[a.clone(), b.clone()])
 }
 
 // ── Bitwise ─────────────────────────────────────────────────────────────
