@@ -21,6 +21,8 @@ pub(crate) struct Cvc5EncoderState<'a> {
     pub(crate) trigger_manager: crate::advanced::TriggerManager,
     /// Fixed-width params: name -> signed? (false = unsigned). Parity with Z3 `bv_signed` (#453).
     pub(crate) bv_signed: HashMap<String, bool>,
+    /// Same-file pure callees for ensures-side call equating (Z3 parity).
+    pub(crate) callee_specs: HashMap<String, crate::encode_callee_policy::CalleeFunctionalSpec>,
 }
 
 #[cfg(feature = "cvc5-verify")]
@@ -36,6 +38,7 @@ pub(crate) fn default_cvc5_encoder_state<'a>() -> Cvc5EncoderState<'a> {
         struct_adt_defs: HashMap::new(),
         trigger_manager: crate::advanced::TriggerManager::new(),
         bv_signed: HashMap::new(),
+        callee_specs: HashMap::new(),
     }
 }
 
