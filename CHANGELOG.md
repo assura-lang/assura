@@ -3,6 +3,22 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0](https://github.com/assura-lang/assura/compare/v0.2.0...v0.3.0) (2026-07-07)
+
+
+### Features
+
+* co-publish assura CLI and frontends to crates.io ([#845](https://github.com/assura-lang/assura/issues/845)) ([b651fc2](https://github.com/assura-lang/assura/commit/b651fc2ab8c7f7deffb9d4dbf1412114fc6c9885)), closes [#838](https://github.com/assura-lang/assura/issues/838)
+* P1/P2 proof equating, offline IR, bin, strict, multi-contract ([#870](https://github.com/assura-lang/assura/issues/870)) ([9a724a5](https://github.com/assura-lang/assura/commit/9a724a53f9fdedad476a4660b1002ec98e9ebb41))
+
+
+### Bug Fixes
+
+* address GitHub AI code quality findings ([#850](https://github.com/assura-lang/assura/issues/850)) ([ebf9b8d](https://github.com/assura-lang/assura/commit/ebf9b8d5782fc62d6bcf8330cea223960294792d))
+* CVC5 signed BV order for fixed-width I* types ([#860](https://github.com/assura-lang/assura/issues/860)) ([d06ab67](https://github.com/assura-lang/assura/commit/d06ab67cecd332b660f0e0448b3894a0666a7a39))
+* signed BV comparisons for fixed-width I* types ([#859](https://github.com/assura-lang/assura/issues/859)) ([927063c](https://github.com/assura-lang/assura/commit/927063c4ce4b723e98df608a715c2201160c5013))
+* SMT/types/IR batch (fixed-width, match, verify_ir, evolution) ([#856](https://github.com/assura-lang/assura/issues/856)) ([0b0d6eb](https://github.com/assura-lang/assura/commit/0b0d6ebdc1736936041e3a69b5eda6eba3177435))
+
 ## [Unreleased]
 
 ### Added
