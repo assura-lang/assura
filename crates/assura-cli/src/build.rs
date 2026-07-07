@@ -221,7 +221,8 @@ pub(crate) fn run_build(opts: BuildOpts<'_>) {
     let (verification_results, verify_ms) =
         verify_and_print(&typed, filename, bc.solver, verbosity);
 
-    // Auto-implement: call LLM to generate IR implementations
+    // Prefer co-located / generated IR sidecars for codegen bodies (#866).
+    // `--auto-implement` still uses the LLM path and overwrites when it wins.
     let ir_bodies = if auto_implement {
         let ai_config = bc
             .project
@@ -230,7 +231,7 @@ pub(crate) fn run_build(opts: BuildOpts<'_>) {
             .unwrap_or_default();
         auto_implement_contracts(&typed, filename, &bc.compiler_config, verbosity, &ai_config)
     } else {
-        std::collections::HashMap::new()
+        rust_bodies_from_ir_sidecars(&typed, filename, verbosity)
     };
 
     // Codegen
@@ -930,6 +931,63 @@ fn build_single_contract_source(ctx: &assura_smt::IrPromptContext) -> String {
     }
     src.push_str("}\n");
     src
+}
+
+/// Convert co-located `{ContractName}.ir` sidecars into Rust bodies for codegen.
+///
+/// Used by the boring getting-started path (#866): after `assura check` with
+/// co-located IR proves the contract, `assura build` injects the same IR as a
+/// real implementation instead of `todo!()`.
+///
+/// Only loads IR from the **same directory as the source file** (e.g.
+/// `ShowcaseEcho.ir` next to `showcase-echo.assura`). Heuristic stubs under
+/// `generated/` are intentionally ignored: they often lack real semantics and
+/// would inject non-compiling Rust into multi-contract demos.
+fn rust_bodies_from_ir_sidecars(
+    typed: &assura_types::TypedFile,
+    source_path: &str,
+    verbosity: Verbosity,
+) -> std::collections::HashMap<String, String> {
+    let path = Path::new(source_path);
+    let parent = path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let names = assura_smt::collect_verification_job_names(typed);
+    let ir_funcs = assura_smt::load_ir_bodies_for_contracts(&[parent.as_path()], &names);
+    if ir_funcs.is_empty() {
+        return std::collections::HashMap::new();
+    }
+
+    let contexts = assura_smt::ir_prompt_contexts_for_typed(typed, Some(path));
+    let mut out = std::collections::HashMap::new();
+    for ctx in &contexts {
+        let Some(func) = ir_funcs.get(&ctx.decl_name) else {
+            continue;
+        };
+        let mut body = String::new();
+        for (i, param) in ctx.params.iter().enumerate() {
+            body.push_str(&format!(
+                "    let slot_{i} = {name}.clone();\n",
+                name = param.name
+            ));
+        }
+        let ir_body = assura_smt::ir_function_body_to_rust(func);
+        let ir_body = ir_body.replace("__result", "__assura_result");
+        let ir_body = strip_trailing_return(&ir_body);
+        body.push_str(&ir_body);
+        out.insert(ctx.decl_name.clone(), body);
+    }
+
+    if verbosity != Verbosity::Quiet && !out.is_empty() {
+        let names: Vec<&str> = out.keys().map(String::as_str).collect();
+        eprintln!(
+            "  codegen: injected co-located IR for {} contract(s): {}",
+            out.len(),
+            names.join(", ")
+        );
+    }
+    out
 }
 
 /// Remove the trailing bare return expression from an IR body.

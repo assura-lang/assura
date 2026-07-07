@@ -2,6 +2,10 @@
 
 A hands-on guide to writing, checking, and building Assura contracts.
 
+**Fastest path to a verified, runnable example:** start with
+[GETTING-STARTED.md](GETTING-STARTED.md) (install → check → build →
+`cargo test` with co-located IR).
+
 ## Installation
 
 ### Preferred: crates.io

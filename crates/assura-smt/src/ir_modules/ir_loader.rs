@@ -173,9 +173,32 @@ pub(crate) fn resolve_ir_sidecar(search_dirs: &[&Path], contract_name: &str) -> 
 }
 
 /// Emit stub `.ir` sidecar text for every verification job in a typed file.
+///
+/// Builds a same-file callee map first so call-shaped ensures can synthesize
+/// non-identity sibling bodies from peer contracts/fns (#863).
 pub fn stub_ir_sidecars_for_typed(typed: &assura_types::TypedFile) -> HashMap<String, String> {
+    use crate::ir_generate::{CalleeSpec, generate_ir_sidecar_text_with_callees};
+
+    let jobs = crate::entry::collect_verification_jobs(typed);
+    let mut callees: HashMap<String, CalleeSpec> = HashMap::new();
+    for (name, clauses, params, return_ty) in &jobs {
+        let ret = if return_ty.is_empty() {
+            "Unit".into()
+        } else {
+            return_ty.join(" ")
+        };
+        callees.insert(
+            name.clone(),
+            CalleeSpec {
+                param_names: params.iter().map(|p| p.name.clone()).collect(),
+                return_ty: ret,
+                clauses: clauses.clone(),
+            },
+        );
+    }
+
     let mut out = HashMap::new();
-    for (name, clauses, params, return_ty) in crate::entry::collect_verification_jobs(typed) {
+    for (name, clauses, params, return_ty) in &jobs {
         let param_tys: Vec<(usize, String)> = params
             .iter()
             .enumerate()
@@ -196,12 +219,13 @@ pub fn stub_ir_sidecars_for_typed(typed: &assura_types::TypedFile) -> HashMap<St
         let param_names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
         out.insert(
             name.clone(),
-            crate::ir_generate::generate_ir_sidecar_text(
-                &name,
+            generate_ir_sidecar_text_with_callees(
+                name,
                 &param_tys,
                 &param_names,
                 &ret,
-                &clauses,
+                clauses,
+                &callees,
             ),
         );
     }
@@ -458,6 +482,94 @@ module copy {
         assert!(
             ensures.is_some(),
             "expected verified ensures with IR sidecar, got: {results:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #863: same-file unary pure callee yields non-identity call IR and Z3 proof.
+    ///
+    /// Generation uses call-shaped ensures (`result == double(x)`). Verification
+    /// uses a concrete numeric postcondition (`result == 6` under `x == 3`) so
+    /// the ensures encoder does not need interprocedural `Call` equating; the
+    /// IR still implements the call via inlined `double` body (x+x).
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_call_shaped_ir_verifies_with_in_file_callee() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-call-ir-863-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Shape that exercises the call planner (not const/identity).
+        let gen_src = r#"
+contract double {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == x + x }
+}
+contract UseDouble {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == double(x) }
+}
+"#;
+        let typed_gen = crate::test_util::typecheck_ok(gen_src);
+        let stubs = stub_ir_sidecars_for_typed(&typed_gen);
+
+        let use_ir = stubs
+            .get("UseDouble")
+            .expect("UseDouble IR should be generated");
+        assert!(
+            use_ir.contains("call double"),
+            "caller IR should call double:\n{use_ir}"
+        );
+        assert!(
+            use_ir.contains("arith add $0 $0"),
+            "sibling must not be identity (#863):\n{use_ir}"
+        );
+        let double_ir = stubs.get("double").expect("double IR should be generated");
+        assert!(
+            double_ir.contains("arith add $0 $0"),
+            "double body from its own ensures:\n{double_ir}"
+        );
+
+        for (name, text) in &stubs {
+            std::fs::write(dir.join(format!("{name}.ir")), text).unwrap();
+        }
+
+        // Prove the call path: double(3)=6 under co-located IR bodies.
+        let prove_src = r#"
+contract double {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == x + x }
+}
+contract UseDouble {
+  input(x: Int)
+  output(result: Int)
+  requires { x == 3 }
+  ensures { result == 6 }
+}
+"#;
+        let assura_path = dir.join("call_double.assura");
+        std::fs::write(&assura_path, prove_src).unwrap();
+        let typed = crate::test_util::typecheck_ok(prove_src);
+
+        let results = Verifier::new(&typed).source(&assura_path).verify();
+        let use_ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => {
+                clause_desc.starts_with("UseDouble") && clause_desc.ends_with("::ensures")
+            }
+        });
+        assert!(
+            matches!(use_ensures, Some(VerificationResult::Verified { .. })),
+            "UseDouble with call-inlined double IR should verify; got: {results:?}"
         );
 
         let _ = std::fs::remove_dir_all(&dir);

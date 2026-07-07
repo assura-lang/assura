@@ -589,7 +589,50 @@ fn after(y: Int) -> Int
         assert!(!errors.is_empty(), "should report errors for the garbage");
     }
 
-    // ---- #716-#726: all features.rs clause_kinds parse as clause starters ----
+    // ---- #716-#726 / #867: all features.rs clause_kinds parse as clause starters ----
+
+    /// Registry-driven reachability (#867 / `guards.sh` §12): every
+    /// `clause_kinds` entry in `assura_ast::Feature::all()` must be reachable
+    /// from source as either an IDENT-clause form (`kw { body }`) or a
+    /// dedicated `SyntaxKind` keyword token in the lexer.
+    #[test]
+    fn features_registry_clause_kinds_all_reachable() {
+        use crate::lexer::Token;
+        use assura_ast::Feature;
+
+        // Collect `#[token("…")]` surfaces from the logos `Token` enum via a
+        // representative source that only needs the lexer vocabulary check:
+        // we re-lex a synthetic line with each keyword.
+        for info in Feature::all() {
+            for kw in info.clause_kinds {
+                if kw.is_empty() || !kw.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                    continue;
+                }
+
+                // Path A: IDENT-style clause inside a contract body.
+                let src = format!(
+                    "contract Test_{kw} {{\n  {kw} {{ some_body }}\n  fn run() -> Bool\n}}"
+                );
+                let (_file, errors) = parse(&src);
+                if errors.is_empty() {
+                    continue;
+                }
+
+                // Path B: reserved keyword token (e.g. `axiom`, `modifies`).
+                // These use dedicated grammar productions, not IDENT_CLAUSE_STARTERS.
+                let lexed: Vec<_> = <Token as logos::Logos>::lexer(kw)
+                    .filter_map(|t| t.ok())
+                    .collect();
+                let is_keyword_token = lexed.len() == 1 && !matches!(lexed[0], Token::Ident(_));
+                assert!(
+                    is_keyword_token,
+                    "features.rs clause_kind `{kw}` ({}) is neither a parseable \
+                     IDENT clause form nor a lexer keyword token; errors: {errors:?}",
+                    info.spec_id
+                );
+            }
+        }
+    }
 
     /// Every keyword registered in features.rs clause_kinds must be recognized
     /// by the parser as a clause starter (no A01002 parse errors).
@@ -598,6 +641,9 @@ fn after(y: Int) -> Int
         // Comprehensive list of all clause_kinds from features.rs that are
         // ident-based (not SyntaxKind keywords). Each must parse as a clause
         // inside a contract body without producing parse errors.
+        // Prefer `features_registry_clause_kinds_all_parse` for full coverage;
+        // this static list remains as a fast named regression for historical
+        // #716–#726 / #867 keywords.
         let ident_keywords = [
             // CORE.8 Liveness (#716)
             "liveness",
