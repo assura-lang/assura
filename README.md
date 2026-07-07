@@ -102,7 +102,7 @@ cargo install --path crates/assura-lsp --locked
 
 ```toml
 [dependencies]
-assura-pipeline = "0.2"
+assura-pipeline = "0.3"
 ```
 
 Prefer crates.io for apps; use a git path dependency only when tracking
