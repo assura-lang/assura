@@ -297,11 +297,14 @@ pub(crate) fn unconstrained_result_unknowns(
         .iter()
         .filter(|c| c.kind == ClauseKind::Ensures && expr_references_result(&c.body))
         .map(|_| {
+            // #865: actionable guidance for the common postcondition shape.
             VerificationResult::unknown_not_encoded(
                 format!("{name}::ensures"),
                 format!(
-                    "no implementation body for `{name}`; \
-                     result is unconstrained (provide a .ir sidecar to verify)"
+                    "no implementation body for `{name}`; `result` is unconstrained \
+                     without IR (add a `.ir` sidecar next to the source, run \
+                     `assura build --auto-implement`, or write ensures only over \
+                     inputs for pure proofs)"
                 ),
             )
         })
@@ -1192,6 +1195,18 @@ mod tests {
         assert_eq!(unknowns.len(), 1);
         assert!(unknowns[0].is_known_limitation());
         assert!(unknowns[0].clause_desc().contains("ensures"));
+        let reason = match &unknowns[0] {
+            VerificationResult::Unknown { reason, .. } => reason.as_str(),
+            other => panic!("expected Unknown, got {other:?}"),
+        };
+        assert!(
+            reason.contains("result") && reason.contains("unconstrained"),
+            "reason should explain unconstrained result: {reason}"
+        );
+        assert!(
+            reason.contains("auto-implement") || reason.contains(".ir"),
+            "reason should point at IR / auto-implement: {reason}"
+        );
     }
 
     #[test]

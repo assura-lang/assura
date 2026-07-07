@@ -1,3 +1,4 @@
+// SHOWCASE (must-pass): safe for `assura check` happy path. See demos/README.md.
 // ============================================================================
 // CVE-2021-3156: sudo "Baron Samedit" -- Integer Overflow / Heap Overflow
 // CVSS: 7.8

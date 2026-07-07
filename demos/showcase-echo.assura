@@ -1,0 +1,12 @@
+// SHOWCASE (must-pass): result-bearing identity with co-located IR (#865 / #866).
+// Safe for first-time `assura check` after install.
+//
+// Contract-only ensures on `result` need an implementation body. The sibling
+// `showcase-echo.ir` file is loaded as an IR sidecar so Z3 can prove
+// `result == x` instead of treating result as free.
+
+contract ShowcaseEcho {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == x }
+}

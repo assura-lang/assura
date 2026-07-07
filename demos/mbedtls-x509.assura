@@ -1,3 +1,4 @@
+// SHOWCASE (must-pass): safe for `assura check` happy path. See demos/README.md.
 // ============================================================================
 // mbedTLS CVE Cluster: Four Critical Vulnerabilities in TLS/X.509
 //

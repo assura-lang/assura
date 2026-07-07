@@ -1,3 +1,4 @@
+// SHOWCASE (must-pass): safe for `assura check` happy path. See demos/README.md.
 // ============================================================================
 // CVE-2022-37434: zlib Heap Buffer Overflow in inflateGetHeader()
 // CVSS 9.8 — Heap buffer overflow when processing gzip extra fields in the

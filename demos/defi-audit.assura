@@ -1,3 +1,5 @@
+// EXPECT FAIL: adversarial / audit model — counterexamples or errors are intentional.
+// Not a showcase must-pass demo. See demos/README.md (taxonomy).
 // DeFi Smart Contract Invariant Verification
 //
 // Every contract below models a REAL exploit pattern that has

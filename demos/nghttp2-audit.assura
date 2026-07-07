@@ -1,3 +1,5 @@
+// EXPECT FAIL: adversarial / audit model — counterexamples or errors are intentional.
+// Not a showcase must-pass demo. See demos/README.md (taxonomy).
 // nghttp2 HTTP/2 flow control audit
 // Level 3: Multi-step state machine invariants
 // Z3 searches ALL interleavings of SETTINGS + WINDOW_UPDATE + DATA

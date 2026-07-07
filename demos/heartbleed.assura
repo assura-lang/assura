@@ -1,3 +1,4 @@
+// SHOWCASE (must-pass): safe for `assura check` happy path. See demos/README.md.
 // ============================================================================
 // CVE-2014-0160: OpenSSL Heartbleed -- Buffer Over-Read
 // CVSS 7.5 -- Affected ~17% of all TLS servers worldwide. Allowed attackers

@@ -1,3 +1,5 @@
+// EXPECT FAIL: adversarial / audit model — counterexamples or errors are intentional.
+// Not a showcase must-pass demo. See demos/README.md (taxonomy).
 // Concurrent data structure invariant audit via Z3
 // Level 3: Thread interleaving search
 //

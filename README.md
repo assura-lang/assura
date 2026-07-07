@@ -114,8 +114,11 @@ unreleased `main`. Release process: [docs/CRATES-IO.md](docs/CRATES-IO.md).
 # Initialize a new project
 assura init my-project
 
-# Check a contract file
-assura check demos/libwebp-huffman.assura
+# Happy-path demos (must-pass). Prefer these over *-audit.assura files.
+# See demos/README.md for the showcase vs EXPECT FAIL taxonomy.
+assura check demos/heartbleed.assura
+# Result-bearing postconditions need IR (`ShowcaseEcho.ir` next to the source):
+assura check demos/showcase-echo.assura
 
 # Check with JSON output
 assura check demos/libwebp-huffman.assura --json

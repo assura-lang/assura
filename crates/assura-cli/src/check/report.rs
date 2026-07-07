@@ -134,14 +134,23 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                 reason,
             } => {
                 if is_known_smt_limitation(reason) {
-                    diagnostics.push(
-                        assura_diagnostics::Diagnostic::warning(
-                            "A05102",
-                            format!("verification skipped for {clause_desc}: {reason}"),
+                    // #865: unconstrained-result path gets a dedicated help suggestion.
+                    let mut diag = assura_diagnostics::Diagnostic::warning(
+                        "A05102",
+                        format!("verification skipped for {clause_desc}: {reason}"),
+                        span.clone(),
+                    )
+                    .with_file(filename);
+                    if reason.contains("result is unconstrained")
+                        || reason.contains("`result` is unconstrained")
+                    {
+                        diag = diag.with_suggestion(
+                            "add IR or use auto-implement",
                             span.clone(),
-                        )
-                        .with_file(filename),
-                    );
+                            "assura build --auto-implement path/to/file.assura",
+                        );
+                    }
+                    diagnostics.push(diag);
                 } else {
                     *has_errors = true;
                     diagnostics.push(
