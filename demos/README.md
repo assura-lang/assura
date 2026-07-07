@@ -116,12 +116,16 @@ If `assura check` fails on these, that is **by design** for teaching.
 ## Result postconditions and IR (#865)
 
 `ensures { result == ... }` needs an **implementation body**. Without a
-`.ir` sidecar (or `assura build --auto-implement`), the checker **skips**
-those clauses with a warning: `result` is unconstrained. That is not a
-failed proof of other clauses; it means “no body to check against.”
+co-located `.ir` file, `assura check` **auto-synthesizes** analyzable shapes
+in memory when it can (identity, simple arithmetic, known call/if/match
+patterns) so you often get **Verified** with no sidecar.
 
-See `showcase-echo.assura` + co-located `ShowcaseEcho.ir` (IR files are
-named `{ContractName}.ir`, not the source file stem) for the happy path.
+If the ensures shape is **not** synthesizable (e.g. bare `result > 0`), those
+clauses are **skipped with Unknown** (not a silent counterexample). Write a
+`{ContractName}.ir`, run `assura build --write-ir`, or use `--auto-implement`.
+
+See `showcase-echo.assura` (+ optional co-located `ShowcaseEcho.ir`) for the
+happy path.
 
 ## Running demos
 

@@ -67,10 +67,14 @@ assura check ShowcaseEcho.assura
 
 Expected: `ShowcaseEcho: ensures ... verified` and `check passed (no errors)`.
 
-Without the `.ir` sidecar, an ensures on unconstrained `result` is
-skipped or reported as unknown, with a tip to add IR or run
-`assura build --auto-implement`. That is intentional: contract-only
-postconditions on free outputs are not silently proved.
+For **synthesizable** ensures shapes (`result == x`, simple arithmetic,
+same-file pure call chains, match/if patterns the planner knows),
+`assura check` synthesizes an in-memory IR body automatically so you get
+**Verified** without a co-located `.ir` file.
+
+Unanalyzable shapes (e.g. `result > 0` with no body) still report
+**Unknown** (not a fake pass), with a tip to write co-located IR,
+`assura build --write-ir`, or `--auto-implement`. That keeps proof honest.
 
 ## 4. Build (IR becomes the implementation)
 
