@@ -69,6 +69,8 @@ type IrPlannerFn = fn(&SpExpr, &PlanCtx<'_>) -> Option<IrGenPlan>;
 const ENSURES_PLANNERS: &[IrPlannerFn] = &[
     plan_if_branch_ensures,
     plan_match_arm_ensures,
+    plan_abs_call_ensures,
+    plan_bool_comparison_ensures,
     plan_multi_fn_call_chain,
     plan_identity_equality,
     plan_length_copy_ensures,
@@ -338,6 +340,98 @@ fn ir_match_pattern_text(pat: &assura_ast::Pattern) -> Option<String> {
         Pattern::Literal(Literal::Bool(b)) => Some(if *b { "true".into() } else { "false".into() }),
         Pattern::Literal(Literal::Str(s)) => Some(format!("\"{s}\"")),
         Pattern::Literal(_) | Pattern::Tuple(_) => None,
+    }
+}
+
+/// `ensures { result == abs(x) }` → `if x >= 0 then x else 0 - x`.
+fn plan_abs_call_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    let (lhs, rhs) = equality_operands(expr)?;
+    let call = if is_result_ident(lhs) {
+        rhs
+    } else if is_result_ident(rhs) {
+        lhs
+    } else {
+        return None;
+    };
+    let Expr::Call { func, args } = &call.node else {
+        return None;
+    };
+    let Expr::Ident(name) = &func.as_ref().node else {
+        return None;
+    };
+    if name != "abs" || args.len() != 1 {
+        return None;
+    }
+    let mut lines: Vec<String> = Vec::new();
+    let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
+    used.sort_unstable();
+    let x_slot = operand_to_slot(&args[0], ctx, &mut lines, &mut used)?;
+    let zero = next_temp_slot(&used);
+    used.push(zero);
+    lines.push(format!("    ${zero} = const 0 : Int"));
+    let cond = next_temp_slot(&used);
+    used.push(cond);
+    lines.push(format!("    ${cond} = cmp ge ${x_slot} ${zero} : Bool"));
+    let out = next_temp_slot(&used);
+    used.push(out);
+    lines.push(format!(
+        "    ${out} = if ${cond} then #1 else #2 : {}",
+        ctx.return_ty
+    ));
+    lines.push(format!("    $result = load ${out} : {}", ctx.return_ty));
+    let pos = single_load(x_slot, ctx.return_ty);
+    let neg = IrGenBody {
+        lines: vec![
+            format!("    $0 = const 0 : {}", ctx.return_ty),
+            format!("    $1 = arith sub $0 ${x_slot} : {}", ctx.return_ty),
+            format!("    $result = load $1 : {}", ctx.return_ty),
+        ],
+    };
+    Some(IrGenPlan {
+        main: IrGenBody { lines },
+        siblings: vec![(1, pos, 0), (2, neg, 0)],
+    })
+}
+
+/// `ensures { result == (x > 0) }` (Bool return) via IR `cmp`.
+fn plan_bool_comparison_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    if !ctx.return_ty.eq_ignore_ascii_case("Bool") {
+        return None;
+    }
+    let (lhs, rhs) = equality_operands(expr)?;
+    let other = if is_result_ident(lhs) {
+        rhs
+    } else if is_result_ident(rhs) {
+        lhs
+    } else {
+        return None;
+    };
+    let Expr::BinOp { op, lhs: a, rhs: b } = &other.node else {
+        return None;
+    };
+    let ir_op = ir_cmp_op_name(op)?;
+    let mut lines: Vec<String> = Vec::new();
+    let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
+    used.sort_unstable();
+    let a_slot = operand_to_slot(a.as_ref(), ctx, &mut lines, &mut used)?;
+    let b_slot = operand_to_slot(b.as_ref(), ctx, &mut lines, &mut used)?;
+    let out = next_temp_slot(&used);
+    lines.push(format!(
+        "    ${out} = cmp {ir_op} ${a_slot} ${b_slot} : Bool"
+    ));
+    lines.push(format!("    $result = load ${out} : Bool"));
+    Some(single_fn_plan(IrGenBody { lines }))
+}
+
+fn ir_cmp_op_name(op: &BinOp) -> Option<&'static str> {
+    match op {
+        BinOp::Eq => Some("eq"),
+        BinOp::Neq => Some("ne"),
+        BinOp::Lt => Some("lt"),
+        BinOp::Lte => Some("le"),
+        BinOp::Gt => Some("gt"),
+        BinOp::Gte => Some("ge"),
+        _ => None,
     }
 }
 

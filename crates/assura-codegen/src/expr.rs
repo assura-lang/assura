@@ -124,6 +124,27 @@ impl ExprFolder for RustCodegenFolder {
     }
 
     fn fold_call(&mut self, func: &SpExpr, args: &[SpExpr]) -> String {
+        // Map common pure numeric builtins to Rust methods / associated functions.
+        if let Expr::Ident(name) = &func.node {
+            match (name.as_str(), args.len()) {
+                ("abs", 1) => return format!("{}.abs()", self.fold_expr(&args[0])),
+                ("min", 2) => {
+                    return format!(
+                        "{}.min({})",
+                        self.fold_expr(&args[0]),
+                        self.fold_expr(&args[1])
+                    );
+                }
+                ("max", 2) => {
+                    return format!(
+                        "{}.max({})",
+                        self.fold_expr(&args[0]),
+                        self.fold_expr(&args[1])
+                    );
+                }
+                _ => {}
+            }
+        }
         format!("{}({})", self.fold_expr(func), fold_arg_list(self, args))
     }
 
