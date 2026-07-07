@@ -11,7 +11,7 @@
 //! or unanalyzable callees no longer emit a silent identity sibling; the
 //! planner returns `None` so the module falls back to a labeled stub.
 
-use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, SpExpr};
+use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, SpExpr, UnaryOp};
 use std::collections::HashMap;
 
 use crate::ir_codegen::stub_ir_sidecar_text;
@@ -32,7 +32,6 @@ pub struct CalleeSpec {
 pub(crate) struct PlanCtx<'a> {
     pub name_to_slot: HashMap<&'a str, usize>,
     pub return_ty: &'a str,
-    pub param_count: usize,
     /// In-file callees keyed by declaration name (exact `call` target).
     pub callees: &'a HashMap<String, CalleeSpec>,
 }
@@ -174,7 +173,6 @@ pub fn generate_ir_sidecar_text_with_callees(
             .map(|(i, n)| (n.as_str(), i))
             .collect(),
         return_ty,
-        param_count: params.len(),
         callees,
     };
 
@@ -411,7 +409,6 @@ fn plan_callee_body_from_ensures(callee: &CalleeSpec) -> Option<IrGenBody> {
     let ctx = PlanCtx {
         name_to_slot,
         return_ty: callee.return_ty.as_str(),
-        param_count: callee.param_names.len(),
         // Nested call chains are out of scope for v1 sibling synthesis.
         callees: &empty,
     };
@@ -471,16 +468,21 @@ fn plan_result_equals(other: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
             Some(single_load(slot, ctx.return_ty))
         }
         Expr::Literal(lit) => Some(single_const(&literal_to_ir_const(lit)?, ctx.return_ty)),
-        Expr::BinOp { op, lhs, rhs } => {
+        Expr::BinOp { op, lhs, rhs } if op.is_arithmetic() => {
             plan_result_arith(op.clone(), lhs.as_ref(), rhs.as_ref(), ctx)
         }
-        _ => {
-            if ctx.param_count == 1 {
-                Some(single_load(0, ctx.return_ty))
-            } else {
-                None
-            }
+        // Nested arith / unary negation: materialize temps then load into result.
+        // Do NOT fall back to identity for one-param contracts (that produced
+        // wrong IR for unanalyzable RHS and hid the "not synthesizable" path).
+        Expr::BinOp { .. } | Expr::UnaryOp { .. } => {
+            let mut lines: Vec<String> = Vec::new();
+            let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
+            used.sort_unstable();
+            let slot = operand_to_slot(other, ctx, &mut lines, &mut used)?;
+            lines.push(format!("    $result = load ${slot} : {}", ctx.return_ty));
+            Some(IrGenBody { lines })
         }
+        _ => None,
     }
 }
 
@@ -515,7 +517,10 @@ fn plan_result_arith(
     Some(IrGenBody { lines })
 }
 
-/// Resolve an arithmetic operand to a slot, materializing integer/bool literals.
+/// Resolve an arithmetic operand to a slot.
+///
+/// Supports parameters, integer/bool literals (`const` temps), nested
+/// arithmetic binops (e.g. `(x + 1) * 2`), and unary negation (`-x` as `0 - x`).
 fn operand_to_slot(
     expr: &SpExpr,
     ctx: &PlanCtx<'_>,
@@ -529,6 +534,34 @@ fn operand_to_slot(
             let slot = next_temp_slot(used);
             used.push(slot);
             lines.push(format!("    ${slot} = const {value} : {}", ctx.return_ty));
+            Some(slot)
+        }
+        Expr::BinOp { op, lhs, rhs } if op.is_arithmetic() => {
+            let ir_op = op.as_ident();
+            let lhs_slot = operand_to_slot(lhs.as_ref(), ctx, lines, used)?;
+            let rhs_slot = operand_to_slot(rhs.as_ref(), ctx, lines, used)?;
+            let slot = next_temp_slot(used);
+            used.push(slot);
+            lines.push(format!(
+                "    ${slot} = arith {ir_op} ${lhs_slot} ${rhs_slot} : {}",
+                ctx.return_ty
+            ));
+            Some(slot)
+        }
+        Expr::UnaryOp {
+            op: UnaryOp::Neg,
+            expr: inner,
+        } => {
+            let zero = next_temp_slot(used);
+            used.push(zero);
+            lines.push(format!("    ${zero} = const 0 : {}", ctx.return_ty));
+            let inner_slot = operand_to_slot(inner.as_ref(), ctx, lines, used)?;
+            let slot = next_temp_slot(used);
+            used.push(slot);
+            lines.push(format!(
+                "    ${slot} = arith sub ${zero} ${inner_slot} : {}",
+                ctx.return_ty
+            ));
             Some(slot)
         }
         _ => None,

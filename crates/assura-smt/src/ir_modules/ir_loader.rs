@@ -585,6 +585,89 @@ contract Echo {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Nested arithmetic `(x + 1) * 2` must synthesize via recursive operand temps.
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_heuristic_ir_verifies_result_eq_nested_arith_without_sidecar() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir =
+            std::env::temp_dir().join(format!("assura-heuristic-nested-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract Nested {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == (x + 1) * 2 }
+}
+"#;
+        let path = dir.join("nested.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"Nested".to_string()),
+            "expected nested-arith heuristic, names={:?}",
+            loaded.heuristic_names()
+        );
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => clause_desc.ends_with("::ensures"),
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Verified { .. })),
+            "nested arith should verify; got {results:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Unary negation `result == -x` synthesizes as `0 - x`.
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_heuristic_ir_verifies_result_eq_neg_x_without_sidecar() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-heuristic-neg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract Neg {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == -x }
+}
+"#;
+        let path = dir.join("neg.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"Neg".to_string()),
+            "expected neg heuristic, names={:?}",
+            loaded.heuristic_names()
+        );
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => clause_desc.ends_with("::ensures"),
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Verified { .. })),
+            "result == -x should verify; got {results:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Param + literal arithmetic (`result == x + 1`) must synthesize, not stub.
     #[test]
     #[cfg(feature = "z3-verify")]
