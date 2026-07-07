@@ -18,12 +18,12 @@ Header markers (first lines of the file):
 // EXPECT FAIL: adversarial / audit model — counterexamples or errors are intentional.
 ```
 
-## Quick start (simple path)
+## Getting started
 
 End-to-end install → check → build → `cargo test` (no monorepo required):
 see [docs/GETTING-STARTED.md](../docs/GETTING-STARTED.md).
 
-## Quick start (demos in this repo)
+## Check demos in this repo
 
 ```bash
 # After: cargo install assura --locked

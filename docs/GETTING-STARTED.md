@@ -1,6 +1,6 @@
 # Getting Started with Assura
 
-One simple path from install to a verified, runnable implementation.
+From install to a verified, runnable implementation.
 
 This guide works on a clean machine (no monorepo required). It uses a
 tiny result-bearing showcase contract plus a co-located Implementation IR

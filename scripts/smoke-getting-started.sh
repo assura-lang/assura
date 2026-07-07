@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke the boring path from docs/GETTING-STARTED.md (#866 / P1-P2).
+# Smoke docs/GETTING-STARTED.md end-to-end (#866 / P1-P2).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${TMPDIR:-/tmp}/assura-gs-smoke-$$"

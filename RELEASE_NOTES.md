@@ -40,7 +40,7 @@ public library entry (`compile` / `compile_full` / `verify_typed`).
 See [docs/CRATES-IO.md](https://github.com/assura-lang/assura/blob/main/docs/CRATES-IO.md)
 and the [FAQ](https://github.com/assura-lang/assura/blob/main/docs/FAQ.md).
 
-### One simple path: contract to check to build to run
+### Contract to check to build to run
 
 New guide: **[docs/GETTING-STARTED.md](https://github.com/assura-lang/assura/blob/main/docs/GETTING-STARTED.md)**
 (linked from the README and tutorial).
