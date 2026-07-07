@@ -18,12 +18,12 @@ Header markers (first lines of the file):
 // EXPECT FAIL: adversarial / audit model — counterexamples or errors are intentional.
 ```
 
-## Quick start (boring path)
+## Getting started
 
 End-to-end install → check → build → `cargo test` (no monorepo required):
 see [docs/GETTING-STARTED.md](../docs/GETTING-STARTED.md).
 
-## Quick start (demos in this repo)
+## Check demos in this repo
 
 ```bash
 # After: cargo install assura --locked
@@ -72,7 +72,7 @@ Prefer `heartbleed` or `showcase-echo` for a first green check.
 | File | Intent |
 |------|--------|
 | `defi-audit.assura` | DeFi exploit patterns (CE expected) |
-| `boring-vault-audit.assura` / `boring-vault-audit-deep.assura` | Vault attack models |
+| `vault-audit.assura` / `vault-audit-deep.assura` | Vault attack models |
 | `concurrency-audit.assura` | Concurrency attack models |
 | `image-crate-audit.assura` | Image decoding attack models |
 | `libssh2-audit.assura` | SSH buffer / window attacks |

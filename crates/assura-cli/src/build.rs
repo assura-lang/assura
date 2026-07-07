@@ -1043,7 +1043,7 @@ fn main() {{
 
 /// Convert co-located `{ContractName}.ir` sidecars into Rust bodies for codegen.
 ///
-/// Used by the boring getting-started path (#866): after `assura check` with
+/// Used by the getting-started flow (#866): after `assura check` with
 /// co-located IR proves the contract, `assura build` injects the same IR as a
 /// real implementation instead of `todo!()`.
 ///

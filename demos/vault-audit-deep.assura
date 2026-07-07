@@ -1,8 +1,8 @@
 // EXPECT FAIL: adversarial / audit model — counterexamples or errors are intentional.
 // Not a showcase must-pass demo. See demos/README.md (taxonomy).
-// BoringVault Deep Audit - Round 2
+// Vault deep audit models - Round 2
 // Additional contracts targeting specific arithmetic paths
-// Source: AccountantWithRateProviders.sol (Solidity 0.8.21)
+// Source patterns from AccountantWithRateProviders.sol (Solidity 0.8.21)
 
 // ============================================================
 // FINDING 1: Platform fee can ALSO overflow uint128
@@ -194,7 +194,7 @@ contract PerformanceFeeSplitManipulation {
 //
 // After deposit, shares are locked (shareLockPeriod, max 3 days).
 // The lock uses a mapping: shareUnlockTime[user] = block.timestamp + lock
-// But: BoringVault is ERC20. Can user transfer shares to another address
+// But: the vault shares token is ERC20. Can user transfer shares to another address
 // that has no lock, then withdraw from there?
 //
 // Actually let me check if they override transfer/transferFrom...

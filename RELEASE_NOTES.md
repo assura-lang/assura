@@ -5,7 +5,7 @@ compiler and SMT solvers check it, and the toolchain generates Rust you can
 build and run.
 
 **0.3.0 is the release where install, check, prove, and run line up.** You can
-install the real CLI from crates.io, follow one boring getting-started path,
+install the real CLI from crates.io, follow one simple getting-started path,
 and get real **Verified** results on result-bearing contracts without fighting
 the toolchain first.
 
@@ -18,7 +18,7 @@ the toolchain first.
 - **Smarter proofs for everyday ensures:** identity, arithmetic, and call
   shapes verify more often; co-located IR and offline `--write-ir` close the
   loop into generated Rust.
-- **Honest demos and clearer check UX:** showcase files for first green
+- **Labeled demos and clearer check UX:** showcase files for first green
   runs; expected-fail demos are labeled so audit files do not look like a
   broken install.
 
@@ -40,7 +40,7 @@ public library entry (`compile` / `compile_full` / `verify_typed`).
 See [docs/CRATES-IO.md](https://github.com/assura-lang/assura/blob/main/docs/CRATES-IO.md)
 and the [FAQ](https://github.com/assura-lang/assura/blob/main/docs/FAQ.md).
 
-### One boring path: contract to check to build to run
+### Contract to check to build to run
 
 New guide: **[docs/GETTING-STARTED.md](https://github.com/assura-lang/assura/blob/main/docs/GETTING-STARTED.md)**
 (linked from the README and tutorial).
@@ -72,7 +72,7 @@ Repo smoke (from a clone): `bash scripts/smoke-getting-started.sh`.
   Rust.
 - **Runnable binary:** `assura build --bin` emits a small `main` for the
   primary contract so you can `cargo run` a demo end-to-end.
-- **Honest refusal:** unanalyzable shapes (for example bare `result > 0`
+- **Clear refusal:** unanalyzable shapes (for example bare `result > 0`
   with no body) stay **Unknown** with guidance, not a silent counterexample
   and not a fake identity proof.
 
