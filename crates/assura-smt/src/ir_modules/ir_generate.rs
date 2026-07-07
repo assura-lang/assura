@@ -348,7 +348,7 @@ fn ir_match_pattern_text(pat: &assura_ast::Pattern) -> Option<String> {
 /// Unary pure helpers only. Sibling `fn #1` is synthesized from the
 /// callee's analyzable ensures (e.g. `result == x + x` → `arith add`).
 /// Multi-arg, recursive, effectful, or unknown callees return `None`
-/// (honest stub fallback) rather than a silent identity sibling.
+/// (explicit stub fallback) rather than a silent identity sibling.
 fn plan_multi_fn_call_chain(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let (lhs, rhs) = equality_operands(expr)?;
     let call = if is_result_ident(lhs) {
@@ -495,19 +495,44 @@ fn plan_result_arith(
         _ => return None,
     };
 
-    let lhs_slot = expr_to_param_slot(lhs, &ctx.name_to_slot)?;
-    let rhs_slot = expr_to_param_slot(rhs, &ctx.name_to_slot)?;
-    let temp_slot = next_temp_slot(&[lhs_slot, rhs_slot]);
+    // Support param/param, param/literal, and literal/param (e.g. `result == x + 1`).
+    // Literals become `const` temps so IR arith always takes slot operands.
+    let mut lines: Vec<String> = Vec::new();
+    let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
+    used.sort_unstable();
+    let lhs_slot = operand_to_slot(lhs, ctx, &mut lines, &mut used)?;
+    let rhs_slot = operand_to_slot(rhs, ctx, &mut lines, &mut used)?;
+    let temp_slot = next_temp_slot(&used);
+    lines.push(format!(
+        "    ${temp_slot} = arith {ir_op} ${lhs_slot} ${rhs_slot} : {}",
+        ctx.return_ty
+    ));
+    lines.push(format!(
+        "    $result = load ${temp_slot} : {}",
+        ctx.return_ty
+    ));
 
-    Some(IrGenBody {
-        lines: vec![
-            format!(
-                "    ${temp_slot} = arith {ir_op} ${lhs_slot} ${rhs_slot} : {}",
-                ctx.return_ty
-            ),
-            format!("    $result = load ${temp_slot} : {}", ctx.return_ty),
-        ],
-    })
+    Some(IrGenBody { lines })
+}
+
+/// Resolve an arithmetic operand to a slot, materializing integer/bool literals.
+fn operand_to_slot(
+    expr: &SpExpr,
+    ctx: &PlanCtx<'_>,
+    lines: &mut Vec<String>,
+    used: &mut Vec<usize>,
+) -> Option<usize> {
+    match &expr.node {
+        Expr::Ident(name) => ctx.name_to_slot.get(name.as_str()).copied(),
+        Expr::Literal(lit) => {
+            let value = literal_to_ir_const(lit)?;
+            let slot = next_temp_slot(used);
+            used.push(slot);
+            lines.push(format!("    ${slot} = const {value} : {}", ctx.return_ty));
+            Some(slot)
+        }
+        _ => None,
+    }
 }
 
 fn length_relation_ensures(expr: &SpExpr, name_to_slot: &HashMap<&str, usize>) -> Option<usize> {
