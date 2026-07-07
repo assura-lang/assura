@@ -114,7 +114,7 @@ pub use ir_generate::{
     generate_ir_sidecar_text_with_callees,
 };
 pub use ir_loader::{
-    LoadedVerifyExtras, collect_verification_job_names, ir_search_dirs_for_source,
+    LoadedVerifyExtras, collect_verification_job_names, ir_search_dirs_for_source, is_stub_ir_text,
     load_ir_bodies_for_contracts, load_ir_bodies_for_typed, stub_ir_sidecars_for_typed,
 };
 pub use ir_templates::{

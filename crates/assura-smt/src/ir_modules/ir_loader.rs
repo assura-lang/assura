@@ -50,7 +50,7 @@ impl LoadedVerifyExtras {
                 continue;
             }
             // Unanalyzable ensures produce a labeled stub; do not pretend it proves result.
-            if text.contains("Stub IR") {
+            if is_stub_ir_text(&text) {
                 continue;
             }
             let Ok(module) = parse_ir_module(&text) else {
@@ -285,8 +285,20 @@ pub fn stub_ir_sidecars_for_typed(typed: &assura_types::TypedFile) -> HashMap<St
     out
 }
 
+/// True when text is a placeholder stub (unanalyzable ensures), not a real body.
+///
+/// These must not be treated as co-located implementation IR for verify/codegen:
+/// they use identity `load $0` and would prove the wrong thing or poison `--write-ir`.
+pub fn is_stub_ir_text(source: &str) -> bool {
+    source.contains("Stub IR")
+}
+
 fn load_ir_file(path: &Path) -> Option<IrSidecar> {
     let source = std::fs::read_to_string(path).ok()?;
+    // Reject labeled stubs so disk sidecars match in-memory heuristic policy.
+    if is_stub_ir_text(&source) {
+        return None;
+    }
     let module: IrModule = parse_ir_module(&source).ok()?;
     let func = module.functions.first()?.clone();
     let blocks = block_map_from_module(&module);
@@ -708,6 +720,117 @@ contract Inc {
             "result == x + 1 should verify via synthesized IR; got {results:?}"
         );
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Disk sidecars that are only labeled stubs must not load as real IR.
+    #[test]
+    fn stub_ir_text_on_disk_is_not_loaded_as_implementation() {
+        let dir = std::env::temp_dir().join(format!("assura-stub-disk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = r#"
+contract Pos {
+  input(x: Int)
+  output(result: Int)
+  ensures { result > 0 }
+}
+"#;
+        let path = dir.join("pos.assura");
+        std::fs::write(&path, src).unwrap();
+        // Identity stub (historical --write-ir poison): would wrongly constrain result.
+        let stub = r#"// Stub IR for Pos — AI replaces body to satisfy contract ensures
+module Pos {
+fn #0 : ($0: Int) -> Int ! pure
+{
+    $result = load $0 : Int
+}
+}
+"#;
+        std::fs::write(dir.join("Pos.ir"), stub).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load(&path, &typed);
+        assert!(
+            !loaded.ir_map.contains_key("Pos"),
+            "stub co-located IR must not load as implementation"
+        );
+        assert!(is_stub_ir_text(stub));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_heuristic_ir_verifies_result_eq_abs_x_without_sidecar() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+        let dir = std::env::temp_dir().join(format!("assura-abs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = r#"
+contract AbsX {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == abs(x) }
+}
+"#;
+        let path = dir.join("abs.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"AbsX".to_string()),
+            "expected abs heuristic, names={:?}",
+            loaded.heuristic_names()
+        );
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => clause_desc.ends_with("::ensures"),
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Verified { .. })),
+            "result == abs(x) should verify; got {results:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_heuristic_ir_verifies_bool_comparison_without_sidecar() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+        let dir = std::env::temp_dir().join(format!("assura-bool-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = r#"
+contract Pos {
+  input(x: Int)
+  output(result: Bool)
+  ensures { result == (x > 0) }
+}
+"#;
+        let path = dir.join("pos.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"Pos".to_string()),
+            "expected bool cmp heuristic, names={:?}",
+            loaded.heuristic_names()
+        );
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => clause_desc.ends_with("::ensures"),
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Verified { .. })),
+            "result == (x > 0) should verify; got {results:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

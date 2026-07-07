@@ -342,8 +342,12 @@ fn write_generated_project(
         .join("generated");
     if fs::create_dir_all(&ir_dir).is_ok() {
         for (name, ir_text) in assura_smt::stub_ir_sidecars_for_typed(typed) {
+            // Same policy as --write-ir co-located: never persist identity stubs.
+            if ir_text.contains("Stub IR") {
+                continue;
+            }
             let ir_path = ir_dir.join(format!("{name}.ir"));
-            if fs::write(&ir_path, ir_text).is_ok() && verbosity != Verbosity::Quiet {
+            if fs::write(&ir_path, &ir_text).is_ok() && verbosity != Verbosity::Quiet {
                 println!("  wrote {}", ir_path.display());
             }
         }
@@ -949,7 +953,11 @@ fn build_single_contract_source(ctx: &assura_smt::IrPromptContext) -> String {
     src
 }
 
-/// Write heuristic IR next to the source file (offline, no LLM).
+/// Write **analyzable** heuristic IR next to the source file (offline, no LLM).
+///
+/// Skips labeled stub placeholders (`Stub IR`). Writing identity stubs for
+/// unanalyzable ensures used to poison co-located load/codegen (identity body
+/// injected while ensures still demanded something else).
 fn write_colocated_ir_sidecars(
     typed: &assura_types::TypedFile,
     source_path: &str,
@@ -958,13 +966,30 @@ fn write_colocated_ir_sidecars(
     let parent = Path::new(source_path)
         .parent()
         .unwrap_or_else(|| Path::new("."));
+    let mut wrote = 0usize;
+    let mut skipped_stub = 0usize;
     for (name, ir_text) in assura_smt::stub_ir_sidecars_for_typed(typed) {
-        let path = parent.join(format!("{name}.ir"));
-        if let Err(e) = fs::write(&path, ir_text) {
-            eprintln!("Warning: could not write {}: {e}", path.display());
-        } else if verbosity != Verbosity::Quiet {
-            println!("  wrote co-located IR {}", path.display());
+        if ir_text.contains("Stub IR") {
+            skipped_stub += 1;
+            if verbosity == Verbosity::Verbose {
+                eprintln!("  --write-ir: skip stub for `{name}` (ensures not auto-synthesizable)");
+            }
+            continue;
         }
+        let path = parent.join(format!("{name}.ir"));
+        if let Err(e) = fs::write(&path, &ir_text) {
+            eprintln!("Warning: could not write {}: {e}", path.display());
+        } else {
+            wrote += 1;
+            if verbosity != Verbosity::Quiet {
+                println!("  wrote co-located IR {}", path.display());
+            }
+        }
+    }
+    if verbosity != Verbosity::Quiet && wrote == 0 && skipped_stub > 0 {
+        eprintln!(
+            "  --write-ir: no analyzable ensures to materialize ({skipped_stub} stub(s) skipped); use --auto-implement or hand-write .ir"
+        );
     }
 }
 
@@ -1061,16 +1086,36 @@ fn rust_bodies_from_ir_sidecars(
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let names = assura_smt::collect_verification_job_names(typed);
-    let ir_funcs = assura_smt::load_ir_bodies_for_contracts(&[parent.as_path()], &names);
-    if ir_funcs.is_empty() {
-        return std::collections::HashMap::new();
-    }
-
     let contexts = assura_smt::ir_prompt_contexts_for_typed(typed, Some(path));
     let mut out = std::collections::HashMap::new();
     for ctx in &contexts {
-        let Some(func) = ir_funcs.get(&ctx.decl_name) else {
+        let ir_path = parent.join(format!("{}.ir", ctx.decl_name));
+        let Ok(ir_text) = fs::read_to_string(&ir_path) else {
+            continue;
+        };
+        // Stubs must not become `todo!()` replacements (identity load != ensures).
+        if ir_text.contains("Stub IR") {
+            if verbosity == Verbosity::Verbose {
+                eprintln!("  codegen: skip co-located stub IR for `{}`", ctx.decl_name);
+            }
+            continue;
+        }
+        let Ok(module) = assura_smt::parse_ir_module(&ir_text) else {
+            continue;
+        };
+        // Multi-function IR (if/abs branches) verifies under SMT but body inject
+        // does not yet emit `block_N` helpers. Prefer no inject over broken Rust.
+        if module.functions.len() != 1 {
+            if verbosity != Verbosity::Quiet {
+                eprintln!(
+                    "  codegen: skip multi-block co-located IR for `{}` ({} fns); SMT verify still uses it",
+                    ctx.decl_name,
+                    module.functions.len()
+                );
+            }
+            continue;
+        }
+        let Some(func) = module.functions.first() else {
             continue;
         };
         let mut body = String::new();
