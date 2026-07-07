@@ -616,11 +616,48 @@ impl Encoder {
 
     /// Encode a generic uninterpreted function application.
     fn encode_call_uninterpreted(&mut self, func_name: &str, arg_vals: &[ast::Int]) -> Z3Value {
+        // Prefer same-file pure functional ensures over free UF when available.
+        if let Some(expanded) = self.try_encode_call_via_callee_spec(func_name, arg_vals) {
+            return expanded;
+        }
         let decl = self.make_func(func_name, arg_vals.len());
         let arg_refs: Vec<&dyn z3::ast::Ast> =
             arg_vals.iter().map(|a| a as &dyn z3::ast::Ast).collect();
         let result = decl.apply(&arg_refs);
         Z3Value::Int(result.as_int().unwrap_or_else(|| self.fresh_int()))
+    }
+
+    /// Expand `f(args)` using a same-file `ensures { result == <expr> }` body.
+    ///
+    /// Binds formal parameter names to the already-encoded argument values,
+    /// encodes the body, then restores prior bindings.
+    fn try_encode_call_via_callee_spec(
+        &mut self,
+        func_name: &str,
+        arg_vals: &[ast::Int],
+    ) -> Option<Z3Value> {
+        let spec = self.callee_specs.get(func_name)?.clone();
+        if spec.param_names.len() != arg_vals.len() {
+            return None;
+        }
+        let mut saved: Vec<(String, Option<Z3Value>)> = Vec::new();
+        for (param, arg) in spec.param_names.iter().zip(arg_vals.iter()) {
+            saved.push((param.clone(), self.vars.remove(param)));
+            self.vars.insert(param.clone(), Z3Value::Int(arg.clone()));
+        }
+        let body = spec.result_body.clone();
+        let encoded = self.encode_expr(&body);
+        for (param, old) in saved {
+            match old {
+                Some(v) => {
+                    self.vars.insert(param, v);
+                }
+                None => {
+                    self.vars.remove(&param);
+                }
+            }
+        }
+        Some(encoded)
     }
 
     /// Encode field access as uninterpreted function: field_name(object).

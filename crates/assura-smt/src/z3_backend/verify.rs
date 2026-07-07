@@ -42,6 +42,10 @@ struct TypeConstraints<'a> {
     ir_bodies: Option<&'a std::collections::HashMap<String, IrFunction>>,
     /// Layer-0 type environment for type-aware IR encoding.
     type_env: Option<&'a assura_types::TypeEnv>,
+    /// Same-file pure callees for ensures-side call equating.
+    callee_specs: Option<
+        &'a std::collections::HashMap<String, crate::encode_callee_policy::CalleeFunctionalSpec>,
+    >,
 }
 
 /// Convert a Param's `Option<TypeExpr>` to token vec for SMT type checking.
@@ -131,6 +135,9 @@ fn verify_clauses_with_types(
     // ADT axioms (forall over uninterpreted tag UFs) are initialized lazily
     // during encoding when a match/constructor pattern needs them (#262).
     base_encoder.init_bitvector_infrastructure();
+    if let Some(specs) = types.callee_specs {
+        base_encoder.callee_specs.clone_from(specs);
+    }
     for param in types.params {
         let pt = param_ty_tokens(param);
         if let Some((width, signed)) = Encoder::fixed_width_bits(&pt) {
@@ -413,6 +420,7 @@ pub(crate) fn verify_contract_impl_with_types(
         return_ty,
         constants,
         ir: None,
+        callee_specs: None,
     };
     verify_contract_impl_with_types_and_ir(&ctx)
 }
@@ -433,6 +441,7 @@ pub(crate) fn verify_contract_impl_with_types_and_ir(
         ir_blocks: ctx.ir_blocks(),
         ir_bodies: ctx.ir_bodies(),
         type_env: ctx.type_env(),
+        callee_specs: ctx.callee_specs,
         ..Default::default()
     };
     verify_clauses_with_types(
@@ -470,7 +479,12 @@ pub(crate) fn verify_impl_with_timeout(
     // #213: Use shared job collection (DeclVisitor-based) instead of
     // hand-coded match &decl.node. Same dispatch used by CVC5 and
     // parallel paths.
-    for (name, clauses, params, return_ty) in crate::entry::collect_verification_jobs(typed) {
+    let jobs = crate::entry::collect_verification_jobs(typed);
+    // Ensures-side call equating: expand pure same-file helpers via their
+    // functional ensures (result == expr) instead of free UFs.
+    let callee_specs = crate::encode_callee_policy::collect_callee_functional_specs(&jobs);
+
+    for (name, clauses, params, return_ty) in &jobs {
         let ir_body = ir_bodies.and_then(|m| m.get(name.as_str()));
         let ir_blocks = ir_block_maps.and_then(|m| m.get(name.as_str()));
 
@@ -480,8 +494,8 @@ pub(crate) fn verify_impl_with_timeout(
         let has_ir = ir_body.is_some();
         let ir_loading_attempted = extras.is_some_and(|e| e.ir_loading_attempted);
         let skip = crate::entry::verify::unconstrained_result_unknowns(
-            &name,
-            &clauses,
+            name,
+            clauses,
             has_ir,
             ir_loading_attempted,
         );
@@ -501,18 +515,19 @@ pub(crate) fn verify_impl_with_timeout(
                 )
             }) {
                 let types = TypeConstraints {
-                    params: &params,
-                    return_ty: &return_ty,
+                    params,
+                    return_ty,
                     constants: &constants,
                     narrowings: &narrowings,
                     ir_body,
                     ir_blocks,
                     ir_bodies,
                     type_env: file_type_env,
+                    callee_specs: Some(&callee_specs),
                     ..Default::default()
                 };
                 verify_clauses_with_types(
-                    &name,
+                    name,
                     &filtered,
                     &lemma_defs,
                     &mut cache,
@@ -525,24 +540,18 @@ pub(crate) fn verify_impl_with_timeout(
         }
 
         let types = TypeConstraints {
-            params: &params,
-            return_ty: &return_ty,
+            params,
+            return_ty,
             constants: &constants,
             narrowings: &narrowings,
             ir_body,
             ir_blocks,
             ir_bodies,
             type_env: file_type_env,
+            callee_specs: Some(&callee_specs),
             ..Default::default()
         };
-        verify_clauses_with_types(
-            &name,
-            &clauses,
-            &lemma_defs,
-            &mut cache,
-            &mut results,
-            &types,
-        );
+        verify_clauses_with_types(name, clauses, &lemma_defs, &mut cache, &mut results, &types);
     }
 
     // Run all 5 advanced passes via shared solver-agnostic functions (#214)

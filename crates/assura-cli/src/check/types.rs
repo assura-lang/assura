@@ -13,6 +13,10 @@ pub(crate) struct CheckOptions<'a> {
     pub(crate) stats: bool,
     pub(crate) dump_smt: Option<&'a str>,
     pub(crate) show_cores: bool,
+    /// Unknown (incl. known limitations) and Timeout fail the check.
+    pub(crate) strict: bool,
+    /// Directory mode: only files whose header marks SHOWCASE.
+    pub(crate) showcase_only: bool,
 }
 
 /// Context for verification + diagnostic reporting.
@@ -29,4 +33,5 @@ pub(crate) struct VerifyContext<'a> {
     /// layer/solver already resolved from CLI + assura.toml.
     pub(crate) verify_options: assura_config::VerifyOptions,
     pub(crate) show_cores: bool,
+    pub(crate) strict: bool,
 }

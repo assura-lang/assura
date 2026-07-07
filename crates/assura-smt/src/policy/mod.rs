@@ -10,6 +10,7 @@ pub mod encode_adt_policy;
 pub mod encode_atom_policy;
 pub mod encode_binop_policy;
 pub mod encode_call_policy;
+pub mod encode_callee_policy;
 pub mod encode_field_policy;
 pub mod encode_if_policy;
 pub mod encode_index_policy;

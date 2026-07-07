@@ -90,6 +90,14 @@ enum Commands {
         /// Display unsat cores for verified clauses
         #[arg(long)]
         show_cores: bool,
+
+        /// Treat SMT Unknown (including known limitations) and Timeout as errors
+        #[arg(long)]
+        strict: bool,
+
+        /// When FILE is a directory, only check demos marked SHOWCASE (must-pass)
+        #[arg(long)]
+        showcase_only: bool,
     },
 
     /// Verify inline contract annotations in Rust source files
@@ -189,6 +197,14 @@ enum Commands {
         /// Use the configured LLM provider to auto-generate implementations for contracts
         #[arg(long)]
         auto_implement: bool,
+
+        /// Write heuristic IR sidecars next to the source (no LLM); co-located for check/build
+        #[arg(long)]
+        write_ir: bool,
+
+        /// Emit a binary crate with `fn main` that exercises the primary contract
+        #[arg(long)]
+        bin: bool,
     },
 
     /// Create a new Assura project
@@ -414,6 +430,8 @@ pub fn run() {
             stats,
             dump_smt,
             show_cores,
+            strict,
+            showcase_only,
         } => run_check(CheckOptions {
             filename: &file,
             output_mode,
@@ -424,6 +442,8 @@ pub fn run() {
             stats,
             dump_smt: dump_smt.as_deref(),
             show_cores,
+            strict,
+            showcase_only,
         }),
         Commands::CheckRust {
             path,
@@ -477,6 +497,8 @@ pub fn run() {
             solver,
             runtime_checks,
             auto_implement,
+            write_ir,
+            bin,
         } => run_build(BuildOpts {
             filename: &file,
             output_mode,
@@ -487,6 +509,8 @@ pub fn run() {
             cli_solver: solver,
             runtime_checks,
             auto_implement,
+            write_ir,
+            bin,
         }),
         Commands::Init { name } => run_init(&name),
         Commands::Explain { code } => run_explain(&code),

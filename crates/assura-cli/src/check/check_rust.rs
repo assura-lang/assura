@@ -170,6 +170,7 @@ pub(crate) fn run_check_rust(
                         ..Default::default()
                     },
                     show_cores: false,
+                    strict: false,
                 });
                 if has_err {
                     total_errors += diags.len();

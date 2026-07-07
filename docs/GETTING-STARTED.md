@@ -128,6 +128,31 @@ cargo test smoke::echo_forty_two
 | Build | `assura build ...` | Rust body implements the same IR (not `todo!()`) |
 | Test | `cargo test` | Runtime asserts + proptest agree with the postcondition |
 
+
+## Offline IR (no LLM) and runnable binary
+
+Generate co-located IR from ensures heuristics (no API key), inject it into
+Rust, and emit a binary you can `cargo run`:
+
+```bash
+assura build ShowcaseEcho.assura --write-ir --bin --output generated
+cd generated
+cargo run -- 42
+# prints: 42
+```
+
+Strict verification (Unknown limitations fail the check):
+
+```bash
+assura check ShowcaseEcho.assura --strict
+```
+
+Directory mode for SHOWCASE demos only:
+
+```bash
+assura check demos --showcase-only
+```
+
 ## Next steps
 
 - **More demos:** [demos/README.md](../demos/README.md) (prefer SHOWCASE files)

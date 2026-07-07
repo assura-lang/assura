@@ -57,6 +57,7 @@ module inc {
         return_ty: &["Int".into()],
         constants: &[],
         ir: Some(crate::verify_context::LoadedIrContext::with_body(&ir)),
+        callee_specs: None,
     };
     let results = verify_contract_impl_with_types_and_ir(&ctx);
     assert!(
@@ -115,6 +116,7 @@ module id {
         return_ty: &["Int".into()],
         constants: &[],
         ir: Some(crate::verify_context::LoadedIrContext::with_body(&ir)),
+        callee_specs: None,
     };
     let results = verify_contract_impl_with_types_and_ir(&ctx);
     assert!(

@@ -317,6 +317,7 @@ mod tests {
             return_ty: &["Int".into()],
             constants: &[],
             ir: None,
+            callee_specs: None,
         };
         let input = IncrementalShellScriptInput {
             prepared: &prepared,

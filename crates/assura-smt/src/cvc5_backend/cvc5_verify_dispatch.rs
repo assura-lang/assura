@@ -53,6 +53,7 @@ pub(crate) fn verify_contract_cvc5_with_full_context(
         return_ty,
         constants,
         ir: None,
+        callee_specs: None,
     };
     verify_contract_cvc5_with_lemmas(&ctx, None, cache)
 }
