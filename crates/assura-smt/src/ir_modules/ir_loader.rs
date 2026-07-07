@@ -592,10 +592,7 @@ contract Echo {
         use crate::VerificationResult;
         use crate::Verifier;
 
-        let dir = std::env::temp_dir().join(format!(
-            "assura-heuristic-add-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("assura-heuristic-add-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
