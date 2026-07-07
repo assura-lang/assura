@@ -19,9 +19,12 @@ pub struct CalleeFunctionalSpec {
     pub result_body: SpExpr,
 }
 
+/// Job tuple shape shared with `collect_verification_jobs`.
+type VerificationJob = (String, Vec<Clause>, Vec<Param>, Vec<String>);
+
 /// Build a map of declaration name → functional ensures body from verification jobs.
 pub fn collect_callee_functional_specs(
-    jobs: &[(String, Vec<Clause>, Vec<Param>, Vec<String>)],
+    jobs: &[VerificationJob],
 ) -> HashMap<String, CalleeFunctionalSpec> {
     let mut out = HashMap::new();
     for (name, clauses, params, _ret) in jobs {
