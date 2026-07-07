@@ -1,10 +1,11 @@
 // EXPECT FAIL: adversarial / audit model — counterexamples or errors are intentional.
 // Not a showcase must-pass demo. See demos/README.md (taxonomy).
-// BoringVault (Se7en-Seas/boring-vault) Formal Audit
-// Real DeFi vault powering ether.fi, Lombard, Kraken DeFi Earn
-// Multi-billion dollar TVL
+// Vault formal audit models (DeFi multi-asset vault arithmetic)
+// Inspired by real vault systems powering ether.fi, Lombard, Kraken DeFi Earn
+// Multi-billion dollar TVL class of contracts
 //
-// Source: https://github.com/Se7en-Seas/boring-vault
+// Upstream reference (repo path uses the project product name):
+// https://github.com/Se7en-Seas/boring-vault
 // Files: TellerWithMultiAssetSupport.sol, AccountantWithRateProviders.sol, BoringVault.sol
 //
 // Contracts below model the ACTUAL arithmetic from the source code.

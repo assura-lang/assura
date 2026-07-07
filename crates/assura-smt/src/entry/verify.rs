@@ -121,12 +121,17 @@ impl<'a> Verifier<'a> {
 
     /// Run verification and return results.
     pub fn verify(self) -> Vec<VerificationResult> {
-        // Prefer inline extras (from AI verification loop) over disk sidecar loading.
+        // Prefer inline extras (from AI verification loop) over disk + heuristic IR.
+        // When a source path is present and co-located sidecars are missing for
+        // result-bearing contracts, synthesize analyzable ensures heuristics in
+        // memory so `assura check` can prove `result == x` / arith / call shapes
+        // without requiring a prior `--write-ir` (still skips pure stubs).
         let loaded_storage = if self.inline_extras.is_some() {
             None
         } else {
-            self.source
-                .map(|path| crate::ir_loader::LoadedVerifyExtras::load(path, self.typed))
+            self.source.map(|path| {
+                crate::ir_loader::LoadedVerifyExtras::load_or_synthesize(path, self.typed)
+            })
         };
         let effective_loaded = self.inline_extras.or(loaded_storage.as_ref());
         let ir_loading_attempted = self.source.is_some() || self.inline_extras.is_some();
@@ -301,10 +306,10 @@ pub(crate) fn unconstrained_result_unknowns(
             VerificationResult::unknown_not_encoded(
                 format!("{name}::ensures"),
                 format!(
-                    "no implementation body for `{name}`; `result` is unconstrained \
-                     without IR (add a `.ir` sidecar next to the source, run \
-                     `assura build --auto-implement`, or write ensures only over \
-                     inputs for pure proofs)"
+                    "no implementation body for `{name}` and ensures shape is not \
+                     auto-synthesizable; `result` stays unconstrained without IR \
+                     (write a co-located `{name}.ir`, run `assura build --write-ir`, \
+                     use `--auto-implement`, or rewrite ensures over inputs only)"
                 ),
             )
         })

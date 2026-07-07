@@ -33,14 +33,22 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
             // `generated/{Name}.ir`) before verify so agents/users see when
             // implementation bodies constrain result/post-state.
             if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
+                // Only report co-located disk sidecars here. In-memory heuristic
+                // fill (analyzable ensures without a `.ir` file) runs inside
+                // assura-smt `Verifier` and must not be called from the CLI so
+                // co-publish package checks against crates.io assura-smt still
+                // compile.
                 let loaded =
                     assura_smt::LoadedVerifyExtras::load(std::path::Path::new(filename), typed);
                 if loaded.is_empty() {
-                    eprintln!("  ir:        no sidecars (searched source dir + generated/)");
+                    eprintln!(
+                        "  ir:        no co-located sidecars (verify may still synthesize \
+                         analyzable ensures shapes in-memory)"
+                    );
                 } else {
                     let names = loaded.loaded_names();
                     eprintln!(
-                        "  ir:        {} sidecar(s) loaded: {}",
+                        "  ir:        {} co-located sidecar(s): {}",
                         names.len(),
                         names.join(", ")
                     );
@@ -143,10 +151,11 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                     )
                     .with_file(filename);
                     if reason.contains("result is unconstrained")
-                        || reason.contains("`result` is unconstrained")
+                        || reason.contains("`result` stays unconstrained")
+                        || reason.contains("not auto-synthesizable")
                     {
                         diag = diag.with_suggestion(
-                            "add IR or use --write-ir / co-located .ir",
+                            "add co-located IR or simplify ensures to a synthesizable shape",
                             span.clone(),
                             "assura build --write-ir path/to/file.assura",
                         );

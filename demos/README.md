@@ -18,12 +18,12 @@ Header markers (first lines of the file):
 // EXPECT FAIL: adversarial / audit model — counterexamples or errors are intentional.
 ```
 
-## Quick start (boring path)
+## Getting started
 
 End-to-end install → check → build → `cargo test` (no monorepo required):
 see [docs/GETTING-STARTED.md](../docs/GETTING-STARTED.md).
 
-## Quick start (demos in this repo)
+## Check demos in this repo
 
 ```bash
 # After: cargo install assura --locked
@@ -72,7 +72,7 @@ Prefer `heartbleed` or `showcase-echo` for a first green check.
 | File | Intent |
 |------|--------|
 | `defi-audit.assura` | DeFi exploit patterns (CE expected) |
-| `boring-vault-audit.assura` / `boring-vault-audit-deep.assura` | Vault attack models |
+| `vault-audit.assura` / `vault-audit-deep.assura` | Vault attack models |
 | `concurrency-audit.assura` | Concurrency attack models |
 | `image-crate-audit.assura` | Image decoding attack models |
 | `libssh2-audit.assura` | SSH buffer / window attacks |
@@ -116,12 +116,16 @@ If `assura check` fails on these, that is **by design** for teaching.
 ## Result postconditions and IR (#865)
 
 `ensures { result == ... }` needs an **implementation body**. Without a
-`.ir` sidecar (or `assura build --auto-implement`), the checker **skips**
-those clauses with a warning: `result` is unconstrained. That is not a
-failed proof of other clauses; it means “no body to check against.”
+co-located `.ir` file, `assura check` **auto-synthesizes** analyzable shapes
+in memory when it can (identity, simple arithmetic, known call/if/match
+patterns) so you often get **Verified** with no sidecar.
 
-See `showcase-echo.assura` + co-located `ShowcaseEcho.ir` (IR files are
-named `{ContractName}.ir`, not the source file stem) for the happy path.
+If the ensures shape is **not** synthesizable (e.g. bare `result > 0`), those
+clauses are **skipped with Unknown** (not a silent counterexample). Write a
+`{ContractName}.ir`, run `assura build --write-ir`, or use `--auto-implement`.
+
+See `showcase-echo.assura` (+ optional co-located `ShowcaseEcho.ir`) for the
+happy path.
 
 ## Running demos
 

@@ -13,13 +13,65 @@ use crate::ir_encode::block_map_from_module;
 pub struct LoadedVerifyExtras {
     pub(crate) ir_map: HashMap<String, IrFunction>,
     pub(crate) block_map: HashMap<String, HashMap<usize, Vec<IrInstr>>>,
+    /// Contracts filled from ensures heuristics (no co-located `.ir` on disk).
+    pub(crate) heuristic_names: Vec<String>,
 }
 
 impl LoadedVerifyExtras {
     /// Load `{ContractName}.ir` sidecars for all verification jobs in `typed`.
     pub fn load(source_file: &Path, typed: &assura_types::TypedFile) -> Self {
         let (ir_map, block_map) = load_ir_sidecars_for_typed(source_file, typed);
-        Self { ir_map, block_map }
+        Self {
+            ir_map,
+            block_map,
+            heuristic_names: Vec::new(),
+        }
+    }
+
+    /// Load co-located sidecars, then synthesize **analyzable** heuristic IR
+    /// in memory for any remaining jobs (no disk write).
+    ///
+    /// Pure stubs (`Stub IR` fallback for unanalyzable ensures) are **not**
+    /// injected, so `ensures { result > 0 }` still reports Unknown instead of
+    /// a false identity proof. Analyzable shapes (`result == x`, arith, call
+    /// chains with same-file callees, match/if, …) verify without requiring
+    /// the user to run `--write-ir` first.
+    pub fn load_or_synthesize(source_file: &Path, typed: &assura_types::TypedFile) -> Self {
+        let mut loaded = Self::load(source_file, typed);
+        loaded.fill_missing_with_heuristics(typed);
+        loaded
+    }
+
+    /// Fill missing co-located IR from ensures heuristics (in memory only).
+    pub fn fill_missing_with_heuristics(&mut self, typed: &assura_types::TypedFile) {
+        let heuristics = stub_ir_sidecars_for_typed(typed);
+        for (name, text) in heuristics {
+            if self.ir_map.contains_key(&name) {
+                continue;
+            }
+            // Unanalyzable ensures produce a labeled stub; do not pretend it proves result.
+            if text.contains("Stub IR") {
+                continue;
+            }
+            let Ok(module) = parse_ir_module(&text) else {
+                continue;
+            };
+            let Some(func) = module.functions.first() else {
+                continue;
+            };
+            self.ir_map.insert(name.clone(), func.clone());
+            let blocks = block_map_from_module(&module);
+            if !blocks.is_empty() {
+                self.block_map.insert(name.clone(), blocks);
+            }
+            self.heuristic_names.push(name);
+        }
+        self.heuristic_names.sort();
+    }
+
+    /// Names that used in-memory heuristic IR (not co-located files).
+    pub fn heuristic_names(&self) -> &[String] {
+        &self.heuristic_names
     }
 
     /// Build extras from in-memory IR text, mapping the first function to
@@ -39,6 +91,7 @@ impl LoadedVerifyExtras {
         Ok(Self {
             ir_map,
             block_map: block_map_out,
+            heuristic_names: Vec::new(),
         })
     }
 
@@ -483,6 +536,101 @@ module copy {
             ensures.is_some(),
             "expected verified ensures with IR sidecar, got: {results:?}"
         );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Missing co-located IR: analyzable ensures still verify via in-memory heuristics.
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_heuristic_ir_verifies_result_eq_param_without_sidecar() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-heuristic-ir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract Echo {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == x }
+}
+"#;
+        let path = dir.join("echo.assura");
+        std::fs::write(&path, src).unwrap();
+        // Deliberately no Echo.ir on disk.
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"Echo".to_string()),
+            "expected in-memory heuristic for Echo, names={:?}",
+            loaded.heuristic_names()
+        );
+        assert!(loaded.ir_map.contains_key("Echo"));
+
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => clause_desc.ends_with("::ensures"),
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Verified { .. })),
+            "result == x should verify via synthesized IR; got {results:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Unanalyzable ensures must not get a silent identity heuristic (stay Unknown).
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_unanalyzable_result_ensures_stays_unknown_without_fake_identity() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-no-fake-ir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract Positive {
+  input(x: Int)
+  output(result: Int)
+  ensures { result > 0 }
+}
+"#;
+        let path = dir.join("pos.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            !loaded.ir_map.contains_key("Positive"),
+            "must not inject stub identity for unanalyzable ensures"
+        );
+
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => {
+                clause_desc.starts_with("Positive") && clause_desc.ends_with("::ensures")
+            }
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Unknown { .. })),
+            "unanalyzable result ensures should be Unknown, not CE/Verified; got {results:?}"
+        );
+        if let Some(VerificationResult::Unknown { reason, .. }) = ensures {
+            assert!(
+                reason.contains("not auto-synthesizable") || reason.contains("unconstrained"),
+                "reason should mention synthesizable/unconstrained path: {reason}"
+            );
+        }
 
         let _ = std::fs::remove_dir_all(&dir);
     }

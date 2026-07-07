@@ -21,24 +21,30 @@ use crate::cvc5_native_builtins::{
 };
 
 /// Encode `f(args)` as SMT-LIB2 (builtin table or generic UF).
-pub(crate) fn encode_call_smtlib<F>(func: &SpExpr, args: &[SpExpr], encode: F) -> Option<String>
+pub(crate) fn encode_call_smtlib<F>(func: &SpExpr, args: &[SpExpr], mut encode: F) -> Option<String>
 where
     F: FnMut(&SpExpr) -> Option<String>,
 {
-    let f = match &func.node {
-        Expr::Ident(name) => sanitize_smt_name(name),
+    let raw_name = match &func.node {
+        Expr::Ident(name) => name.as_str(),
         _ => return None,
     };
+    let f = sanitize_smt_name(raw_name);
     if args.is_empty() {
         return Some(f);
     }
-    let arg_strs: Option<Vec<String>> = args.iter().map(encode).collect();
+    let arg_strs: Option<Vec<String>> = args.iter().map(&mut encode).collect();
     let arg_strs = arg_strs?;
     if let Some(s) = known_builtin_to_smtlib(f.as_str(), &arg_strs) {
         if let Some(kb) = classify_known_builtin(f.as_str(), arg_strs.len()) {
             debug_assert_known_builtin_encode_kind(f.as_str(), arg_strs.len(), kb);
         }
         return Some(s);
+    }
+    // Z3/native CVC5 parity: expand same-file pure functional ensures.
+    if let Some(expanded) = try_encode_call_via_callee_spec_smtlib(raw_name, &arg_strs, &mut encode)
+    {
+        return Some(expanded);
     }
     // Shell/UF fallthrough: align with Z3/CVC5 order table (size field or uninterpreted).
     let kind = classify_encode_call(f.as_str(), arg_strs.len());
@@ -52,6 +58,31 @@ where
         "encode_call_smtlib fallthrough unexpected kind {kind:?} for {f}"
     );
     Some(format!("({f} {})", arg_strs.join(" ")))
+}
+
+/// Expand a call in SMT-LIB via thread-local shell callee specs (param let-binding).
+fn try_encode_call_via_callee_spec_smtlib<F>(
+    func_name: &str,
+    arg_strs: &[String],
+    encode: &mut F,
+) -> Option<String>
+where
+    F: FnMut(&SpExpr) -> Option<String>,
+{
+    let spec = crate::encode_callee_policy::shell_callee_spec(func_name)?;
+    if spec.param_names.len() != arg_strs.len() {
+        return None;
+    }
+    let body_smt = encode(&spec.result_body)?;
+    // (let ((p0 a0) (p1 a1) ...) body)
+    let bindings = spec
+        .param_names
+        .iter()
+        .zip(arg_strs.iter())
+        .map(|(p, a)| format!("({p} {a})"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some(format!("(let ({bindings}) {body_smt})"))
 }
 
 /// Encode `receiver.method(args)` as SMT-LIB2 (receiver prepended to arg list).
@@ -169,10 +200,57 @@ where
         if let Some(term) = encode_known_builtin_cvc5(tm, f_name.as_str(), &encoded_args, state) {
             return Some(term);
         }
+        // Z3 parity: expand same-file pure functional ensures before free UF.
+        if let Some(term) =
+            try_encode_call_via_callee_spec_cvc5(tm, name, &encoded_args, vars, state, &mut encode)
+        {
+            return Some(term);
+        }
         encode_uf_call_cvc5(tm, &f_name, &encoded_args, state)
     } else {
         None
     }
+}
+
+/// Expand `f(args)` using `ensures { result == <expr> }` from a same-file helper.
+#[cfg(feature = "cvc5-verify")]
+fn try_encode_call_via_callee_spec_cvc5<'a, F>(
+    _tm: &'a cvc5::TermManager,
+    func_name: &str,
+    encoded_args: &[cvc5::Term<'a>],
+    vars: &mut HashMap<String, cvc5::Term<'a>>,
+    state: &mut Cvc5EncoderState<'a>,
+    encode: &mut F,
+) -> Option<cvc5::Term<'a>>
+where
+    F: FnMut(
+        &SpExpr,
+        &mut HashMap<String, cvc5::Term<'a>>,
+        &mut Cvc5EncoderState<'a>,
+    ) -> Option<cvc5::Term<'a>>,
+{
+    let spec = state.callee_specs.get(func_name)?.clone();
+    if spec.param_names.len() != encoded_args.len() {
+        return None;
+    }
+    let mut saved: Vec<(String, Option<cvc5::Term<'a>>)> = Vec::new();
+    for (param, arg) in spec.param_names.iter().zip(encoded_args.iter()) {
+        saved.push((param.clone(), vars.remove(param)));
+        vars.insert(param.clone(), arg.clone());
+    }
+    let body = spec.result_body.clone();
+    let encoded = encode(&body, vars, state);
+    for (param, old) in saved {
+        match old {
+            Some(v) => {
+                vars.insert(param, v);
+            }
+            None => {
+                vars.remove(&param);
+            }
+        }
+    }
+    encoded
 }
 
 /// Encode `receiver.method(args)` as a native CVC5 term.
@@ -260,6 +338,54 @@ mod tests {
         assert_eq!(
             encode_method_call_smtlib(&receiver, "concat", &args, encode_lit),
             Some("(__concat a b)".into())
+        );
+    }
+    #[test]
+    fn encode_call_smtlib_expands_shell_callee_spec() {
+        use crate::encode_callee_policy::{CalleeFunctionalSpec, with_shell_callee_specs};
+        use assura_ast::BinOp;
+        use std::collections::HashMap;
+
+        let body = sp(Expr::BinOp {
+            op: BinOp::Add,
+            lhs: Box::new(ident("x")),
+            rhs: Box::new(ident("x")),
+        });
+        let mut specs = HashMap::new();
+        specs.insert(
+            "double".into(),
+            CalleeFunctionalSpec {
+                param_names: vec!["x".into()],
+                result_body: body,
+            },
+        );
+        let func = ident("double");
+        let args = vec![ident("n")];
+        let smt = with_shell_callee_specs(&specs, || {
+            encode_call_smtlib(&func, &args, |e| match &e.node {
+                Expr::Ident(n) => Some(n.clone()),
+                Expr::BinOp {
+                    op: BinOp::Add,
+                    lhs,
+                    rhs,
+                } => {
+                    let l = match &lhs.node {
+                        Expr::Ident(n) => n.clone(),
+                        _ => return None,
+                    };
+                    let r = match &rhs.node {
+                        Expr::Ident(n) => n.clone(),
+                        _ => return None,
+                    };
+                    Some(format!("(+ {l} {r})"))
+                }
+                _ => None,
+            })
+        })
+        .expect("expanded call");
+        assert!(
+            smt.contains("let") && smt.contains("(+ x x)") && smt.contains("n"),
+            "expected let-bound expansion, got {smt}"
         );
     }
 }
