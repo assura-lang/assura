@@ -10,12 +10,12 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-assura-config = { version = "0.2.0", path = "../assura-config" }
-assura-codegen = { version = "0.2.0", path = "../assura-codegen" }
-assura-diagnostics = { version = "0.2.0", path = "../assura-diagnostics" }
-assura-pipeline = { version = "0.2.0", path = "../assura-pipeline" }
-assura-smt = { version = "0.2.0", path = "../assura-smt" }
-assura-rust-analyzer = { version = "0.2.0", path = "../assura-rust-analyzer" }
+assura-config = { version = "0.3.0", path = "../assura-config" }
+assura-codegen = { version = "0.3.0", path = "../assura-codegen" }
+assura-diagnostics = { version = "0.3.0", path = "../assura-diagnostics" }
+assura-pipeline = { version = "0.3.0", path = "../assura-pipeline" }
+assura-smt = { version = "0.3.0", path = "../assura-smt" }
+assura-rust-analyzer = { version = "0.3.0", path = "../assura-rust-analyzer" }
 rmcp = { version = "2.1", features = ["server", "transport-io"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
