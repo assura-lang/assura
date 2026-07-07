@@ -11,11 +11,16 @@ pub(crate) fn run_check_project(
     output_mode: OutputMode,
     _verbosity: Verbosity,
     config: &CompilerConfig,
+    showcase_only: bool,
+    _strict: bool,
 ) {
     let (project_root, dep_map, dep_warnings) = load_project_deps(project_dir);
 
     if output_mode == OutputMode::Human {
         eprintln!("Checking project at {}", project_root.display());
+        if showcase_only {
+            eprintln!("  (showcase-only: files with SHOWCASE header)");
+        }
     }
     for w in &dep_warnings {
         if output_mode == OutputMode::Human {
@@ -47,6 +52,15 @@ pub(crate) fn run_check_project(
     // Type-check each resolved file with cross-module type information
     let modules_map = resolved_files.clone();
     for (module_path, resolved) in resolved_files {
+        if showcase_only {
+            // Prefer co-located source path; fall back to module path string.
+            let path = Path::new(&module_path);
+            let src = std::fs::read_to_string(path).unwrap_or_default();
+            let head: String = src.lines().take(8).collect::<Vec<_>>().join("\n");
+            if !head.contains("SHOWCASE") {
+                continue;
+            }
+        }
         total_modules += 1;
         match assura_types::TypeChecker::new()
             .config(config.type_check.clone())

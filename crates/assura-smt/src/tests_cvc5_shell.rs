@@ -200,6 +200,7 @@ module copy {
         return_ty: &["Bytes".into()],
         constants: &[],
         ir: Some(LoadedIrContext::with_body(&ir)),
+        callee_specs: None,
     };
     let results = verify_contract_cvc5_with_lemmas(&ctx, None, &mut cache);
 

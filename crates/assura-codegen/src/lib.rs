@@ -126,6 +126,8 @@ pub struct BackendConfig {
     /// When true, contract assertions use `assura_runtime::contract_violation`
     /// instead of `debug_assert!`, persisting checks in release builds.
     pub runtime_checks: bool,
+    /// When true, the CLI may attach a binary `main` (see `assura build --bin`).
+    pub emit_bin: bool,
 }
 
 impl Default for BackendConfig {
@@ -137,6 +139,7 @@ impl Default for BackendConfig {
             target: CompileTarget::Native,
             ir_bodies: std::collections::HashMap::new(),
             runtime_checks: false,
+            emit_bin: false,
         }
     }
 }

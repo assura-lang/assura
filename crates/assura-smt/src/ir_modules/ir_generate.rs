@@ -58,10 +58,11 @@ struct IrGenBody {
 }
 
 /// Main `fn #0` body plus optional sibling `fn #N` blocks in one module.
+/// Sibling entries are `(block_id, body, param_count)` for signature synthesis.
 #[derive(Debug, Clone, PartialEq)]
 struct IrGenPlan {
     main: IrGenBody,
-    siblings: Vec<(usize, IrGenBody)>,
+    siblings: Vec<(usize, IrGenBody, usize)>,
 }
 
 type IrPlannerFn = fn(&SpExpr, &PlanCtx<'_>) -> Option<IrGenPlan>;
@@ -258,7 +259,8 @@ fn plan_if_branch_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan>
                 format!("    $result = load ${out_slot} : {}", ctx.return_ty),
             ],
         },
-        siblings: vec![(1, then_body), (2, else_body)],
+        // Branch blocks take no formal params; they close over main slots.
+        siblings: vec![(1, then_body, 0), (2, else_body, 0)],
     })
 }
 
@@ -292,7 +294,7 @@ fn plan_match_arm_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan>
         let pat_text = ir_match_pattern_text(&arm.pattern)?;
         let body = plan_branch_result(&arm.body, ctx)?;
         arm_texts.push(format!("{pat_text} => #{block_id}"));
-        siblings.push((block_id, body));
+        siblings.push((block_id, body, 0));
     }
 
     // Ensure a wildcard arm exists so the IR match is total; if none, add `_ => #last`.
@@ -304,10 +306,10 @@ fn plan_match_arm_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan>
     if !has_wildcard {
         // Fall back: last arm already planned; no extra sibling (IR may still be partial).
         // Prefer explicit wildcard when the last arm is not one, by reusing last body.
-        if let Some((_, last_body)) = siblings.last().cloned() {
+        if let Some((_, last_body, nparams)) = siblings.last().cloned() {
             let wid = siblings.len() + 1;
             arm_texts.push(format!("_ => #{wid}"));
-            siblings.push((wid, last_body));
+            siblings.push((wid, last_body, nparams));
         }
     }
 
@@ -362,29 +364,37 @@ fn plan_multi_fn_call_chain(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPla
     let Expr::Ident(helper) = &func.as_ref().node else {
         return None;
     };
-    // Multi-arg / builtin: classified as unplanned (no identity fake).
-    if is_builtin_call(helper) || args.len() != 1 {
+    // Builtin names are not synthesized as call plans.
+    if is_builtin_call(helper) {
         return None;
     }
     let callee = ctx.callees.get(helper.as_str())?;
-    // Unary pure only in v1: reject multi-param callees for sibling synth.
-    if callee.param_names.len() != 1 {
+    // Pure callees only when arity matches and ensures is analyzable.
+    if callee.param_names.len() != args.len() {
         return None;
     }
     let sibling_body = plan_callee_body_from_ensures(callee)?;
-    let arg_slot = expr_to_param_slot(&args[0], &ctx.name_to_slot)?;
-    let temp = next_temp_slot(&[arg_slot]);
+    let mut arg_slots = Vec::with_capacity(args.len());
+    for arg in args {
+        arg_slots.push(expr_to_param_slot(arg, &ctx.name_to_slot)?);
+    }
+    let temp = next_temp_slot(&arg_slots);
+    let arg_list = arg_slots
+        .iter()
+        .map(|s| format!("${s}"))
+        .collect::<Vec<_>>()
+        .join(", ");
     Some(IrGenPlan {
         main: IrGenBody {
             lines: vec![
                 format!(
-                    "    ${temp} = call {helper} (${arg_slot}) : {}",
+                    "    ${temp} = call {helper} ({arg_list}) : {}",
                     ctx.return_ty
                 ),
                 format!("    $result = load ${temp} : {}", ctx.return_ty),
             ],
         },
-        siblings: vec![(1, sibling_body)],
+        siblings: vec![(1, sibling_body, callee.param_names.len())],
     })
 }
 
@@ -670,10 +680,20 @@ fn format_ir_module_plan(
          {main_body}\n\
            }}\n"
     );
-    for (block_id, sibling) in &plan.siblings {
+    for (block_id, sibling, nparams) in &plan.siblings {
         let sib_body = sibling.lines.join("\n");
+        // Branch/match arms historically use a dummy `$0: Int` signature even
+        // when they close over main slots; call callees use real arity.
+        let param_list = if *nparams == 0 {
+            "$0: Int".to_string()
+        } else {
+            (0..*nparams)
+                .map(|i| format!("${i}: Int"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
         out.push_str(&format!(
-            "  fn #{block_id} : ($0: Int) -> {return_ty} ! pure\n\
+            "  fn #{block_id} : ({param_list}) -> {return_ty} ! pure\n\
              pre: true\n\
              {{\n\
          {sib_body}\n\
@@ -1063,8 +1083,8 @@ mod tests {
     }
 
     #[test]
-    fn test_ir_generate_multi_arg_callee_not_identity_stubbed() {
-        // Multi-arg call: planner must not emit identity sibling for helper(a,b).
+    fn test_ir_generate_multi_arg_callee_arith() {
+        // Multi-arg pure helper with result == a + b → non-identity sibling.
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
             body: sp(Expr::BinOp {
@@ -1106,10 +1126,17 @@ mod tests {
             &clauses,
             &callees,
         );
-        // v1: multi-arg not synthesized; must not look like a verified call+identity.
         assert!(
-            text.contains("Stub IR") || !text.contains("call helper"),
-            "multi-arg callee must not silently identity-verify; got:\n{text}"
+            text.contains("call helper ($0, $1)"),
+            "expected multi-arg call, got:\n{text}"
+        );
+        assert!(
+            text.contains("arith add $0 $1") || text.contains("arith add $0 $0"),
+            "sibling must implement a+b, not identity; got:\n{text}"
+        );
+        assert!(
+            text.contains("$0: Int, $1: Int") || text.contains("$0: Int,$1: Int"),
+            "sibling signature should list two params; got:\n{text}"
         );
     }
 

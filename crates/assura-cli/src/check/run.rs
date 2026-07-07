@@ -19,6 +19,8 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
         stats,
         dump_smt,
         show_cores,
+        strict,
+        showcase_only,
     } = opts;
     // Load project config (assura.toml) if available
     let project = load_project_config(Path::new(filename));
@@ -67,7 +69,14 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
     let path = Path::new(filename);
     if path.is_dir() {
         // Directory mode: check all .assura files in the project
-        run_check_project(path, output_mode, verbosity, &compiler_config);
+        run_check_project(
+            path,
+            output_mode,
+            verbosity,
+            &compiler_config,
+            showcase_only,
+            strict,
+        );
         return;
     }
 
@@ -131,6 +140,7 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
         verbosity,
         verify_options: compiler_config.verify.clone(),
         show_cores,
+        strict,
     });
 
     let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;

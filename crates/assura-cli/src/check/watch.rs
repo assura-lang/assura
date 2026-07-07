@@ -60,6 +60,7 @@ pub(crate) fn check_file_once(
             ..Default::default()
         },
         show_cores: false,
+        strict: false,
     });
 
     has_errors

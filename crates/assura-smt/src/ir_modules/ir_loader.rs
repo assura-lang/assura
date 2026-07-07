@@ -574,4 +574,53 @@ contract UseDouble {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// Ensures-side call equating: `result == double(x)` verifies when double's
+    /// functional ensures is in-file and both IR sidecars are co-located.
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_result_eq_double_x_verifies_with_callee_spec() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-call-eq-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract double {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == x + x }
+}
+contract UseDouble {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == double(x) }
+}
+"#;
+        let assura_path = dir.join("call_eq.assura");
+        std::fs::write(&assura_path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let stubs = stub_ir_sidecars_for_typed(&typed);
+        for (name, text) in &stubs {
+            std::fs::write(dir.join(format!("{name}.ir")), text).unwrap();
+        }
+
+        let results = Verifier::new(&typed).source(&assura_path).verify();
+        let use_ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => {
+                clause_desc.starts_with("UseDouble") && clause_desc.ends_with("::ensures")
+            }
+        });
+        assert!(
+            matches!(use_ensures, Some(VerificationResult::Verified { .. })),
+            "result == double(x) should verify via callee functional ensures + IR; got: {results:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

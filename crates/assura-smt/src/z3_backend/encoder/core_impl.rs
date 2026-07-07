@@ -22,6 +22,7 @@ impl Encoder {
             adt_defs: HashMap::new(),
             bv_signed: HashMap::new(),
             canonical_lengths: HashMap::new(),
+            callee_specs: HashMap::new(),
         }
     }
 
@@ -39,6 +40,7 @@ impl Encoder {
         self.adt_defs.clone_from(&base.adt_defs);
         self.func_arities.clone_from(&base.func_arities);
         self.canonical_lengths.clone_from(&base.canonical_lengths);
+        self.callee_specs.clone_from(&base.callee_specs);
     }
 
     /// Return bit width for fixed-width type tokens (`u8`, `i32`, etc.).

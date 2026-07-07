@@ -99,4 +99,7 @@ pub(crate) struct Encoder {
     pub(crate) bv_signed: HashMap<String, bool>,
     /// Canonical `.length()` variables per identifier (#267).
     canonical_lengths: HashMap<String, ast::Int>,
+    /// Same-file pure callees with `ensures { result == <expr> }` for equating
+    /// ensures-side calls to functional bodies (not free UFs).
+    pub(crate) callee_specs: HashMap<String, crate::encode_callee_policy::CalleeFunctionalSpec>,
 }

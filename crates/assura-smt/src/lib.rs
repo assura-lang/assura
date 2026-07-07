@@ -63,6 +63,7 @@ pub(crate) use policy::encode_adt_policy;
 pub(crate) use policy::encode_atom_policy;
 pub(crate) use policy::encode_binop_policy;
 pub(crate) use policy::encode_call_policy;
+pub(crate) use policy::encode_callee_policy;
 pub(crate) use policy::encode_field_policy;
 pub(crate) use policy::encode_if_policy;
 pub(crate) use policy::encode_index_policy;

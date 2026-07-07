@@ -324,6 +324,7 @@ pub(crate) fn verify_parallel_with_solver(
 
     // Collect verification jobs (#213: shared with CVC5 and Z3 paths)
     let jobs = collect_verification_jobs(typed);
+    let callee_specs = crate::encode_callee_policy::collect_callee_functional_specs(&jobs);
 
     // Verify in parallel: each job gets its own solver context
     let per_job_results: Vec<Vec<VerificationResult>> = jobs
@@ -369,6 +370,7 @@ pub(crate) fn verify_parallel_with_solver(
                             extras,
                             Some(&typed.type_env),
                         ),
+                        callee_specs: Some(&callee_specs),
                     };
                     let mut results = verify_contract_with_types_and_solver(&ctx, solver);
                     results.extend(skip_results);
@@ -396,6 +398,7 @@ pub(crate) fn verify_parallel_with_solver(
                     extras,
                     Some(&typed.type_env),
                 ),
+                callee_specs: Some(&callee_specs),
             };
             let results = verify_contract_with_types_and_solver(&ctx, solver);
             cache.put(name, clauses, ir_fp, &results);

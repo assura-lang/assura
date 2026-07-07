@@ -18,6 +18,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
         verbosity,
         verify_options,
         show_cores,
+        strict,
     } = ctx;
     let layer = verify_options.layer;
     // Short-circuit: skip cache/thread-pool init when there are no
@@ -133,7 +134,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                 clause_desc,
                 reason,
             } => {
-                if is_known_smt_limitation(reason) {
+                if is_known_smt_limitation(reason) && !strict {
                     // #865: unconstrained-result path gets a dedicated help suggestion.
                     let mut diag = assura_diagnostics::Diagnostic::warning(
                         "A05102",
@@ -145,12 +146,22 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                         || reason.contains("`result` is unconstrained")
                     {
                         diag = diag.with_suggestion(
-                            "add IR or use auto-implement",
+                            "add IR or use --write-ir / co-located .ir",
                             span.clone(),
-                            "assura build --auto-implement path/to/file.assura",
+                            "assura build --write-ir path/to/file.assura",
                         );
                     }
                     diagnostics.push(diag);
+                } else if is_known_smt_limitation(reason) && strict {
+                    *has_errors = true;
+                    diagnostics.push(
+                        assura_diagnostics::Diagnostic::error(
+                            "A05102",
+                            format!("verification skipped for {clause_desc} (--strict): {reason}"),
+                            span.clone(),
+                        )
+                        .with_file(filename),
+                    );
                 } else {
                     *has_errors = true;
                     diagnostics.push(

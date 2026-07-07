@@ -526,6 +526,7 @@ pub(crate) fn verify_file_with_cvc5(
                         extras,
                         Some(&typed.type_env),
                     ),
+                    callee_specs: None,
                 };
                 results.extend(crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
                     &ctx,
@@ -548,6 +549,7 @@ pub(crate) fn verify_file_with_cvc5(
                 extras,
                 Some(&typed.type_env),
             ),
+            callee_specs: None,
         };
         results.extend(crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
             &ctx,

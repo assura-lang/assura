@@ -89,6 +89,9 @@ pub struct ContractVerifyContext<'a> {
     pub return_ty: &'a [String],
     pub constants: &'a [(String, i64)],
     pub ir: Option<LoadedIrContext<'a>>,
+    /// Same-file pure callees for ensures-side call equating (optional).
+    pub callee_specs:
+        Option<&'a HashMap<String, crate::encode_callee_policy::CalleeFunctionalSpec>>,
 }
 
 impl<'a> ContractVerifyContext<'a> {

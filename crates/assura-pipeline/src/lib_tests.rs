@@ -1122,16 +1122,21 @@ contract Second {
     let ir = "module Second {\n  fn #0 : ($0: Int) -> Int ! pure\n  {\n    $result = load $0 : Int\n  }\n}\n";
     let config = CompilerConfig::default();
 
-    // Default (first contract): IR for Second fails validation against First.
-    let wrong = verify_ir(contract, ir, &config);
-    assert_eq!(
-        wrong.status, "error",
-        "default first-contract selection should reject Second's IR: {:?}",
-        wrong.validation_errors
+    // Multi-contract: IR module name `Second` selects the matching contract
+    // (no longer silently validates against the first contract only).
+    let by_module = verify_ir(contract, ir, &config);
+    assert!(
+        by_module.validation_errors.is_empty(),
+        "module Second should select Second: {:?}",
+        by_module.validation_errors
     );
-    assert!(!wrong.validation_errors.is_empty());
+    assert_eq!(
+        by_module.status, "verified",
+        "Second identity IR should verify via module name; clauses: {:?}",
+        by_module.clauses
+    );
 
-    // Explicit Second: validates and verifies.
+    // Explicit Second: still validates and verifies.
     let ok = verify_ir_for_contract(contract, ir, &config, Some("Second"));
     assert!(
         ok.validation_errors.is_empty(),
@@ -1142,6 +1147,18 @@ contract Second {
         ok.status, "verified",
         "Second identity IR should verify; clauses: {:?}",
         ok.clauses
+    );
+
+    // Ambiguous: multi-contract with IR module that matches neither requires name.
+    let ambiguous_ir = "module Other {\n  fn #0 : ($0: Int) -> Int ! pure\n  {\n    $result = load $0 : Int\n  }\n}\n";
+    let amb = verify_ir(contract, ambiguous_ir, &config);
+    assert_eq!(amb.status, "error");
+    assert!(
+        amb.validation_errors
+            .iter()
+            .any(|e| e.contains("pass contract_name") || e.contains("contracts")),
+        "expected multi-contract guidance: {:?}",
+        amb.validation_errors
     );
 }
 

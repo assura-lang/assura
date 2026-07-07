@@ -595,6 +595,23 @@ pub fn verify_ir_for_contract(
                 )]);
             }
         }
+    } else if contracts.len() > 1 {
+        // Prefer IR module name when it matches a contract; otherwise require
+        // an explicit name so multi-contract files are not silently first-only.
+        if let Some(c) = contracts.iter().find(|c| c.name == ir_module.name) {
+            Some(*c)
+        } else {
+            return IrVerifyResult::validation_error(vec![format!(
+                "source has {} contracts ({}); pass contract_name / --contract or name the IR module to match one of them (IR module is `{}`)",
+                contracts.len(),
+                contracts
+                    .iter()
+                    .map(|c| c.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                ir_module.name
+            )]);
+        }
     } else {
         contracts.first().copied()
     };
