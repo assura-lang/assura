@@ -585,6 +585,49 @@ contract Echo {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Param + literal arithmetic (`result == x + 1`) must synthesize, not stub.
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_heuristic_ir_verifies_result_eq_x_plus_one_without_sidecar() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-heuristic-inc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract Inc {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == x + 1 }
+}
+"#;
+        let path = dir.join("inc.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"Inc".to_string()),
+            "expected in-memory heuristic for Inc (param+literal arith), names={:?}",
+            loaded.heuristic_names()
+        );
+
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => clause_desc.ends_with("::ensures"),
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Verified { .. })),
+            "result == x + 1 should verify via synthesized IR; got {results:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Multi-arg arithmetic ensures synthesize IR and verify without a sidecar.
     #[test]
     #[cfg(feature = "z3-verify")]

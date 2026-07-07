@@ -117,8 +117,9 @@ If `assura check` fails on these, that is **by design** for teaching.
 
 `ensures { result == ... }` needs an **implementation body**. Without a
 co-located `.ir` file, `assura check` **auto-synthesizes** analyzable shapes
-in memory when it can (identity, simple arithmetic, known call/if/match
-patterns) so you often get **Verified** with no sidecar.
+in memory when it can (identity, param/literal arithmetic such as
+`result == x + 1`, multi-param arithmetic such as `result == x + y`, and
+known call/if/match patterns) so you often get **Verified** with no sidecar.
 
 If the ensures shape is **not** synthesizable (e.g. bare `result > 0`), those
 clauses are **skipped with Unknown** (not a silent counterexample). Write a
