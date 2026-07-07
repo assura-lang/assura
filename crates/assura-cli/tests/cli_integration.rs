@@ -1874,10 +1874,7 @@ contract Echo {
         "analyzable ensures should get co-located Echo.ir"
     );
     let ir_text = std::fs::read_to_string(&ir_path).unwrap();
-    assert!(
-        !ir_text.contains("Stub IR"),
-        "must not be a labeled stub"
-    );
+    assert!(!ir_text.contains("Stub IR"), "must not be a labeled stub");
     assert!(
         ir_text.contains("load $0") || ir_text.contains("$result"),
         "expected identity-style body, got: {ir_text}"
