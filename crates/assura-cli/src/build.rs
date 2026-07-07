@@ -938,13 +938,24 @@ fn build_single_contract_source(ctx: &assura_smt::IrPromptContext) -> String {
 /// Used by the boring getting-started path (#866): after `assura check` with
 /// co-located IR proves the contract, `assura build` injects the same IR as a
 /// real implementation instead of `todo!()`.
+///
+/// Only loads IR from the **same directory as the source file** (e.g.
+/// `ShowcaseEcho.ir` next to `showcase-echo.assura`). Heuristic stubs under
+/// `generated/` are intentionally ignored: they often lack real semantics and
+/// would inject non-compiling Rust into multi-contract demos.
 fn rust_bodies_from_ir_sidecars(
     typed: &assura_types::TypedFile,
     source_path: &str,
     verbosity: Verbosity,
 ) -> std::collections::HashMap<String, String> {
     let path = Path::new(source_path);
-    let ir_funcs = assura_smt::load_ir_bodies_for_typed(path, typed);
+    let parent = path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let names = assura_smt::collect_verification_job_names(typed);
+    let ir_funcs =
+        assura_smt::load_ir_bodies_for_contracts(&[parent.as_path()], &names);
     if ir_funcs.is_empty() {
         return std::collections::HashMap::new();
     }
@@ -972,7 +983,7 @@ fn rust_bodies_from_ir_sidecars(
     if verbosity != Verbosity::Quiet && !out.is_empty() {
         let names: Vec<&str> = out.keys().map(String::as_str).collect();
         eprintln!(
-            "  codegen: injected IR bodies for {} contract(s): {}",
+            "  codegen: injected co-located IR for {} contract(s): {}",
             out.len(),
             names.join(", ")
         );
