@@ -227,9 +227,10 @@ Full pipeline tests in `tests/e2e/` exercise parsing through verification.
 
 ### Demo files
 
-The five files in `demos/` are regression guards. Every PR must not
-break them. They model real CVEs (libwebp, zlib, mbedtls, heartbleed,
-taint-tracking).
+Files under `demos/` are regression guards and teaching examples. See
+[`demos/README.md`](demos/README.md) for the SHOWCASE vs EXPECT FAIL
+taxonomy. Prefer showcase demos for first-time checks; `*-audit.assura`
+files are intentional red. CI runs non-audit demos on every PR.
 
 ## Adding a New Compiler Pass
 
