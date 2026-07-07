@@ -1,3 +1,5 @@
+// EXPECT FAIL: adversarial / audit model — counterexamples or errors are intentional.
+// Not a showcase must-pass demo. See demos/README.md (taxonomy).
 // libssh2 arithmetic audit
 // Source: https://github.com/libssh2/libssh2 (latest main)
 // All ensures reference only inputs so Z3 can find real counterexamples.

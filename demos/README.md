@@ -1,60 +1,140 @@
 # Assura Demo Contracts
 
-Example `.assura` contracts demonstrating how Assura prevents real-world vulnerabilities.
+Example `.assura` contracts. **Do not run every file as a must-pass test.**
+Demos fall into three buckets (see headers in each file).
 
-## CVE Prevention Demos
+## Taxonomy (#864)
 
-Each demo models a real CVE with its CVSS score, root cause analysis, and
-the Assura contracts that would have prevented the vulnerability.
+| Kind | Meaning | Exit / result | When to use |
+|------|---------|---------------|-------------|
+| **SHOWCASE (must-pass)** | Happy-path product demos | `assura check` → **no errors** (Unknown *warnings* discouraged) | Install docs, README, first-time users |
+| **FEATURE** | Language feature samples | Prefer clean pass; may warn on partial SMT | Learning a feature |
+| **EXPECT FAIL** | Adversarial / audit **attack models** | **Errors or counterexamples are intentional** | Teaching what *bad* code looks like under proof |
 
-| File | CVE | Vulnerability Class | CVSS |
-|------|-----|---------------------|------|
-| `heartbleed.assura` | CVE-2014-0160 | Buffer Over-Read | 7.5 |
-| `libwebp-huffman.assura` | CVE-2023-4863 | Heap Buffer Overflow | 9.8 |
-| `zlib-inflate.assura` | CVE-2022-37434 | Heap Buffer Overflow | 9.8 |
-| `mbedtls-x509.assura` | CVE-2023-45199 + cluster | TLS/X.509 Buffer Overflow | 9.8 |
-| `double-free.assura` | CVE-2014-0195 | Double-Free | 6.8 |
-| `use-after-free.assura` | CVE-2023-4911 | Use-After-Free | 7.8 |
-| `null-deref.assura` | CVE-2023-25136 | Null Dereference | 6.5 |
-| `integer-overflow.assura` | CVE-2021-3156 | Integer Overflow | 7.8 |
-| `stack-overflow.assura` | CVE-2022-35737 | Stack Buffer Overflow | 7.5 |
-| `sql-injection.assura` | CVE-2019-9193 | SQL Injection / RCE | 9.0 |
-| `deserialization.assura` | CVE-2021-44228 | Unsafe Deserialization | 10.0 |
-| `path-traversal.assura` | CVE-2021-41773 | Path Traversal | 7.5 |
-| `race-condition.assura` | CVE-2016-5195 | Race Condition (TOCTOU) | 7.8 |
-| `crypto-weakness.assura` | CVE-2014-3566 | Cryptographic Weakness | 3.4 |
+Header markers (first lines of the file):
 
-## Language Feature Demos
+```text
+// SHOWCASE (must-pass): ...
+// EXPECT FAIL: adversarial / audit model — counterexamples or errors are intentional.
+```
 
-Each demo showcases a specific Assura language feature with a real-world
-motivation.
+## Quick start (boring path)
+
+```bash
+# After: cargo install assura --locked
+assura check demos/heartbleed.assura
+
+# Result-bearing postconditions need an implementation body (IR).
+# This showcase verifies with a co-located .ir sidecar:
+assura check demos/showcase-echo.assura
+```
+
+Do **not** start with `demos/*-audit.assura` or `defi-audit.assura` unless you
+are studying expected failures.
+
+## SHOWCASE (must-pass)
+
+Preferred for docs and CI smoke:
+
+| File | Notes |
+|------|--------|
+| `heartbleed.assura` | CVE-style buffer safety; input-only ensures |
+| `showcase-echo.assura` + `ShowcaseEcho.ir` | `result == x` with co-located IR (result-bearing path) |
+| `zlib-inflate.assura` | Real inflate contracts |
+| `integer-overflow.assura` | Overflow-safe arithmetic shape |
+| `mbedtls-x509.assura` | X.509 / TLS-shaped contracts |
+
+Also usually clean on current main (feature demos):  
+`null-deref`, `double-free`, `use-after-free`, `path-traversal`, `sql-injection`,
+`deserialization`, `race-condition`, `crypto-weakness`, `stack-overflow`,
+`effect-handler`, `linear-resource`, `typestate-protocol`, `refinement-banking`,
+`concurrent-lock`, `mbedtls-audit`.
+
+### Pass with SMT Unknown *warnings* (not errors)
+
+These may print `check passed (N warning)` when some clauses are not yet
+encoded. That is a **limitation warning**, not a failed proof of the rest:
+
+| File | Notes |
+|------|--------|
+| `libwebp-huffman.assura` | Often used in docs; may warn |
+| `taint-tracking.assura` | SEC.1 demo; may warn |
+
+Prefer `heartbleed` or `showcase-echo` for a first green check.
+
+## EXPECT FAIL (intentional red)
+
+| File | Intent |
+|------|--------|
+| `defi-audit.assura` | DeFi exploit patterns (CE expected) |
+| `boring-vault-audit.assura` / `boring-vault-audit-deep.assura` | Vault attack models |
+| `concurrency-audit.assura` | Concurrency attack models |
+| `image-crate-audit.assura` | Image decoding attack models |
+| `libssh2-audit.assura` | SSH buffer / window attacks |
+| `nghttp2-audit.assura` | HTTP/2 attack models |
+| `stb-image-audit.assura` | Image loader attack models |
+| `zip-crate-audit.assura` | ZIP parsing attack models |
+
+If `assura check` fails on these, that is **by design** for teaching.
+
+## CVE prevention demos (mixed kinds)
+
+| File | CVE | Class | Kind |
+|------|-----|-------|------|
+| `heartbleed.assura` | CVE-2014-0160 | Buffer over-read | SHOWCASE |
+| `libwebp-huffman.assura` | CVE-2023-4863 | Heap overflow | FEATURE (may warn) |
+| `zlib-inflate.assura` | CVE-2022-37434 | Heap overflow | SHOWCASE |
+| `mbedtls-x509.assura` | CVE-2023-45199 cluster | TLS/X.509 | SHOWCASE |
+| `double-free.assura` | CVE-2014-0195 | Double-free | FEATURE |
+| `use-after-free.assura` | CVE-2023-4911 | UAF | FEATURE |
+| `null-deref.assura` | CVE-2023-25136 | Null deref | FEATURE |
+| `integer-overflow.assura` | CVE-2021-3156 | Integer overflow | SHOWCASE |
+| `stack-overflow.assura` | CVE-2022-35737 | Stack overflow | FEATURE |
+| `sql-injection.assura` | CVE-2019-9193 | SQLi / RCE | FEATURE |
+| `deserialization.assura` | CVE-2021-44228 | Unsafe deser | FEATURE |
+| `path-traversal.assura` | CVE-2021-41773 | Path traversal | FEATURE |
+| `race-condition.assura` | CVE-2016-5195 | TOCTOU | FEATURE |
+| `crypto-weakness.assura` | CVE-2014-3566 | Crypto weakness | FEATURE |
+
+## Language feature demos
 
 | File | Features | Scenario |
 |------|----------|----------|
-| `taint-tracking.assura` | SEC.1 | Taint tracking for SQLite-class input validation |
-| `linear-resource.assura` | MEM.1-MEM.3 | File handle safety via linear types |
-| `typestate-protocol.assura` | TYPE.1-TYPE.3 | TLS handshake state machine |
-| `refinement-banking.assura` | TYPE.4 | Banking transfer safety with refinement types |
-| `effect-handler.assura` | TYPE.7-TYPE.8 | I/O effect containment |
-| `concurrent-lock.assura` | CONC.1-CONC.3 | Deadlock prevention via lock ordering |
+| `taint-tracking.assura` | SEC.1 | Taint / input validation |
+| `linear-resource.assura` | MEM.* | Linear file handles |
+| `typestate-protocol.assura` | TYPE.* | TLS handshake states |
+| `refinement-banking.assura` | Refinement | Banking transfer |
+| `effect-handler.assura` | Effects | I/O containment |
+| `concurrent-lock.assura` | CONC.* | Lock ordering |
+| `showcase-echo.assura` | IR + result | Identity IR verifies `result == x` |
 
-## Running Demos
+## Result postconditions and IR (#865)
+
+`ensures { result == ... }` needs an **implementation body**. Without a
+`.ir` sidecar (or `assura build --auto-implement`), the checker **skips**
+those clauses with a warning: `result` is unconstrained. That is not a
+failed proof of other clauses; it means “no body to check against.”
+
+See `showcase-echo.assura` + co-located `ShowcaseEcho.ir` (IR files are
+named `{ContractName}.ir`, not the source file stem) for the happy path.
+
+## Running demos
 
 ```bash
-# Check a single demo
+# Happy path
+assura check demos/heartbleed.assura
+assura check demos/showcase-echo.assura
+
+# Verbose
+assura check demos/heartbleed.assura --verbose
+
+# From a monorepo clone without installing:
 cargo run --bin assura -- check demos/heartbleed.assura
-
-# Verbose output (shows pipeline phases and timing)
-cargo run --bin assura -- check demos/heartbleed.assura --verbose
-
-# Check all demos
-for f in demos/*.assura; do cargo run --bin assura -- check "$f"; done
 ```
 
-## Generated Files
+## Generated files
 
-The `generated/` subdirectory contains IR sidecar files (`.ir`) produced
-by `assura build`. These are gitignored artifacts, not source files.
+`demos/generated/` holds local build artifacts (often gitignored). Committed
+`.ir` next to a showcase `.assura` is intentional (e.g. `showcase-echo.ir`).
 
-Internal compiler test contracts and IR fixtures live in
-`tests/fixtures/ir-demos/`.
+Internal IR fixtures also live under `tests/fixtures/`.

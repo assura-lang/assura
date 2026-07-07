@@ -1,3 +1,5 @@
+// EXPECT FAIL: adversarial / audit model — counterexamples or errors are intentional.
+// Not a showcase must-pass demo. See demos/README.md (taxonomy).
 // stb_image.h audit - arithmetic invariants from nothings/stb
 // Z3 will find concrete inputs that violate these invariants.
 // All values model C int (32-bit signed) unless noted.
