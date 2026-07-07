@@ -2,11 +2,30 @@
 //!
 //! Analyzes `ensures` clauses to produce IR bodies richer than identity stubs.
 //! Falls back to `stub_ir_sidecar_text` when no pattern matches.
+//!
+//! # Call-shaped ensures (#863)
+//!
+//! `ensures { result == double(x) }` uses a cross-function `call`. Sibling
+//! `fn #1` bodies are synthesized from the **callee's ensures** when the
+//! callee is known in-file (e.g. `result == x + x` → `arith add`). Unknown
+//! or unanalyzable callees no longer emit a silent identity sibling; the
+//! planner returns `None` so the module falls back to a labeled stub.
 
 use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, SpExpr};
 use std::collections::HashMap;
 
 use crate::ir_codegen::stub_ir_sidecar_text;
+
+/// Same-file callee summary for call-chain IR synthesis (#863).
+#[derive(Debug, Clone)]
+pub struct CalleeSpec {
+    /// Parameter names in slot order (`$0`, `$1`, …).
+    pub param_names: Vec<String>,
+    /// Return type token for IR (`Int`, `Bool`, …).
+    pub return_ty: String,
+    /// Callee contract/fn clauses (ensures drive the sibling body).
+    pub clauses: Vec<Clause>,
+}
 
 /// Shared context for IR body planners (contract params → slots).
 #[derive(Debug, Clone)]
@@ -14,6 +33,8 @@ pub(crate) struct PlanCtx<'a> {
     pub name_to_slot: HashMap<&'a str, usize>,
     pub return_ty: &'a str,
     pub param_count: usize,
+    /// In-file callees keyed by declaration name (exact `call` target).
+    pub callees: &'a HashMap<String, CalleeSpec>,
 }
 
 /// Shape of the primary `ensures` clause (drives template suggestion).
@@ -106,12 +127,35 @@ pub fn classify_ensures_shape(clauses: &[Clause], param_names: &[String]) -> Ens
 }
 
 /// Generate `.ir` sidecar text from contract structure and ensures clauses.
+///
+/// Equivalent to [`generate_ir_sidecar_text_with_callees`] with an empty
+/// callee map (no call-chain sibling synthesis from other contracts).
 pub fn generate_ir_sidecar_text(
     name: &str,
     params: &[(usize, String)],
     param_names: &[String],
     return_ty: &str,
     clauses: &[Clause],
+) -> String {
+    generate_ir_sidecar_text_with_callees(
+        name,
+        params,
+        param_names,
+        return_ty,
+        clauses,
+        &HashMap::new(),
+    )
+}
+
+/// Like [`generate_ir_sidecar_text`], but synthesizes non-identity sibling
+/// bodies for unary pure callees present in `callees` (#863).
+pub fn generate_ir_sidecar_text_with_callees(
+    name: &str,
+    params: &[(usize, String)],
+    param_names: &[String],
+    return_ty: &str,
+    clauses: &[Clause],
+    callees: &HashMap<String, CalleeSpec>,
 ) -> String {
     let requires_count = clauses
         .iter()
@@ -130,6 +174,7 @@ pub fn generate_ir_sidecar_text(
             .collect(),
         return_ty,
         param_count: params.len(),
+        callees,
     };
 
     for clause in clauses.iter().filter(|c| c.kind == ClauseKind::Ensures) {
@@ -296,18 +341,12 @@ fn ir_match_pattern_text(pat: &assura_ast::Pattern) -> Option<String> {
     }
 }
 
-/// Plans IR for `ensures { result == f(x) }` call chains.
+/// Plans IR for `ensures { result == f(x) }` call chains (#863).
 ///
-/// `ensures { result == helper(x) }` with callee body as sibling `fn #1`.
-///
-/// # Limitation (#306)
-///
-/// Sibling `fn #N` blocks are always generated as identity stubs
-/// (`$result = load $0`), regardless of the callee's actual semantics.
-/// For example, `ensures { result == double(x) }` produces `fn #1`
-/// with `$result = load $0` instead of `$result = arith add $0 $0`.
-/// The verifier inlines this stub, so verification only confirms that
-/// the call plumbing works, not that the callee computes the right value.
+/// Unary pure helpers only. Sibling `fn #1` is synthesized from the
+/// callee's analyzable ensures (e.g. `result == x + x` → `arith add`).
+/// Multi-arg, recursive, effectful, or unknown callees return `None`
+/// (honest stub fallback) rather than a silent identity sibling.
 fn plan_multi_fn_call_chain(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let (lhs, rhs) = equality_operands(expr)?;
     let call = if is_result_ident(lhs) {
@@ -323,9 +362,16 @@ fn plan_multi_fn_call_chain(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPla
     let Expr::Ident(helper) = &func.as_ref().node else {
         return None;
     };
+    // Multi-arg / builtin: classified as unplanned (no identity fake).
     if is_builtin_call(helper) || args.len() != 1 {
         return None;
     }
+    let callee = ctx.callees.get(helper.as_str())?;
+    // Unary pure only in v1: reject multi-param callees for sibling synth.
+    if callee.param_names.len() != 1 {
+        return None;
+    }
+    let sibling_body = plan_callee_body_from_ensures(callee)?;
     let arg_slot = expr_to_param_slot(&args[0], &ctx.name_to_slot)?;
     let temp = next_temp_slot(&[arg_slot]);
     Some(IrGenPlan {
@@ -338,8 +384,70 @@ fn plan_multi_fn_call_chain(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPla
                 format!("    $result = load ${temp} : {}", ctx.return_ty),
             ],
         },
-        siblings: vec![(1, single_load(0, ctx.return_ty))],
+        siblings: vec![(1, sibling_body)],
     })
+}
+
+/// Strict body from a callee's ensures: Ident / Literal / arithmetic only.
+/// No single-param identity fallback (that would reintroduce silent stubs).
+fn plan_callee_body_from_ensures(callee: &CalleeSpec) -> Option<IrGenBody> {
+    let name_to_slot: HashMap<&str, usize> = callee
+        .param_names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.as_str(), i))
+        .collect();
+    let empty = HashMap::new();
+    let ctx = PlanCtx {
+        name_to_slot,
+        return_ty: callee.return_ty.as_str(),
+        param_count: callee.param_names.len(),
+        // Nested call chains are out of scope for v1 sibling synthesis.
+        callees: &empty,
+    };
+    for clause in callee
+        .clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Ensures)
+    {
+        let (lhs, rhs) = match equality_operands(&clause.body) {
+            Some(pair) => pair,
+            None => continue,
+        };
+        let other = if is_result_ident(lhs) {
+            rhs
+        } else if is_result_ident(rhs) {
+            lhs
+        } else {
+            continue;
+        };
+        // Nested calls / complex shapes: unanalyzable for v1.
+        if matches!(
+            &other.node,
+            Expr::Call { .. } | Expr::If { .. } | Expr::Match { .. }
+        ) {
+            return None;
+        }
+        if let Some(body) = plan_result_equals_strict(other, &ctx) {
+            return Some(body);
+        }
+    }
+    None
+}
+
+/// Like [`plan_result_equals`] but without the single-param identity fallback.
+fn plan_result_equals_strict(other: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
+    match &other.node {
+        Expr::Ident(name) => {
+            let slot = *ctx.name_to_slot.get(name.as_str())?;
+            Some(single_load(slot, ctx.return_ty))
+        }
+        Expr::Literal(lit) => Some(single_const(&literal_to_ir_const(lit)?, ctx.return_ty)),
+        Expr::BinOp { op, lhs, rhs } => {
+            plan_result_arith(op.clone(), lhs.as_ref(), rhs.as_ref(), ctx)
+        }
+        _ => None,
+    }
 }
 
 fn plan_branch_result(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
@@ -861,9 +969,33 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_ir_generate_multi_fn_call_chain() {
-        let clauses = vec![Clause {
+    fn double_callee_x_plus_x() -> HashMap<String, CalleeSpec> {
+        let mut m = HashMap::new();
+        m.insert(
+            "double".into(),
+            CalleeSpec {
+                param_names: vec!["x".into()],
+                return_ty: "Int".into(),
+                clauses: vec![Clause {
+                    kind: ClauseKind::Ensures,
+                    body: sp(Expr::BinOp {
+                        op: BinOp::Eq,
+                        lhs: spb(Expr::Ident("result".into())),
+                        rhs: spb(Expr::BinOp {
+                            op: BinOp::Add,
+                            lhs: spb(Expr::Ident("x".into())),
+                            rhs: spb(Expr::Ident("x".into())),
+                        }),
+                    }),
+                    effect_variables: vec![],
+                }],
+            },
+        );
+        m
+    }
+
+    fn caller_result_eq_double_x() -> Vec<Clause> {
+        vec![Clause {
             kind: ClauseKind::Ensures,
             body: sp(Expr::BinOp {
                 op: BinOp::Eq,
@@ -874,16 +1006,111 @@ mod tests {
                 }),
             }),
             effect_variables: vec![],
-        }];
-        let text = generate_ir_sidecar_text(
-            "Double",
+        }]
+    }
+
+    #[test]
+    fn test_ir_generate_multi_fn_call_chain_with_callee_arith() {
+        // #863: known unary pure callee with result == x + x → non-identity sibling.
+        let callees = double_callee_x_plus_x();
+        let text = generate_ir_sidecar_text_with_callees(
+            "UseDouble",
             &[int_param("x", 0)],
             &["x".into()],
             "Int",
-            &clauses,
+            &caller_result_eq_double_x(),
+            &callees,
         );
-        assert!(text.contains("call double ($0)"));
-        assert!(text.contains("fn #1"));
+        assert!(
+            text.contains("call double ($0)"),
+            "expected call to double, got:\n{text}"
+        );
+        assert!(
+            text.contains("fn #1"),
+            "expected sibling fn #1, got:\n{text}"
+        );
+        assert!(
+            text.contains("arith add $0 $0"),
+            "sibling must implement double (x+x), not identity; got:\n{text}"
+        );
+        // The sibling body must not be a lone identity load of $0 as its only result.
+        let after_fn1 = text.split("fn #1").nth(1).unwrap_or("");
+        assert!(
+            !after_fn1.contains("$result = load $0 : Int") || after_fn1.contains("arith add"),
+            "must not be identity-only sibling; got:\n{text}"
+        );
+    }
+
+    #[test]
+    fn test_ir_generate_call_chain_unknown_callee_no_identity_sibling() {
+        // #863: without callee specs, do not emit a silent identity sibling plan.
+        let text = generate_ir_sidecar_text(
+            "UseDouble",
+            &[int_param("x", 0)],
+            &["x".into()],
+            "Int",
+            &caller_result_eq_double_x(),
+        );
+        assert!(
+            text.contains("Stub IR") || !text.contains("call double"),
+            "unknown callee must not silently identity-verify via call plan; got:\n{text}"
+        );
+        if text.contains("fn #1") {
+            // If a multi-fn plan appears, sibling must not be the only content as identity
+            // for an unanalyzable double — prefer full stub.
+            panic!("unexpected call plan without callees:\n{text}");
+        }
+    }
+
+    #[test]
+    fn test_ir_generate_multi_arg_callee_not_identity_stubbed() {
+        // Multi-arg call: planner must not emit identity sibling for helper(a,b).
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Call {
+                    func: spb(Expr::Ident("helper".into())),
+                    args: vec![sp(Expr::Ident("a".into())), sp(Expr::Ident("b".into()))],
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let mut callees = HashMap::new();
+        callees.insert(
+            "helper".into(),
+            CalleeSpec {
+                param_names: vec!["a".into(), "b".into()],
+                return_ty: "Int".into(),
+                clauses: vec![Clause {
+                    kind: ClauseKind::Ensures,
+                    body: sp(Expr::BinOp {
+                        op: BinOp::Eq,
+                        lhs: spb(Expr::Ident("result".into())),
+                        rhs: spb(Expr::BinOp {
+                            op: BinOp::Add,
+                            lhs: spb(Expr::Ident("a".into())),
+                            rhs: spb(Expr::Ident("b".into())),
+                        }),
+                    }),
+                    effect_variables: vec![],
+                }],
+            },
+        );
+        let text = generate_ir_sidecar_text_with_callees(
+            "Caller",
+            &[int_param("a", 0), (1, "Int".into())],
+            &["a".into(), "b".into()],
+            "Int",
+            &clauses,
+            &callees,
+        );
+        // v1: multi-arg not synthesized; must not look like a verified call+identity.
+        assert!(
+            text.contains("Stub IR") || !text.contains("call helper"),
+            "multi-arg callee must not silently identity-verify; got:\n{text}"
+        );
     }
 
     #[test]

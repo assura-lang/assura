@@ -110,6 +110,10 @@ unreleased `main`. Release process: [docs/CRATES-IO.md](docs/CRATES-IO.md).
 
 ### Usage
 
+**Primary path (install → check → build → test):** see
+[docs/GETTING-STARTED.md](docs/GETTING-STARTED.md). That guide works on a
+clean machine with copy-paste files (no monorepo required).
+
 ```bash
 # Initialize a new project
 assura init my-project
@@ -119,6 +123,9 @@ assura init my-project
 assura check demos/heartbleed.assura
 # Result-bearing postconditions need IR (`ShowcaseEcho.ir` next to the source):
 assura check demos/showcase-echo.assura
+# Full boring path (verify + inject IR into Rust + cargo test):
+#   assura build demos/showcase-echo.assura --output /tmp/assura-out
+#   (cd /tmp/assura-out && cargo test)
 
 # Check with JSON output
 assura check demos/libwebp-huffman.assura --json

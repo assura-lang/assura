@@ -20,6 +20,11 @@ Header markers (first lines of the file):
 
 ## Quick start (boring path)
 
+End-to-end install → check → build → `cargo test` (no monorepo required):
+see [docs/GETTING-STARTED.md](../docs/GETTING-STARTED.md).
+
+## Quick start (demos in this repo)
+
 ```bash
 # After: cargo install assura --locked
 assura check demos/heartbleed.assura

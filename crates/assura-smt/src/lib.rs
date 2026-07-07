@@ -108,7 +108,10 @@ pub use entry::{
     verify_taint_safety, verify_with_measures,
 };
 pub use feature_max::{collect_feature_max_constants, derive_narrowings};
-pub use ir_generate::{EnsuresShape, classify_ensures_shape, generate_ir_sidecar_text};
+pub use ir_generate::{
+    CalleeSpec, EnsuresShape, classify_ensures_shape, generate_ir_sidecar_text,
+    generate_ir_sidecar_text_with_callees,
+};
 pub use ir_loader::{
     LoadedVerifyExtras, collect_verification_job_names, ir_search_dirs_for_source,
     load_ir_bodies_for_contracts, load_ir_bodies_for_typed, stub_ir_sidecars_for_typed,
