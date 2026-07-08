@@ -649,6 +649,12 @@ fn test_ir_builtin_calls_to_rust_methods() {
     });
     assert_eq!(max, "slot_2.max(slot_3)");
 
+    let length = ir_expr_to_rust(&IrExprKind::Call {
+        func: "length".into(),
+        args: vec![0],
+    });
+    assert_eq!(length, "slot_0.len() as u64");
+
     // Unknown callees stay free-function form (sibling helpers / user fns).
     let other = ir_expr_to_rust(&IrExprKind::Call {
         func: "double".into(),
