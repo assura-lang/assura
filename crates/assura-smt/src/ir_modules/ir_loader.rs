@@ -877,6 +877,51 @@ contract Add {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Nested if ensures should synthesize multi-block IR and verify (#885).
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_nested_if_heuristic_verifies() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-nested-if-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract Nested {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == if x > 0 then (if x > 10 then 2 else 1) else 0 }
+}
+"#;
+        let path = dir.join("nested.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"Nested".to_string()),
+            "expected heuristic for Nested, names={:?}",
+            loaded.heuristic_names()
+        );
+
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => {
+                clause_desc.starts_with("Nested") && clause_desc.ends_with("::ensures")
+            }
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Verified { .. })),
+            "nested if ensures should verify via synthesized IR; got {results:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// `ensures { result == !x }` and `result == (x && y)` via bool logic synthesis.
     #[test]
     #[cfg(feature = "z3-verify")]
