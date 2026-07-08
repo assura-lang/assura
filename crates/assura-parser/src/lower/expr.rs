@@ -119,11 +119,15 @@ fn lower_literal(n: &SyntaxNode) -> Expr {
 fn lower_field_expr(n: &SyntaxNode) -> SpExpr {
     let obj = super::lower_first_child_expr_or_missing(n);
 
-    // Field name is the last IDENT or keyword token
+    // Field name: last IDENT, keyword, or INT_LIT (tuple projection `t.0`).
     let field = n
         .children_with_tokens()
         .filter_map(|el| el.into_token())
-        .filter(|t| t.kind() == SyntaxKind::IDENT || t.kind().is_keyword())
+        .filter(|t| {
+            t.kind() == SyntaxKind::IDENT
+                || t.kind() == SyntaxKind::INT_LIT
+                || t.kind().is_keyword()
+        })
         .last()
         .map(|t| t.text().to_string())
         .unwrap_or_default();

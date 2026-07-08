@@ -22,6 +22,9 @@ pub(crate) fn extract_output_return_type(clauses: &[Clause]) -> Vec<String> {
 }
 
 /// Extract parameters from `input(raw_data: Bytes)` clauses in a contract.
+///
+/// Type tokens respect nesting so commas inside tuples/generics
+/// (`t: (Int, Bool)`, `m: Map<String, Int>`) are not treated as param separators.
 pub(crate) fn extract_input_params(clauses: &[Clause]) -> Vec<Param> {
     for clause in clauses {
         if clause.kind == ClauseKind::Input
@@ -39,7 +42,17 @@ pub(crate) fn extract_input_params(clauses: &[Clause]) -> Vec<Param> {
                 if i < tokens.len() && tokens[i] == ":" {
                     i += 1;
                     let mut ty_tokens = Vec::new();
-                    while i < tokens.len() && tokens[i] != "," {
+                    let mut depth: i32 = 0;
+                    while i < tokens.len() {
+                        let t = &tokens[i];
+                        if depth == 0 && t == "," {
+                            break;
+                        }
+                        match t.as_str() {
+                            "(" | "[" | "<" | "{" => depth += 1,
+                            ")" | "]" | ">" | "}" => depth = depth.saturating_sub(1),
+                            _ => {}
+                        }
                         ty_tokens.push(tokens[i].clone());
                         i += 1;
                     }
@@ -62,10 +75,14 @@ fn simple_type_from_tokens(tokens: &[String]) -> Option<TypeExpr> {
     if tokens.is_empty() {
         return None;
     }
+    // Prefer structured parse so tuples become TypeExpr::Tuple and Display is
+    // `(Int, Bool)` (not a space-joined Named).
+    if let Some(te) = assura_ast::try_parse_type_tokens(tokens) {
+        return Some(te);
+    }
     if tokens.len() == 1 {
         return Some(TypeExpr::Named(tokens[0].clone()));
     }
-    // Multi-token: join as a named type for SMT purposes
     Some(TypeExpr::Named(tokens.join(" ")))
 }
 

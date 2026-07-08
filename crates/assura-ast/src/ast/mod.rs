@@ -1137,6 +1137,49 @@ pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
             return Some(TypeExpr::Generic(name, args));
         }
     }
+
+    // Tuple: (T1, T2, …) with at least one comma (otherwise just grouping).
+    if tokens.first().map(|s| s.as_str()) == Some("(")
+        && tokens.last().map(|s| s.as_str()) == Some(")")
+        && tokens.len() >= 5
+    {
+        let inner = &tokens[1..tokens.len() - 1];
+        let mut elems: Vec<TypeExpr> = Vec::new();
+        let mut depth: i32 = 0;
+        let mut start = 0usize;
+        let mut saw_comma = false;
+        for (i, t) in inner.iter().enumerate() {
+            match t.as_str() {
+                "(" | "[" | "<" | "{" => depth += 1,
+                ")" | "]" | ">" | "}" => depth = depth.saturating_sub(1),
+                "," if depth == 0 => {
+                    saw_comma = true;
+                    let slice = &inner[start..i];
+                    if !slice.is_empty() {
+                        elems.push(
+                            try_parse_type_tokens(slice)
+                                .unwrap_or_else(|| TypeExpr::Named(slice.join(" "))),
+                        );
+                    }
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        if saw_comma {
+            let slice = &inner[start..];
+            if !slice.is_empty() {
+                elems.push(
+                    try_parse_type_tokens(slice)
+                        .unwrap_or_else(|| TypeExpr::Named(slice.join(" "))),
+                );
+            }
+            if elems.len() >= 2 {
+                return Some(TypeExpr::Tuple(elems));
+            }
+        }
+    }
+
     // Fallback: join as named type
     Some(TypeExpr::Named(tokens.join(" ")))
 }

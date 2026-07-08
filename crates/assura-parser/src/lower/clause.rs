@@ -114,57 +114,85 @@ pub(super) fn lower_clause_body(n: &SyntaxNode) -> SpExpr {
     }
 
     // Fall back to raw token collection.
-    // Skip: the clause keyword (first significant token, which may be
-    // preceded by trivia tokens attached to the CLAUSE node), outer
-    // delimiters (parens/braces), whitespace.
-    // Keep: colons inside the body (they separate param names from types),
-    //       commas (they separate parameters), all other tokens.
-    // The leading colon (separator between keyword and body) is also skipped.
+    // Skip: the clause keyword, the single outer wrapper (`input(...)` /
+    // `requires { ... }`), and a leading `:` separator.
+    // Keep nested parentheses so tuple types `t: (Int, Bool)` survive (#899).
     let mut saw_content = false;
     let mut skipped_kw = false;
-    let tokens: Vec<String> = n
-        .children_with_tokens()
-        .filter_map(|el| match el {
+    let mut paren_depth: i32 = 0;
+    let mut brace_depth: i32 = 0;
+    let mut started_wrapper = false;
+    let mut tokens: Vec<String> = Vec::new();
+    for el in n.children_with_tokens() {
+        match el {
             rowan::NodeOrToken::Token(t) => {
                 let k = t.kind();
                 if cst::is_trivia(k) {
-                    return None;
+                    continue;
                 }
-                // Skip the clause keyword (the first significant token under
-                // this CLAUSE node). Trivia may precede it due to bump_trivia
-                // on entry to clause().
+                // Skip the clause keyword (first significant token).
                 if !skipped_kw {
                     skipped_kw = true;
-                    return None;
+                    continue;
                 }
-                // Skip outer delimiters
-                if k == SyntaxKind::L_BRACE
-                    || k == SyntaxKind::R_BRACE
-                    || k == SyntaxKind::L_PAREN
-                    || k == SyntaxKind::R_PAREN
-                {
-                    saw_content = true;
-                    return None;
+                // Open outer wrapper once (do not emit it).
+                if !started_wrapper {
+                    if k == SyntaxKind::L_PAREN {
+                        started_wrapper = true;
+                        paren_depth = 1;
+                        continue;
+                    }
+                    if k == SyntaxKind::L_BRACE {
+                        started_wrapper = true;
+                        brace_depth = 1;
+                        continue;
+                    }
+                    started_wrapper = true;
                 }
-                // Skip leading colon (keyword: body separator)
+                // Skip leading colon (keyword: body separator) before content.
                 if k == SyntaxKind::COLON && !saw_content {
-                    return None;
+                    continue;
                 }
-                saw_content = true;
-                Some(t.text().to_string())
-            }
-            rowan::NodeOrToken::Node(n) => {
-                saw_content = true;
-                let texts = super::collect_token_texts(&n);
-                if texts.is_empty() {
-                    None
-                } else {
-                    Some(texts.join(" "))
+                match k {
+                    SyntaxKind::L_PAREN => {
+                        paren_depth += 1;
+                        saw_content = true;
+                        tokens.push(t.text().to_string());
+                    }
+                    SyntaxKind::R_PAREN => {
+                        paren_depth = paren_depth.saturating_sub(1);
+                        if paren_depth == 0 {
+                            continue; // outer input(...) closer
+                        }
+                        saw_content = true;
+                        tokens.push(t.text().to_string());
+                    }
+                    SyntaxKind::L_BRACE => {
+                        brace_depth += 1;
+                        saw_content = true;
+                        tokens.push(t.text().to_string());
+                    }
+                    SyntaxKind::R_BRACE => {
+                        brace_depth = brace_depth.saturating_sub(1);
+                        if brace_depth == 0 {
+                            continue; // outer requires { ... } closer
+                        }
+                        saw_content = true;
+                        tokens.push(t.text().to_string());
+                    }
+                    _ => {
+                        saw_content = true;
+                        tokens.push(t.text().to_string());
+                    }
                 }
             }
-        })
-        .filter(|s| !s.is_empty())
-        .collect();
+            rowan::NodeOrToken::Node(child) => {
+                saw_content = true;
+                // Flatten nested CST nodes into individual tokens (preserve commas).
+                tokens.extend(super::collect_token_texts(&child));
+            }
+        }
+    }
 
     let expr = if tokens.is_empty() {
         Expr::Raw(vec![])
