@@ -115,13 +115,20 @@ pub(super) fn lower_clause_body(n: &SyntaxNode) -> SpExpr {
 
     // Fall back to raw token collection.
     // Skip: the clause keyword, the single outer wrapper (`input(...)` /
-    // `requires { ... }`), and a leading `:` separator.
-    // Keep nested parentheses so tuple types `t: (Int, Bool)` survive (#899).
+    // `requires { ... }` / `input: { ... }`), and a leading `:` separator.
+    // Keep *nested* delimiters so tuple types `t: (Int, Bool)` and calls
+    // like `resolve(x)` survive (#899). Only the matching outer closer is
+    // stripped (do not treat `)` inside a brace body as the outer closer).
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum OuterWrapper {
+        None,
+        Paren,
+        Brace,
+    }
     let mut saw_content = false;
     let mut skipped_kw = false;
-    let mut paren_depth: i32 = 0;
-    let mut brace_depth: i32 = 0;
-    let mut started_wrapper = false;
+    let mut outer = OuterWrapper::None;
+    let mut depth: i32 = 0;
     let mut tokens: Vec<String> = Vec::new();
     for el in n.children_with_tokens() {
         match el {
@@ -135,55 +142,47 @@ pub(super) fn lower_clause_body(n: &SyntaxNode) -> SpExpr {
                     skipped_kw = true;
                     continue;
                 }
-                // Skip leading colon (`input: { ... }` / `keyword: body`) before
-                // deciding the outer wrapper, so the brace/paren after `:` is
-                // treated as the wrapper and not emitted.
-                if k == SyntaxKind::COLON && !saw_content {
+                // Skip leading colon (`input: { ... }`) before choosing wrapper.
+                if k == SyntaxKind::COLON && !saw_content && outer == OuterWrapper::None {
                     continue;
                 }
-                // Open outer wrapper once (do not emit it). Nested delimiters
-                // (tuple types `(Int, Bool)` inside `input(...)`) are kept.
-                if !started_wrapper {
+                // First delimiter after keyword/colon is the outer wrapper.
+                if outer == OuterWrapper::None {
                     if k == SyntaxKind::L_PAREN {
-                        started_wrapper = true;
-                        paren_depth = 1;
+                        outer = OuterWrapper::Paren;
+                        depth = 1;
                         continue;
                     }
                     if k == SyntaxKind::L_BRACE {
-                        started_wrapper = true;
-                        brace_depth = 1;
+                        outer = OuterWrapper::Brace;
+                        depth = 1;
                         continue;
                     }
-                    started_wrapper = true;
+                    // Bare body (no wrapper).
+                    outer = OuterWrapper::None;
+                    saw_content = true;
+                    tokens.push(t.text().to_string());
+                    continue;
                 }
-                match k {
-                    SyntaxKind::L_PAREN => {
-                        paren_depth += 1;
+                match (outer, k) {
+                    (OuterWrapper::Paren, SyntaxKind::L_PAREN)
+                    | (OuterWrapper::Brace, SyntaxKind::L_BRACE) => {
+                        depth += 1;
                         saw_content = true;
                         tokens.push(t.text().to_string());
                     }
-                    SyntaxKind::R_PAREN => {
-                        paren_depth = paren_depth.saturating_sub(1);
-                        if paren_depth == 0 {
-                            continue; // outer input(...) closer
-                        }
-                        saw_content = true;
-                        tokens.push(t.text().to_string());
-                    }
-                    SyntaxKind::L_BRACE => {
-                        brace_depth += 1;
-                        saw_content = true;
-                        tokens.push(t.text().to_string());
-                    }
-                    SyntaxKind::R_BRACE => {
-                        brace_depth = brace_depth.saturating_sub(1);
-                        if brace_depth == 0 {
-                            continue; // outer requires { ... } closer
+                    (OuterWrapper::Paren, SyntaxKind::R_PAREN)
+                    | (OuterWrapper::Brace, SyntaxKind::R_BRACE) => {
+                        depth = depth.saturating_sub(1);
+                        if depth == 0 {
+                            continue; // matching outer closer only
                         }
                         saw_content = true;
                         tokens.push(t.text().to_string());
                     }
                     _ => {
+                        // Nested opposite-kind delimiters always kept
+                        // (e.g. `)` inside `requires { resolve(x) }`).
                         saw_content = true;
                         tokens.push(t.text().to_string());
                     }

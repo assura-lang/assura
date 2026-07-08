@@ -108,10 +108,23 @@ fn collect_resolve_calls(expr: &SpExpr, names: &mut HashSet<String>) {
             }
         }
         Expr::Raw(tokens) => {
-            for window in tokens.windows(2) {
-                if (window[0] == "resolve" || window[0] == "resolve_prophecy") && window[1] != "(" {
-                    names.insert(window[1].clone());
+            // Parentheses may be kept in clause raw tokens after nested-delimiter
+            // preservation (`resolve(x)` → ["resolve", "(", "x", ")"]). Accept both
+            // adjacent and parenthesized forms (#899).
+            let mut i = 0;
+            while i < tokens.len() {
+                let t = tokens[i].as_str();
+                if t == "resolve" || t == "resolve_prophecy" {
+                    let arg = match tokens.get(i + 1).map(|s| s.as_str()) {
+                        Some("(") => tokens.get(i + 2).map(|s| s.as_str()),
+                        Some(name) if name != ")" => Some(name),
+                        _ => None,
+                    };
+                    if let Some(name) = arg.filter(|n| !n.is_empty() && *n != ")") {
+                        names.insert(name.to_string());
+                    }
                 }
+                i += 1;
             }
         }
         Expr::BinOp { lhs, rhs, .. } => {
