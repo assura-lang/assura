@@ -15,6 +15,10 @@ use assura_ast::Param;
 pub(crate) enum PreludeConstraint {
     /// `name >= 0` (Nat parameters / result slots).
     NatNonNegative(String),
+    /// `0 <= name <= 1` (Bool parameters / result as 0/1 Int encoding).
+    /// Without this, free Int models assign Bool vars values like 2 and break
+    /// match/ITE encodings that only distinguish 0 vs non-zero or 0 vs 1.
+    BoolZeroOrOne(String),
     /// `name = value` (feature_max / named constants as concrete ints).
     ConstantEq(String, i64),
     /// `name <= bound` (refinement narrowing from feature_max on other names).
@@ -68,6 +72,12 @@ pub(crate) fn is_nat_type_tokens(ty: &[String]) -> bool {
     ty.len() == 1 && ty[0] == "Nat"
 }
 
+/// True if type tokens are exactly `Bool`.
+#[inline]
+pub(crate) fn is_bool_type_tokens(ty: &[String]) -> bool {
+    ty.len() == 1 && ty[0].eq_ignore_ascii_case("Bool")
+}
+
 /// Return bit width and signedness for fixed-width type tokens.
 ///
 /// Accepts language names (`U8`, `I32`, …) and lowercase aliases (`u8`, `i32`).
@@ -112,12 +122,21 @@ pub(crate) fn collect_prelude_constraints(
         if is_nat_type_tokens(&pt) {
             out.push(PreludeConstraint::NatNonNegative(param.name.clone()));
         }
+        if is_bool_type_tokens(&pt) {
+            out.push(PreludeConstraint::BoolZeroOrOne(param.name.clone()));
+        }
     }
 
     if is_nat_type_tokens(return_ty) {
         // Z3 always asserts both; CVC5 filters if the var was not collected in the script/map.
         out.push(PreludeConstraint::NatNonNegative("result".into()));
         out.push(PreludeConstraint::NatNonNegative(
+            crate::encode_atom_policy::RESULT_VAR_NAME.into(),
+        ));
+    }
+    if is_bool_type_tokens(return_ty) {
+        out.push(PreludeConstraint::BoolZeroOrOne("result".into()));
+        out.push(PreludeConstraint::BoolZeroOrOne(
             crate::encode_atom_policy::RESULT_VAR_NAME.into(),
         ));
     }
@@ -156,6 +175,26 @@ pub(crate) fn filter_prelude_constraints_by_vars(
                 let key_sanitized = sanitize(name);
                 if vars.contains(name) || vars.contains(&key) || vars.contains(&key_sanitized) {
                     Some(PreludeConstraint::NatNonNegative(if vars.contains(name) {
+                        name.clone()
+                    } else if vars.contains(&key) {
+                        key
+                    } else {
+                        key_sanitized
+                    }))
+                } else {
+                    None
+                }
+            }
+            PreludeConstraint::BoolZeroOrOne(name) => {
+                let key = if name == "result" || name == crate::encode_atom_policy::RESULT_VAR_NAME
+                {
+                    name.clone()
+                } else {
+                    sanitize(name)
+                };
+                let key_sanitized = sanitize(name);
+                if vars.contains(name) || vars.contains(&key) || vars.contains(&key_sanitized) {
+                    Some(PreludeConstraint::BoolZeroOrOne(if vars.contains(name) {
                         name.clone()
                     } else if vars.contains(&key) {
                         key
@@ -236,6 +275,24 @@ mod tests {
             name: name.into(),
             ty: Some(TypeExpr::named("Nat")),
         }
+    }
+
+    fn param_bool(name: &str) -> Param {
+        Param {
+            name: name.into(),
+            ty: Some(TypeExpr::named("Bool")),
+        }
+    }
+
+    #[test]
+    fn collect_prelude_includes_bool_zero_or_one() {
+        let params = vec![param_bool("flag")];
+        let cs = collect_prelude_constraints(&params, &["Bool".into()], &[], &[]);
+        assert!(cs.contains(&PreludeConstraint::BoolZeroOrOne("flag".into())));
+        assert!(cs.contains(&PreludeConstraint::BoolZeroOrOne("result".into())));
+        assert!(cs.contains(&PreludeConstraint::BoolZeroOrOne(
+            crate::encode_atom_policy::RESULT_VAR_NAME.into()
+        )));
     }
 
     #[test]

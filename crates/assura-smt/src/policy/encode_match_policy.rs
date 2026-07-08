@@ -68,7 +68,8 @@ pub(crate) fn match_literal_smtlib(lit: &Literal) -> Option<String> {
     match lit {
         Literal::Int(n) => Some(n.clone()),
         Literal::Float(f) => Some(crate::encode_atom_policy::float_literal_to_smtlib(f)),
-        Literal::Bool(b) => Some(b.to_string()),
+        // Bool is 0/1 Int in SMT vars (parity with IR / Z3 encode_match).
+        Literal::Bool(b) => Some(if *b { "1".into() } else { "0".into() }),
         Literal::Str(_) => None,
     }
 }
@@ -164,7 +165,11 @@ mod tests {
         );
         assert_eq!(
             match_literal_smtlib(&Literal::Bool(true)).as_deref(),
-            Some("true")
+            Some("1")
+        );
+        assert_eq!(
+            match_literal_smtlib(&Literal::Bool(false)).as_deref(),
+            Some("0")
         );
         assert!(match_literal_smtlib(&Literal::Str("hi".into())).is_none());
         assert_eq!(

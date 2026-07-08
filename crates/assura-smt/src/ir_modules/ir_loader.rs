@@ -877,6 +877,51 @@ contract Add {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Bool match + BoolZeroOrOne prelude so free Int cannot assign x=2.
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_match_bool_heuristic_verifies() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-match-bool-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract MatchBool {
+  input(x: Bool)
+  output(result: Int)
+  ensures { result == match x { true => 1, false => 0 } }
+}
+"#;
+        let path = dir.join("match_bool.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"MatchBool".to_string()),
+            "expected heuristic for MatchBool, names={:?}",
+            loaded.heuristic_names()
+        );
+
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => {
+                clause_desc.starts_with("MatchBool") && clause_desc.ends_with("::ensures")
+            }
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Verified { .. })),
+            "Bool match ensures should verify; got {results:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// `ensures { result == min(x, y) }` / `max(x, y)` via if-compare synthesis.
     #[test]
     #[cfg(feature = "z3-verify")]

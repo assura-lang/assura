@@ -213,6 +213,13 @@ fn verify_clauses_with_types(
                 let zero = ast::Int::from_i64(0);
                 solver.assert(p.ge(&zero));
             }
+            PreludeConstraint::BoolZeroOrOne(name) => {
+                let p = base_encoder.get_or_create_int(&name);
+                let zero = ast::Int::from_i64(0);
+                let one = ast::Int::from_i64(1);
+                solver.assert(p.ge(&zero));
+                solver.assert(p.le(&one));
+            }
             // Constants are already bound as concrete ints in the encoder var map at init;
             // do not re-assert equality here (would duplicate prior Z3 behavior).
             PreludeConstraint::ConstantEq(_, _) => {}
