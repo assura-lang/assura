@@ -3103,7 +3103,7 @@ oversight" objection into an argument FOR the approach.
 
 | Registry | Name | Status |
 |----------|------|--------|
-| Crates.io | `assura` | **Published** (co-publish CLI + libs; v0.2.0+ as of 2026-07-05; name first claimed as v0.0.1 placeholder) |
+| Crates.io | `assura` | **Published** (co-publish CLI + libs; v0.3.0+ as of 2026-07-07; name first claimed as v0.0.1 placeholder) |
 | npm | `assura` | **Available** (checked 2026-06-12) |
 | PyPI | `assura` | **Available** (checked 2026-06-12) |
 | npm | `assura-lang` | **Available** (checked 2026-06-12) |

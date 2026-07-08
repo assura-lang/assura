@@ -53,6 +53,37 @@ pub(crate) fn check_exhaustiveness(
     }
 }
 
+/// Bool is a two-value finite type. Returns `None` when exhaustive (wildcard,
+/// or both `true` and `false` literals), else the missing labels.
+pub(crate) fn check_bool_exhaustiveness(patterns: &[Pattern]) -> Option<Vec<String>> {
+    if patterns.iter().any(|p| matches!(p, Pattern::Wildcard)) {
+        return None;
+    }
+    let mut has_true = false;
+    let mut has_false = false;
+    for p in patterns {
+        if let Pattern::Literal(assura_parser::ast::Literal::Bool(b)) = p {
+            if *b {
+                has_true = true;
+            } else {
+                has_false = true;
+            }
+        }
+    }
+    let mut missing = Vec::new();
+    if !has_true {
+        missing.push("true".into());
+    }
+    if !has_false {
+        missing.push("false".into());
+    }
+    if missing.is_empty() {
+        None
+    } else {
+        Some(missing)
+    }
+}
+
 // ===========================================================================
 // Match exhaustiveness source walking (T017)
 // ===========================================================================
@@ -216,6 +247,13 @@ fn check_match_exhaustiveness_expr(
             } else {
                 None
             };
+            let is_bool_scrutinee = if let Expr::Ident(name) = &scrutinee.node {
+                self.param_types
+                    .get(name)
+                    .is_some_and(|t| t.eq_ignore_ascii_case("Bool"))
+            } else {
+                false
+            };
 
             if let Some(ref ty_name) = enum_ty
                 && let Some(variants) = self.enum_variants.get(ty_name)
@@ -232,11 +270,26 @@ fn check_match_exhaustiveness_expr(
                     suggestion: None,
                 });
             }
+            // Bool is a finite type: true|false (or `_`) is exhaustive; do not
+            // emit A10002 "unknown type" for `match b: Bool { true => …, false => … }`.
+            if is_bool_scrutinee && let Some(missing) = check_bool_exhaustiveness(&patterns) {
+                self.errors.push(TypeError {
+                    code: "A10001".into(),
+                    message: format!(
+                        "non-exhaustive match on Bool: missing {}",
+                        missing.join(", ")
+                    ),
+                    span: self.span.clone(),
+                    secondary: None,
+                    suggestion: None,
+                });
+            }
             let has_wildcard = arms
                 .iter()
                 .any(|arm| matches!(arm.pattern, assura_parser::ast::Pattern::Wildcard));
             let has_enum_coverage = enum_ty.is_some();
-            if !has_wildcard && !has_enum_coverage && !arms.is_empty() {
+            let has_bool_coverage = is_bool_scrutinee;
+            if !has_wildcard && !has_enum_coverage && !has_bool_coverage && !arms.is_empty() {
                 self.errors.push(TypeError {
                     code: "A10002".into(),
                     message: "match expression on unknown type has no wildcard `_` arm; \
