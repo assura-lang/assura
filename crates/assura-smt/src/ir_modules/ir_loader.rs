@@ -9,6 +9,24 @@ use crate::VerifyFileExtras;
 use crate::ir::{IrFunction, IrInstr, IrModule, parse_ir_module};
 use crate::ir_encode::block_map_from_module;
 
+/// Map a Layer-0 type to an IR type name for field-layout synthesis.
+fn type_to_ir_type_name(ty: &assura_types::Type) -> String {
+    use assura_types::Type;
+    match ty {
+        Type::Int => "Int".into(),
+        Type::Nat => "Nat".into(),
+        Type::Float => "Float".into(),
+        Type::Bool => "Bool".into(),
+        Type::String => "String".into(),
+        Type::Bytes => "Bytes".into(),
+        Type::Unit => "Unit".into(),
+        Type::Named(n) => n.clone(),
+        Type::List(inner) => format!("List<{}>", type_to_ir_type_name(inner)),
+        Type::Option(inner) => format!("Option<{}>", type_to_ir_type_name(inner)),
+        other => format!("{other:?}"),
+    }
+}
+
 /// IR sidecars loaded for a source file, with a borrowed view for verification APIs.
 pub struct LoadedVerifyExtras {
     pub(crate) ir_map: HashMap<String, IrFunction>,
@@ -250,12 +268,20 @@ pub fn stub_ir_sidecars_for_typed(typed: &assura_types::TypedFile) -> HashMap<St
         );
     }
 
-    // Struct field layouts for `result == p.x` synthesis (#892).
-    let field_layouts: HashMap<String, Vec<String>> = typed
+    // Struct field layouts for `result == p.x` / nested `o.inner.v` (#892/#896).
+    let field_layouts: HashMap<String, Vec<(String, String)>> = typed
         .type_env
         .struct_fields
         .iter()
-        .map(|(ty, fields)| (ty.clone(), fields.iter().map(|(n, _)| n.clone()).collect()))
+        .map(|(ty, fields)| {
+            (
+                ty.clone(),
+                fields
+                    .iter()
+                    .map(|(n, t)| (n.clone(), type_to_ir_type_name(t)))
+                    .collect(),
+            )
+        })
         .collect();
 
     let mut out = HashMap::new();
@@ -926,6 +952,57 @@ contract AbsMin {
         assert!(
             matches!(ensures, Some(VerificationResult::Verified { .. })),
             "abs(min(x,y)) should verify; got {results:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Nested `result == o.inner.v` via multi-step field loads (#896).
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_nested_field_access_heuristic_verifies() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-nested-field-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+type Inner {
+  v: Int
+}
+type Outer {
+  inner: Inner
+}
+contract GetDeep {
+  input(o: Outer)
+  output(result: Int)
+  ensures { result == o.inner.v }
+}
+"#;
+        let path = dir.join("nested.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"GetDeep".to_string()),
+            "expected heuristic for GetDeep, names={:?}",
+            loaded.heuristic_names()
+        );
+
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => {
+                clause_desc.starts_with("GetDeep") && clause_desc.ends_with("::ensures")
+            }
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Verified { .. })),
+            "nested field should verify; got {results:?}"
         );
 
         let _ = std::fs::remove_dir_all(&dir);

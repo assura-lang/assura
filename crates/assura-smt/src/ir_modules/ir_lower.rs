@@ -234,6 +234,15 @@ pub fn encode_ir_expr<B: IrTermBuilder>(
         }
         IrExprKind::Field { slot, index, name } => {
             if let Some(field_name) = name {
+                // Nested hop (base already a flatten name `p__f1`): use free
+                // int `p__f1__f2` so IR matches AST deep-field flatten (#896).
+                if let Some(base_name) = ctx.slot_to_name.get(slot)
+                    && base_name.contains("__")
+                {
+                    let flat = format!("{base_name}__{field_name}");
+                    return builder.get_or_create_named(&flat);
+                }
+                // Shallow first hop on a param: AST uses `__field_x(p)` UF.
                 let base = builder.load_slot(slots, *slot);
                 builder.unary_uf(&crate::encode_atom_policy::field_uif_name(field_name), base)
             } else {

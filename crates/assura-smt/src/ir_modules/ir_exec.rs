@@ -23,14 +23,10 @@ pub fn apply_ir_body_constraints<B: IrTermBuilder>(
     contract_param_names: &[String],
     slots: &mut HashMap<usize, B::Term>,
 ) {
-    let slot_to_name: HashMap<usize, String> = ir_param_names(func, contract_param_names)
+    let mut slot_to_name: HashMap<usize, String> = ir_param_names(func, contract_param_names)
         .into_iter()
         .collect();
     let slot_types = slot_type_map(func);
-    let ctx = IrSlotContext {
-        slot_to_name: &slot_to_name,
-        slot_types: &slot_types,
-    };
 
     for instr in &func.body {
         if instr.target != RESULT_SLOT && !slots.contains_key(&instr.target) {
@@ -38,9 +34,24 @@ pub fn apply_ir_body_constraints<B: IrTermBuilder>(
             let v = builder.get_or_create_named(&name);
             slots.insert(instr.target, v);
         }
+        let ctx = IrSlotContext {
+            slot_to_name: &slot_to_name,
+            slot_types: &slot_types,
+        };
         let computed = encode_ir_expr(builder, &instr.expr, slots, ctx);
         if let Some(target) = slots.get(&instr.target) {
             builder.push_eq_axiom(computed, target.clone());
+        }
+        // Track flatten names for nested field loads so hop 2+ use
+        // `param__f1__f2` free vars matching AST deep-field encoding (#896).
+        if let IrExprKind::Field {
+            slot,
+            name: Some(fname),
+            ..
+        } = &instr.expr
+            && let Some(base_name) = slot_to_name.get(slot).cloned()
+        {
+            slot_to_name.insert(instr.target, format!("{base_name}__{fname}"));
         }
         if instr.target == RESULT_SLOT
             && let IrExprKind::Load(src) = &instr.expr

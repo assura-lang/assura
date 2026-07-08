@@ -36,8 +36,9 @@ pub(crate) struct PlanCtx<'a> {
     pub return_ty: &'a str,
     /// In-file callees keyed by declaration name (exact `call` target).
     pub callees: &'a HashMap<String, CalleeSpec>,
-    /// Struct type name → ordered field names (from TypeEnv).
-    pub field_layouts: &'a HashMap<String, Vec<String>>,
+    /// Struct type name → ordered `(field_name, field_type_name)` from TypeEnv.
+    /// Field type names enable nested paths like `o.inner.v` (#896).
+    pub field_layouts: &'a HashMap<String, Vec<(String, String)>>,
 }
 
 /// Shape of the primary `ensures` clause (drives template suggestion).
@@ -168,7 +169,7 @@ pub fn generate_ir_sidecar_text_with_callees(
     return_ty: &str,
     clauses: &[Clause],
     callees: &HashMap<String, CalleeSpec>,
-    field_layouts: &HashMap<String, Vec<String>>,
+    field_layouts: &HashMap<String, Vec<(String, String)>>,
 ) -> String {
     let requires_count = clauses
         .iter()
@@ -1005,14 +1006,15 @@ fn operand_to_slot(
         }
         Expr::Field(recv, field) => {
             let base = operand_to_slot(recv.as_ref(), ctx, lines, used)?;
-            // Require layout so we only emit when the field is real; emit the
-            // field *name* so IR→Rust uses `.x` (not tuple-index `.0`).
-            let _index = field_index_for_receiver(recv.as_ref(), field, ctx)?;
+            // Resolve field on the receiver's type (supports nested `o.inner.v`).
+            let field_ty = field_type_for_receiver(recv.as_ref(), field, ctx)?;
             let slot = next_temp_slot(used);
             used.push(slot);
+            // Intermediate loads use the field's type; the outer ensures load
+            // will copy into `$result` with the contract return type.
             lines.push(format!(
                 "    ${slot} = field ${base} .{} : {}",
-                field, ctx.return_ty
+                field, field_ty
             ));
             Some(slot)
         }
@@ -1020,15 +1022,29 @@ fn operand_to_slot(
     }
 }
 
-/// Resolve struct field name → IR field index using param type + layouts.
-fn field_index_for_receiver(recv: &SpExpr, field: &str, ctx: &PlanCtx<'_>) -> Option<usize> {
-    let Expr::Ident(recv_name) = &recv.node else {
-        // Nested field `p.a.b`: outer Field's recv type is not tracked yet.
-        return None;
-    };
-    let ty = ctx.name_to_ty.get(recv_name.as_str())?;
-    let fields = ctx.field_layouts.get(*ty)?;
-    fields.iter().position(|f| f == field)
+/// Type name of `recv` for field layout lookup (params or nested field loads).
+fn type_name_of_receiver(recv: &SpExpr, ctx: &PlanCtx<'_>) -> Option<String> {
+    match &recv.node {
+        Expr::Ident(recv_name) => ctx
+            .name_to_ty
+            .get(recv_name.as_str())
+            .map(|s| (*s).to_string()),
+        Expr::Field(inner, field) => {
+            // Type of `inner.field` is the field's declared type.
+            field_type_for_receiver(inner.as_ref(), field, ctx)
+        }
+        _ => None,
+    }
+}
+
+/// Field type name for `recv.field` using struct layouts (#892 / #896).
+fn field_type_for_receiver(recv: &SpExpr, field: &str, ctx: &PlanCtx<'_>) -> Option<String> {
+    let recv_ty = type_name_of_receiver(recv, ctx)?;
+    let fields = ctx.field_layouts.get(&recv_ty)?;
+    fields
+        .iter()
+        .find(|(n, _)| n == field)
+        .map(|(_, ty)| ty.clone())
 }
 
 fn length_relation_ensures(expr: &SpExpr, name_to_slot: &HashMap<&str, usize>) -> Option<usize> {
@@ -1668,7 +1684,10 @@ mod tests {
             effect_variables: vec![],
         }];
         let mut layouts = HashMap::new();
-        layouts.insert("Point".into(), vec!["x".into(), "y".into()]);
+        layouts.insert(
+            "Point".into(),
+            vec![("x".into(), "Int".into()), ("y".into(), "Int".into())],
+        );
         let text = generate_ir_sidecar_text_with_callees(
             "GetX",
             &[(0, "Point".into())],
@@ -1683,6 +1702,43 @@ mod tests {
             "expected named field load .x, got:\n{text}"
         );
         assert!(!text.contains("Stub IR"), "must not stub field:\n{text}");
+    }
+
+    #[test]
+    fn test_ir_generate_nested_field_access() {
+        // result == o.inner.v
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Field(
+                    spb(Expr::Field(spb(Expr::Ident("o".into())), "inner".into())),
+                    "v".into(),
+                )),
+            }),
+            effect_variables: vec![],
+        }];
+        let mut layouts = HashMap::new();
+        layouts.insert("Outer".into(), vec![("inner".into(), "Inner".into())]);
+        layouts.insert("Inner".into(), vec![("v".into(), "Int".into())]);
+        let text = generate_ir_sidecar_text_with_callees(
+            "GetDeep",
+            &[(0, "Outer".into())],
+            &["o".into()],
+            "Int",
+            &clauses,
+            &HashMap::new(),
+            &layouts,
+        );
+        assert!(
+            text.contains("field $0 .inner") && text.contains("field") && text.contains(".v"),
+            "expected nested field loads, got:\n{text}"
+        );
+        assert!(
+            !text.contains("Stub IR"),
+            "must not stub nested field:\n{text}"
+        );
     }
 
     #[test]
