@@ -137,6 +137,42 @@ fn lower_fn_with_clauses() {
 }
 
 #[test]
+fn lower_tuple_field_projection() {
+    let src = r#"
+        contract Proj {
+          input(t: (Int, Bool))
+          output(result: Int)
+          ensures { result == t.0 }
+        }
+    "#;
+    let (sf, errors) = parse_and_lower(src);
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    let Decl::Contract(c) = &sf.decls[0].node else {
+        panic!("expected Contract");
+    };
+    let ensures = c
+        .clauses
+        .iter()
+        .find(|cl| matches!(cl.kind, ClauseKind::Ensures))
+        .expect("ensures");
+    // Walk ensures body for Field(_, "0")
+    fn find_tuple_field(e: &Expr) -> bool {
+        match e {
+            Expr::Field(_, f) if f == "0" => true,
+            Expr::BinOp { lhs, rhs, .. } => {
+                find_tuple_field(&lhs.node) || find_tuple_field(&rhs.node)
+            }
+            _ => false,
+        }
+    }
+    assert!(
+        find_tuple_field(&ensures.body.node),
+        "expected Field(_, \"0\") in ensures, got {:?}",
+        ensures.body.node
+    );
+}
+
+#[test]
 fn lower_type_struct() {
     let src = r#"
         type Point {

@@ -82,6 +82,62 @@ fn build_write_ir_abs_call_compiles_and_tests() {
 }
 
 #[test]
+fn build_write_ir_tuple_field_compiles_and_tests() {
+    // result == t.0 → field $0 .0 → Rust slot.0
+    let tmp = unique_temp("assura_write_ir_tuple");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let assura_path = tmp.join("Fst.assura");
+    std::fs::write(
+        &assura_path,
+        "contract Fst {\n  input(t: (Int, Bool))\n  output(result: Int)\n  ensures { result == t.0 }\n}\n",
+    )
+    .unwrap();
+
+    let out_dir = tmp.join("out");
+    let out = Command::new(assura_bin())
+        .args([
+            "build",
+            assura_path.to_str().unwrap(),
+            "--write-ir",
+            "--output",
+            out_dir.to_str().unwrap(),
+        ])
+        .current_dir(&tmp)
+        .output()
+        .expect("run assura build");
+    assert!(
+        out.status.success(),
+        "build --write-ir tuple field should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let ir_text = std::fs::read_to_string(tmp.join("Fst.ir")).unwrap();
+    assert!(
+        ir_text.contains("field $0 .0") && !ir_text.contains("Stub IR"),
+        "expected field $0 .0 IR, got:\n{ir_text}"
+    );
+    let lib = std::fs::read_to_string(out_dir.join("src/lib.rs")).unwrap();
+    assert!(
+        lib.contains(".0") || lib.contains("slot_0.0"),
+        "expected tuple .0 access in lib.rs, got:\n{lib}"
+    );
+
+    let test = Command::new("cargo")
+        .args(["test", "--quiet"])
+        .current_dir(&out_dir)
+        .output()
+        .expect("cargo test");
+    assert!(
+        test.status.success(),
+        "cargo test should pass: {}\n{}",
+        String::from_utf8_lossy(&test.stdout),
+        String::from_utf8_lossy(&test.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn build_write_ir_length_value_compiles_and_tests() {
     // result == xs.length() → call length + Rust .len() as u64
     let tmp = unique_temp("assura_write_ir_len");

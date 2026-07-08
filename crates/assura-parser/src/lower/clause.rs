@@ -114,57 +114,87 @@ pub(super) fn lower_clause_body(n: &SyntaxNode) -> SpExpr {
     }
 
     // Fall back to raw token collection.
-    // Skip: the clause keyword (first significant token, which may be
-    // preceded by trivia tokens attached to the CLAUSE node), outer
-    // delimiters (parens/braces), whitespace.
-    // Keep: colons inside the body (they separate param names from types),
-    //       commas (they separate parameters), all other tokens.
-    // The leading colon (separator between keyword and body) is also skipped.
+    // Skip: the clause keyword, the single outer wrapper (`input(...)` /
+    // `requires { ... }` / `input: { ... }`), and a leading `:` separator.
+    // Keep *nested* delimiters so tuple types `t: (Int, Bool)` and calls
+    // like `resolve(x)` survive (#899). Only the matching outer closer is
+    // stripped (do not treat `)` inside a brace body as the outer closer).
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum OuterWrapper {
+        None,
+        Paren,
+        Brace,
+    }
     let mut saw_content = false;
     let mut skipped_kw = false;
-    let tokens: Vec<String> = n
-        .children_with_tokens()
-        .filter_map(|el| match el {
+    let mut outer = OuterWrapper::None;
+    let mut depth: i32 = 0;
+    let mut tokens: Vec<String> = Vec::new();
+    for el in n.children_with_tokens() {
+        match el {
             rowan::NodeOrToken::Token(t) => {
                 let k = t.kind();
                 if cst::is_trivia(k) {
-                    return None;
+                    continue;
                 }
-                // Skip the clause keyword (the first significant token under
-                // this CLAUSE node). Trivia may precede it due to bump_trivia
-                // on entry to clause().
+                // Skip the clause keyword (first significant token).
                 if !skipped_kw {
                     skipped_kw = true;
-                    return None;
+                    continue;
                 }
-                // Skip outer delimiters
-                if k == SyntaxKind::L_BRACE
-                    || k == SyntaxKind::R_BRACE
-                    || k == SyntaxKind::L_PAREN
-                    || k == SyntaxKind::R_PAREN
-                {
+                // Skip leading colon (`input: { ... }`) before choosing wrapper.
+                if k == SyntaxKind::COLON && !saw_content && outer == OuterWrapper::None {
+                    continue;
+                }
+                // First delimiter after keyword/colon is the outer wrapper.
+                if outer == OuterWrapper::None {
+                    if k == SyntaxKind::L_PAREN {
+                        outer = OuterWrapper::Paren;
+                        depth = 1;
+                        continue;
+                    }
+                    if k == SyntaxKind::L_BRACE {
+                        outer = OuterWrapper::Brace;
+                        depth = 1;
+                        continue;
+                    }
+                    // Bare body (no wrapper).
+                    outer = OuterWrapper::None;
                     saw_content = true;
-                    return None;
+                    tokens.push(t.text().to_string());
+                    continue;
                 }
-                // Skip leading colon (keyword: body separator)
-                if k == SyntaxKind::COLON && !saw_content {
-                    return None;
+                match (outer, k) {
+                    (OuterWrapper::Paren, SyntaxKind::L_PAREN)
+                    | (OuterWrapper::Brace, SyntaxKind::L_BRACE) => {
+                        depth += 1;
+                        saw_content = true;
+                        tokens.push(t.text().to_string());
+                    }
+                    (OuterWrapper::Paren, SyntaxKind::R_PAREN)
+                    | (OuterWrapper::Brace, SyntaxKind::R_BRACE) => {
+                        depth = depth.saturating_sub(1);
+                        if depth == 0 {
+                            continue; // matching outer closer only
+                        }
+                        saw_content = true;
+                        tokens.push(t.text().to_string());
+                    }
+                    _ => {
+                        // Nested opposite-kind delimiters always kept
+                        // (e.g. `)` inside `requires { resolve(x) }`).
+                        saw_content = true;
+                        tokens.push(t.text().to_string());
+                    }
                 }
-                saw_content = true;
-                Some(t.text().to_string())
             }
-            rowan::NodeOrToken::Node(n) => {
+            rowan::NodeOrToken::Node(child) => {
                 saw_content = true;
-                let texts = super::collect_token_texts(&n);
-                if texts.is_empty() {
-                    None
-                } else {
-                    Some(texts.join(" "))
-                }
+                // Flatten nested CST nodes into individual tokens (preserve commas).
+                tokens.extend(super::collect_token_texts(&child));
             }
-        })
-        .filter(|s| !s.is_empty())
-        .collect();
+        }
+    }
 
     let expr = if tokens.is_empty() {
         Expr::Raw(vec![])

@@ -289,11 +289,30 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
                 },
                 // Tuple: numeric field access (0, 1, 2, ...)
                 Type::Tuple(elems) => {
-                    if let Ok(idx) = field.parse::<usize>()
-                        && idx < elems.len()
-                    {
-                        return Ok(elems[idx].clone());
+                    if let Ok(idx) = field.parse::<usize>() {
+                        if idx < elems.len() {
+                            return Ok(elems[idx].clone());
+                        }
+                        return Err(TypeError {
+                            code: "A03005".into(),
+                            message: format!(
+                                "tuple index `{field}` out of range for type `{recv_ty}` (arity {})",
+                                elems.len()
+                            ),
+                            span: span.clone(),
+                            secondary: None,
+                            suggestion: None,
+                        });
                     }
+                    return Err(TypeError {
+                        code: "A03005".into(),
+                        message: format!(
+                            "unknown field `{field}` on tuple type `{recv_ty}` (use 0, 1, …)"
+                        ),
+                        span: span.clone(),
+                        secondary: None,
+                        suggestion: None,
+                    });
                 }
                 _ => {}
             }

@@ -192,19 +192,16 @@ impl<'a, 'v, 's> IrTermBuilder for Cvc5IrBuilder<'a, 'v, 's, '_> {
             return self.canonical_length_for_name(&name);
         }
         let base = self.load_slot(slots, slot);
-        // Match AST shallow field UF (`__field_x`) for free params (#892).
+        // Match AST shallow field UF (`__field_x` / `__field_0`) for free params
+        // (#892 / #899).
         if let Some(ir_ty) = ctx.slot_types.get(&slot)
             && let Some(field_name) = self.enc_ctx.type_ctx.field_name_at(ir_ty, index)
         {
             return self.mk_unary_uf(&crate::encode_atom_policy::field_uif_name(field_name), base);
         }
-        let ty_suffix = ctx
-            .slot_types
-            .get(&slot)
-            .map(|t| t.replace('<', "_").replace('>', ""))
-            .unwrap_or_else(|| "val".into());
+        // Tuple / numeric projection without struct layout: AST uses `__field_N`.
         self.mk_unary_uf(
-            &crate::encode_atom_policy::ir_field_uf_name(&ty_suffix, index),
+            &crate::encode_atom_policy::field_uif_name(&index.to_string()),
             base,
         )
     }

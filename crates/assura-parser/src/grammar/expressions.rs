@@ -483,19 +483,20 @@ fn postfix_dot(p: &mut Parser, lhs: CompletedMarker) -> CompletedMarker {
     let m = lhs.precede(p);
     p.bump(); // .
 
-    // Must be followed by ident or keyword-as-ident
-    if p.at_keyword_or_ident() {
+    // Field/method name: ident, keyword-as-ident, or integer literal for
+    // tuple projections (`t.0`, `result.1`) per SPEC § type interactions.
+    if p.at_keyword_or_ident() || p.at(SyntaxKind::INT_LIT) {
         p.bump();
     } else {
         p.error_at_current("expected field name after `.`".into());
     }
 
     if p.at(SyntaxKind::L_PAREN) {
-        // method call: expr.method(args)
+        // method call: expr.method(args) — not valid after a bare int (t.0())
         arg_list(p);
         m.complete(p, SyntaxKind::METHOD_CALL_EXPR)
     } else {
-        // field access: expr.field
+        // field access: expr.field or expr.N (tuple)
         m.complete(p, SyntaxKind::FIELD_EXPR)
     }
 }
@@ -658,6 +659,20 @@ mod tests {
     #[test]
     fn parse_field_access() {
         let (root, errors) = parse_expr_to_tree("x.y.z");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::FIELD_EXPR);
+    }
+
+    #[test]
+    fn parse_tuple_field_access() {
+        let (root, errors) = parse_expr_to_tree("t.0");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::FIELD_EXPR);
+    }
+
+    #[test]
+    fn parse_chained_tuple_field_access() {
+        let (root, errors) = parse_expr_to_tree("result.0");
         assert!(errors.is_empty(), "errors: {errors:?}");
         assert_eq!(first_child_kind(&root), SyntaxKind::FIELD_EXPR);
     }

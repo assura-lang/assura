@@ -1077,14 +1077,65 @@ fn type_name_of_receiver(recv: &SpExpr, ctx: &PlanCtx<'_>) -> Option<String> {
     }
 }
 
-/// Field type name for `recv.field` using struct layouts (#892 / #896).
+/// Field type name for `recv.field` using struct layouts (#892 / #896)
+/// or simple tuple types `(Int, Bool)` with numeric fields (#899).
 fn field_type_for_receiver(recv: &SpExpr, field: &str, ctx: &PlanCtx<'_>) -> Option<String> {
     let recv_ty = type_name_of_receiver(recv, ctx)?;
-    let fields = ctx.field_layouts.get(&recv_ty)?;
-    fields
-        .iter()
-        .find(|(n, _)| n == field)
-        .map(|(_, ty)| ty.clone())
+    if let Some(fields) = ctx.field_layouts.get(&recv_ty) {
+        return fields
+            .iter()
+            .find(|(n, _)| n == field)
+            .map(|(_, ty)| ty.clone());
+    }
+    // Tuple projections: param type string like `(Int, Bool)`.
+    if let Some(elems) = parse_simple_tuple_type_elems(&recv_ty) {
+        let idx: usize = field.parse().ok()?;
+        return elems.get(idx).cloned();
+    }
+    None
+}
+
+/// Parse a display tuple type `(A, B, C)` into element type strings.
+///
+/// Handles nested parentheses/generics at top-level commas only.
+fn parse_simple_tuple_type_elems(s: &str) -> Option<Vec<String>> {
+    let s = s.trim();
+    if !s.starts_with('(') || !s.ends_with(')') || s == "()" {
+        return None;
+    }
+    let inner = s[1..s.len() - 1].trim();
+    if inner.is_empty() {
+        return None;
+    }
+    let mut elems = Vec::new();
+    let mut depth: i32 = 0;
+    let mut start = 0usize;
+    for (i, c) in inner.char_indices() {
+        match c {
+            '(' | '<' | '{' => depth += 1,
+            ')' | '>' | '}' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                let part = inner[start..i].trim();
+                if part.is_empty() {
+                    return None;
+                }
+                elems.push(part.to_string());
+                start = i + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    let last = inner[start..].trim();
+    if last.is_empty() {
+        return None;
+    }
+    elems.push(last.to_string());
+    // Single parenthesized type `(Int)` is not a 1-tuple in Assura (that is just Int
+    // grouping); require at least two elements for tuple projection synthesis.
+    if elems.len() < 2 {
+        return None;
+    }
+    Some(elems)
 }
 
 fn length_relation_ensures(expr: &SpExpr, name_to_slot: &HashMap<&str, usize>) -> Option<usize> {
@@ -1774,6 +1825,37 @@ mod tests {
             "expected named field load .x, got:\n{text}"
         );
         assert!(!text.contains("Stub IR"), "must not stub field:\n{text}");
+    }
+
+    #[test]
+    fn test_ir_generate_tuple_field_access() {
+        // result == t.0
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Field(spb(Expr::Ident("t".into())), "0".into())),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text_with_callees(
+            "Fst",
+            &[(0, "(Int, Bool)".into())],
+            &["t".into()],
+            "Int",
+            &clauses,
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert!(
+            text.contains("field $0 .0") && text.contains(": Int"),
+            "expected tuple field IR, got:\n{text}"
+        );
+        assert!(
+            !text.contains("Stub IR"),
+            "must not stub tuple field:\n{text}"
+        );
     }
 
     #[test]

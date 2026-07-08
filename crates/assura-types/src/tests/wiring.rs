@@ -280,6 +280,35 @@ fn tuple_field_access_numeric() {
 }
 
 #[test]
+fn tuple_field_access_out_of_range_a03005() {
+    let mut env = TypeEnv::new();
+    env.insert("pair".into(), Type::Tuple(vec![Type::Int, Type::Bool]));
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("pair".into()))),
+        "2".into(),
+    ));
+    let err = infer_expr(&expr, &env).unwrap_err();
+    assert_eq!(err.code, "A03005");
+    assert!(
+        err.message.contains("out of range"),
+        "expected out-of-range message, got {}",
+        err.message
+    );
+}
+
+#[test]
+fn tuple_field_access_non_numeric_a03005() {
+    let mut env = TypeEnv::new();
+    env.insert("pair".into(), Type::Tuple(vec![Type::Int, Type::Bool]));
+    let expr = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("pair".into()))),
+        "x".into(),
+    ));
+    let err = infer_expr(&expr, &env).unwrap_err();
+    assert_eq!(err.code, "A03005");
+}
+
+#[test]
 fn tuple_compatibility() {
     assert!(types_compatible(
         &Type::Tuple(vec![Type::Int, Type::Bool]),

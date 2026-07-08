@@ -363,6 +363,36 @@ fn extract_input_params_multiple() {
 }
 
 #[test]
+fn extract_input_params_tuple_type_keeps_inner_commas() {
+    // input(t: (Int, Bool)) — comma inside tuple is not a param separator (#899).
+    let clauses = vec![Clause {
+        kind: ClauseKind::Input,
+        body: Spanned::no_span(Expr::Raw(vec![
+            "t".into(),
+            ":".into(),
+            "(".into(),
+            "Int".into(),
+            ",".into(),
+            "Bool".into(),
+            ")".into(),
+        ])),
+        effect_variables: vec![],
+    }];
+    let params = extract_input_params(&clauses);
+    assert_eq!(params.len(), 1, "got {params:?}");
+    assert_eq!(params[0].name, "t");
+    assert_eq!(
+        params[0].ty,
+        Some(TypeExpr::Tuple(vec![
+            TypeExpr::Named("Int".into()),
+            TypeExpr::Named("Bool".into()),
+        ])),
+        "got {:?}",
+        params[0].ty
+    );
+}
+
+#[test]
 fn extract_input_params_no_type() {
     // Parameter without a type annotation
     let clauses = vec![Clause {

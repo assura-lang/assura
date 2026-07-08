@@ -242,11 +242,6 @@ pub(crate) fn adt_inject_var_name(adt_name: &str, ctor_name: &str, leg: char) ->
     format!("__adt_inj_{adt_name}_{ctor_name}_{leg}")
 }
 
-/// IR field projection UIF (`__ir_field_{ty_suffix}_{index}`).
-pub(crate) fn ir_field_uf_name(ty_suffix: &str, index: usize) -> String {
-    format!("__ir_field_{ty_suffix}_{index}")
-}
-
 /// IR constructor UIF (`__ir_construct_{type_id}`).
 pub(crate) fn ir_construct_uf_name(type_id: &str) -> String {
     format!("__ir_construct_{type_id}")
@@ -610,7 +605,9 @@ mod tests {
             adt_inject_var_name("Opt", "Some", 'a'),
             "__adt_inj_Opt_Some_a"
         );
-        assert_eq!(ir_field_uf_name("pair", 0), "__ir_field_pair_0");
+        // Numeric tuple projections use the same UF as AST `t.0` (#899).
+        assert_eq!(field_uif_name("0"), "__field_0");
+        assert_eq!(field_uif_name("1"), "__field_1");
         assert_eq!(ir_construct_uf_name("T1"), "__ir_construct_T1");
         assert_eq!(measure_ax_xs_name("m"), "__ax_m_xs");
         assert_eq!(measure_append_uf_name("m"), "__append_m");

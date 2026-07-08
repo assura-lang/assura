@@ -1002,6 +1002,64 @@ contract LenOf {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// `result == t.0` tuple projection via IR field load (#899).
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_tuple_field_heuristic_verifies() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-tuple-field-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract Fst {
+  input(t: (Int, Bool))
+  output(result: Int)
+  ensures { result == t.0 }
+}
+"#;
+        let path = dir.join("fst.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let jobs = crate::entry::collect_verification_jobs(&typed);
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].2.len(), 1, "params: {:?}", jobs[0].2);
+        assert_eq!(
+            jobs[0].2[0].ty.as_ref().map(|t| t.to_string()),
+            Some("(Int, Bool)".into()),
+            "tuple param type: {:?}",
+            jobs[0].2[0].ty
+        );
+        let map = stub_ir_sidecars_for_typed(&typed);
+        let ir = map.get("Fst").expect("Fst IR");
+        assert!(ir.contains("field $0 .0"), "expected field IR, got:\n{ir}");
+
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"Fst".to_string()),
+            "expected heuristic for Fst, names={:?}",
+            loaded.heuristic_names()
+        );
+
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => {
+                clause_desc.starts_with("Fst") && clause_desc.ends_with("::ensures")
+            }
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Verified { .. })),
+            "result == t.0 should verify; got {results:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Nested `result == o.inner.v` via multi-step field loads (#896).
     #[test]
     #[cfg(feature = "z3-verify")]

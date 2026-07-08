@@ -185,7 +185,8 @@ pub enum IrExprKind {
     /// `field $N .M` (numeric index) or `field $N .name` (named struct field).
     ///
     /// Named fields lower to Rust `.name` and SMT `__field_name` UFs. Numeric
-    /// indices remain for tuple-style / collection length (index 0) access.
+    /// indices lower to Rust `.N` and SMT `__field_N` (AST parity for `t.0`,
+    /// #899); collection length still special-cases index 0 on collection types.
     Field {
         slot: usize,
         index: usize,
