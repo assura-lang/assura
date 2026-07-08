@@ -877,6 +877,51 @@ contract Add {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// `if x > 0 && y > 0 then …` must materialize logical And in the condition.
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_if_and_condition_heuristic_verifies() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-if-and-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract IfAnd {
+  input(x: Int, y: Int)
+  output(result: Int)
+  ensures { result == if x > 0 && y > 0 then 1 else 0 }
+}
+"#;
+        let path = dir.join("if_and.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"IfAnd".to_string()),
+            "expected heuristic for IfAnd, names={:?}",
+            loaded.heuristic_names()
+        );
+
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => {
+                clause_desc.starts_with("IfAnd") && clause_desc.ends_with("::ensures")
+            }
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Verified { .. })),
+            "if with && condition should verify; got {results:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Nested if ensures should synthesize multi-block IR and verify (#885).
     #[test]
     #[cfg(feature = "z3-verify")]

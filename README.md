@@ -98,7 +98,7 @@ cargo install --path crates/assura-lsp --locked
 
 **Embedding as a library:** the public compile/verify facade is
 [`assura-pipeline`](https://crates.io/crates/assura-pipeline) on crates.io
-(v0.2.0+):
+(v0.3.0+):
 
 ```toml
 [dependencies]
