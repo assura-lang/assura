@@ -181,6 +181,13 @@ fn check_implication(
                     let zero = z3::ast::Int::from_i64(0);
                     solver.assert(v.ge(&zero));
                 }
+                crate::prelude_policy::PreludeConstraint::BoolZeroOrOne(name) => {
+                    let v = encoder.get_or_create_int(name);
+                    let zero = z3::ast::Int::from_i64(0);
+                    let one = z3::ast::Int::from_i64(1);
+                    solver.assert(v.ge(&zero));
+                    solver.assert(v.le(&one));
+                }
                 crate::prelude_policy::PreludeConstraint::ConstantEq(name, value) => {
                     let v = encoder.get_or_create_int(name);
                     solver.assert(v.eq(z3::ast::Int::from_i64(*value)));

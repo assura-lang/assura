@@ -699,14 +699,24 @@ impl EncodeTerm for Encoder {
                     let assura_ast::Pattern::Literal(lit) = &arm.pattern else {
                         unreachable!("Literal kind requires Literal");
                     };
-                    let lit_val = self.encode_literal(lit);
-                    match (&scrut, &lit_val) {
-                        (Z3Value::Int(a), Z3Value::Int(b)) => a.eq(b),
-                        (Z3Value::Bool(a), Z3Value::Bool(b)) => a.eq(b),
-                        (Z3Value::Real(a), Z3Value::Real(b)) => a.eq(b),
-                        (Z3Value::Int(a), Z3Value::Real(b)) => ast::Real::from_int(a).eq(b),
-                        (Z3Value::Real(a), Z3Value::Int(b)) => a.eq(ast::Real::from_int(b)),
-                        _ => ast::Bool::from_bool(true),
+                    // Bool params are Int 0/1 in the encoder; Bool patterns must
+                    // compare as 0/1, not fall through to always-true (sort mismatch).
+                    if let assura_ast::Literal::Bool(b) = lit {
+                        match &scrut {
+                            Z3Value::Int(a) => a.eq(ast::Int::from_i64(if *b { 1 } else { 0 })),
+                            Z3Value::Bool(a) => a.eq(ast::Bool::from_bool(*b)),
+                            _ => ast::Bool::from_bool(true),
+                        }
+                    } else {
+                        let lit_val = self.encode_literal(lit);
+                        match (&scrut, &lit_val) {
+                            (Z3Value::Int(a), Z3Value::Int(b)) => a.eq(b),
+                            (Z3Value::Bool(a), Z3Value::Bool(b)) => a.eq(b),
+                            (Z3Value::Real(a), Z3Value::Real(b)) => a.eq(b),
+                            (Z3Value::Int(a), Z3Value::Real(b)) => ast::Real::from_int(a).eq(b),
+                            (Z3Value::Real(a), Z3Value::Int(b)) => a.eq(ast::Real::from_int(b)),
+                            _ => ast::Bool::from_bool(true),
+                        }
                     }
                 }
                 MatchArmKind::Constructor => {

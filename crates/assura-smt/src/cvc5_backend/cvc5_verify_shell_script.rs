@@ -89,6 +89,9 @@ pub(crate) fn append_cvc5_shellout_constraints(
             Cvc5TypeConstraint::NatNonNegative(name) => {
                 script.push_str(&format!("(assert (>= {name} 0))\n"));
             }
+            Cvc5TypeConstraint::BoolZeroOrOne(name) => {
+                script.push_str(&format!("(assert (and (>= {name} 0) (<= {name} 1)))\n"));
+            }
             Cvc5TypeConstraint::ConstantEq(name, value) => {
                 script.push_str(&format!("(assert (= {name} {value}))\n"));
             }

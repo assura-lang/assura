@@ -87,6 +87,14 @@ pub(crate) fn assert_cvc5_solver_prelude<'a>(
                         .assert_formula(tm.mk_term(cvc5::Kind::Geq, &[term.clone(), zero.clone()]));
                 }
             }
+            Cvc5TypeConstraint::BoolZeroOrOne(name) => {
+                if let Some(term) = var_map.get(&name) {
+                    let one = tm.mk_integer(1);
+                    solver
+                        .assert_formula(tm.mk_term(cvc5::Kind::Geq, &[term.clone(), zero.clone()]));
+                    solver.assert_formula(tm.mk_term(cvc5::Kind::Leq, &[term.clone(), one]));
+                }
+            }
             Cvc5TypeConstraint::ConstantEq(..) => {
                 // Skip: build_cvc5_var_map already inserts mk_integer(value)
                 // for constants, so asserting value == value is redundant (#467).

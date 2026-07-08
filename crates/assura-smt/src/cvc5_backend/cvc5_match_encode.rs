@@ -163,7 +163,8 @@ where
                         let val: i64 = n.parse().ok()?;
                         tm.mk_integer(val)
                     }
-                    Literal::Bool(b) => tm.mk_boolean(*b),
+                    // Bool params are Int 0/1; do not mix Bool and Int in Equal.
+                    Literal::Bool(b) => tm.mk_integer(if *b { 1 } else { 0 }),
                     _ => return None,
                 };
                 let default = result.as_ref()?.clone();
