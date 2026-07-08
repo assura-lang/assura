@@ -410,6 +410,8 @@ fn field_type_tokens(p: &mut Parser) {
                 break;
             }
             // Next field without separator: `y: Int` or `pub y: Int`.
+            // Do not treat `@taint:validated` (or other `@name:…` annotations)
+            // as a new field — those bind to the preceding type token.
             if saw_type_token && looks_like_field_start(p) {
                 break;
             }
@@ -420,6 +422,31 @@ fn field_type_tokens(p: &mut Parser) {
         }
 
         match cur {
+            // Field / type annotations: `@taint:validated`, `@label:…`.
+            // Consume `@name` and optional `:value` so `name:` is not seen as
+            // a field start on the next loop iteration.
+            SyntaxKind::AT => {
+                p.bump();
+                saw_type_token = true;
+                if p.current() == SyntaxKind::IDENT || p.current().is_keyword() {
+                    p.bump();
+                    if p.current() == SyntaxKind::COLON {
+                        p.bump();
+                        // annotation value (ident, literal, or keyword)
+                        let v = p.current();
+                        if !matches!(
+                            v,
+                            SyntaxKind::SEMICOLON
+                                | SyntaxKind::COMMA
+                                | SyntaxKind::R_BRACE
+                                | SyntaxKind::ERROR_TOKEN
+                        ) && !p.eof()
+                        {
+                            p.bump();
+                        }
+                    }
+                }
+            }
             SyntaxKind::L_ANGLE => {
                 angle_depth += 1;
                 p.bump();

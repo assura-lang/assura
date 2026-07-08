@@ -186,6 +186,30 @@ fn lower_type_struct_newline_fields_without_separators() {
 }
 
 #[test]
+fn lower_type_struct_taint_annotation_not_second_field() {
+    // `@taint:validated` must stay on the field type; `taint:` is not a field.
+    let src = r#"
+        type ValidPeerKey {
+            data: Bytes @taint:validated
+            length: Nat
+        }
+    "#;
+    let (sf, errors) = parse_and_lower(src);
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    if let Decl::TypeDef(td) = &sf.decls[0].node {
+        if let TypeBody::Struct(fields) = &td.body {
+            assert_eq!(fields.len(), 2, "got {fields:?}");
+            assert_eq!(fields[0].name, "data");
+            assert_eq!(fields[1].name, "length");
+        } else {
+            panic!("expected Struct body");
+        }
+    } else {
+        panic!("expected TypeDef");
+    }
+}
+
+#[test]
 fn lower_type_struct_generic_field_with_comma() {
     // Commas inside angle brackets are not field separators.
     let src = r#"

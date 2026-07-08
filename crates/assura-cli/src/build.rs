@@ -1066,6 +1066,51 @@ fn main() {{
     }
 }
 
+/// Local embed of multi-fn IR.
+///
+/// Sibling `fn #N` become capturing closures referenced from main as `block_N()`.
+/// Kept in the CLI (instead of calling `assura_smt::ir_module_to_embedded_body`)
+/// so `cargo package` co-publish against the last crates.io `assura-smt` still
+/// compiles before the monorepo versions are published together.
+fn multi_block_ir_to_embedded_body(module: &assura_smt::IrModule) -> String {
+    let mut code = String::new();
+    let ret_ty = module
+        .functions
+        .first()
+        .map(|f| match f.return_type.as_str() {
+            "Int" => "i64",
+            "Nat" => "u64",
+            "Bool" => "bool",
+            "Float" => "f64",
+            other if !other.is_empty() => other,
+            _ => "i64",
+        })
+        .unwrap_or("i64");
+
+    for func in module.functions.iter().skip(1) {
+        let id = func.id.trim_start_matches('#');
+        let body = assura_smt::ir_function_body_to_rust(func);
+        let indented: String = body
+            .lines()
+            .map(|l| {
+                if l.is_empty() {
+                    String::new()
+                } else {
+                    format!("    {l}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        code.push_str(&format!(
+            "    let block_{id} = || -> {ret_ty} {{\n{indented}\n    }};\n"
+        ));
+    }
+    if let Some(main) = module.functions.first() {
+        code.push_str(&assura_smt::ir_function_body_to_rust(main));
+    }
+    code
+}
+
 /// Convert co-located `{ContractName}.ir` sidecars into Rust bodies for codegen.
 ///
 /// Used by the getting-started flow (#866): after `assura check` with
@@ -1114,11 +1159,10 @@ fn rust_bodies_from_ir_sidecars(
             ));
         }
         // Multi-block modules get sibling closures + main body (#882).
-        // Use shared assura_smt helper (keeps CLI and codegen paths aligned).
         let ir_body = if module.functions.len() == 1 {
             assura_smt::ir_function_body_to_rust(&module.functions[0])
         } else {
-            assura_smt::ir_module_to_embedded_body(&module)
+            multi_block_ir_to_embedded_body(&module)
         };
         let ir_body = ir_body.replace("__result", "__assura_result");
         let ir_body = strip_trailing_return(&ir_body);
