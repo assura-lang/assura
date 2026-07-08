@@ -346,8 +346,11 @@ pub(crate) fn generate_contract(
 /// Map a Rust type to a proptest strategy expression.
 pub(crate) fn proptest_strategy_for_type(rust_type: &str) -> String {
     match rust_type {
-        "i64" => "proptest::prelude::any::<i64>()".to_string(),
-        "u64" => "proptest::prelude::any::<u64>()".to_string(),
+        // Prefer i32-range for i64/u64 so generated `+`/`*` proptest tests do not
+        // panic on debug overflow while still covering wide values. Full-range
+        // i64 + i64 overflows in debug Rust; Assura Int is mathematical in SMT.
+        "i64" => "proptest::prelude::any::<i32>().prop_map(|n| i64::from(n))".to_string(),
+        "u64" => "proptest::prelude::any::<u32>().prop_map(|n| u64::from(n))".to_string(),
         "i32" => "proptest::prelude::any::<i32>()".to_string(),
         "u32" => "proptest::prelude::any::<u32>()".to_string(),
         "i16" => "proptest::prelude::any::<i16>()".to_string(),
@@ -357,8 +360,8 @@ pub(crate) fn proptest_strategy_for_type(rust_type: &str) -> String {
         "f64" => "proptest::prelude::any::<f64>()".to_string(),
         "f32" => "proptest::prelude::any::<f32>()".to_string(),
         "bool" => "proptest::prelude::any::<bool>()".to_string(),
-        "usize" => "proptest::prelude::any::<usize>()".to_string(),
-        "isize" => "proptest::prelude::any::<isize>()".to_string(),
+        "usize" => "proptest::prelude::any::<u16>().prop_map(|n| n as usize)".to_string(),
+        "isize" => "proptest::prelude::any::<i16>().prop_map(|n| n as isize)".to_string(),
         _ => format!("proptest::prelude::any::<{rust_type}>()"),
     }
 }

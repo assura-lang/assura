@@ -82,6 +82,68 @@ fn build_write_ir_abs_call_compiles_and_tests() {
 }
 
 #[test]
+fn build_write_ir_nested_field_compiles_and_tests() {
+    // Nested struct field IR + Arbitrary for Outer{inner: Inner} must cargo-test.
+    let tmp = unique_temp("assura_write_ir_nested_field");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let assura_path = tmp.join("GetDeep.assura");
+    std::fs::write(
+        &assura_path,
+        "type Inner { v: Int }\n\
+         type Outer { inner: Inner }\n\
+         contract GetDeep {\n\
+           input(o: Outer)\n\
+           output(result: Int)\n\
+           ensures { result == o.inner.v }\n\
+         }\n",
+    )
+    .unwrap();
+
+    let out_dir = tmp.join("out");
+    let out = Command::new(assura_bin())
+        .args([
+            "build",
+            assura_path.to_str().unwrap(),
+            "--write-ir",
+            "--output",
+            out_dir.to_str().unwrap(),
+        ])
+        .current_dir(&tmp)
+        .output()
+        .expect("run assura build");
+    assert!(
+        out.status.success(),
+        "build --write-ir nested field should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let ir_text = std::fs::read_to_string(tmp.join("GetDeep.ir")).unwrap();
+    assert!(
+        ir_text.contains("field") && ir_text.contains(".inner") && ir_text.contains(".v"),
+        "expected nested field IR, got:\n{ir_text}"
+    );
+    let lib = std::fs::read_to_string(out_dir.join("src/lib.rs")).unwrap();
+    assert!(
+        lib.contains("Arbitrary for Outer") && lib.contains(".inner"),
+        "expected Outer Arbitrary + field access, got:\n{lib}"
+    );
+
+    let test = Command::new("cargo")
+        .args(["test", "--quiet"])
+        .current_dir(&out_dir)
+        .output()
+        .expect("cargo test");
+    assert!(
+        test.status.success(),
+        "cargo test should pass: {}\n{}",
+        String::from_utf8_lossy(&test.stdout),
+        String::from_utf8_lossy(&test.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn build_write_ir_if_then_multi_block_compiles_and_tests() {
     let tmp = unique_temp("assura_write_ir_if");
     let _ = std::fs::remove_dir_all(&tmp);

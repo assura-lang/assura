@@ -113,7 +113,12 @@ fn enum_def_empty_variants_no_exhaustive() {
 
 #[test]
 fn proptest_strategy_known_types() {
-    assert!(proptest_strategy_for_type("i64").contains("any::<i64>()"));
+    // i64 uses i32-range + cast to avoid debug overflow in generated +/* tests.
+    let i64s = proptest_strategy_for_type("i64");
+    assert!(
+        i64s.contains("any::<i32>()") && i64s.contains("i64::from"),
+        "expected i32-range strategy for i64, got {i64s}"
+    );
     assert!(proptest_strategy_for_type("bool").contains("any::<bool>()"));
     assert!(proptest_strategy_for_type("f64").contains("any::<f64>()"));
     assert!(proptest_strategy_for_type("u8").contains("any::<u8>()"));
