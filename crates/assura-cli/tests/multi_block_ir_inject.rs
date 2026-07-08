@@ -82,6 +82,62 @@ fn build_write_ir_abs_call_compiles_and_tests() {
 }
 
 #[test]
+fn build_write_ir_length_value_compiles_and_tests() {
+    // result == xs.length() → call length + Rust .len() as u64
+    let tmp = unique_temp("assura_write_ir_len");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let assura_path = tmp.join("LenOf.assura");
+    std::fs::write(
+        &assura_path,
+        "contract LenOf {\n  input(xs: List<Int>)\n  output(result: Nat)\n  ensures { result == xs.length() }\n}\n",
+    )
+    .unwrap();
+
+    let out_dir = tmp.join("out");
+    let out = Command::new(assura_bin())
+        .args([
+            "build",
+            assura_path.to_str().unwrap(),
+            "--write-ir",
+            "--output",
+            out_dir.to_str().unwrap(),
+        ])
+        .current_dir(&tmp)
+        .output()
+        .expect("run assura build");
+    assert!(
+        out.status.success(),
+        "build --write-ir length should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let ir_text = std::fs::read_to_string(tmp.join("LenOf.ir")).unwrap();
+    assert!(
+        ir_text.contains("call length") && !ir_text.contains("Stub IR"),
+        "expected call length IR, got:\n{ir_text}"
+    );
+    let lib = std::fs::read_to_string(out_dir.join("src/lib.rs")).unwrap();
+    assert!(
+        lib.contains(".len()") && lib.contains("as u64"),
+        "expected .len() as u64 in lib.rs, got:\n{lib}"
+    );
+
+    let test = Command::new("cargo")
+        .args(["test", "--quiet"])
+        .current_dir(&out_dir)
+        .output()
+        .expect("cargo test");
+    assert!(
+        test.status.success(),
+        "cargo test should pass: {}\n{}",
+        String::from_utf8_lossy(&test.stdout),
+        String::from_utf8_lossy(&test.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn build_write_ir_nested_field_compiles_and_tests() {
     // Nested struct field IR + Arbitrary for Outer{inner: Inner} must cargo-test.
     let tmp = unique_temp("assura_write_ir_nested_field");

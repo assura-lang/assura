@@ -116,6 +116,10 @@ impl ExprFolder for RustCodegenFolder {
     }
 
     fn fold_method_call(&mut self, receiver: &SpExpr, method: &str, args: &[SpExpr]) -> String {
+        // Assura `length`/`len`/`size` map to Rust `.len()`; Nat is u64.
+        if args.is_empty() && matches!(method, "length" | "len" | "size") {
+            return format!("{}.len() as u64", self.fold_expr(receiver));
+        }
         format!(
             "{}.{method}({})",
             self.fold_expr(receiver),

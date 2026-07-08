@@ -287,6 +287,8 @@ pub(crate) fn ir_expr_to_rust(expr: &IrExprKind) -> String {
                 ("abs", [a]) => format!("{a}.abs()"),
                 ("min", [a, b]) => format!("{a}.min({b})"),
                 ("max", [a, b]) => format!("{a}.max({b})"),
+                // Collection/string length: Rust uses `.len()` (usize); Assura Nat is u64.
+                ("length" | "len" | "size", [a]) => format!("{a}.len() as u64"),
                 _ => format!("{func}({})", arg_strs.join(", ")),
             }
         }

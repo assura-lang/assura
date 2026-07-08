@@ -82,6 +82,7 @@ const ENSURES_PLANNERS: &[IrPlannerFn] = &[
     plan_bool_logic_ensures,
     plan_multi_fn_call_chain,
     plan_identity_equality,
+    plan_length_value_ensures,
     plan_length_copy_ensures,
 ];
 
@@ -244,6 +245,45 @@ fn plan_identity_equality(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan>
 fn plan_length_copy_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let slot = length_relation_ensures(expr, &ctx.name_to_slot)?;
     Some(single_fn_plan(single_load(slot, ctx.return_ty)))
+}
+
+/// `ensures { result == xs.length() }` (or `.len()` / `.size()`) as IR `call length`.
+///
+/// Distinct from [`plan_length_copy_ensures`] which handles length *relations*
+/// like `result.length() == raw.length()` (identity load of the collection).
+/// SMT backends expand `call length ($slot)` via canonical length (#891 pattern).
+fn plan_length_value_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    let (lhs, rhs) = equality_operands(expr)?;
+    let other = if is_result_ident(lhs) {
+        rhs
+    } else if is_result_ident(rhs) {
+        lhs
+    } else {
+        return None;
+    };
+    let Expr::MethodCall {
+        receiver,
+        method,
+        args,
+    } = &other.node
+    else {
+        return None;
+    };
+    if !matches!(method.as_str(), "length" | "len" | "size") || !args.is_empty() {
+        return None;
+    }
+    let Expr::Ident(name) = &receiver.as_ref().node else {
+        return None;
+    };
+    let base = *ctx.name_to_slot.get(name.as_str())?;
+    let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
+    used.sort_unstable();
+    let out = next_temp_slot(&used);
+    let lines = vec![
+        format!("    ${out} = call length (${base}) : {}", ctx.return_ty),
+        format!("    $result = load ${out} : {}", ctx.return_ty),
+    ];
+    Some(single_fn_plan(IrGenBody { lines }))
 }
 
 /// Max nesting depth for `if` synthesis (pathological nesting falls back to stub).
@@ -1360,6 +1400,38 @@ mod tests {
         );
         assert!(text.contains("$result = load $0 : Bytes"));
         assert!(text.contains("Generated IR"));
+    }
+
+    #[test]
+    fn generates_call_length_when_result_eq_param_length() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::MethodCall {
+                    receiver: spb(Expr::Ident("xs".into())),
+                    method: "length".into(),
+                    args: vec![],
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "LenOf",
+            &[(0, "List<Int>".into())],
+            &["xs".into()],
+            "Nat",
+            &clauses,
+        );
+        assert!(
+            text.contains("call length ($0)") && text.contains("$result = load"),
+            "expected call length IR, got:\n{text}"
+        );
+        assert!(
+            !text.contains("Stub IR"),
+            "must not stub length value:\n{text}"
+        );
     }
 
     #[test]
