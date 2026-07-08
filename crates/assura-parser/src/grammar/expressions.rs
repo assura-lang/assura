@@ -8,11 +8,7 @@ use crate::syntax_kind::SyntaxKind;
 
 /// Parse an expression at the top level (lowest precedence).
 pub(crate) fn expr(p: &mut Parser) {
-    // let expr has lowest precedence
-    if p.at(SyntaxKind::LET_KW) {
-        let_expr(p);
-        return;
-    }
+    // `let` is also an atom so it can appear as the RHS of `==` / other infix.
     expr_bp(p, 0);
 }
 
@@ -78,6 +74,9 @@ fn atom(p: &mut Parser) -> Option<CompletedMarker> {
             p.bump();
             Some(m.complete(p, SyntaxKind::RESULT_EXPR))
         }
+
+        // let x = value in body (must be an atom so `result == let …` works)
+        SyntaxKind::LET_KW => Some(let_expr(p)),
 
         // old(expr)
         SyntaxKind::OLD_KW => Some(old_expr(p)),
@@ -430,7 +429,7 @@ fn unary_expr(p: &mut Parser) -> CompletedMarker {
     m.complete(p, SyntaxKind::UNARY_EXPR)
 }
 
-fn let_expr(p: &mut Parser) {
+fn let_expr(p: &mut Parser) -> CompletedMarker {
     let m = p.open();
     p.bump(); // let
     p.expect(SyntaxKind::IDENT);
@@ -440,7 +439,7 @@ fn let_expr(p: &mut Parser) {
     expr_bp(p, RANGE_BP);
     p.expect(SyntaxKind::IN_KW);
     expr(p);
-    m.complete(p, SyntaxKind::LET_EXPR);
+    m.complete(p, SyntaxKind::LET_EXPR)
 }
 
 fn ident_or_call(p: &mut Parser) -> CompletedMarker {
@@ -923,6 +922,19 @@ mod tests {
         let (root, errors) = parse_expr_to_tree("3.14 + 2.71");
         assert!(errors.is_empty(), "errors: {errors:?}");
         assert_eq!(first_child_kind(&root), SyntaxKind::BIN_EXPR);
+    }
+
+    #[test]
+    fn parse_let_as_equality_rhs() {
+        // `let` must be an atom so it can appear on the RHS of `==`.
+        let (root, errors) = parse_expr_to_tree("result == let y = x + 1 in y * 2");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::BIN_EXPR);
+        // Right child of == should be LET_EXPR (not empty recovery).
+        let bin = root.children().find(|n| n.kind() == SyntaxKind::BIN_EXPR);
+        assert!(bin.is_some(), "expected BIN_EXPR root child");
+        let has_let = root.descendants().any(|n| n.kind() == SyntaxKind::LET_EXPR);
+        assert!(has_let, "expected LET_EXPR under equality RHS");
     }
 
     #[test]

@@ -69,6 +69,7 @@ type IrPlannerFn = fn(&SpExpr, &PlanCtx<'_>) -> Option<IrGenPlan>;
 const ENSURES_PLANNERS: &[IrPlannerFn] = &[
     plan_if_branch_ensures,
     plan_match_arm_ensures,
+    plan_let_ensures,
     plan_abs_call_ensures,
     plan_min_max_call_ensures,
     plan_bool_comparison_ensures,
@@ -507,6 +508,57 @@ fn ir_match_pattern_text(pat: &assura_ast::Pattern) -> Option<String> {
         Pattern::Literal(Literal::Str(s)) => Some(format!("\"{s}\"")),
         Pattern::Literal(_) | Pattern::Tuple(_) => None,
     }
+}
+
+/// `ensures { result == let y = x + 1 in y * 2 }` → temps for bindings, then body.
+///
+/// Nested lets are flattened left-to-right into `const`/`arith` temps; the
+/// binding name is temporarily mapped into the slot table for the body.
+fn plan_let_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    let (lhs, rhs) = equality_operands(expr)?;
+    let mut other = if is_result_ident(lhs) {
+        rhs
+    } else if is_result_ident(rhs) {
+        lhs
+    } else {
+        return None;
+    };
+    if !matches!(&other.node, Expr::Let { .. }) {
+        return None;
+    }
+
+    let mut lines: Vec<String> = Vec::new();
+    let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
+    used.sort_unstable();
+    // Owned names so we can extend the map past PlanCtx's borrowed keys.
+    let mut owned: HashMap<String, usize> = ctx
+        .name_to_slot
+        .iter()
+        .map(|(k, v)| ((*k).to_string(), *v))
+        .collect();
+
+    // Flatten nested lets into temps.
+    while let Expr::Let { name, value, body } = &other.node {
+        let name_map: HashMap<&str, usize> = owned.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        let bind_ctx = PlanCtx {
+            name_to_slot: name_map,
+            return_ty: ctx.return_ty,
+            callees: ctx.callees,
+        };
+        let slot = operand_to_slot(value.as_ref(), &bind_ctx, &mut lines, &mut used)?;
+        owned.insert(name.clone(), slot);
+        other = body.as_ref();
+    }
+
+    let name_map: HashMap<&str, usize> = owned.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+    let body_ctx = PlanCtx {
+        name_to_slot: name_map,
+        return_ty: ctx.return_ty,
+        callees: ctx.callees,
+    };
+    let body_plan = plan_result_equals(other, &body_ctx)?;
+    lines.extend(body_plan.lines);
+    Some(single_fn_plan(IrGenBody { lines }))
 }
 
 /// `ensures { result == abs(x) }` → `if x >= 0 then x else 0 - x`.
@@ -1517,6 +1569,44 @@ mod tests {
             !text.contains("Stub IR"),
             "must not fall back to stub:\n{text}"
         );
+    }
+
+    #[test]
+    fn test_ir_generate_let_binding() {
+        // result == let y = x + 1 in y * 2
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Let {
+                    name: "y".into(),
+                    value: spb(Expr::BinOp {
+                        op: BinOp::Add,
+                        lhs: spb(Expr::Ident("x".into())),
+                        rhs: spb(Expr::Literal(Literal::Int("1".into()))),
+                    }),
+                    body: spb(Expr::BinOp {
+                        op: BinOp::Mul,
+                        lhs: spb(Expr::Ident("y".into())),
+                        rhs: spb(Expr::Literal(Literal::Int("2".into()))),
+                    }),
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "LetBind",
+            &[int_param("x", 0)],
+            &["x".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(
+            text.contains("arith add") && text.contains("arith mul"),
+            "expected let to expand into add then mul, got:\n{text}"
+        );
+        assert!(!text.contains("Stub IR"), "must not stub let:\n{text}");
     }
 
     #[test]
