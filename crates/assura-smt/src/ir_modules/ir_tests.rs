@@ -624,6 +624,36 @@ fn test_ir_match_to_rust() {
 }
 
 #[test]
+fn test_ir_builtin_calls_to_rust_methods() {
+    // abs/min/max must lower to methods, not free functions (generated crates
+    // have no abs/min/max in scope).
+    let abs = ir_expr_to_rust(&IrExprKind::Call {
+        func: "abs".into(),
+        args: vec![0],
+    });
+    assert_eq!(abs, "slot_0.abs()");
+
+    let min = ir_expr_to_rust(&IrExprKind::Call {
+        func: "min".into(),
+        args: vec![0, 1],
+    });
+    assert_eq!(min, "slot_0.min(slot_1)");
+
+    let max = ir_expr_to_rust(&IrExprKind::Call {
+        func: "max".into(),
+        args: vec![2, 3],
+    });
+    assert_eq!(max, "slot_2.max(slot_3)");
+
+    // Unknown callees stay free-function form (sibling helpers / user fns).
+    let other = ir_expr_to_rust(&IrExprKind::Call {
+        func: "double".into(),
+        args: vec![0],
+    });
+    assert_eq!(other, "double(slot_0)");
+}
+
+#[test]
 fn test_ir_loop_to_rust() {
     let expr = IrExprKind::Loop {
         body_block: 0,
