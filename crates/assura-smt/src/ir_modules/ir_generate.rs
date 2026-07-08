@@ -333,6 +333,11 @@ fn plan_branch_into_block(
 }
 
 /// Encode a boolean condition (param Bool, comparison, or nested) as a slot.
+///
+/// Bools are 0/1 Int slots. Logical `&&`/`||`/`==>` lower without extra blocks:
+/// - `a && b` → `arith mul a b`
+/// - `a || b` → `cmp ne (a + b) 0`
+/// - `a ==> b` → `(!a) || b`
 fn plan_bool_condition_slot(
     cond: &SpExpr,
     ctx: &PlanCtx<'_>,
@@ -351,6 +356,58 @@ fn plan_bool_condition_slot(
             let slot = next_temp_slot(used);
             used.push(slot);
             lines.push(format!("    ${slot} = cmp {ir_op} ${a} ${b} : Bool"));
+            Some(slot)
+        }
+        Expr::BinOp {
+            op: BinOp::And,
+            lhs,
+            rhs,
+        } => {
+            let a = plan_bool_condition_slot(lhs.as_ref(), ctx, lines, used)?;
+            let b = plan_bool_condition_slot(rhs.as_ref(), ctx, lines, used)?;
+            let slot = next_temp_slot(used);
+            used.push(slot);
+            lines.push(format!("    ${slot} = arith mul ${a} ${b} : Bool"));
+            Some(slot)
+        }
+        Expr::BinOp {
+            op: BinOp::Or,
+            lhs,
+            rhs,
+        } => {
+            let a = plan_bool_condition_slot(lhs.as_ref(), ctx, lines, used)?;
+            let b = plan_bool_condition_slot(rhs.as_ref(), ctx, lines, used)?;
+            let sum = next_temp_slot(used);
+            used.push(sum);
+            lines.push(format!("    ${sum} = arith add ${a} ${b} : Bool"));
+            let zero = next_temp_slot(used);
+            used.push(zero);
+            lines.push(format!("    ${zero} = const 0 : Bool"));
+            let slot = next_temp_slot(used);
+            used.push(slot);
+            lines.push(format!("    ${slot} = cmp ne ${sum} ${zero} : Bool"));
+            Some(slot)
+        }
+        Expr::BinOp {
+            op: BinOp::Implies,
+            lhs,
+            rhs,
+        } => {
+            // a ==> b  ≡  (!a) || b on 0/1 Bool slots
+            let a = plan_bool_condition_slot(lhs.as_ref(), ctx, lines, used)?;
+            let b = plan_bool_condition_slot(rhs.as_ref(), ctx, lines, used)?;
+            let zero = next_temp_slot(used);
+            used.push(zero);
+            lines.push(format!("    ${zero} = const 0 : Bool"));
+            let not_a = next_temp_slot(used);
+            used.push(not_a);
+            lines.push(format!("    ${not_a} = cmp eq ${a} ${zero} : Bool"));
+            let sum = next_temp_slot(used);
+            used.push(sum);
+            lines.push(format!("    ${sum} = arith add ${not_a} ${b} : Bool"));
+            let slot = next_temp_slot(used);
+            used.push(slot);
+            lines.push(format!("    ${slot} = cmp ne ${sum} ${zero} : Bool"));
             Some(slot)
         }
         Expr::UnaryOp {
@@ -607,6 +664,17 @@ fn plan_bool_logic_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan
                 main: IrGenBody { lines },
                 siblings: vec![(1, then_body, 0), (2, else_body, 0)],
             })
+        }
+        Expr::BinOp {
+            op: BinOp::Implies, ..
+        } => {
+            // result = (a ==> b) via condition materialization into a Bool slot
+            let mut lines: Vec<String> = Vec::new();
+            let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
+            used.sort_unstable();
+            let out = plan_bool_condition_slot(other, ctx, &mut lines, &mut used)?;
+            lines.push(format!("    $result = load ${out} : Bool"));
+            Some(single_fn_plan(IrGenBody { lines }))
         }
         _ => None,
     }
@@ -1441,6 +1509,51 @@ mod tests {
         assert!(
             text.contains("load $1") || text.contains("load $y"),
             "then-branch should load right operand, got:\n{text}"
+        );
+    }
+
+    #[test]
+    fn test_ir_generate_if_with_and_condition() {
+        // result == if x > 0 && y > 0 then 1 else 0
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::If {
+                    cond: spb(Expr::BinOp {
+                        op: BinOp::And,
+                        lhs: spb(Expr::BinOp {
+                            op: BinOp::Gt,
+                            lhs: spb(Expr::Ident("x".into())),
+                            rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+                        }),
+                        rhs: spb(Expr::BinOp {
+                            op: BinOp::Gt,
+                            lhs: spb(Expr::Ident("y".into())),
+                            rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+                        }),
+                    }),
+                    then_branch: spb(Expr::Literal(Literal::Int("1".into()))),
+                    else_branch: Some(spb(Expr::Literal(Literal::Int("0".into())))),
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "IfAnd",
+            &[int_param("x", 0), int_param("y", 1)],
+            &["x".into(), "y".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(
+            text.contains("arith mul") && text.contains("then #1 else #2"),
+            "expected && condition as mul + if, got:\n{text}"
+        );
+        assert!(
+            !text.contains("Stub IR"),
+            "must not fall back to stub:\n{text}"
         );
     }
 
