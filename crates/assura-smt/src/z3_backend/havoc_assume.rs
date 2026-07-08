@@ -9,7 +9,7 @@ use crate::havoc_assume::{
 use crate::ir::{IrArithOp, IrCmpOp, IrFunction, IrLiteral, IrPred, IrPredArg};
 use crate::ir_encode::{IrEncodeContext, is_collection_ir_type};
 use crate::ir_lower::{IrSlotContext, IrTermBuilder};
-use crate::ir_type_ctx::base_type_name;
+
 use std::collections::HashMap;
 use z3::ast;
 
@@ -139,17 +139,13 @@ impl IrTermBuilder for Z3IrBuilder<'_, '_> {
             return self.encoder.canonical_length(name);
         }
         let base = self.load_slot(slots, slot);
+        // Prefer AST-compatible shallow field UF (`__field_x(p)`) so IR
+        // `field $p .i` proves against ensures `result == p.x` (#892).
+        // ADT accessors need constructed values; free params are Int-encoded.
         if let Some(ir_ty) = ctx.slot_types.get(&slot)
             && let Some(field_name) = self.enc_ctx.type_ctx.field_name_at(ir_ty, index)
         {
-            let type_name = base_type_name(ir_ty);
-            if let Some(names) = self.enc_ctx.type_ctx.field_names_for(type_name) {
-                self.encoder.ensure_struct_adt(
-                    type_name,
-                    &names.into_iter().map(str::to_string).collect::<Vec<_>>(),
-                );
-                return self.encoder.adt_accessor(type_name, field_name, &base);
-            }
+            return self.unary_uf(&crate::encode_atom_policy::field_uif_name(field_name), base);
         }
         let ty_suffix = ctx
             .slot_types

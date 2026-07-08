@@ -68,10 +68,11 @@ assura check ShowcaseEcho.assura
 Expected: `ShowcaseEcho: ensures ... verified` and `check passed (no errors)`.
 
 For **synthesizable** ensures shapes (`result == x`, arithmetic including
-nested/`-x`/`abs`/`min`/`max`, `let` bindings, Bool `!`/`&&`/`||`/`=>` and
-comparisons, same-file pure call chains, nested if, match arms the planner
-knows), `assura check` synthesizes an in-memory IR body automatically so
-you get **Verified** without a co-located `.ir` file.
+nested/`-x`/`abs`/`min`/`max` and nested calls like `abs(min(x,y))`, `let`
+bindings, field loads `p.x`, Bool `!`/`&&`/`||`/`=>` and comparisons,
+same-file pure call chains, nested if, match arms the planner knows),
+`assura check` synthesizes an in-memory IR body automatically so you get
+**Verified** without a co-located `.ir` file.
 
 Unanalyzable shapes (e.g. `result > 0` with no body) still report
 **Unknown** (not a fake pass), with a tip to write co-located IR,

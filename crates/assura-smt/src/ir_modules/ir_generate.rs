@@ -31,9 +31,13 @@ pub struct CalleeSpec {
 #[derive(Debug, Clone)]
 pub(crate) struct PlanCtx<'a> {
     pub name_to_slot: HashMap<&'a str, usize>,
+    /// Param name → declared type string (e.g. `Point`) for field index lookup.
+    pub name_to_ty: HashMap<&'a str, &'a str>,
     pub return_ty: &'a str,
     /// In-file callees keyed by declaration name (exact `call` target).
     pub callees: &'a HashMap<String, CalleeSpec>,
+    /// Struct type name → ordered field names (from TypeEnv).
+    pub field_layouts: &'a HashMap<String, Vec<String>>,
 }
 
 /// Shape of the primary `ensures` clause (drives template suggestion).
@@ -70,6 +74,7 @@ const ENSURES_PLANNERS: &[IrPlannerFn] = &[
     plan_if_branch_ensures,
     plan_match_arm_ensures,
     plan_let_ensures,
+    plan_field_access_ensures,
     plan_abs_call_ensures,
     plan_min_max_call_ensures,
     plan_bool_comparison_ensures,
@@ -133,8 +138,8 @@ pub fn classify_ensures_shape(clauses: &[Clause], param_names: &[String]) -> Ens
 
 /// Generate `.ir` sidecar text from contract structure and ensures clauses.
 ///
-/// Equivalent to [`generate_ir_sidecar_text_with_callees`] with an empty
-/// callee map (no call-chain sibling synthesis from other contracts).
+/// Equivalent to [`generate_ir_sidecar_text_with_callees`] with empty callee /
+/// field-layout maps.
 pub fn generate_ir_sidecar_text(
     name: &str,
     params: &[(usize, String)],
@@ -149,11 +154,13 @@ pub fn generate_ir_sidecar_text(
         return_ty,
         clauses,
         &HashMap::new(),
+        &HashMap::new(),
     )
 }
 
 /// Like [`generate_ir_sidecar_text`], but synthesizes non-identity sibling
-/// bodies for unary pure callees present in `callees` (#863).
+/// bodies for unary pure callees present in `callees` (#863) and field loads
+/// when `field_layouts` maps struct types to ordered field names (#892).
 pub fn generate_ir_sidecar_text_with_callees(
     name: &str,
     params: &[(usize, String)],
@@ -161,6 +168,7 @@ pub fn generate_ir_sidecar_text_with_callees(
     return_ty: &str,
     clauses: &[Clause],
     callees: &HashMap<String, CalleeSpec>,
+    field_layouts: &HashMap<String, Vec<String>>,
 ) -> String {
     let requires_count = clauses
         .iter()
@@ -171,14 +179,22 @@ pub fn generate_ir_sidecar_text_with_callees(
         .filter(|c| c.kind == ClauseKind::Ensures)
         .count();
 
+    let name_to_ty: HashMap<&str, &str> = param_names
+        .iter()
+        .zip(params.iter())
+        .map(|(n, (_, ty))| (n.as_str(), ty.as_str()))
+        .collect();
+
     let ctx = PlanCtx {
         name_to_slot: param_names
             .iter()
             .enumerate()
             .map(|(i, n)| (n.as_str(), i))
             .collect(),
+        name_to_ty,
         return_ty,
         callees,
+        field_layouts,
     };
 
     for clause in clauses.iter().filter(|c| c.kind == ClauseKind::Ensures) {
@@ -542,8 +558,10 @@ fn plan_let_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
         let name_map: HashMap<&str, usize> = owned.iter().map(|(k, v)| (k.as_str(), *v)).collect();
         let bind_ctx = PlanCtx {
             name_to_slot: name_map,
+            name_to_ty: ctx.name_to_ty.clone(),
             return_ty: ctx.return_ty,
             callees: ctx.callees,
+            field_layouts: ctx.field_layouts,
         };
         let slot = operand_to_slot(value.as_ref(), &bind_ctx, &mut lines, &mut used)?;
         owned.insert(name.clone(), slot);
@@ -553,68 +571,25 @@ fn plan_let_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let name_map: HashMap<&str, usize> = owned.iter().map(|(k, v)| (k.as_str(), *v)).collect();
     let body_ctx = PlanCtx {
         name_to_slot: name_map,
+        name_to_ty: ctx.name_to_ty.clone(),
         return_ty: ctx.return_ty,
         callees: ctx.callees,
+        field_layouts: ctx.field_layouts,
     };
     let body_plan = plan_result_equals(other, &body_ctx)?;
     lines.extend(body_plan.lines);
     Some(single_fn_plan(IrGenBody { lines }))
 }
 
-/// `ensures { result == abs(x) }` → `if x >= 0 then x else 0 - x`.
+/// `ensures { result == abs(...) }` including nested `abs(min(x,y))` (#891).
+///
+/// Emits IR `call abs` / nested calls; SMT backends expand via
+/// `try_known_builtin` (Z3/CVC5 ite).
 fn plan_abs_call_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
-    let (lhs, rhs) = equality_operands(expr)?;
-    let call = if is_result_ident(lhs) {
-        rhs
-    } else if is_result_ident(rhs) {
-        lhs
-    } else {
-        return None;
-    };
-    let Expr::Call { func, args } = &call.node else {
-        return None;
-    };
-    let Expr::Ident(name) = &func.as_ref().node else {
-        return None;
-    };
-    if name != "abs" || args.len() != 1 {
-        return None;
-    }
-    let mut lines: Vec<String> = Vec::new();
-    let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
-    used.sort_unstable();
-    let x_slot = operand_to_slot(&args[0], ctx, &mut lines, &mut used)?;
-    let zero = next_temp_slot(&used);
-    used.push(zero);
-    lines.push(format!("    ${zero} = const 0 : Int"));
-    let cond = next_temp_slot(&used);
-    used.push(cond);
-    lines.push(format!("    ${cond} = cmp ge ${x_slot} ${zero} : Bool"));
-    let out = next_temp_slot(&used);
-    used.push(out);
-    lines.push(format!(
-        "    ${out} = if ${cond} then #1 else #2 : {}",
-        ctx.return_ty
-    ));
-    lines.push(format!("    $result = load ${out} : {}", ctx.return_ty));
-    let pos = single_load(x_slot, ctx.return_ty);
-    // Fresh temps so sibling body does not clobber the outer x slot (often $0).
-    let z = next_temp_slot(&[x_slot]);
-    let t = next_temp_slot(&[x_slot, z]);
-    let neg = IrGenBody {
-        lines: vec![
-            format!("    ${z} = const 0 : {}", ctx.return_ty),
-            format!("    ${t} = arith sub ${z} ${x_slot} : {}", ctx.return_ty),
-            format!("    $result = load ${t} : {}", ctx.return_ty),
-        ],
-    };
-    Some(IrGenPlan {
-        main: IrGenBody { lines },
-        siblings: vec![(1, pos, 0), (2, neg, 0)],
-    })
+    plan_builtin_call_ensures(expr, ctx, "abs", 1)
 }
 
-/// `ensures { result == min(x, y) }` / `max(x, y)` → if-compare over args.
+/// `ensures { result == min(...) }` / `max(...)` including nested args (#891).
 fn plan_min_max_call_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let (lhs, rhs) = equality_operands(expr)?;
     let call = if is_result_ident(lhs) {
@@ -624,45 +599,68 @@ fn plan_min_max_call_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPl
     } else {
         return None;
     };
+    let Expr::Call { func, .. } = &call.node else {
+        return None;
+    };
+    let Expr::Ident(name) = &func.as_ref().node else {
+        return None;
+    };
+    if name != "min" && name != "max" {
+        return None;
+    }
+    plan_builtin_call_ensures(expr, ctx, name, 2)
+}
+
+fn plan_builtin_call_ensures(
+    expr: &SpExpr,
+    ctx: &PlanCtx<'_>,
+    expected: &str,
+    arity: usize,
+) -> Option<IrGenPlan> {
+    let (lhs, rhs) = equality_operands(expr)?;
+    let call = if is_result_ident(lhs) {
+        rhs
+    } else if is_result_ident(rhs) {
+        lhs
+    } else {
+        return None;
+    };
     let Expr::Call { func, args } = &call.node else {
         return None;
     };
     let Expr::Ident(name) = &func.as_ref().node else {
         return None;
     };
-    if args.len() != 2 {
+    if name != expected || args.len() != arity {
         return None;
     }
-    // min: if x < y then x else y; max: if x > y then x else y
-    let cmp = match name.as_str() {
-        "min" => "lt",
-        "max" => "gt",
-        _ => return None,
-    };
     let mut lines: Vec<String> = Vec::new();
     let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
     used.sort_unstable();
-    let a_slot = operand_to_slot(&args[0], ctx, &mut lines, &mut used)?;
-    let b_slot = operand_to_slot(&args[1], ctx, &mut lines, &mut used)?;
-    let cond = next_temp_slot(&used);
-    used.push(cond);
-    lines.push(format!(
-        "    ${cond} = cmp {cmp} ${a_slot} ${b_slot} : Bool"
-    ));
-    let out = next_temp_slot(&used);
-    used.push(out);
-    lines.push(format!(
-        "    ${out} = if ${cond} then #1 else #2 : {}",
-        ctx.return_ty
-    ));
+    let out = operand_to_slot(call, ctx, &mut lines, &mut used)?;
     lines.push(format!("    $result = load ${out} : {}", ctx.return_ty));
-    Some(IrGenPlan {
-        main: IrGenBody { lines },
-        siblings: vec![
-            (1, single_load(a_slot, ctx.return_ty), 0),
-            (2, single_load(b_slot, ctx.return_ty), 0),
-        ],
-    })
+    Some(single_fn_plan(IrGenBody { lines }))
+}
+
+/// `ensures { result == p.x }` via IR `field $slot .index` (#892).
+fn plan_field_access_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    let (lhs, rhs) = equality_operands(expr)?;
+    let other = if is_result_ident(lhs) {
+        rhs
+    } else if is_result_ident(rhs) {
+        lhs
+    } else {
+        return None;
+    };
+    if !matches!(&other.node, Expr::Field(..)) {
+        return None;
+    }
+    let mut lines: Vec<String> = Vec::new();
+    let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
+    used.sort_unstable();
+    let out = operand_to_slot(other, ctx, &mut lines, &mut used)?;
+    lines.push(format!("    $result = load ${out} : {}", ctx.return_ty));
+    Some(single_fn_plan(IrGenBody { lines }))
 }
 
 /// `ensures { result == (x > 0) }` (Bool return) via IR `cmp`.
@@ -816,11 +814,15 @@ fn plan_callee_body_from_ensures(callee: &CalleeSpec) -> Option<IrGenBody> {
         .map(|(i, n)| (n.as_str(), i))
         .collect();
     let empty = HashMap::new();
+    let empty_layouts = HashMap::new();
+    let empty_tys = HashMap::new();
     let ctx = PlanCtx {
         name_to_slot,
+        name_to_ty: empty_tys,
         return_ty: callee.return_ty.as_str(),
         // Nested call chains are out of scope for v1 sibling synthesis.
         callees: &empty,
+        field_layouts: &empty_layouts,
     };
     for clause in callee
         .clauses
@@ -930,7 +932,8 @@ fn plan_result_arith(
 /// Resolve an arithmetic operand to a slot.
 ///
 /// Supports parameters, integer/bool literals (`const` temps), nested
-/// arithmetic binops (e.g. `(x + 1) * 2`), and unary negation (`-x` as `0 - x`).
+/// arithmetic binops (e.g. `(x + 1) * 2`), unary negation (`-x` as `0 - x`),
+/// nested `abs`/`min`/`max` calls (#891), and struct field loads (#892).
 fn operand_to_slot(
     expr: &SpExpr,
     ctx: &PlanCtx<'_>,
@@ -974,8 +977,56 @@ fn operand_to_slot(
             ));
             Some(slot)
         }
+        Expr::Call { func, args } => {
+            let Expr::Ident(name) = &func.as_ref().node else {
+                return None;
+            };
+            match (name.as_str(), args.len()) {
+                ("abs", 1) => {
+                    let a = operand_to_slot(&args[0], ctx, lines, used)?;
+                    let slot = next_temp_slot(used);
+                    used.push(slot);
+                    lines.push(format!("    ${slot} = call abs (${a}) : {}", ctx.return_ty));
+                    Some(slot)
+                }
+                ("min" | "max", 2) => {
+                    let a = operand_to_slot(&args[0], ctx, lines, used)?;
+                    let b = operand_to_slot(&args[1], ctx, lines, used)?;
+                    let slot = next_temp_slot(used);
+                    used.push(slot);
+                    lines.push(format!(
+                        "    ${slot} = call {name} (${a}, ${b}) : {}",
+                        ctx.return_ty
+                    ));
+                    Some(slot)
+                }
+                _ => None,
+            }
+        }
+        Expr::Field(recv, field) => {
+            let base = operand_to_slot(recv.as_ref(), ctx, lines, used)?;
+            let index = field_index_for_receiver(recv.as_ref(), field, ctx)?;
+            let slot = next_temp_slot(used);
+            used.push(slot);
+            lines.push(format!(
+                "    ${slot} = field ${base} .{index} : {}",
+                ctx.return_ty
+            ));
+            Some(slot)
+        }
         _ => None,
     }
+}
+
+/// Resolve struct field name → IR field index using param type + layouts.
+fn field_index_for_receiver(recv: &SpExpr, field: &str, ctx: &PlanCtx<'_>) -> Option<usize> {
+    let Expr::Ident(recv_name) = &recv.node else {
+        // Nested field `p.a.b`: outer Field's recv type is not tracked yet.
+        return None;
+    };
+    let ty = ctx.name_to_ty.get(recv_name.as_str())?;
+    let fields = ctx.field_layouts.get(*ty)?;
+    fields.iter().position(|f| f == field)
 }
 
 fn length_relation_ensures(expr: &SpExpr, name_to_slot: &HashMap<&str, usize>) -> Option<usize> {
@@ -1572,6 +1623,67 @@ mod tests {
     }
 
     #[test]
+    fn test_ir_generate_nested_abs_min() {
+        // result == abs(min(x, y))
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Call {
+                    func: spb(Expr::Ident("abs".into())),
+                    args: vec![sp(Expr::Call {
+                        func: spb(Expr::Ident("min".into())),
+                        args: vec![sp(Expr::Ident("x".into())), sp(Expr::Ident("y".into()))],
+                    })],
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "AbsMin",
+            &[int_param("x", 0), int_param("y", 1)],
+            &["x".into(), "y".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(
+            text.contains("call min") && text.contains("call abs"),
+            "expected nested call min then abs, got:\n{text}"
+        );
+        assert!(!text.contains("Stub IR"), "must not stub abs(min):\n{text}");
+    }
+
+    #[test]
+    fn test_ir_generate_field_access() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Field(spb(Expr::Ident("p".into())), "x".into())),
+            }),
+            effect_variables: vec![],
+        }];
+        let mut layouts = HashMap::new();
+        layouts.insert("Point".into(), vec!["x".into(), "y".into()]);
+        let text = generate_ir_sidecar_text_with_callees(
+            "GetX",
+            &[(0, "Point".into())],
+            &["p".into()],
+            "Int",
+            &clauses,
+            &HashMap::new(),
+            &layouts,
+        );
+        assert!(
+            text.contains("field $0 .0") || text.contains("field $0.0"),
+            "expected field load index 0 for x, got:\n{text}"
+        );
+        assert!(!text.contains("Stub IR"), "must not stub field:\n{text}");
+    }
+
+    #[test]
     fn test_ir_generate_let_binding() {
         // result == let y = x + 1 in y * 2
         let clauses = vec![Clause {
@@ -1742,6 +1854,7 @@ mod tests {
             "Int",
             &caller_result_eq_double_x(),
             &callees,
+            &HashMap::new(),
         );
         assert!(
             text.contains("call double ($0)"),
@@ -1827,6 +1940,7 @@ mod tests {
             "Int",
             &clauses,
             &callees,
+            &HashMap::new(),
         );
         assert!(
             text.contains("call helper ($0, $1)"),

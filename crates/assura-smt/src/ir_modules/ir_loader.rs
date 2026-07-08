@@ -250,6 +250,14 @@ pub fn stub_ir_sidecars_for_typed(typed: &assura_types::TypedFile) -> HashMap<St
         );
     }
 
+    // Struct field layouts for `result == p.x` synthesis (#892).
+    let field_layouts: HashMap<String, Vec<String>> = typed
+        .type_env
+        .struct_fields
+        .iter()
+        .map(|(ty, fields)| (ty.clone(), fields.iter().map(|(n, _)| n.clone()).collect()))
+        .collect();
+
     let mut out = HashMap::new();
     for (name, clauses, params, return_ty) in &jobs {
         let param_tys: Vec<(usize, String)> = params
@@ -279,6 +287,7 @@ pub fn stub_ir_sidecars_for_typed(typed: &assura_types::TypedFile) -> HashMap<St
                 &ret,
                 clauses,
                 &callees,
+                &field_layouts,
             ),
         );
     }
@@ -872,6 +881,104 @@ contract Add {
         assert!(
             matches!(ensures, Some(VerificationResult::Verified { .. })),
             "result == x + y should verify via synthesized IR; got {results:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Nested `abs(min(x,y))` via IR call composition (#891).
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_nested_abs_min_heuristic_verifies() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-abs-min-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract AbsMin {
+  input(x: Int, y: Int)
+  output(result: Int)
+  ensures { result == abs(min(x, y)) }
+}
+"#;
+        let path = dir.join("absmin.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"AbsMin".to_string()),
+            "expected heuristic for AbsMin, names={:?}",
+            loaded.heuristic_names()
+        );
+
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => {
+                clause_desc.starts_with("AbsMin") && clause_desc.ends_with("::ensures")
+            }
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Verified { .. })),
+            "abs(min(x,y)) should verify; got {results:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `result == p.x` via field load when TypeEnv has struct layout (#892).
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_field_access_heuristic_verifies() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-field-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+type Point {
+  x: Int
+  y: Int
+}
+contract GetX {
+  input(p: Point)
+  output(result: Int)
+  ensures { result == p.x }
+}
+"#;
+        let path = dir.join("field.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        assert!(
+            typed.type_env.struct_fields.contains_key("Point"),
+            "type env should record Point fields"
+        );
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"GetX".to_string()),
+            "expected heuristic for GetX, names={:?}",
+            loaded.heuristic_names()
+        );
+
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => {
+                clause_desc.starts_with("GetX") && clause_desc.ends_with("::ensures")
+            }
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Verified { .. })),
+            "result == p.x should verify; got {results:?}"
         );
 
         let _ = std::fs::remove_dir_all(&dir);
