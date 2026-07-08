@@ -1084,7 +1084,11 @@ mod tests {
             "Int",
             &clauses,
         );
-        assert!(text.contains("if $0 then #1 else #2"));
+        // Condition is materialised as Bool cmp, not raw param $0.
+        assert!(
+            text.contains("cmp gt") && text.contains("then #1 else #2"),
+            "expected cmp + if branches, got:\n{text}"
+        );
         assert!(text.contains("fn #1"));
         assert!(text.contains("fn #2"));
     }
