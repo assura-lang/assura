@@ -877,6 +877,65 @@ contract Add {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Nested bool: `result == (a && (b || c))` and xor-shaped formula.
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_nested_bool_logic_heuristic_verifies() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-nested-bool-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract Nest {
+  input(a: Bool, b: Bool, c: Bool)
+  output(result: Bool)
+  ensures { result == (a && (b || c)) }
+}
+contract Xor {
+  input(x: Bool, y: Bool)
+  output(result: Bool)
+  ensures { result == ((x || y) && !(x && y)) }
+}
+contract Imp {
+  input(x: Bool, y: Bool)
+  output(result: Bool)
+  ensures { result == (x => y) }
+}
+"#;
+        let path = dir.join("nested_bool.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        for name in ["Nest", "Xor", "Imp"] {
+            assert!(
+                loaded.heuristic_names().contains(&name.to_string()),
+                "expected heuristic for {name}, names={:?}",
+                loaded.heuristic_names()
+            );
+        }
+
+        let results = Verifier::new(&typed).source(&path).verify();
+        for name in ["Nest", "Xor", "Imp"] {
+            let ensures = results.iter().find(|r| match r {
+                VerificationResult::Verified { clause_desc, .. }
+                | VerificationResult::Counterexample { clause_desc, .. }
+                | VerificationResult::Unknown { clause_desc, .. }
+                | VerificationResult::Timeout { clause_desc } => {
+                    clause_desc.starts_with(name) && clause_desc.ends_with("::ensures")
+                }
+            });
+            assert!(
+                matches!(ensures, Some(VerificationResult::Verified { .. })),
+                "{name} ensures should verify; got {results:?}"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Bool match + BoolZeroOrOne prelude so free Int cannot assign x=2.
     #[test]
     #[cfg(feature = "z3-verify")]

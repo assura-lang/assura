@@ -67,9 +67,9 @@ assura check ShowcaseEcho.assura
 
 Expected: `ShowcaseEcho: ensures ... verified` and `check passed (no errors)`.
 
-For **synthesizable** ensures shapes (`result == x`, `result == x + 1`,
-`result == x + y`, other simple arithmetic,
-same-file pure call chains, match/if patterns the planner knows),
+For **synthesizable** ensures shapes (`result == x`, arithmetic including
+nested/`-x`/`abs`/`min`/`max`, Bool `!`/`&&`/`||`/`=>` and comparisons,
+same-file pure call chains, nested if, match arms the planner knows),
 `assura check` synthesizes an in-memory IR body automatically so you get
 **Verified** without a co-located `.ir` file.
 

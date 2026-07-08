@@ -643,10 +643,12 @@ fn plan_bool_comparison_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGe
     Some(single_fn_plan(IrGenBody { lines }))
 }
 
-/// `ensures { result == !x }`, `result == (x && y)`, `result == (x || y)`.
+/// `ensures { result == <bool-expr> }` for nested `!` / `&&` / `||` / `=>` / cmp.
 ///
-/// Bools are 0/1 Int slots in IR. `!` is `cmp eq x 0`. `&&` / `||` lower to
-/// `if` over the left operand with the right operand / const branches.
+/// Materializes the entire RHS through [`plan_bool_condition_slot`] so nested
+/// forms like `a && (b || c)` and `((x || y) && !(x && y))` work. Earlier
+/// And/Or paths used sibling blocks + [`plan_branch_result`], which only
+/// accepted identity/arith leaves and dropped nested bool operators.
 fn plan_bool_logic_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     if !ctx.return_ty.eq_ignore_ascii_case("Bool") {
         return None;
@@ -660,76 +662,29 @@ fn plan_bool_logic_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan
         return None;
     };
 
-    match &other.node {
+    // Only claim shapes that look boolean; pure identity `result == x` stays
+    // with plan_identity_equality (single load, no temps).
+    let looks_bool = match &other.node {
         Expr::UnaryOp {
-            op: UnaryOp::Not,
-            expr: inner,
-        } => {
-            let mut lines: Vec<String> = Vec::new();
-            let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
-            used.sort_unstable();
-            let inner_slot = plan_bool_condition_slot(inner.as_ref(), ctx, &mut lines, &mut used)?;
-            let zero = next_temp_slot(&used);
-            used.push(zero);
-            lines.push(format!("    ${zero} = const 0 : Bool"));
-            let out = next_temp_slot(&used);
-            lines.push(format!("    ${out} = cmp eq ${inner_slot} ${zero} : Bool"));
-            lines.push(format!("    $result = load ${out} : Bool"));
-            Some(single_fn_plan(IrGenBody { lines }))
-        }
+            op: UnaryOp::Not, ..
+        } => true,
         Expr::BinOp {
-            op: BinOp::And,
-            lhs: a,
-            rhs: b,
-        } => {
-            // if a then b else false
-            let mut lines: Vec<String> = Vec::new();
-            let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
-            used.sort_unstable();
-            let a_slot = plan_bool_condition_slot(a.as_ref(), ctx, &mut lines, &mut used)?;
-            let out = next_temp_slot(&used);
-            lines.push(format!("    ${out} = if ${a_slot} then #1 else #2 : Bool"));
-            lines.push(format!("    $result = load ${out} : Bool"));
-            let then_body = plan_branch_result(b.as_ref(), ctx)?;
-            let else_body = single_const("0", "Bool");
-            Some(IrGenPlan {
-                main: IrGenBody { lines },
-                siblings: vec![(1, then_body, 0), (2, else_body, 0)],
-            })
-        }
-        Expr::BinOp {
-            op: BinOp::Or,
-            lhs: a,
-            rhs: b,
-        } => {
-            // if a then true else b
-            let mut lines: Vec<String> = Vec::new();
-            let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
-            used.sort_unstable();
-            let a_slot = plan_bool_condition_slot(a.as_ref(), ctx, &mut lines, &mut used)?;
-            let out = next_temp_slot(&used);
-            lines.push(format!("    ${out} = if ${a_slot} then #1 else #2 : Bool"));
-            lines.push(format!("    $result = load ${out} : Bool"));
-            let then_body = single_const("1", "Bool");
-            let else_body = plan_branch_result(b.as_ref(), ctx)?;
-            Some(IrGenPlan {
-                main: IrGenBody { lines },
-                siblings: vec![(1, then_body, 0), (2, else_body, 0)],
-            })
-        }
-        Expr::BinOp {
-            op: BinOp::Implies, ..
-        } => {
-            // result = (a ==> b) via condition materialization into a Bool slot
-            let mut lines: Vec<String> = Vec::new();
-            let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
-            used.sort_unstable();
-            let out = plan_bool_condition_slot(other, ctx, &mut lines, &mut used)?;
-            lines.push(format!("    $result = load ${out} : Bool"));
-            Some(single_fn_plan(IrGenBody { lines }))
-        }
-        _ => None,
+            op: BinOp::And | BinOp::Or | BinOp::Implies,
+            ..
+        } => true,
+        Expr::BinOp { op, .. } if ir_cmp_op_name(op).is_some() => true,
+        _ => false,
+    };
+    if !looks_bool {
+        return None;
     }
+
+    let mut lines: Vec<String> = Vec::new();
+    let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
+    used.sort_unstable();
+    let out = plan_bool_condition_slot(other, ctx, &mut lines, &mut used)?;
+    lines.push(format!("    $result = load ${out} : Bool"));
+    Some(single_fn_plan(IrGenBody { lines }))
 }
 
 fn ir_cmp_op_name(op: &BinOp) -> Option<&'static str> {
@@ -1555,12 +1510,49 @@ mod tests {
             &clauses,
         );
         assert!(
-            text.contains("then #1 else #2") && text.contains("fn #1") && text.contains("fn #2"),
-            "expected if-lowered && , got:\n{text}"
+            text.contains("arith mul") && text.contains("$result = load"),
+            "expected && as mul on 0/1 Bool slots, got:\n{text}"
         );
         assert!(
-            text.contains("load $1") || text.contains("load $y"),
-            "then-branch should load right operand, got:\n{text}"
+            !text.contains("Stub IR"),
+            "must not fall back to stub:\n{text}"
+        );
+    }
+
+    #[test]
+    fn test_ir_generate_nested_bool_and_or() {
+        // result == (a && (b || c))
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::BinOp {
+                    op: BinOp::And,
+                    lhs: spb(Expr::Ident("a".into())),
+                    rhs: spb(Expr::BinOp {
+                        op: BinOp::Or,
+                        lhs: spb(Expr::Ident("b".into())),
+                        rhs: spb(Expr::Ident("c".into())),
+                    }),
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "Nest",
+            &[(0, "Bool".into()), (1, "Bool".into()), (2, "Bool".into())],
+            &["a".into(), "b".into(), "c".into()],
+            "Bool",
+            &clauses,
+        );
+        assert!(
+            text.contains("arith mul") && text.contains("arith add") && text.contains("cmp ne"),
+            "expected nested &&/|| via mul + add/ne, got:\n{text}"
+        );
+        assert!(
+            !text.contains("Stub IR"),
+            "must not stub nested bool:\n{text}"
         );
     }
 
