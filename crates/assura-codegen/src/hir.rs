@@ -878,18 +878,28 @@ pub fn build_type_def(t: &assura_ast::TypeDef) -> Vec<RustItem> {
                     "i64", "u64", "i32", "u32", "bool", "f64", "f32", "i8", "u8", "i16", "u16",
                     "isize", "usize", "String",
                 ];
-                if field_tys.iter().all(|ty| PRIMS.contains(&ty.as_str())) {
+                // Primitives or peer user structs (already emit Arbitrary when
+                // declared earlier in the file, e.g. Outer { inner: Inner }).
+                let arb_field =
+                    |ty: &str| PRIMS.contains(&ty) || crate::types_gen::is_user_type_name(ty);
+                if field_tys.iter().all(|ty| arb_field(ty.as_str())) {
+                    // Use the same strategies as contract proptest (i32-range for i64)
+                    // so field-bearing structs do not re-introduce full-range overflow.
+                    let field_strats: Vec<String> = field_tys
+                        .iter()
+                        .map(|ty| crate::contract::proptest_strategy_for_type(ty))
+                        .collect();
                     let destructure = field_names.join(", ");
                     let construct = field_names.join(", ");
                     let strategy = if field_names.len() == 1 {
                         format!(
-                            "any::<{}>().prop_map(|{destructure}| {} {{ {construct} }})",
-                            field_tys[0], t.name
+                            "({}).prop_map(|{destructure}| {} {{ {construct} }})",
+                            field_strats[0], t.name
                         )
                     } else {
                         format!(
-                            "any::<({})>().prop_map(|({destructure})| {} {{ {construct} }})",
-                            field_tys.join(", "),
+                            "({}).prop_map(|({destructure})| {} {{ {construct} }})",
+                            field_strats.join(", "),
                             t.name
                         )
                     };

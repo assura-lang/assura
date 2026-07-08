@@ -69,8 +69,8 @@ Expected: `ShowcaseEcho: ensures ... verified` and `check passed (no errors)`.
 
 For **synthesizable** ensures shapes (`result == x`, arithmetic including
 nested/`-x`/`abs`/`min`/`max` and nested calls like `abs(min(x,y))`, `let`
-bindings, field loads `p.x` / `p.y` on multi-field structs (newline-separated
-fields are fine), Bool `!`/`&&`/`||`/`=>` and comparisons,
+bindings, field loads `p.x` / `p.y` and nested `o.inner.v` on multi-field
+structs (newline-separated fields are fine), Bool `!`/`&&`/`||`/`=>` and comparisons,
 same-file pure call chains, nested if, match arms the planner knows),
 `assura check` synthesizes an in-memory IR body automatically so you get
 **Verified** without a co-located `.ir` file.
