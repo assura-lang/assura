@@ -324,8 +324,10 @@ pub(crate) fn generate_contract(
         return;
     }
 
-    // Single-file mode: wrap contents in a pub mod
+    // Single-file mode: wrap contents in a pub mod. Import crate-level types
+    // (structs, enums) so params like `p: Point` resolve inside the module.
     let mut inner = String::new();
+    inner.push_str("use super::*;\n\n");
     generate_contract_contents(c, &mut inner, ir_bodies);
 
     let m = RustItem::Mod(RustMod {
@@ -580,7 +582,11 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
         let _ = writeln!(test_body, "            prop_assume!({req});");
     }
 
-    let call_args: Vec<&str> = input_params.iter().map(|(n, _)| n.as_str()).collect();
+    // Clone args so ensures can still use input params after check() moves them.
+    let call_args: Vec<String> = input_params
+        .iter()
+        .map(|(n, _)| format!("{n}.clone()"))
+        .collect();
     let _ = writeln!(
         test_body,
         "            let result = {check_call_path}({});",
@@ -601,7 +607,8 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
 
     // Emit as a RustMod with #[cfg(test)] + raw proptest! macro inside
     let inner_raw = format!(
-        "use proptest::prelude::*;\n\n\
+        "use super::*;\n\
+         use proptest::prelude::*;\n\n\
          proptest! {{\n\
          {indent}#[test]\n\
          {indent}fn test_{fn_name}({params}) {{\n\

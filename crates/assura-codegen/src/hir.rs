@@ -842,6 +842,9 @@ pub fn build_type_def(t: &assura_ast::TypeDef) -> Vec<RustItem> {
 
     match &t.body {
         TypeBody::Struct(fields) => {
+            // Always emit `pub` fields: contract modules live in child `mod`s
+            // and must access struct fields (e.g. IR `field` → `slot.y`).
+            // Private Assura fields would be unreadable outside the crate root.
             let rust_fields: Vec<RustField> = fields
                 .iter()
                 .map(|f| {
@@ -849,17 +852,62 @@ pub fn build_type_def(t: &assura_ast::TypeDef) -> Vec<RustItem> {
                     RustField {
                         name: f.name.clone(),
                         ty: RustType::Raw(crate::map_type_tokens(&ty_tokens)),
-                        is_pub: f.is_pub,
+                        is_pub: true,
                     }
                 })
                 .collect();
-            vec![RustItem::Struct(RustStruct {
+            // Emit a cfg(test) Arbitrary impl so proptest can invent values for
+            // user structs (fields are all pub primitive-mapped types).
+            let mut items = vec![RustItem::Struct(RustStruct {
                 name: t.name.clone(),
-                type_params: tps,
-                fields: rust_fields,
+                type_params: tps.clone(),
+                fields: rust_fields.clone(),
                 derives: vec!["Debug".into(), "Clone".into(), "PartialEq".into()],
                 ..RustStruct::default()
-            })]
+            })];
+            if tps.is_empty() && !rust_fields.is_empty() {
+                let field_names: Vec<&str> = rust_fields.iter().map(|f| f.name.as_str()).collect();
+                let field_tys: Vec<String> = rust_fields
+                    .iter()
+                    .map(|f| match &f.ty {
+                        RustType::Raw(s) => s.clone(),
+                        other => format!("{other:?}"),
+                    })
+                    .collect();
+                const PRIMS: &[&str] = &[
+                    "i64", "u64", "i32", "u32", "bool", "f64", "f32", "i8", "u8", "i16", "u16",
+                    "isize", "usize", "String",
+                ];
+                if field_tys.iter().all(|ty| PRIMS.contains(&ty.as_str())) {
+                    let destructure = field_names.join(", ");
+                    let construct = field_names.join(", ");
+                    let strategy = if field_names.len() == 1 {
+                        format!(
+                            "any::<{}>().prop_map(|{destructure}| {} {{ {construct} }})",
+                            field_tys[0], t.name
+                        )
+                    } else {
+                        format!(
+                            "any::<({})>().prop_map(|({destructure})| {} {{ {construct} }})",
+                            field_tys.join(", "),
+                            t.name
+                        )
+                    };
+                    items.push(RustItem::Raw(format!(
+                        "#[cfg(test)]\n\
+                         impl proptest::prelude::Arbitrary for {} {{\n\
+                             type Parameters = ();\n\
+                             type Strategy = proptest::strategy::BoxedStrategy<Self>;\n\
+                             fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {{\n\
+                                 use proptest::prelude::*;\n\
+                                 {strategy}.boxed()\n\
+                             }}\n\
+                         }}\n",
+                        t.name
+                    )));
+                }
+            }
+            items
         }
         TypeBody::Alias(tokens) => {
             let rust_ty = crate::map_type_tokens(tokens);

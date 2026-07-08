@@ -182,8 +182,15 @@ pub enum IrExprKind {
     Load(usize),
     /// `call <fn> ($N, $M, ...)`
     Call { func: String, args: Vec<usize> },
-    /// `field $N .M`
-    Field { slot: usize, index: usize },
+    /// `field $N .M` (numeric index) or `field $N .name` (named struct field).
+    ///
+    /// Named fields lower to Rust `.name` and SMT `__field_name` UFs. Numeric
+    /// indices remain for tuple-style / collection length (index 0) access.
+    Field {
+        slot: usize,
+        index: usize,
+        name: Option<String>,
+    },
     /// `construct TypeId { .0 = $N, .1 = $M, ... }`
     Construct {
         type_id: String,
@@ -551,15 +558,26 @@ pub(crate) fn parse_ir_expr(s: &str) -> Result<IrExprKind, String> {
     }
 
     if let Some(rest) = s.strip_prefix("field ") {
-        // field $N .M
+        // field $N .M  or  field $N .name
         let parts: Vec<&str> = rest.split_whitespace().collect();
         if parts.len() >= 2 {
             let slot = parse_slot(parts[0])?;
-            let index = parts[1]
-                .trim_start_matches('.')
-                .parse::<usize>()
-                .map_err(|_| format!("bad field index: {}", parts[1]))?;
-            return Ok(IrExprKind::Field { slot, index });
+            let key = parts[1].trim_start_matches('.');
+            if let Ok(index) = key.parse::<usize>() {
+                return Ok(IrExprKind::Field {
+                    slot,
+                    index,
+                    name: None,
+                });
+            }
+            if !key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                return Ok(IrExprKind::Field {
+                    slot,
+                    index: 0,
+                    name: Some(key.to_string()),
+                });
+            }
+            return Err(format!("bad field key: {}", parts[1]));
         }
         return Err(format!("malformed field: {s}"));
     }

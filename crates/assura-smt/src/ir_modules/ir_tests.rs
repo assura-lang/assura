@@ -196,7 +196,11 @@ fn test_parse_instr_field() {
     let instr = parse_ir_instr("$2 = field $0 .1 : Int").unwrap();
     assert!(matches!(
         instr.expr,
-        IrExprKind::Field { slot: 0, index: 1 }
+        IrExprKind::Field {
+            slot: 0,
+            index: 1,
+            name: None,
+        }
     ));
 }
 

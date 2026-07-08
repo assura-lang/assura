@@ -368,66 +368,138 @@ pub(crate) fn field_def(p: &mut Parser) {
     m.complete(p, SyntaxKind::FIELD_DEF);
 }
 
-/// Collect field type tokens until semicolon, comma, or unbalanced closer.
+/// Collect field type tokens until a field terminator or the next field.
+///
+/// Terminators (only at nesting depth 0):
+/// - `;` / `,` (explicit separators)
+/// - `}` (end of struct body)
+/// - next field start: `name: Type` or `pub`/`ghost`/`pure`/`opaque`/`var` …
+///
+/// Nesting tracks `()`, `[]`, `{}`, and `<>` so `Map<String, Int>` keeps the
+/// comma inside angle brackets instead of treating it as a field separator.
+/// Without next-field detection, newline-separated fields without commas
+/// (`x: Int\n  y: Int`) were slurped into a single field type (`Int y Int`),
+/// so only the first field registered and `p.y` failed with A03005.
 fn field_type_tokens(p: &mut Parser) {
+    let mut angle_depth: i32 = 0;
+    let mut paren_depth: i32 = 0;
+    let mut bracket_depth: i32 = 0;
+    let mut brace_depth: i32 = 0;
+    let mut saw_type_token = false;
+
     while !p.eof() {
-        let cur = p.current_raw();
-        if matches!(
-            cur,
-            SyntaxKind::SEMICOLON | SyntaxKind::COMMA | SyntaxKind::R_BRACE
+        // Skip trivia so lookahead/depth decisions see significant tokens.
+        while matches!(
+            p.current_raw(),
+            SyntaxKind::WHITESPACE | SyntaxKind::COMMENT
         ) {
+            p.bump_raw();
+        }
+        if p.eof() {
             break;
         }
+
+        let cur = p.current();
+        let at_top = angle_depth == 0 && paren_depth == 0 && bracket_depth == 0 && brace_depth == 0;
+
+        if at_top {
+            if matches!(
+                cur,
+                SyntaxKind::SEMICOLON | SyntaxKind::COMMA | SyntaxKind::R_BRACE
+            ) {
+                break;
+            }
+            // Next field without separator: `y: Int` or `pub y: Int`.
+            if saw_type_token && looks_like_field_start(p) {
+                break;
+            }
+            // Clause after fields (requires/ensures/…).
+            if saw_type_token && super::clauses::at_clause_start(p) {
+                break;
+            }
+        }
+
         match cur {
-            SyntaxKind::L_BRACE => {
-                p.bump_raw();
-                super::body_tokens_inner(
-                    p,
-                    SyntaxKind::R_BRACE,
-                    &[
-                        SyntaxKind::SEMICOLON,
-                        SyntaxKind::COMMA,
-                        SyntaxKind::R_BRACE,
-                    ],
-                );
-                if p.current_raw() == SyntaxKind::R_BRACE {
-                    p.bump_raw();
+            SyntaxKind::L_ANGLE => {
+                angle_depth += 1;
+                p.bump();
+                saw_type_token = true;
+            }
+            SyntaxKind::R_ANGLE => {
+                if angle_depth > 0 {
+                    angle_depth -= 1;
+                    p.bump();
+                    saw_type_token = true;
+                } else if at_top {
+                    // Stray `>` ends the type.
+                    break;
+                } else {
+                    p.bump();
                 }
             }
             SyntaxKind::L_PAREN => {
-                p.bump_raw();
-                super::body_tokens_inner(
-                    p,
-                    SyntaxKind::R_PAREN,
-                    &[
-                        SyntaxKind::SEMICOLON,
-                        SyntaxKind::COMMA,
-                        SyntaxKind::R_BRACE,
-                    ],
-                );
-                if p.current_raw() == SyntaxKind::R_PAREN {
-                    p.bump_raw();
+                paren_depth += 1;
+                p.bump();
+                saw_type_token = true;
+            }
+            SyntaxKind::R_PAREN => {
+                if paren_depth > 0 {
+                    paren_depth -= 1;
+                    p.bump();
+                    saw_type_token = true;
+                } else {
+                    break;
                 }
             }
             SyntaxKind::L_BRACKET => {
-                p.bump_raw();
-                super::body_tokens_inner(
-                    p,
-                    SyntaxKind::R_BRACKET,
-                    &[
-                        SyntaxKind::SEMICOLON,
-                        SyntaxKind::COMMA,
-                        SyntaxKind::R_BRACE,
-                    ],
-                );
-                if p.current_raw() == SyntaxKind::R_BRACKET {
-                    p.bump_raw();
+                bracket_depth += 1;
+                p.bump();
+                saw_type_token = true;
+            }
+            SyntaxKind::R_BRACKET => {
+                if bracket_depth > 0 {
+                    bracket_depth -= 1;
+                    p.bump();
+                    saw_type_token = true;
+                } else {
+                    break;
                 }
             }
-            SyntaxKind::R_PAREN | SyntaxKind::R_BRACKET => break,
+            SyntaxKind::L_BRACE => {
+                brace_depth += 1;
+                p.bump();
+                saw_type_token = true;
+            }
+            SyntaxKind::R_BRACE => {
+                if brace_depth > 0 {
+                    brace_depth -= 1;
+                    p.bump();
+                    saw_type_token = true;
+                } else {
+                    break;
+                }
+            }
             _ => {
-                p.bump_raw();
+                p.bump();
+                saw_type_token = true;
             }
         }
     }
+}
+
+/// True when the current token sequence looks like the start of another field.
+///
+/// Matches `name:`, `pub name:`, `ghost name:`, stacked modifiers, etc.
+fn looks_like_field_start(p: &Parser) -> bool {
+    let is_name = |k: SyntaxKind| k == SyntaxKind::IDENT || k.is_keyword();
+    let mut i = 0usize;
+    // Optional leading modifiers (pub/ghost/pure/opaque); "var" is IDENT.
+    while matches!(
+        p.nth(i),
+        SyntaxKind::PUB_KW | SyntaxKind::GHOST_KW | SyntaxKind::PURE_KW | SyntaxKind::OPAQUE_KW
+    ) {
+        i += 1;
+    }
+    // name:
+    is_name(p.nth(i)) && p.nth(i + 1) == SyntaxKind::COLON
 }

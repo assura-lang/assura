@@ -297,6 +297,21 @@ mod tests {
     }
 
     #[test]
+    fn typedef_struct_fields_newline_without_separators() {
+        let env = env_from_source("type Point {\n  x: Int\n  y: Int\n}");
+        let fields = env.struct_fields.get("Point").expect("Point fields");
+        assert_eq!(
+            fields.len(),
+            2,
+            "newline-separated fields must both register, got {fields:?}"
+        );
+        assert_eq!(fields[0].0, "x");
+        assert_eq!(fields[0].1, Type::Int);
+        assert_eq!(fields[1].0, "y");
+        assert_eq!(fields[1].1, Type::Int);
+    }
+
+    #[test]
     fn enumdef_variant_constructors() {
         let env = env_from_source("enum Shape { Rect(Int, Int), Circle(Float) }");
         // Rect should have 2 Int params

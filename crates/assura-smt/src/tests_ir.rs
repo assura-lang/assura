@@ -86,7 +86,11 @@ module test {
     let body = &module.functions[0].body;
     assert!(matches!(
         &body[0].expr,
-        IrExprKind::Field { slot: 0, index: 0 }
+        IrExprKind::Field {
+            slot: 0,
+            index: 0,
+            name: None,
+        }
     ));
     assert!(matches!(
         &body[2].expr,
