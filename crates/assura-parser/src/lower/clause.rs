@@ -135,7 +135,14 @@ pub(super) fn lower_clause_body(n: &SyntaxNode) -> SpExpr {
                     skipped_kw = true;
                     continue;
                 }
-                // Open outer wrapper once (do not emit it).
+                // Skip leading colon (`input: { ... }` / `keyword: body`) before
+                // deciding the outer wrapper, so the brace/paren after `:` is
+                // treated as the wrapper and not emitted.
+                if k == SyntaxKind::COLON && !saw_content {
+                    continue;
+                }
+                // Open outer wrapper once (do not emit it). Nested delimiters
+                // (tuple types `(Int, Bool)` inside `input(...)`) are kept.
                 if !started_wrapper {
                     if k == SyntaxKind::L_PAREN {
                         started_wrapper = true;
@@ -148,10 +155,6 @@ pub(super) fn lower_clause_body(n: &SyntaxNode) -> SpExpr {
                         continue;
                     }
                     started_wrapper = true;
-                }
-                // Skip leading colon (keyword: body separator) before content.
-                if k == SyntaxKind::COLON && !saw_content {
-                    continue;
                 }
                 match k {
                     SyntaxKind::L_PAREN => {
