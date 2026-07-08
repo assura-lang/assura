@@ -161,6 +161,88 @@ fn lower_type_struct() {
 }
 
 #[test]
+fn lower_type_struct_newline_fields_without_separators() {
+    // Rust-like multiline fields without trailing comma/semicolon must both
+    // register (previously the second field was slurped into the first type).
+    let src = r#"
+        type Point {
+            x: Int
+            y: Int
+        }
+    "#;
+    let (sf, errors) = parse_and_lower(src);
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    if let Decl::TypeDef(td) = &sf.decls[0].node {
+        if let TypeBody::Struct(fields) = &td.body {
+            assert_eq!(fields.len(), 2, "expected both fields, got {fields:?}");
+            assert_eq!(fields[0].name, "x");
+            assert_eq!(fields[1].name, "y");
+        } else {
+            panic!("expected Struct body");
+        }
+    } else {
+        panic!("expected TypeDef");
+    }
+}
+
+#[test]
+fn lower_type_struct_taint_annotation_not_second_field() {
+    // `@taint:validated` must stay on the field type; `taint:` is not a field.
+    let src = r#"
+        type ValidPeerKey {
+            data: Bytes @taint:validated
+            length: Nat
+        }
+    "#;
+    let (sf, errors) = parse_and_lower(src);
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    if let Decl::TypeDef(td) = &sf.decls[0].node {
+        if let TypeBody::Struct(fields) = &td.body {
+            assert_eq!(fields.len(), 2, "got {fields:?}");
+            assert_eq!(fields[0].name, "data");
+            assert_eq!(fields[1].name, "length");
+        } else {
+            panic!("expected Struct body");
+        }
+    } else {
+        panic!("expected TypeDef");
+    }
+}
+
+#[test]
+fn lower_type_struct_generic_field_with_comma() {
+    // Commas inside angle brackets are not field separators.
+    let src = r#"
+        type Box {
+            m: Map<String, Int>
+            n: Int
+        }
+    "#;
+    let (sf, errors) = parse_and_lower(src);
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    if let Decl::TypeDef(td) = &sf.decls[0].node {
+        if let TypeBody::Struct(fields) = &td.body {
+            assert_eq!(fields.len(), 2, "got {fields:?}");
+            assert_eq!(fields[0].name, "m");
+            assert_eq!(fields[1].name, "n");
+            assert!(
+                fields[0].ty.is_some(),
+                "Map field type should parse, got {:?}",
+                fields[0].ty
+            );
+            assert_eq!(
+                fields[1].ty,
+                Some(crate::ast::TypeExpr::Named("Int".into()))
+            );
+        } else {
+            panic!("expected Struct body");
+        }
+    } else {
+        panic!("expected TypeDef");
+    }
+}
+
+#[test]
 fn lower_enum() {
     let src = r#"
         enum Color {

@@ -931,7 +931,10 @@ contract AbsMin {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// `result == p.x` via field load when TypeEnv has struct layout (#892).
+    /// `result == p.x` / `p.y` via field load when TypeEnv has struct layout (#892).
+    ///
+    /// Uses newline-separated fields (no commas) so second-field registration
+    /// is exercised end-to-end (parser used to drop `y`).
     #[test]
     #[cfg(feature = "z3-verify")]
     fn e2e_field_access_heuristic_verifies() {
@@ -952,13 +955,24 @@ contract GetX {
   output(result: Int)
   ensures { result == p.x }
 }
+contract GetY {
+  input(p: Point)
+  output(result: Int)
+  ensures { result == p.y }
+}
 "#;
         let path = dir.join("field.assura");
         std::fs::write(&path, src).unwrap();
         let typed = crate::test_util::typecheck_ok(src);
-        assert!(
-            typed.type_env.struct_fields.contains_key("Point"),
-            "type env should record Point fields"
+        let point_fields = typed
+            .type_env
+            .struct_fields
+            .get("Point")
+            .expect("type env should record Point fields");
+        assert_eq!(
+            point_fields.len(),
+            2,
+            "Point must register x and y, got {point_fields:?}"
         );
         let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
         assert!(
@@ -966,20 +980,27 @@ contract GetX {
             "expected heuristic for GetX, names={:?}",
             loaded.heuristic_names()
         );
+        assert!(
+            loaded.heuristic_names().contains(&"GetY".to_string()),
+            "expected heuristic for GetY, names={:?}",
+            loaded.heuristic_names()
+        );
 
         let results = Verifier::new(&typed).source(&path).verify();
-        let ensures = results.iter().find(|r| match r {
-            VerificationResult::Verified { clause_desc, .. }
-            | VerificationResult::Counterexample { clause_desc, .. }
-            | VerificationResult::Unknown { clause_desc, .. }
-            | VerificationResult::Timeout { clause_desc } => {
-                clause_desc.starts_with("GetX") && clause_desc.ends_with("::ensures")
-            }
-        });
-        assert!(
-            matches!(ensures, Some(VerificationResult::Verified { .. })),
-            "result == p.x should verify; got {results:?}"
-        );
+        for name in ["GetX", "GetY"] {
+            let ensures = results.iter().find(|r| match r {
+                VerificationResult::Verified { clause_desc, .. }
+                | VerificationResult::Counterexample { clause_desc, .. }
+                | VerificationResult::Unknown { clause_desc, .. }
+                | VerificationResult::Timeout { clause_desc } => {
+                    clause_desc.starts_with(name) && clause_desc.ends_with("::ensures")
+                }
+            });
+            assert!(
+                matches!(ensures, Some(VerificationResult::Verified { .. })),
+                "{name} field access should verify; got {results:?}"
+            );
+        }
 
         let _ = std::fs::remove_dir_all(&dir);
     }

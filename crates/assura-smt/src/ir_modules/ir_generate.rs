@@ -1005,12 +1005,14 @@ fn operand_to_slot(
         }
         Expr::Field(recv, field) => {
             let base = operand_to_slot(recv.as_ref(), ctx, lines, used)?;
-            let index = field_index_for_receiver(recv.as_ref(), field, ctx)?;
+            // Require layout so we only emit when the field is real; emit the
+            // field *name* so IR→Rust uses `.x` (not tuple-index `.0`).
+            let _index = field_index_for_receiver(recv.as_ref(), field, ctx)?;
             let slot = next_temp_slot(used);
             used.push(slot);
             lines.push(format!(
-                "    ${slot} = field ${base} .{index} : {}",
-                ctx.return_ty
+                "    ${slot} = field ${base} .{} : {}",
+                field, ctx.return_ty
             ));
             Some(slot)
         }
@@ -1677,8 +1679,8 @@ mod tests {
             &layouts,
         );
         assert!(
-            text.contains("field $0 .0") || text.contains("field $0.0"),
-            "expected field load index 0 for x, got:\n{text}"
+            text.contains("field $0 .x"),
+            "expected named field load .x, got:\n{text}"
         );
         assert!(!text.contains("Stub IR"), "must not stub field:\n{text}");
     }

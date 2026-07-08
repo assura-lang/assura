@@ -69,7 +69,8 @@ Expected: `ShowcaseEcho: ensures ... verified` and `check passed (no errors)`.
 
 For **synthesizable** ensures shapes (`result == x`, arithmetic including
 nested/`-x`/`abs`/`min`/`max` and nested calls like `abs(min(x,y))`, `let`
-bindings, field loads `p.x`, Bool `!`/`&&`/`||`/`=>` and comparisons,
+bindings, field loads `p.x` / `p.y` on multi-field structs (newline-separated
+fields are fine), Bool `!`/`&&`/`||`/`=>` and comparisons,
 same-file pure call chains, nested if, match arms the planner knows),
 `assura check` synthesizes an in-memory IR body automatically so you get
 **Verified** without a co-located `.ir` file.
@@ -86,6 +87,9 @@ assura build ShowcaseEcho.assura --output generated
 
 Assura loads co-located IR for verification and injects it into the
 generated Rust body (you should see a log line about injected IR bodies).
+`assura build --write-ir` also writes that IR next to the source so a later
+`assura build` reuses it. Field and abs/min/max IR lower to real Rust
+(`.y`, `.abs()`, `.min()`) that `cargo test` exercises via proptest.
 The generated crate is a library with a property test, not a binary.
 
 ## 5. Run tests on the generated artifact

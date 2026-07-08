@@ -1066,8 +1066,12 @@ fn main() {{
     }
 }
 
-/// Local embed of multi-fn IR (avoids new assura_smt APIs for crates.io co-publish).
+/// Local embed of multi-fn IR.
+///
 /// Sibling `fn #N` become capturing closures referenced from main as `block_N()`.
+/// Kept in the CLI (instead of calling `assura_smt::ir_module_to_embedded_body`)
+/// so `cargo package` co-publish against the last crates.io `assura-smt` still
+/// compiles before the monorepo versions are published together.
 fn multi_block_ir_to_embedded_body(module: &assura_smt::IrModule) -> String {
     let mut code = String::new();
     let ret_ty = module

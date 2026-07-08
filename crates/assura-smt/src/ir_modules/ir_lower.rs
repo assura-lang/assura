@@ -232,7 +232,14 @@ pub fn encode_ir_expr<B: IrTermBuilder>(
                 &arg_terms,
             )
         }
-        IrExprKind::Field { slot, index } => builder.encode_field(*slot, *index, slots, ctx),
+        IrExprKind::Field { slot, index, name } => {
+            if let Some(field_name) = name {
+                let base = builder.load_slot(slots, *slot);
+                builder.unary_uf(&crate::encode_atom_policy::field_uif_name(field_name), base)
+            } else {
+                builder.encode_field(*slot, *index, slots, ctx)
+            }
+        }
         IrExprKind::Construct { type_id, fields } => {
             builder.encode_construct(type_id, fields, slots, ctx)
         }

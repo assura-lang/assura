@@ -290,7 +290,10 @@ pub(crate) fn ir_expr_to_rust(expr: &IrExprKind) -> String {
                 _ => format!("{func}({})", arg_strs.join(", ")),
             }
         }
-        IrExprKind::Field { slot, index } => format!("slot_{slot}.{index}"),
+        IrExprKind::Field { slot, index, name } => match name {
+            Some(n) => format!("slot_{slot}.{n}"),
+            None => format!("slot_{slot}.{index}"),
+        },
         IrExprKind::Arith { op, lhs, rhs } => {
             let op_str = match op {
                 IrArithOp::Add => "+",
