@@ -167,6 +167,49 @@ pub fn ir_function_body_to_rust(func: &IrFunction) -> String {
     code
 }
 
+/// Embed a full IR module (main `fn #0` + sibling blocks) as Rust statements
+/// suitable for injection into a contract `check` body.
+///
+/// Sibling `fn #N` become `let block_N = || -> Ret { ... };` closures that
+/// capture outer `slot_*` bindings (branch arms close over main slots).
+/// Multi-block modules that only exported `ir_function_body_to_rust(fn#0)`
+/// previously emitted `block_N()` calls with no definitions (#882).
+pub fn ir_module_to_embedded_body(module: &IrModule) -> String {
+    let mut code = String::new();
+    let ret_ty = module
+        .functions
+        .first()
+        .map(|f| ir_type_to_rust(&f.return_type))
+        .unwrap_or_else(|| "i64".to_string());
+
+    // Sibling blocks first (referenced from main).
+    for func in module.functions.iter().skip(1) {
+        let id = func.id.trim_start_matches('#').to_string();
+        let body = ir_function_body_to_rust(func);
+        // Indent body one level inside the closure.
+        let indented: String = body
+            .lines()
+            .map(|l| {
+                if l.is_empty() {
+                    String::new()
+                } else {
+                    format!("    {l}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        code.push_str(&format!(
+            "    let block_{id} = || -> {ret_ty} {{\n{indented}\n    }};\n"
+        ));
+    }
+
+    // Main function body (may call block_N()).
+    if let Some(main) = module.functions.first() {
+        code.push_str(&ir_function_body_to_rust(main));
+    }
+    code
+}
+
 /// Build a map from contract/function names to their IR-generated Rust body code.
 ///
 /// For each function in the module, the first function is mapped to the module name,

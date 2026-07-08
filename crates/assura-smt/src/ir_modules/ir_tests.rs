@@ -767,3 +767,36 @@ module Clamp {
         "Rust codegen should reference else block: {rust}"
     );
 }
+
+#[test]
+fn embedded_body_defines_block_closures() {
+    use crate::ir::parse_ir_module;
+    use crate::ir_codegen::ir_module_to_embedded_body;
+    let src = r#"
+module AbsX {
+fn #0 : ($0: Int) -> Int ! pure
+{
+    $1 = const 0 : Int
+    $2 = cmp ge $0 $1 : Bool
+    $3 = if $2 then #1 else #2 : Int
+    $result = load $3 : Int
+}
+  fn #1 : ($0: Int) -> Int ! pure
+{
+    $result = load $0 : Int
+}
+  fn #2 : ($0: Int) -> Int ! pure
+{
+    $1 = const 0 : Int
+    $2 = arith sub $1 $0 : Int
+    $result = load $2 : Int
+}
+}
+"#;
+    let module = parse_ir_module(src).expect("parse");
+    let rust = ir_module_to_embedded_body(&module);
+    assert!(rust.contains("let block_1 = ||"), "got:\n{rust}");
+    assert!(rust.contains("let block_2 = ||"), "got:\n{rust}");
+    assert!(rust.contains("block_1()"), "got:\n{rust}");
+    assert!(rust.contains("block_2()"), "got:\n{rust}");
+}
