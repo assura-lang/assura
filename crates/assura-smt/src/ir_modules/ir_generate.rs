@@ -71,6 +71,7 @@ const ENSURES_PLANNERS: &[IrPlannerFn] = &[
     plan_match_arm_ensures,
     plan_abs_call_ensures,
     plan_bool_comparison_ensures,
+    plan_bool_logic_ensures,
     plan_multi_fn_call_chain,
     plan_identity_equality,
     plan_length_copy_ensures,
@@ -469,6 +470,84 @@ fn plan_bool_comparison_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGe
     ));
     lines.push(format!("    $result = load ${out} : Bool"));
     Some(single_fn_plan(IrGenBody { lines }))
+}
+
+/// `ensures { result == !x }`, `result == (x && y)`, `result == (x || y)`.
+///
+/// Bools are 0/1 Int slots in IR. `!` is `cmp eq x 0`. `&&` / `||` lower to
+/// `if` over the left operand with the right operand / const branches.
+fn plan_bool_logic_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    if !ctx.return_ty.eq_ignore_ascii_case("Bool") {
+        return None;
+    }
+    let (lhs, rhs) = equality_operands(expr)?;
+    let other = if is_result_ident(lhs) {
+        rhs
+    } else if is_result_ident(rhs) {
+        lhs
+    } else {
+        return None;
+    };
+
+    match &other.node {
+        Expr::UnaryOp {
+            op: UnaryOp::Not,
+            expr: inner,
+        } => {
+            let mut lines: Vec<String> = Vec::new();
+            let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
+            used.sort_unstable();
+            let inner_slot = plan_bool_condition_slot(inner.as_ref(), ctx, &mut lines, &mut used)?;
+            let zero = next_temp_slot(&used);
+            used.push(zero);
+            lines.push(format!("    ${zero} = const 0 : Bool"));
+            let out = next_temp_slot(&used);
+            lines.push(format!("    ${out} = cmp eq ${inner_slot} ${zero} : Bool"));
+            lines.push(format!("    $result = load ${out} : Bool"));
+            Some(single_fn_plan(IrGenBody { lines }))
+        }
+        Expr::BinOp {
+            op: BinOp::And,
+            lhs: a,
+            rhs: b,
+        } => {
+            // if a then b else false
+            let mut lines: Vec<String> = Vec::new();
+            let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
+            used.sort_unstable();
+            let a_slot = plan_bool_condition_slot(a.as_ref(), ctx, &mut lines, &mut used)?;
+            let out = next_temp_slot(&used);
+            lines.push(format!("    ${out} = if ${a_slot} then #1 else #2 : Bool"));
+            lines.push(format!("    $result = load ${out} : Bool"));
+            let then_body = plan_branch_result(b.as_ref(), ctx)?;
+            let else_body = single_const("0", "Bool");
+            Some(IrGenPlan {
+                main: IrGenBody { lines },
+                siblings: vec![(1, then_body, 0), (2, else_body, 0)],
+            })
+        }
+        Expr::BinOp {
+            op: BinOp::Or,
+            lhs: a,
+            rhs: b,
+        } => {
+            // if a then true else b
+            let mut lines: Vec<String> = Vec::new();
+            let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
+            used.sort_unstable();
+            let a_slot = plan_bool_condition_slot(a.as_ref(), ctx, &mut lines, &mut used)?;
+            let out = next_temp_slot(&used);
+            lines.push(format!("    ${out} = if ${a_slot} then #1 else #2 : Bool"));
+            lines.push(format!("    $result = load ${out} : Bool"));
+            let then_body = single_const("1", "Bool");
+            let else_body = plan_branch_result(b.as_ref(), ctx)?;
+            Some(IrGenPlan {
+                main: IrGenBody { lines },
+                siblings: vec![(1, then_body, 0), (2, else_body, 0)],
+            })
+        }
+        _ => None,
+    }
 }
 
 fn ir_cmp_op_name(op: &BinOp) -> Option<&'static str> {
@@ -1190,6 +1269,66 @@ mod tests {
         assert!(
             !text.contains("if $0 then"),
             "must not ignore patterns via boolean if:\n{text}"
+        );
+    }
+
+    #[test]
+    fn test_ir_generate_bool_not() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::UnaryOp {
+                    op: UnaryOp::Not,
+                    expr: spb(Expr::Ident("x".into())),
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "NotB",
+            &[(0, "Bool".into())],
+            &["x".into()],
+            "Bool",
+            &clauses,
+        );
+        assert!(
+            text.contains("cmp eq") && text.contains("const 0 : Bool"),
+            "expected !x as cmp eq x 0, got:\n{text}"
+        );
+        assert!(text.contains("$result = load"));
+    }
+
+    #[test]
+    fn test_ir_generate_bool_and() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::BinOp {
+                    op: BinOp::And,
+                    lhs: spb(Expr::Ident("x".into())),
+                    rhs: spb(Expr::Ident("y".into())),
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "AndB",
+            &[(0, "Bool".into()), (1, "Bool".into())],
+            &["x".into(), "y".into()],
+            "Bool",
+            &clauses,
+        );
+        assert!(
+            text.contains("then #1 else #2") && text.contains("fn #1") && text.contains("fn #2"),
+            "expected if-lowered && , got:\n{text}"
+        );
+        assert!(
+            text.contains("load $1") || text.contains("load $y"),
+            "then-branch should load right operand, got:\n{text}"
         );
     }
 
