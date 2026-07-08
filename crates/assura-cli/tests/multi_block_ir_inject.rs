@@ -25,7 +25,9 @@ fn unique_temp(prefix: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn build_write_ir_abs_multi_block_compiles_and_tests() {
+fn build_write_ir_abs_call_compiles_and_tests() {
+    // abs/min/max synthesize as IR `call` (not multi-block if/else) so nested
+    // forms like abs(min(x,y)) compose (#891). IR→Rust maps abs → .abs().
     let tmp = unique_temp("assura_write_ir_abs");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
@@ -56,13 +58,13 @@ fn build_write_ir_abs_multi_block_compiles_and_tests() {
     );
     let ir_text = std::fs::read_to_string(tmp.join("AbsX.ir")).unwrap();
     assert!(
-        ir_text.contains("fn #1") && ir_text.contains("fn #2"),
-        "expected multi-block IR, got:\n{ir_text}"
+        ir_text.contains("call abs") && !ir_text.contains("Stub IR"),
+        "expected call abs IR, got:\n{ir_text}"
     );
     let lib = std::fs::read_to_string(out_dir.join("src/lib.rs")).unwrap();
     assert!(
-        lib.contains("block_1") && lib.contains("block_2"),
-        "expected block closures in lib.rs, got:\n{lib}"
+        lib.contains(".abs()"),
+        "expected i64::abs() in lib.rs, got:\n{lib}"
     );
 
     let test = Command::new("cargo")

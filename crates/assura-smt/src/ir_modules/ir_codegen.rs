@@ -281,7 +281,14 @@ pub(crate) fn ir_expr_to_rust(expr: &IrExprKind) -> String {
                     }
                 })
                 .collect();
-            format!("{func}({})", arg_strs.join(", "))
+            // Map pure numeric builtins to Rust methods (same as AST codegen).
+            // Bare `abs(x)` / `min(a,b)` are not in scope in generated crates.
+            match (func.as_str(), arg_strs.as_slice()) {
+                ("abs", [a]) => format!("{a}.abs()"),
+                ("min", [a, b]) => format!("{a}.min({b})"),
+                ("max", [a, b]) => format!("{a}.max({b})"),
+                _ => format!("{func}({})", arg_strs.join(", ")),
+            }
         }
         IrExprKind::Field { slot, index } => format!("slot_{slot}.{index}"),
         IrExprKind::Arith { op, lhs, rhs } => {

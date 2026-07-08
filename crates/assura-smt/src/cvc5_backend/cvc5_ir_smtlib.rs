@@ -9,7 +9,6 @@ use crate::havoc_assume::{RESULT_SLOT, ir_param_names};
 use crate::ir::{IrArithOp, IrCmpOp, IrFunction, IrLiteral, IrPred, IrPredArg};
 use crate::ir_encode::{IrEncodeContext, is_collection_ir_type};
 use crate::ir_lower::{IrSlotContext, IrTermBuilder};
-use crate::ir_type_ctx::base_type_name;
 
 struct IrSmtlibEncoder {
     fresh_counter: usize,
@@ -191,18 +190,12 @@ impl IrTermBuilder for SmtlibIrBuilder<'_, '_> {
             return self.canonical_length_for_name(&name);
         }
         let base = self.load_slot(slots, slot);
+        // Match AST shallow field UF (`__field_x`) for free params (#892).
         if let Some(ir_ty) = ctx.slot_types.get(&slot)
             && let Some(field_name) = self.enc_ctx.type_ctx.field_name_at(ir_ty, index)
         {
-            let type_name = base_type_name(ir_ty);
-            if let Some(names) = self.enc_ctx.type_ctx.field_names_for(type_name) {
-                let field_name_refs: Vec<&str> = names.to_vec();
-                ensure_struct_adt_smtlib(self.enc, self.script, type_name, &field_name_refs);
-                let fname = sanitize_smt_name(&crate::encode_atom_policy::adt_accessor_uf_name(
-                    type_name, field_name,
-                ));
-                return format!("({fname} {base})");
-            }
+            let fname = sanitize_smt_name(&crate::encode_atom_policy::field_uif_name(field_name));
+            return format!("({fname} {base})");
         }
         let ty_suffix = ctx
             .slot_types

@@ -10,7 +10,6 @@ use crate::encode_atom_policy::sanitize_smt_name;
 use crate::ir_encode::{IrEncodeContext, is_collection_ir_type, slot_type_map};
 #[cfg(feature = "cvc5-verify")]
 use crate::ir_lower::{IrSlotContext, IrTermBuilder};
-use crate::ir_type_ctx::base_type_name;
 
 #[cfg(feature = "cvc5-verify")]
 use assura_ast::SpExpr;
@@ -193,14 +192,11 @@ impl<'a, 'v, 's> IrTermBuilder for Cvc5IrBuilder<'a, 'v, 's, '_> {
             return self.canonical_length_for_name(&name);
         }
         let base = self.load_slot(slots, slot);
+        // Match AST shallow field UF (`__field_x`) for free params (#892).
         if let Some(ir_ty) = ctx.slot_types.get(&slot)
             && let Some(field_name) = self.enc_ctx.type_ctx.field_name_at(ir_ty, index)
         {
-            let type_name = base_type_name(ir_ty);
-            return self.mk_unary_uf(
-                &crate::encode_atom_policy::adt_accessor_uf_name(type_name, field_name),
-                base,
-            );
+            return self.mk_unary_uf(&crate::encode_atom_policy::field_uif_name(field_name), base);
         }
         let ty_suffix = ctx
             .slot_types
