@@ -317,7 +317,8 @@ pub use ir::{
     validate_ir_against_contract,
 };
 pub use ir_codegen::{
-    ir_function_body_to_rust, ir_module_to_body_map, ir_to_rust, stub_ir_sidecar_text,
+    ir_function_body_to_rust, ir_module_to_body_map, ir_module_to_embedded_body, ir_to_rust,
+    stub_ir_sidecar_text,
 };
 
 #[cfg(test)]

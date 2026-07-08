@@ -607,10 +607,19 @@ pub(crate) fn render_stmt_opts(
                     );
                 }
             } else if cond.contains('\n') {
-                let msg = cond.replace('\n', " ").replace('"', "\\\"");
+                let msg = cond
+                    .replace('\n', " ")
+                    .replace('"', "\\\"")
+                    .replace('{', "{{")
+                    .replace('}', "}}");
                 let _ = writeln!(out, "{pad}debug_assert!({{ {cond} }}, \"{label}: {msg}\");");
             } else {
-                let escaped_cond = cond.replace('"', "\\\"");
+                // Escape braces so `if { } else { }` ensures do not break the
+                // format string used to build the debug_assert! source.
+                let escaped_cond = cond
+                    .replace('"', "\\\"")
+                    .replace('{', "{{")
+                    .replace('}', "}}");
                 let _ = writeln!(
                     out,
                     "{pad}debug_assert!({cond}, \"{label}: {escaped_cond}\");"

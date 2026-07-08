@@ -589,8 +589,14 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
     if let Some(ref name) = output_name {
         let _ = writeln!(test_body, "            let {name} = result.clone();");
     }
-    for ens in &ensures_exprs {
-        let _ = writeln!(test_body, "            prop_assert!({ens});");
+    for (i, ens) in ensures_exprs.iter().enumerate() {
+        // Evaluate ensures to a bool first so braces in `if { } else { }`
+        // expressions do not break prop_assert!'s format-string expansion.
+        let _ = writeln!(test_body, "            let __ensures_{i} = {ens};");
+        let _ = writeln!(
+            test_body,
+            "            prop_assert!(__ensures_{i}, \"ensures clause {i} failed\");"
+        );
     }
 
     // Emit as a RustMod with #[cfg(test)] + raw proptest! macro inside

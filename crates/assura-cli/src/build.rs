@@ -1103,21 +1103,9 @@ fn rust_bodies_from_ir_sidecars(
         let Ok(module) = assura_smt::parse_ir_module(&ir_text) else {
             continue;
         };
-        // Multi-function IR (if/abs branches) verifies under SMT but body inject
-        // does not yet emit `block_N` helpers. Prefer no inject over broken Rust.
-        if module.functions.len() != 1 {
-            if verbosity != Verbosity::Quiet {
-                eprintln!(
-                    "  codegen: skip multi-block co-located IR for `{}` ({} fns); SMT verify still uses it",
-                    ctx.decl_name,
-                    module.functions.len()
-                );
-            }
+        if module.functions.is_empty() {
             continue;
         }
-        let Some(func) = module.functions.first() else {
-            continue;
-        };
         let mut body = String::new();
         for (i, param) in ctx.params.iter().enumerate() {
             body.push_str(&format!(
@@ -1125,7 +1113,12 @@ fn rust_bodies_from_ir_sidecars(
                 name = param.name
             ));
         }
-        let ir_body = assura_smt::ir_function_body_to_rust(func);
+        // Multi-block modules get sibling closures + main body (#882).
+        let ir_body = if module.functions.len() == 1 {
+            assura_smt::ir_function_body_to_rust(&module.functions[0])
+        } else {
+            assura_smt::ir_module_to_embedded_body(&module)
+        };
         let ir_body = ir_body.replace("__result", "__assura_result");
         let ir_body = strip_trailing_return(&ir_body);
         body.push_str(&ir_body);

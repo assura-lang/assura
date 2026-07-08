@@ -247,21 +247,66 @@ fn plan_if_branch_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan>
     let else_branch = else_branch.as_deref()?;
     let then_body = plan_branch_result(then_branch, ctx)?;
     let else_body = plan_branch_result(else_branch, ctx)?;
-    let cond_slot = expr_to_param_slot(cond, &ctx.name_to_slot).unwrap_or(0);
-    let out_slot = next_temp_slot(&[cond_slot]);
+
+    // Materialize the condition into a Bool slot (param alone is not a Bool).
+    let mut lines: Vec<String> = Vec::new();
+    let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
+    used.sort_unstable();
+    let cond_slot = plan_bool_condition_slot(cond, ctx, &mut lines, &mut used)?;
+    let out_slot = next_temp_slot(&used);
+    lines.push(format!(
+        "    ${out_slot} = if ${cond_slot} then #1 else #2 : {}",
+        ctx.return_ty
+    ));
+    lines.push(format!(
+        "    $result = load ${out_slot} : {}",
+        ctx.return_ty
+    ));
     Some(IrGenPlan {
-        main: IrGenBody {
-            lines: vec![
-                format!(
-                    "    ${out_slot} = if ${cond_slot} then #1 else #2 : {}",
-                    ctx.return_ty
-                ),
-                format!("    $result = load ${out_slot} : {}", ctx.return_ty),
-            ],
-        },
+        main: IrGenBody { lines },
         // Branch blocks take no formal params; they close over main slots.
         siblings: vec![(1, then_body, 0), (2, else_body, 0)],
     })
+}
+
+/// Encode a boolean condition (param Bool, comparison, or nested) as a slot.
+fn plan_bool_condition_slot(
+    cond: &SpExpr,
+    ctx: &PlanCtx<'_>,
+    lines: &mut Vec<String>,
+    used: &mut Vec<usize>,
+) -> Option<usize> {
+    match &cond.node {
+        Expr::Ident(name) => {
+            // Assume named Bool params are already Bool-typed slots.
+            ctx.name_to_slot.get(name.as_str()).copied()
+        }
+        Expr::BinOp { op, lhs, rhs } if ir_cmp_op_name(op).is_some() => {
+            let ir_op = ir_cmp_op_name(op)?;
+            let a = operand_to_slot(lhs.as_ref(), ctx, lines, used)?;
+            let b = operand_to_slot(rhs.as_ref(), ctx, lines, used)?;
+            let slot = next_temp_slot(used);
+            used.push(slot);
+            lines.push(format!("    ${slot} = cmp {ir_op} ${a} ${b} : Bool"));
+            Some(slot)
+        }
+        Expr::UnaryOp {
+            op: UnaryOp::Not,
+            expr: inner,
+        } => {
+            let inner_slot = plan_bool_condition_slot(inner.as_ref(), ctx, lines, used)?;
+            // Encode !b as `b == false` via cmp ne against true... use if: 0/1 not ideal.
+            // Prefer cmp eq inner false: need const false as 0 for Bool?
+            let zero = next_temp_slot(used);
+            used.push(zero);
+            lines.push(format!("    ${zero} = const 0 : Bool"));
+            let slot = next_temp_slot(used);
+            used.push(slot);
+            lines.push(format!("    ${slot} = cmp eq ${inner_slot} ${zero} : Bool"));
+            Some(slot)
+        }
+        _ => None,
+    }
 }
 
 /// Plans IR for `ensures { result == match x { p1 => e1, p2 => e2 } }`.
@@ -380,11 +425,14 @@ fn plan_abs_call_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> 
     ));
     lines.push(format!("    $result = load ${out} : {}", ctx.return_ty));
     let pos = single_load(x_slot, ctx.return_ty);
+    // Fresh temps so sibling body does not clobber the outer x slot (often $0).
+    let z = next_temp_slot(&[x_slot]);
+    let t = next_temp_slot(&[x_slot, z]);
     let neg = IrGenBody {
         lines: vec![
-            format!("    $0 = const 0 : {}", ctx.return_ty),
-            format!("    $1 = arith sub $0 ${x_slot} : {}", ctx.return_ty),
-            format!("    $result = load $1 : {}", ctx.return_ty),
+            format!("    ${z} = const 0 : {}", ctx.return_ty),
+            format!("    ${t} = arith sub ${z} ${x_slot} : {}", ctx.return_ty),
+            format!("    $result = load ${t} : {}", ctx.return_ty),
         ],
     };
     Some(IrGenPlan {
