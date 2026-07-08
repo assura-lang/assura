@@ -877,6 +877,103 @@ contract Add {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// `ensures { result == !x }` and `result == (x && y)` via bool logic synthesis.
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_bool_logic_heuristic_verifies() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-bool-logic-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract NotB {
+  input(x: Bool)
+  output(result: Bool)
+  ensures { result == !x }
+}
+contract AndB {
+  input(x: Bool, y: Bool)
+  output(result: Bool)
+  ensures { result == (x && y) }
+}
+"#;
+        let path = dir.join("bool_logic.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"NotB".to_string())
+                && loaded.heuristic_names().contains(&"AndB".to_string()),
+            "expected heuristics for NotB/AndB, names={:?}",
+            loaded.heuristic_names()
+        );
+
+        let results = Verifier::new(&typed).source(&path).verify();
+        for name in ["NotB", "AndB"] {
+            let ensures = results.iter().find(|r| match r {
+                VerificationResult::Verified { clause_desc, .. }
+                | VerificationResult::Counterexample { clause_desc, .. }
+                | VerificationResult::Unknown { clause_desc, .. }
+                | VerificationResult::Timeout { clause_desc } => {
+                    clause_desc.starts_with(name) && clause_desc.ends_with("::ensures")
+                }
+            });
+            assert!(
+                matches!(ensures, Some(VerificationResult::Verified { .. })),
+                "{name} ensures should verify via synthesized IR; got {results:?}"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `ensures { result == match x { 0 => 0, _ => 1 } }` must verify via
+    /// synthesized match IR (pattern equality, not bare ite_nonzero).
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_match_int_heuristic_verifies() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-match-ir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract MatchInt {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == match x { 0 => 0, _ => 1 } }
+}
+"#;
+        let path = dir.join("match_int.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"MatchInt".to_string()),
+            "expected in-memory heuristic for MatchInt, names={:?}",
+            loaded.heuristic_names()
+        );
+
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => clause_desc.ends_with("::ensures"),
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Verified { .. })),
+            "match int ensures should verify via synthesized IR; got {results:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Unanalyzable ensures must not get a silent identity heuristic (stay Unknown).
     #[test]
     #[cfg(feature = "z3-verify")]

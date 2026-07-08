@@ -251,7 +251,10 @@ pub fn encode_ir_expr<B: IrTermBuilder>(
             builder.ite_nonzero(cond_val, then_val, else_val)
         }
         IrExprKind::Match { scrutinee, arms } => {
-            // Encode as nested if-then-else: match each arm's pattern
+            // Nested ITE on *pattern equality* (scrutinee == arm value).
+            // Previously used ite_nonzero(scrutinee, …), which treated any
+            // non-zero scrutinee as matching the first arm and ignored the
+            // pattern value entirely (match x { 0 => …, _ => … } was wrong).
             let scr_val = builder.load_slot(slots, *scrutinee);
             let mut result = builder.nullary_uf("__match_default");
             // Process arms in reverse so first arm has highest priority
@@ -262,10 +265,22 @@ pub fn encode_ir_expr<B: IrTermBuilder>(
                     IrMatchPattern::Wildcard => {
                         result = block_val;
                     }
-                    _ => {
-                        // Pattern becomes an equality test: scrutinee == pattern_value
-                        // For SMT, we model match as a chain of ite
-                        result = builder.ite_nonzero(scr_val.clone(), block_val, result);
+                    IrMatchPattern::Int(n) => {
+                        let pat_val = builder.int_const(*n);
+                        let cond = builder.cmp_as_int(IrCmpOp::Eq, scr_val.clone(), pat_val);
+                        result = builder.ite_nonzero(cond, block_val, result);
+                    }
+                    IrMatchPattern::Bool(b) => {
+                        let pat_val = builder.int_const(if *b { 1 } else { 0 });
+                        let cond = builder.cmp_as_int(IrCmpOp::Eq, scr_val.clone(), pat_val);
+                        result = builder.ite_nonzero(cond, block_val, result);
+                    }
+                    IrMatchPattern::Str(s) => {
+                        // Same FNV tag as AST constructor/string match encoding.
+                        let pat_val =
+                            builder.int_const(crate::encode_method_policy::pattern_hash_name(s));
+                        let cond = builder.cmp_as_int(IrCmpOp::Eq, scr_val.clone(), pat_val);
+                        result = builder.ite_nonzero(cond, block_val, result);
                     }
                 }
             }
@@ -484,6 +499,58 @@ mod tests {
         assert_eq!(
             builder.nullary_ufs,
             vec![missing_block_uf_name(99), missing_block_uf_name(100),]
+        );
+    }
+
+    /// Match arms must compare scrutinee to the pattern value, not treat
+    /// the scrutinee as a bare boolean (`ite_nonzero(scrutinee, …)`).
+    #[test]
+    fn ir_lower_match_uses_pattern_equality() {
+        use crate::ir::parse_ir_module;
+
+        const SOURCE: &str = r#"
+module match_eq {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $1 = match $0 { 0 => #1, _ => #2 } : Int
+    $result = load $1 : Int
+  }
+  fn #1 : () -> Int ! pure
+  {
+    $result = const 10 : Int
+  }
+  fn #2 : () -> Int ! pure
+  {
+    $result = const 20 : Int
+  }
+}
+"#;
+        let module = parse_ir_module(SOURCE).expect("parse match IR");
+        let blocks = crate::ir_encode::block_map_from_module(&module);
+        let func = module.functions.first().expect("fn #0");
+        let enc_ctx = IrEncodeContext::new(None, None, Some(&blocks));
+        let mut builder = MockIrBuilder::new(enc_ctx);
+        builder.slot_to_name.insert(0, "x".into());
+        let mut slots = HashMap::new();
+        slots.insert(0, MockTerm("x".into()));
+        let slot_to_name = builder.slot_to_name.clone();
+        let slot_types = builder.slot_types.clone();
+        let ctx = IrSlotContext {
+            slot_to_name: &slot_to_name,
+            slot_types: &slot_types,
+        };
+        let match_expr = &func.body[0].expr;
+        let term = encode_ir_expr(&mut builder, match_expr, &slots, ctx);
+        // Expect nested: ite_(cmp_Eq_x_0, …) — equality on pattern 0, not bare x.
+        assert!(
+            term.0.contains("cmp_Eq_x_0"),
+            "match must cmp scrutinee == pattern 0, got {}",
+            term.0
+        );
+        assert!(
+            !term.0.starts_with("ite_x_"),
+            "must not ite_nonzero on bare scrutinee, got {}",
+            term.0
         );
     }
 
