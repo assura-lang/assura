@@ -877,6 +877,59 @@ contract Add {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// `ensures { result == min(x, y) }` / `max(x, y)` via if-compare synthesis.
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_min_max_call_heuristic_verifies() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-min-max-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract MinC {
+  input(x: Int, y: Int)
+  output(result: Int)
+  ensures { result == min(x, y) }
+}
+contract MaxC {
+  input(x: Int, y: Int)
+  output(result: Int)
+  ensures { result == max(x, y) }
+}
+"#;
+        let path = dir.join("minmax.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"MinC".to_string())
+                && loaded.heuristic_names().contains(&"MaxC".to_string()),
+            "expected heuristics for MinC/MaxC, names={:?}",
+            loaded.heuristic_names()
+        );
+
+        let results = Verifier::new(&typed).source(&path).verify();
+        for name in ["MinC", "MaxC"] {
+            let ensures = results.iter().find(|r| match r {
+                VerificationResult::Verified { clause_desc, .. }
+                | VerificationResult::Counterexample { clause_desc, .. }
+                | VerificationResult::Unknown { clause_desc, .. }
+                | VerificationResult::Timeout { clause_desc } => {
+                    clause_desc.starts_with(name) && clause_desc.ends_with("::ensures")
+                }
+            });
+            assert!(
+                matches!(ensures, Some(VerificationResult::Verified { .. })),
+                "{name} ensures should verify via min/max IR; got {results:?}"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// `if x > 0 && y > 0 then …` must materialize logical And in the condition.
     #[test]
     #[cfg(feature = "z3-verify")]

@@ -988,6 +988,49 @@ fn match_param_typed_as_enum_missing_variant_a10001() {
 }
 
 #[test]
+fn match_bool_true_false_no_a10002() {
+    // Bool is a known finite type; true|false covers all cases (no wildcard needed).
+    let src = r#"
+        contract MB {
+            input(x: Bool)
+            ensures { match x { true => true, false => false } }
+        }
+    "#;
+    let resolved = resolve_ok(src);
+    let result = type_check(resolved);
+    let errs = result.err().unwrap_or_default();
+    assert!(
+        !errs.iter().any(|e| e.code == "A10002"),
+        "exhaustive Bool match must not produce A10002: {errs:?}"
+    );
+    assert!(
+        !errs.iter().any(|e| e.code == "A10001"),
+        "true|false covers Bool: {errs:?}"
+    );
+}
+
+#[test]
+fn match_bool_missing_false_a10001() {
+    let src = r#"
+        contract MB {
+            input(x: Bool)
+            ensures { match x { true => true } }
+        }
+    "#;
+    let resolved = resolve_ok(src);
+    let result = type_check(resolved);
+    let errs = result.err().unwrap_or_default();
+    assert!(
+        errs.iter().any(|e| e.code == "A10001"),
+        "missing false on Bool should produce A10001: {errs:?}"
+    );
+    assert!(
+        !errs.iter().any(|e| e.code == "A10002"),
+        "must not misclassify Bool as unknown type: {errs:?}"
+    );
+}
+
+#[test]
 fn match_param_typed_as_enum_all_variants_no_a10001() {
     let src = r#"
         enum Color { Red, Green, Blue }

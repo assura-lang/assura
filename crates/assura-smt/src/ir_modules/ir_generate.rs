@@ -70,6 +70,7 @@ const ENSURES_PLANNERS: &[IrPlannerFn] = &[
     plan_if_branch_ensures,
     plan_match_arm_ensures,
     plan_abs_call_ensures,
+    plan_min_max_call_ensures,
     plan_bool_comparison_ensures,
     plan_bool_logic_ensures,
     plan_multi_fn_call_chain,
@@ -558,6 +559,57 @@ fn plan_abs_call_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> 
     Some(IrGenPlan {
         main: IrGenBody { lines },
         siblings: vec![(1, pos, 0), (2, neg, 0)],
+    })
+}
+
+/// `ensures { result == min(x, y) }` / `max(x, y)` → if-compare over args.
+fn plan_min_max_call_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    let (lhs, rhs) = equality_operands(expr)?;
+    let call = if is_result_ident(lhs) {
+        rhs
+    } else if is_result_ident(rhs) {
+        lhs
+    } else {
+        return None;
+    };
+    let Expr::Call { func, args } = &call.node else {
+        return None;
+    };
+    let Expr::Ident(name) = &func.as_ref().node else {
+        return None;
+    };
+    if args.len() != 2 {
+        return None;
+    }
+    // min: if x < y then x else y; max: if x > y then x else y
+    let cmp = match name.as_str() {
+        "min" => "lt",
+        "max" => "gt",
+        _ => return None,
+    };
+    let mut lines: Vec<String> = Vec::new();
+    let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
+    used.sort_unstable();
+    let a_slot = operand_to_slot(&args[0], ctx, &mut lines, &mut used)?;
+    let b_slot = operand_to_slot(&args[1], ctx, &mut lines, &mut used)?;
+    let cond = next_temp_slot(&used);
+    used.push(cond);
+    lines.push(format!(
+        "    ${cond} = cmp {cmp} ${a_slot} ${b_slot} : Bool"
+    ));
+    let out = next_temp_slot(&used);
+    used.push(out);
+    lines.push(format!(
+        "    ${out} = if ${cond} then #1 else #2 : {}",
+        ctx.return_ty
+    ));
+    lines.push(format!("    $result = load ${out} : {}", ctx.return_ty));
+    Some(IrGenPlan {
+        main: IrGenBody { lines },
+        siblings: vec![
+            (1, single_load(a_slot, ctx.return_ty), 0),
+            (2, single_load(b_slot, ctx.return_ty), 0),
+        ],
     })
 }
 
