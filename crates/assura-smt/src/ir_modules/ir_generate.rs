@@ -227,7 +227,13 @@ fn plan_length_copy_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPla
     Some(single_fn_plan(single_load(slot, ctx.return_ty)))
 }
 
+/// Max nesting depth for `if` synthesis (pathological nesting falls back to stub).
+const MAX_IF_NESTING: usize = 4;
+
 /// `ensures { result == if cond then a else b }` → branch blocks `#1` / `#2`.
+///
+/// Nested then/else (`if x > 0 then if x > 10 then 2 else 1 else 0`) allocate
+/// further sibling block IDs up to [`MAX_IF_NESTING`] (#885).
 fn plan_if_branch_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let (lhs, rhs) = equality_operands(expr)?;
     let if_expr = if is_result_ident(lhs) {
@@ -246,17 +252,24 @@ fn plan_if_branch_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan>
         return None;
     };
     let else_branch = else_branch.as_deref()?;
-    let then_body = plan_branch_result(then_branch, ctx)?;
-    let else_body = plan_branch_result(else_branch, ctx)?;
 
-    // Materialize the condition into a Bool slot (param alone is not a Bool).
     let mut lines: Vec<String> = Vec::new();
     let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
     used.sort_unstable();
+    let mut next_block = 1usize;
+    let mut siblings: Vec<(usize, IrGenBody, usize)> = Vec::new();
+
     let cond_slot = plan_bool_condition_slot(cond, ctx, &mut lines, &mut used)?;
+    let then_id = next_block;
+    next_block += 1;
+    let else_id = next_block;
+    next_block += 1;
+    plan_branch_into_block(then_branch, then_id, ctx, 1, &mut next_block, &mut siblings)?;
+    plan_branch_into_block(else_branch, else_id, ctx, 1, &mut next_block, &mut siblings)?;
+
     let out_slot = next_temp_slot(&used);
     lines.push(format!(
-        "    ${out_slot} = if ${cond_slot} then #1 else #2 : {}",
+        "    ${out_slot} = if ${cond_slot} then #{then_id} else #{else_id} : {}",
         ctx.return_ty
     ));
     lines.push(format!(
@@ -265,9 +278,58 @@ fn plan_if_branch_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan>
     ));
     Some(IrGenPlan {
         main: IrGenBody { lines },
-        // Branch blocks take no formal params; they close over main slots.
-        siblings: vec![(1, then_body, 0), (2, else_body, 0)],
+        siblings,
     })
+}
+
+/// Fill sibling `block_id` with either a leaf result body or a nested `if`.
+fn plan_branch_into_block(
+    expr: &SpExpr,
+    block_id: usize,
+    ctx: &PlanCtx<'_>,
+    depth: usize,
+    next_block: &mut usize,
+    siblings: &mut Vec<(usize, IrGenBody, usize)>,
+) -> Option<()> {
+    if depth < MAX_IF_NESTING
+        && let Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } = &expr.node
+    {
+        let Some(else_branch) = else_branch.as_deref() else {
+            // Missing else: fall through to leaf planner if possible.
+            let body = plan_branch_result(expr, ctx)?;
+            siblings.push((block_id, body, 0));
+            return Some(());
+        };
+        let mut lines: Vec<String> = Vec::new();
+        let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
+        used.sort_unstable();
+        let cond_slot = plan_bool_condition_slot(cond, ctx, &mut lines, &mut used)?;
+        let then_id = *next_block;
+        *next_block += 1;
+        let else_id = *next_block;
+        *next_block += 1;
+        plan_branch_into_block(then_branch, then_id, ctx, depth + 1, next_block, siblings)?;
+        plan_branch_into_block(else_branch, else_id, ctx, depth + 1, next_block, siblings)?;
+        let out_slot = next_temp_slot(&used);
+        lines.push(format!(
+            "    ${out_slot} = if ${cond_slot} then #{then_id} else #{else_id} : {}",
+            ctx.return_ty
+        ));
+        lines.push(format!(
+            "    $result = load ${out_slot} : {}",
+            ctx.return_ty
+        ));
+        siblings.push((block_id, IrGenBody { lines }, 0));
+        return Some(());
+    }
+
+    let body = plan_branch_result(expr, ctx)?;
+    siblings.push((block_id, body, 0));
+    Some(())
 }
 
 /// Encode a boolean condition (param Bool, comparison, or nested) as a slot.
@@ -1170,6 +1232,56 @@ mod tests {
         );
         assert!(text.contains("fn #1"));
         assert!(text.contains("fn #2"));
+    }
+
+    #[test]
+    fn test_ir_generate_nested_if() {
+        // result == if x > 0 then (if x > 10 then 2 else 1) else 0
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::If {
+                    cond: spb(Expr::BinOp {
+                        op: BinOp::Gt,
+                        lhs: spb(Expr::Ident("x".into())),
+                        rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+                    }),
+                    then_branch: spb(Expr::If {
+                        cond: spb(Expr::BinOp {
+                            op: BinOp::Gt,
+                            lhs: spb(Expr::Ident("x".into())),
+                            rhs: spb(Expr::Literal(Literal::Int("10".into()))),
+                        }),
+                        then_branch: spb(Expr::Literal(Literal::Int("2".into()))),
+                        else_branch: Some(spb(Expr::Literal(Literal::Int("1".into())))),
+                    }),
+                    else_branch: Some(spb(Expr::Literal(Literal::Int("0".into())))),
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "Nested",
+            &[int_param("x", 0)],
+            &["x".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(
+            text.contains("then #1 else #2") && text.contains("fn #1") && text.contains("fn #3"),
+            "expected nested if with multiple sibling blocks, got:\n{text}"
+        );
+        // Nested then-branch should itself contain an if (not only leaf load).
+        assert!(
+            text.matches("if $").count() >= 2 || text.matches("then #").count() >= 2,
+            "expected at least two ifs in nested plan, got:\n{text}"
+        );
+        assert!(
+            !text.contains("Stub IR"),
+            "nested if must not fall back to stub:\n{text}"
+        );
     }
 
     #[test]
