@@ -1875,3 +1875,39 @@ contract Bad {
         "expected A03001 for nested empty tuple, got {errs:?}"
     );
 }
+
+#[test]
+fn empty_tuple_output_type_rejected_a03001() {
+    // output(result: (,)) must reject (previously silent via Type::Error → Unknown).
+    let src = r#"
+contract Bad {
+  input(x: Int)
+  output(result: (,))
+  ensures { true }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A03001" && e.message.contains("empty tuple")),
+        "expected A03001 for empty output type, got {errs:?}"
+    );
+}
+
+#[test]
+fn empty_tuple_middle_slot_from_source_a03001() {
+    let src = r#"
+contract Bad {
+  input(t: (Int,,Bool))
+  ensures { true }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A03001" && e.message.contains("empty tuple")),
+        "expected A03001 for middle empty slot, got {errs:?}"
+    );
+}

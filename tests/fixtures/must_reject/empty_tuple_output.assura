@@ -1,0 +1,7 @@
+// MUST REJECT A03001
+// Empty tuple as output type must not type-check.
+contract EmptyTupleOutput {
+    input(x: Int)
+    output(result: (,))
+    ensures { true }
+}
