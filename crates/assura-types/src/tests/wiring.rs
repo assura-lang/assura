@@ -1840,3 +1840,38 @@ contract Bad {
         }
     }
 }
+
+#[test]
+fn empty_tuple_type_rejected_a03001() {
+    // #909: input(t: (,)) must emit A03001, not type-check cleanly.
+    let src = r#"
+contract Bad {
+  input(t: (,))
+  ensures { true }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A03001" && e.message.contains("empty tuple")),
+        "expected A03001 empty tuple, got {errs:?}"
+    );
+}
+
+#[test]
+fn nested_empty_tuple_type_rejected_a03001() {
+    let src = r#"
+contract Bad {
+  input(t: (Int, (,)))
+  ensures { true }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A03001" && e.message.contains("empty tuple")),
+        "expected A03001 for nested empty tuple, got {errs:?}"
+    );
+}

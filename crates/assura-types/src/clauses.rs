@@ -38,6 +38,50 @@ pub(crate) fn register_input_clause_params(body: &SpExpr, env: &mut TypeEnv) {
     }
 }
 
+/// Emit A03001 for parameters whose type is an invalid empty tuple (`(,)`, empty slots).
+pub(crate) fn check_invalid_empty_tuple_params(
+    body: &SpExpr,
+    span: &std::ops::Range<usize>,
+    errors: &mut Vec<TypeError>,
+) {
+    use assura_parser::ast::extract_clause_params;
+    for param in extract_clause_params(body) {
+        if let Some(te) = &param.ty
+            && type_expr_is_invalid_empty_tuple(te)
+        {
+            errors.push(TypeError {
+                code: "A03001".into(),
+                message: format!(
+                    "empty tuple type is not allowed for parameter `{}` (use `()` for Unit, or `(T,)` for a 1-tuple)",
+                    param.name
+                ),
+                span: span.clone(),
+                secondary: None,
+                suggestion: Some(
+                    "Write a non-empty tuple type, e.g. `(Int, Bool)` or `(Int,)`.".into(),
+                ),
+            });
+        }
+    }
+}
+
+/// Local copy of the empty-tuple marker check (co-publish safe: do not call a
+/// new `assura_parser` API until both crates ship together on crates.io).
+fn type_expr_is_invalid_empty_tuple(te: &assura_parser::ast::TypeExpr) -> bool {
+    use assura_parser::ast::TypeExpr;
+    match te {
+        TypeExpr::Tuple(elems) if elems.is_empty() => true,
+        TypeExpr::Tuple(elems) => elems.iter().any(type_expr_is_invalid_empty_tuple),
+        TypeExpr::Generic(_, args) => args.iter().any(type_expr_is_invalid_empty_tuple),
+        TypeExpr::Fn { params, ret } => {
+            params.iter().any(type_expr_is_invalid_empty_tuple)
+                || type_expr_is_invalid_empty_tuple(ret)
+        }
+        TypeExpr::Refined { base, .. } => type_expr_is_invalid_empty_tuple(base),
+        TypeExpr::Named(_) | TypeExpr::Unit => false,
+    }
+}
+
 /// Collect parameter types from an input clause body (types only, no env mutation).
 ///
 /// Used by service operation/query type enrichment to build the parameter
@@ -193,6 +237,8 @@ pub(crate) fn check_clause_bodies(
                         || clause.kind == ClauseKind::Ensures
                     {
                         register_input_clause_params(&clause.body, &mut contract_env);
+                        // #909: reject empty tuple types like `(,)` or `(Int,,Bool)`.
+                        check_invalid_empty_tuple_params(&clause.body, span, &mut errors);
                     }
                 }
                 // Register inline fn params with their declared types

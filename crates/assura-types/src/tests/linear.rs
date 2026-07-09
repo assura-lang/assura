@@ -165,7 +165,12 @@ fn usage_multiple_variables_mixed() {
     let errors = tracker.check();
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].code, "A05002");
-    assert!(errors[0].message.contains("b"));
+    assert!(errors[0].message.contains("never used"));
+    assert!(
+        errors[0].message.contains("b"),
+        "expected var b in message: {}",
+        errors[0].message
+    );
 }
 
 #[test]

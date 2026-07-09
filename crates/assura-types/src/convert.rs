@@ -50,6 +50,8 @@ pub(crate) fn type_from_expr(expr: &assura_parser::ast::TypeExpr) -> Type {
                 _ => Type::Named(name.clone()),
             }
         }
+        // Empty `Tuple([])` is the invalid-empty-tuple marker from try_parse (`(,)`).
+        TypeExpr::Tuple(elems) if elems.is_empty() => Type::Error,
         TypeExpr::Tuple(elems) => Type::Tuple(elems.iter().map(type_from_expr).collect()),
         TypeExpr::Fn { params, ret } => Type::Fn {
             params: params.iter().map(type_from_expr).collect(),
@@ -321,7 +323,7 @@ pub(crate) fn parse_type_tokens(tokens: &[String]) -> Type {
         };
     }
 
-    // Tuple type: ( A, B, C )
+    // Tuple type: ( A, B, C ) or ( A, ); empty `(,)` / empty slots → Error (#909).
     if head == "(" && clean.last() == Some(&")") {
         let inner = &clean[1..clean.len() - 1];
         if inner.is_empty() {
@@ -331,6 +333,8 @@ pub(crate) fn parse_type_tokens(tokens: &[String]) -> Type {
         let mut elems: Vec<Type> = Vec::new();
         let mut current: Vec<String> = Vec::new();
         let mut d = 0i32;
+        let mut saw_comma = false;
+        let mut empty_slot = false;
         for tok in inner {
             match *tok {
                 "(" | "<" => {
@@ -342,7 +346,10 @@ pub(crate) fn parse_type_tokens(tokens: &[String]) -> Type {
                     current.push(tok.to_string());
                 }
                 "," if d == 0 => {
-                    if !current.is_empty() {
+                    saw_comma = true;
+                    if current.is_empty() {
+                        empty_slot = true;
+                    } else {
                         elems.push(parse_type_tokens(&current));
                         current.clear();
                     }
@@ -352,6 +359,16 @@ pub(crate) fn parse_type_tokens(tokens: &[String]) -> Type {
         }
         if !current.is_empty() {
             elems.push(parse_type_tokens(&current));
+        } else if saw_comma && elems.is_empty() {
+            // Trailing-only commas without elements: `(,)` or `(,,)`.
+            empty_slot = true;
+        }
+        if empty_slot || (saw_comma && elems.is_empty()) {
+            return Type::Error;
+        }
+        // `(Int)` grouping without comma is not a 1-tuple; only comma forms.
+        if !saw_comma && elems.len() == 1 {
+            return elems.into_iter().next().unwrap_or(Type::Unknown);
         }
         return Type::Tuple(elems);
     }
@@ -738,5 +755,24 @@ mod tests {
     fn parse_brace_without_colon_returns_unknown() {
         // Malformed refinement: no colon
         assert_eq!(parse_type_tokens(&tokens(&["{", "x", "}"])), Type::Unknown,);
+    }
+
+    #[test]
+    fn parse_type_tokens_single_element_trailing_comma() {
+        let tokens = tokens(&["(", "Int", ",", ")"]);
+        assert_eq!(parse_type_tokens(&tokens), Type::Tuple(vec![Type::Int]));
+    }
+
+    #[test]
+    fn parse_type_tokens_empty_comma_is_error() {
+        let tokens = tokens(&["(", ",", ")"]);
+        assert_eq!(parse_type_tokens(&tokens), Type::Error);
+    }
+
+    #[test]
+    fn parse_type_tokens_paren_group_unwraps() {
+        // (Int) without comma is grouping, not a 1-tuple.
+        let tokens = tokens(&["(", "Int", ")"]);
+        assert_eq!(parse_type_tokens(&tokens), Type::Int);
     }
 }

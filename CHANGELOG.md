@@ -21,6 +21,10 @@ All notable changes to Assura are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+* deps: upgrade rmcp 2.1 → 2.2 in assura-mcp (#907)
+
 ## [0.2.0](https://github.com/assura-lang/assura/compare/v0.1.0...v0.2.0) (2026-07-04)
 
 
