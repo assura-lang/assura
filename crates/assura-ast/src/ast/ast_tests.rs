@@ -646,3 +646,14 @@ fn try_parse_type_tokens_paren_group_not_tuple() {
         "bare (Int) must not be a Tuple, got {te:?}"
     );
 }
+
+#[test]
+fn try_parse_type_tokens_empty_comma_is_empty_tuple() {
+    // `(,)` must not become Named("( , )").
+    let tokens: Vec<String> = ["(", ",", ")"].into_iter().map(String::from).collect();
+    let te = try_parse_type_tokens(&tokens).expect("parse");
+    match te {
+        TypeExpr::Tuple(elems) => assert!(elems.is_empty()),
+        other => panic!("expected empty Tuple, got {other:?}"),
+    }
+}
