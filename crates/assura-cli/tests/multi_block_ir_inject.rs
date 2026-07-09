@@ -119,8 +119,12 @@ fn build_write_ir_tuple_field_compiles_and_tests() {
     );
     let lib = std::fs::read_to_string(out_dir.join("src/lib.rs")).unwrap();
     assert!(
-        lib.contains(".0") || lib.contains("slot_0.0"),
+        lib.contains("slot_0.0") || lib.contains(".0"),
         "expected tuple .0 access in lib.rs, got:\n{lib}"
+    );
+    assert!(
+        !lib.contains("todo!"),
+        "injected body should not be todo!:\n{lib}"
     );
 
     let test = Command::new("cargo")
