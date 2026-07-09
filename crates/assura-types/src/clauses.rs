@@ -44,7 +44,7 @@ pub(crate) fn check_invalid_empty_tuple_params(
     span: &std::ops::Range<usize>,
     errors: &mut Vec<TypeError>,
 ) {
-    use assura_parser::ast::{extract_clause_params, type_expr_is_invalid_empty_tuple};
+    use assura_parser::ast::extract_clause_params;
     for param in extract_clause_params(body) {
         if let Some(te) = &param.ty
             && type_expr_is_invalid_empty_tuple(te)
@@ -62,6 +62,23 @@ pub(crate) fn check_invalid_empty_tuple_params(
                 ),
             });
         }
+    }
+}
+
+/// Local copy of the empty-tuple marker check (co-publish safe: do not call a
+/// new `assura_parser` API until both crates ship together on crates.io).
+fn type_expr_is_invalid_empty_tuple(te: &assura_parser::ast::TypeExpr) -> bool {
+    use assura_parser::ast::TypeExpr;
+    match te {
+        TypeExpr::Tuple(elems) if elems.is_empty() => true,
+        TypeExpr::Tuple(elems) => elems.iter().any(type_expr_is_invalid_empty_tuple),
+        TypeExpr::Generic(_, args) => args.iter().any(type_expr_is_invalid_empty_tuple),
+        TypeExpr::Fn { params, ret } => {
+            params.iter().any(type_expr_is_invalid_empty_tuple)
+                || type_expr_is_invalid_empty_tuple(ret)
+        }
+        TypeExpr::Refined { base, .. } => type_expr_is_invalid_empty_tuple(base),
+        TypeExpr::Named(_) | TypeExpr::Unit => false,
     }
 }
 
