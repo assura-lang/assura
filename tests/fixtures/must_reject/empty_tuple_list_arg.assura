@@ -1,0 +1,5 @@
+// MUST REJECT A03001
+contract Bad {
+  input(xs: List<(,)>)
+  ensures { true }
+}

@@ -93,6 +93,10 @@ fn param(p: &mut Parser) {
 }
 
 /// Collect type tokens for a parameter, handling balanced delimiters.
+///
+/// Top-level `,` / `)` end the type (next param or end of list). Nested
+/// `(Int, Bool)`, `Map<K, V>`, and `(,)` must keep internal commas: do not
+/// pass `COMMA` as a `body_tokens_inner` stopper inside delimiters.
 fn param_type_tokens(p: &mut Parser) {
     while !p.eof() {
         let cur = p.current_raw();
@@ -105,32 +109,16 @@ fn param_type_tokens(p: &mut Parser) {
         match cur {
             SyntaxKind::L_BRACE => {
                 p.bump_raw();
-                super::body_tokens_inner(
-                    p,
-                    SyntaxKind::R_BRACE,
-                    &[
-                        SyntaxKind::COMMA,
-                        SyntaxKind::R_PAREN,
-                        SyntaxKind::R_BRACE,
-                        SyntaxKind::R_BRACKET,
-                    ],
-                );
+                // Empty stoppers: commas inside refinements stay in the type.
+                super::body_tokens_inner(p, SyntaxKind::R_BRACE, &[]);
                 if p.current_raw() == SyntaxKind::R_BRACE {
                     p.bump_raw();
                 }
             }
             SyntaxKind::L_PAREN => {
                 p.bump_raw();
-                super::body_tokens_inner(
-                    p,
-                    SyntaxKind::R_PAREN,
-                    &[
-                        SyntaxKind::COMMA,
-                        SyntaxKind::R_PAREN,
-                        SyntaxKind::R_BRACE,
-                        SyntaxKind::R_BRACKET,
-                    ],
-                );
+                // Empty stoppers so `(Int, Bool)` / `(Int,)` / `(,)` collect fully.
+                super::body_tokens_inner(p, SyntaxKind::R_PAREN, &[]);
                 if p.current_raw() == SyntaxKind::R_PAREN {
                     p.bump_raw();
                 }
@@ -144,16 +132,7 @@ fn param_type_tokens(p: &mut Parser) {
             }
             SyntaxKind::L_BRACKET => {
                 p.bump_raw();
-                super::body_tokens_inner(
-                    p,
-                    SyntaxKind::R_BRACKET,
-                    &[
-                        SyntaxKind::COMMA,
-                        SyntaxKind::R_PAREN,
-                        SyntaxKind::R_BRACE,
-                        SyntaxKind::R_BRACKET,
-                    ],
-                );
+                super::body_tokens_inner(p, SyntaxKind::R_BRACKET, &[]);
                 if p.current_raw() == SyntaxKind::R_BRACKET {
                     p.bump_raw();
                 }

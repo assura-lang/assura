@@ -1,0 +1,8 @@
+// MUST REJECT A03001
+type T {
+  f: (,)
+}
+contract C {
+  input(x: T)
+  ensures { true }
+}

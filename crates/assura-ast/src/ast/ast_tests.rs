@@ -671,3 +671,47 @@ fn try_parse_type_tokens_middle_empty_slot_invalid() {
         "expected invalid empty slot, got {te:?}"
     );
 }
+
+#[test]
+fn try_parse_type_tokens_list_of_empty_tuple_preserves_marker() {
+    // Flat comma-split treated `(,)` as two Named args; depth-aware split keeps Tuple([]).
+    let tokens: Vec<String> = ["List", "<", "(", ",", ")", ">"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    let te = try_parse_type_tokens(&tokens).expect("parse");
+    match te {
+        TypeExpr::Generic(name, args) => {
+            assert_eq!(name, "List");
+            assert_eq!(args.len(), 1, "expected one type arg, got {args:?}");
+            assert!(
+                type_expr_is_invalid_empty_tuple(&args[0]),
+                "expected empty-tuple marker inside List, got {:?}",
+                args[0]
+            );
+        }
+        other => panic!("expected Generic List, got {other:?}"),
+    }
+}
+
+#[test]
+fn try_parse_type_tokens_map_with_tuple_key() {
+    let tokens: Vec<String> = ["Map", "<", "(", "Int", ",", "Bool", ")", ",", "String", ">"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    let te = try_parse_type_tokens(&tokens).expect("parse");
+    match te {
+        TypeExpr::Generic(name, args) => {
+            assert_eq!(name, "Map");
+            assert_eq!(args.len(), 2, "expected key+value, got {args:?}");
+            assert!(
+                matches!(&args[0], TypeExpr::Tuple(e) if e.len() == 2),
+                "key should be pair tuple, got {:?}",
+                args[0]
+            );
+            assert!(matches!(&args[1], TypeExpr::Named(n) if n == "String"));
+        }
+        other => panic!("expected Generic Map, got {other:?}"),
+    }
+}
