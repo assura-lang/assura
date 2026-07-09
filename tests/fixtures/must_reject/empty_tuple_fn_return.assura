@@ -1,0 +1,3 @@
+// MUST REJECT A03001
+fn bad(x: Int) -> (,)
+    ensures { true }

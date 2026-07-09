@@ -137,7 +137,7 @@ pub(super) fn lower_field_def(n: &SyntaxNode) -> FieldDef {
 
     // Type: everything after the colon
     let mut saw_colon = false;
-    let ty: Vec<String> = n
+    let mut ty: Vec<String> = n
         .children_with_tokens()
         .filter_map(|el| el.into_token())
         .filter(|t| {
@@ -148,15 +148,24 @@ pub(super) fn lower_field_def(n: &SyntaxNode) -> FieldDef {
             if !saw_colon {
                 return false;
             }
-            if matches!(t.kind(), SyntaxKind::SEMICOLON | SyntaxKind::COMMA)
-                || cst::is_trivia(t.kind())
-            {
+            // Keep nested COMMA for `Map<K, V>` and `(Int, Bool)`. SEMICOLON
+            // and trivia are never part of the type; trailing field separators
+            // are stripped below (grammar eats `,`/`;` inside FIELD_DEF).
+            if t.kind() == SyntaxKind::SEMICOLON || cst::is_trivia(t.kind()) {
                 return false;
             }
             true
         })
         .map(|t| t.text().to_string())
         .collect();
+
+    // Field terminators are inside FIELD_DEF (`p.eat(COMMA)` after the type).
+    // Leaving a trailing `,` yields tokens like `["Int", ","]` → Named soup →
+    // codegen `i64,,`. Nested commas are never last after a complete type
+    // (`Map<K, V>` ends with `>`, `(Int,)` ends with `)`, `(,)` ends with `)`).
+    while ty.last().is_some_and(|t| t == ",") {
+        ty.pop();
+    }
 
     let parsed = crate::ast::try_parse_type_tokens(&ty);
     FieldDef {

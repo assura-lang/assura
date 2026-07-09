@@ -1911,3 +1911,78 @@ contract Bad {
         "expected A03001 for middle empty slot, got {errs:?}"
     );
 }
+
+#[test]
+fn empty_tuple_service_input_rejected_a03001() {
+    let src = r#"
+service S {
+  operation op {
+    input(t: (,))
+    output(result: Int)
+    ensures { result == 0 }
+  }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A03001" && e.message.contains("empty tuple")),
+        "expected A03001 for service input empty tuple, got {errs:?}"
+    );
+}
+
+#[test]
+fn empty_tuple_service_output_rejected_a03001() {
+    let src = r#"
+service S {
+  operation op {
+    input(x: Int)
+    output(result: (,))
+    ensures { true }
+  }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A03001" && e.message.contains("empty tuple")),
+        "expected A03001 for service output empty tuple, got {errs:?}"
+    );
+}
+
+#[test]
+fn empty_tuple_fn_return_rejected_a03001() {
+    let src = r#"
+fn bad(x: Int) -> (,)
+  ensures { true }
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A03001" && e.message.contains("empty tuple")),
+        "expected A03001 for empty return type, got {errs:?}"
+    );
+}
+
+#[test]
+fn empty_tuple_struct_field_rejected_a03001() {
+    let src = r#"
+type T {
+  f: (,)
+}
+contract C {
+  input(x: T)
+  ensures { true }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A03001" && e.message.contains("empty tuple")),
+        "expected A03001 for struct field empty tuple, got {errs:?}"
+    );
+}
