@@ -1,0 +1,6 @@
+// MUST REJECT A03001
+// Empty tuple type `(,)` is invalid (use `()` for Unit or `(T,)` for 1-tuple).
+contract EmptyTupleType {
+    input(t: (,))
+    ensures { true }
+}

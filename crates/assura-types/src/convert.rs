@@ -50,6 +50,8 @@ pub(crate) fn type_from_expr(expr: &assura_parser::ast::TypeExpr) -> Type {
                 _ => Type::Named(name.clone()),
             }
         }
+        // Empty `Tuple([])` is the invalid-empty-tuple marker from try_parse (`(,)`).
+        TypeExpr::Tuple(elems) if elems.is_empty() => Type::Error,
         TypeExpr::Tuple(elems) => Type::Tuple(elems.iter().map(type_from_expr).collect()),
         TypeExpr::Fn { params, ret } => Type::Fn {
             params: params.iter().map(type_from_expr).collect(),

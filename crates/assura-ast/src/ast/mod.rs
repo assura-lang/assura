@@ -1147,6 +1147,8 @@ pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
     // Tuple: (T1, T2, …) or single-element with trailing comma (T,).
     // Without a comma, (T) is grouping and falls through (not a 1-tuple).
     // Min length 3 covers `(,)` = ["(", ",", ")"]; length 4 covers `(Int,)`.
+    // Empty slots (`(,)`, `(Int,,Bool)`, leading `,`) yield `TypeExpr::Tuple([])`
+    // as an invalid marker for the type checker (must not become Named soup).
     if tokens.first().map(|s| s.as_str()) == Some("(")
         && tokens.last().map(|s| s.as_str()) == Some(")")
         && tokens.len() >= 3
@@ -1156,6 +1158,7 @@ pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
         let mut depth: i32 = 0;
         let mut start = 0usize;
         let mut saw_comma = false;
+        let mut empty_slot = false;
         for (i, t) in inner.iter().enumerate() {
             match t.as_str() {
                 "(" | "[" | "<" | "{" => depth += 1,
@@ -1163,7 +1166,10 @@ pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
                 "," if depth == 0 => {
                     saw_comma = true;
                     let slice = &inner[start..i];
-                    if !slice.is_empty() {
+                    if slice.is_empty() {
+                        // Leading comma or `,,` middle empty element.
+                        empty_slot = true;
+                    } else {
                         elems.push(
                             try_parse_type_tokens(slice)
                                 .unwrap_or_else(|| TypeExpr::Named(slice.join(" "))),
@@ -1182,8 +1188,11 @@ pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
                         .unwrap_or_else(|| TypeExpr::Named(slice.join(" "))),
                 );
             }
-            // (T,) is a 1-tuple; (T, U) is 2+. Empty `(,)` is Tuple([]) so we
-            // do not fall through to Named("( , )") (silent accept / lenient fields).
+            // Trailing comma after a real element is fine (`(Int,)`).
+            // Empty tuple type `(,)` or empty elements are invalid: Tuple([]).
+            if empty_slot || elems.is_empty() {
+                return Some(TypeExpr::Tuple(vec![]));
+            }
             return Some(TypeExpr::Tuple(elems));
         }
     }
@@ -1258,6 +1267,22 @@ pub struct ParsedParam {
     pub name: String,
     /// Structured type expression. `None` if untyped.
     pub ty: Option<TypeExpr>,
+}
+
+/// True when `te` is the invalid empty-tuple marker (`Tuple([])` from `(,)` /
+/// empty slots) or nests such a type.
+pub fn type_expr_is_invalid_empty_tuple(te: &TypeExpr) -> bool {
+    match te {
+        TypeExpr::Tuple(elems) if elems.is_empty() => true,
+        TypeExpr::Tuple(elems) => elems.iter().any(type_expr_is_invalid_empty_tuple),
+        TypeExpr::Generic(_, args) => args.iter().any(type_expr_is_invalid_empty_tuple),
+        TypeExpr::Fn { params, ret } => {
+            params.iter().any(type_expr_is_invalid_empty_tuple)
+                || type_expr_is_invalid_empty_tuple(ret)
+        }
+        TypeExpr::Refined { base, .. } => type_expr_is_invalid_empty_tuple(base),
+        TypeExpr::Named(_) | TypeExpr::Unit => false,
+    }
 }
 
 /// Extract `(name, type)` parameter pairs from a clause body expression.
