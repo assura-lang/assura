@@ -1,0 +1,3 @@
+// MUST REJECT A03001
+fn bad(t: (,), x: Int) -> Int
+  ensures { result == x }

@@ -1025,3 +1025,57 @@ fn lower_type_struct_trailing_comma_not_in_type() {
         panic!("expected TypeDef");
     }
 }
+
+#[test]
+fn lower_fn_param_tuple_types() {
+    // param_type_tokens used COMMA as body_tokens stopper, so `(Int, Bool)`
+    // stopped after Int and the rest of the param list mis-parsed.
+    let src = r#"
+        fn f(t: (Int, Bool), x: Int) -> Int
+          ensures { true }
+    "#;
+    let (sf, errors) = parse_and_lower(src);
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    if let Decl::FnDef(f) = &sf.decls[0].node {
+        assert_eq!(f.params.len(), 2, "params: {:?}", f.params);
+        assert_eq!(f.params[0].name, "t");
+        assert!(
+            matches!(
+                &f.params[0].ty,
+                Some(crate::ast::TypeExpr::Tuple(e)) if e.len() == 2
+            ),
+            "expected pair tuple param, got {:?}",
+            f.params[0].ty
+        );
+        assert_eq!(f.params[1].name, "x");
+        assert_eq!(
+            f.params[1].ty,
+            Some(crate::ast::TypeExpr::Named("Int".into()))
+        );
+    } else {
+        panic!("expected FnDef");
+    }
+}
+
+#[test]
+fn lower_fn_param_empty_tuple_type() {
+    let src = r#"
+        fn bad(t: (,), x: Int) -> Int
+          ensures { true }
+    "#;
+    let (sf, errors) = parse_and_lower(src);
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    if let Decl::FnDef(f) = &sf.decls[0].node {
+        assert_eq!(f.params.len(), 2, "params: {:?}", f.params);
+        assert!(
+            matches!(
+                &f.params[0].ty,
+                Some(crate::ast::TypeExpr::Tuple(e)) if e.is_empty()
+            ),
+            "expected empty-tuple marker, got {:?}",
+            f.params[0].ty
+        );
+    } else {
+        panic!("expected FnDef");
+    }
+}

@@ -2026,3 +2026,32 @@ contract Bad {
         "must not misreport as type-arg arity error, got {errs:?}"
     );
 }
+
+#[test]
+fn empty_tuple_fn_param_rejected_a03001() {
+    // Requires param_type_tokens to keep commas inside nested `(,)` tuples.
+    let src = r#"
+fn bad(t: (,), x: Int) -> Int
+  ensures { result == x }
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A03001" && e.message.contains("empty tuple")),
+        "expected A03001 for fn param empty tuple, got {errs:?}"
+    );
+}
+
+#[test]
+fn fn_param_pair_tuple_typechecks() {
+    let src = r#"
+fn f(t: (Int, Bool), x: Int) -> Int
+  ensures { result == x }
+"#;
+    let resolved = resolve_ok(src);
+    assert!(
+        type_check(resolved).is_ok(),
+        "pair tuple param should type-check"
+    );
+}
