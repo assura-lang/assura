@@ -119,18 +119,41 @@ fn lower_literal(n: &SyntaxNode) -> Expr {
 fn lower_field_expr(n: &SyntaxNode) -> SpExpr {
     let obj = super::lower_first_child_expr_or_missing(n);
 
-    // Field name: last IDENT, keyword, or INT_LIT (tuple projection `t.0`).
-    let field = n
+    // Field name: last IDENT, keyword, INT_LIT, or FLOAT_LIT.
+    // FLOAT_LIT appears when logos glues nested indices (`t.1.0` → Float "1.0").
+    let field_tok = n
         .children_with_tokens()
         .filter_map(|el| el.into_token())
         .filter(|t| {
             t.kind() == SyntaxKind::IDENT
                 || t.kind() == SyntaxKind::INT_LIT
+                || t.kind() == SyntaxKind::FLOAT_LIT
                 || t.kind().is_keyword()
         })
-        .last()
+        .last();
+
+    let field = field_tok
+        .as_ref()
         .map(|t| t.text().to_string())
         .unwrap_or_default();
+
+    // Expand glued float indices into a Field chain: `1.0` → .1 then .0.
+    if field_tok.is_some_and(|t| t.kind() == SyntaxKind::FLOAT_LIT)
+        && field
+            .chars()
+            .all(|c| c.is_ascii_digit() || c == '.' || c == '_')
+        && field.contains('.')
+    {
+        let parts: Vec<&str> = field.split('.').filter(|p| !p.is_empty()).collect();
+        if parts.len() >= 2 && parts.iter().all(|p| p.chars().all(|c| c.is_ascii_digit())) {
+            let mut acc = obj;
+            for part in parts {
+                acc = Spanned::no_span(Expr::Field(Box::new(acc), part.to_string()));
+            }
+            // Preserve the outer field span for diagnostics.
+            return super::spanned(acc.node, n);
+        }
+    }
 
     super::spanned(Expr::Field(Box::new(obj), field), n)
 }

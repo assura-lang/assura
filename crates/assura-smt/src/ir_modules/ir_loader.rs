@@ -1060,6 +1060,96 @@ contract Fst {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Second-element projection `result == t.1` (Bool) via IR field load.
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_tuple_field_second_element_verifies() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-tuple-field1-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract Snd {
+  input(t: (Int, Bool))
+  output(result: Bool)
+  ensures { result == t.1 }
+}
+"#;
+        let path = dir.join("snd.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let map = stub_ir_sidecars_for_typed(&typed);
+        let ir = map.get("Snd").expect("Snd IR");
+        assert!(
+            ir.contains("field $0 .1"),
+            "expected second-element field IR, got:\n{ir}"
+        );
+
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => {
+                clause_desc.starts_with("Snd") && clause_desc.ends_with("::ensures")
+            }
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Verified { .. })),
+            "result == t.1 should verify; got {results:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Nested tuple projection `result == t.1.0` (logos float glue + IR flatten).
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_nested_tuple_field_chain_verifies() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+
+        let dir = std::env::temp_dir().join(format!("assura-nested-tuple-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = r#"
+contract Nest {
+  input(t: (Int, (Bool, Int)))
+  output(result: Bool)
+  ensures { result == t.1.0 }
+}
+"#;
+        let path = dir.join("nest.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let map = stub_ir_sidecars_for_typed(&typed);
+        let ir = map.get("Nest").expect("Nest IR");
+        assert!(
+            ir.contains("field $0 .1") && ir.contains(".0"),
+            "expected nested field IR, got:\n{ir}"
+        );
+
+        let results = Verifier::new(&typed).source(&path).verify();
+        let ensures = results.iter().find(|r| match r {
+            VerificationResult::Verified { clause_desc, .. }
+            | VerificationResult::Counterexample { clause_desc, .. }
+            | VerificationResult::Unknown { clause_desc, .. }
+            | VerificationResult::Timeout { clause_desc } => {
+                clause_desc.starts_with("Nest") && clause_desc.ends_with("::ensures")
+            }
+        });
+        assert!(
+            matches!(ensures, Some(VerificationResult::Verified { .. })),
+            "result == t.1.0 should verify; got {results:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Nested `result == o.inner.v` via multi-step field loads (#896).
     #[test]
     #[cfg(feature = "z3-verify")]

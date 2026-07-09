@@ -233,21 +233,34 @@ pub fn encode_ir_expr<B: IrTermBuilder>(
             )
         }
         IrExprKind::Field { slot, index, name } => {
-            if let Some(field_name) = name {
-                // Nested hop (base already a flatten name `p__f1`): use free
-                // int `p__f1__f2` so IR matches AST deep-field flatten (#896).
-                if let Some(base_name) = ctx.slot_to_name.get(slot)
-                    && base_name.contains("__")
-                {
-                    let flat = format!("{base_name}__{field_name}");
-                    return builder.get_or_create_named(&flat);
+            // Numeric indices use the same path as named fields (`"0"`, `"1"`)
+            // so nested tuple chains `t.1.0` align with AST flatten (#899).
+            // Collection length still uses encode_field (index 0 on List/…).
+            let index_name;
+            let field_name = match name {
+                Some(n) => n.as_str(),
+                None => {
+                    if let Some(ty) = ctx.slot_types.get(slot)
+                        && crate::ir_encode::is_collection_ir_type(ty)
+                        && *index == 0
+                    {
+                        return builder.encode_field(*slot, *index, slots, ctx);
+                    }
+                    index_name = index.to_string();
+                    index_name.as_str()
                 }
-                // Shallow first hop on a param: AST uses `__field_x(p)` UF.
-                let base = builder.load_slot(slots, *slot);
-                builder.unary_uf(&crate::encode_atom_policy::field_uif_name(field_name), base)
-            } else {
-                builder.encode_field(*slot, *index, slots, ctx)
+            };
+            // Nested hop (base already a flatten name `p__f1`): use free
+            // int `p__f1__f2` so IR matches AST deep-field flatten (#896).
+            if let Some(base_name) = ctx.slot_to_name.get(slot)
+                && base_name.contains("__")
+            {
+                let flat = format!("{base_name}__{field_name}");
+                return builder.get_or_create_named(&flat);
             }
+            // Shallow first hop on a param: AST uses `__field_x(p)` / `__field_0`.
+            let base = builder.load_slot(slots, *slot);
+            builder.unary_uf(&crate::encode_atom_policy::field_uif_name(field_name), base)
         }
         IrExprKind::Construct { type_id, fields } => {
             builder.encode_construct(type_id, fields, slots, ctx)

@@ -309,6 +309,22 @@ fn tuple_field_access_non_numeric_a03005() {
 }
 
 #[test]
+fn nested_tuple_field_chain_types() {
+    // t.1.0 where t: (Int, (Bool, String)) → Bool
+    let mut env = TypeEnv::new();
+    env.insert(
+        "t".into(),
+        Type::Tuple(vec![Type::Int, Type::Tuple(vec![Type::Bool, Type::String])]),
+    );
+    let inner = Spanned::no_span(AstExpr::Field(
+        Box::new(Spanned::no_span(AstExpr::Ident("t".into()))),
+        "1".into(),
+    ));
+    let outer = Spanned::no_span(AstExpr::Field(Box::new(inner), "0".into()));
+    assert_eq!(infer_expr(&outer, &env).unwrap(), Type::Bool);
+}
+
+#[test]
 fn tuple_compatibility() {
     assert!(types_compatible(
         &Type::Tuple(vec![Type::Int, Type::Bool]),
