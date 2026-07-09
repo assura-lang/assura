@@ -47,7 +47,7 @@
 | A03003 | types | assura-types | Cannot unify `T1` with `T2` | Failed unification | Type Mismatch (A03xxx) | inference.rs, clauses.rs, checks/ |
 | A03004 | types | assura-types | Missing field `F` in struct | Incomplete construction | Type Mismatch (A03xxx) | inference.rs, clauses.rs, checks/ |
 | A03005 | types | assura-types | Unknown field `F` in type `T` | Field does not exist | Type Mismatch (A03xxx) | inference.rs, clauses.rs, checks/ |
-| A03006 | types | assura-types | Dependent index mismatch | `Vec<T, 3>` vs `Vec<T, 5>` | Type Mismatch (A03xxx) | inference.rs, clauses.rs, checks/ |
+| A03006 | types | assura-types | Clause not Bool / dependent index mismatch | Non-Bool clause body; or `Vec<T,3>` vs `Vec<T,5>` | Type Mismatch (A03xxx) | clauses.rs, checkers/info_flow.rs |
 | A04001 | smt+types | assura-smt / assura-types | Precondition may not hold | `requires` clause violated | Refinement Violation (A04xxx) | entry/, z3_backend/, refinement paths |
 | A04002 | smt+types | assura-smt / assura-types | Postcondition may not hold | `ensures` clause violated | Refinement Violation (A04xxx) | entry/, z3_backend/, refinement paths |
 | A04003 | smt+types | assura-smt / assura-types | Refinement subtype check failed | `{v: T \ | Refinement Violation (A04xxx) | entry/, z3_backend/, refinement paths |

@@ -941,7 +941,13 @@ impl TypeExpr {
                 format!("{}<{}>", name, Self::join_type_list(args, ", "))
             }
             TypeExpr::Tuple(elems) => {
-                format!("({})", Self::join_type_list(elems, ", "))
+                let body = Self::join_type_list(elems, ", ");
+                // Trailing comma for 1-tuples matches Assura syntax (Int,).
+                if elems.len() == 1 {
+                    format!("({body},)")
+                } else {
+                    format!("({body})")
+                }
             }
             TypeExpr::Fn { params, ret } => {
                 format!(
@@ -1138,10 +1144,12 @@ pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
         }
     }
 
-    // Tuple: (T1, T2, …) with at least one comma (otherwise just grouping).
+    // Tuple: (T1, T2, …) or single-element with trailing comma (T,).
+    // Without a comma, (T) is grouping and falls through (not a 1-tuple).
+    // Min length 3 covers `(,)` = ["(", ",", ")"]; length 4 covers `(Int,)`.
     if tokens.first().map(|s| s.as_str()) == Some("(")
         && tokens.last().map(|s| s.as_str()) == Some(")")
-        && tokens.len() >= 5
+        && tokens.len() >= 3
     {
         let inner = &tokens[1..tokens.len() - 1];
         let mut elems: Vec<TypeExpr> = Vec::new();
@@ -1174,9 +1182,9 @@ pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
                         .unwrap_or_else(|| TypeExpr::Named(slice.join(" "))),
                 );
             }
-            if elems.len() >= 2 {
-                return Some(TypeExpr::Tuple(elems));
-            }
+            // (T,) is a 1-tuple; (T, U) is 2+. Empty `(,)` is Tuple([]) so we
+            // do not fall through to Named("( , )") (silent accept / lenient fields).
+            return Some(TypeExpr::Tuple(elems));
         }
     }
 

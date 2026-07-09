@@ -1,0 +1,7 @@
+// MUST REJECT A03005
+// Out-of-range tuple field access (arity 2, index 2).
+contract BadTupleIndex {
+    input(t: (Int, Bool))
+    output(result: Int)
+    ensures { result == t.2 }
+}
