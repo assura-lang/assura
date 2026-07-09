@@ -1859,6 +1859,34 @@ mod tests {
     }
 
     #[test]
+    fn test_ir_generate_tuple_field_second_element() {
+        // result == t.1 : Bool
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Field(spb(Expr::Ident("t".into())), "1".into())),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text_with_callees(
+            "Snd",
+            &[(0, "(Int, Bool)".into())],
+            &["t".into()],
+            "Bool",
+            &clauses,
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert!(
+            text.contains("field $0 .1") && text.contains(": Bool"),
+            "expected second tuple element IR, got:\n{text}"
+        );
+        assert!(!text.contains("Stub IR"), "must not stub t.1:\n{text}");
+    }
+
+    #[test]
     fn test_ir_generate_nested_field_access() {
         // result == o.inner.v
         let clauses = vec![Clause {
