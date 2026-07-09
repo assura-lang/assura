@@ -941,7 +941,13 @@ impl TypeExpr {
                 format!("{}<{}>", name, Self::join_type_list(args, ", "))
             }
             TypeExpr::Tuple(elems) => {
-                format!("({})", Self::join_type_list(elems, ", "))
+                let body = Self::join_type_list(elems, ", ");
+                // Trailing comma for 1-tuples matches Assura syntax (Int,).
+                if elems.len() == 1 {
+                    format!("({body},)")
+                } else {
+                    format!("({body})")
+                }
             }
             TypeExpr::Fn { params, ret } => {
                 format!(

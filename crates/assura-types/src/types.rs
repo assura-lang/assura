@@ -441,6 +441,10 @@ impl std::fmt::Display for Type {
                     }
                     write!(f, "{t}")?;
                 }
+                // Trailing comma for 1-tuples so display matches Assura syntax (Int,).
+                if elems.len() == 1 {
+                    write!(f, ",")?;
+                }
                 write!(f, ")")
             }
             Type::Refined {
@@ -584,6 +588,12 @@ mod tests {
     fn display_tuple() {
         let ty = Type::Tuple(vec![Type::Int, Type::Bool, Type::String]);
         assert_eq!(ty.to_string(), "(Int, Bool, String)");
+    }
+
+    #[test]
+    fn display_tuple_single_element_trailing_comma() {
+        let ty = Type::Tuple(vec![Type::Int]);
+        assert_eq!(ty.to_string(), "(Int,)");
     }
 
     #[test]
