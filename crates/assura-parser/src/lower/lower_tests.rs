@@ -173,6 +173,43 @@ fn lower_tuple_field_projection() {
 }
 
 #[test]
+fn lower_nested_tuple_field_chain() {
+    // `t.1.0` lexes with FLOAT "1.0"; lower must expand to Field(Field(t,"1"),"0").
+    let src = r#"
+        contract Nest {
+          input(t: (Int, (Bool, Int)))
+          output(result: Bool)
+          ensures { result == t.1.0 }
+        }
+    "#;
+    let (sf, errors) = parse_and_lower(src);
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    let Decl::Contract(c) = &sf.decls[0].node else {
+        panic!("expected Contract");
+    };
+    let ensures = c
+        .clauses
+        .iter()
+        .find(|cl| matches!(cl.kind, ClauseKind::Ensures))
+        .expect("ensures");
+    fn find_nested(e: &Expr) -> bool {
+        match e {
+            Expr::Field(inner, f) if f == "0" => matches!(
+                &inner.node,
+                Expr::Field(_, f1) if f1 == "1"
+            ),
+            Expr::BinOp { lhs, rhs, .. } => find_nested(&lhs.node) || find_nested(&rhs.node),
+            _ => false,
+        }
+    }
+    assert!(
+        find_nested(&ensures.body.node),
+        "expected Field(Field(_, \"1\"), \"0\"), got {:?}",
+        ensures.body.node
+    );
+}
+
+#[test]
 fn lower_type_struct() {
     let src = r#"
         type Point {

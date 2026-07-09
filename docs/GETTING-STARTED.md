@@ -70,7 +70,8 @@ Expected: `ShowcaseEcho: ensures ... verified` and `check passed (no errors)`.
 For **synthesizable** ensures shapes (`result == x`, arithmetic including
 nested/`-x`/`abs`/`min`/`max` and nested calls like `abs(min(x,y))`, `let`
 bindings, field loads `p.x` / `p.y` and nested `o.inner.v` on multi-field
-structs (newline-separated fields are fine), tuple projections `t.0` / `t.1`,
+structs (newline-separated fields are fine), tuple projections `t.0` / `t.1`
+(and nested chains like `t.1.0`),
 collection length `result == xs.length()` (also `.len()` / `.size()` on
 List/Bytes/String), Bool `!`/`&&`/`||`/`=>` and comparisons,
 same-file pure call chains, nested if, match arms the planner knows),

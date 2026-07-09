@@ -485,7 +485,11 @@ fn postfix_dot(p: &mut Parser, lhs: CompletedMarker) -> CompletedMarker {
 
     // Field/method name: ident, keyword-as-ident, or integer literal for
     // tuple projections (`t.0`, `result.1`) per SPEC § type interactions.
-    if p.at_keyword_or_ident() || p.at(SyntaxKind::INT_LIT) {
+    //
+    // Also accept FLOAT_LIT: logos glues `1.0` into a single float token, so
+    // nested tuple projections `t.1.0` arrive as `.` + Float("1.0"). Lowering
+    // expands that into chained Field nodes.
+    if p.at_keyword_or_ident() || p.at(SyntaxKind::INT_LIT) || p.at(SyntaxKind::FLOAT_LIT) {
         p.bump();
     } else {
         p.error_at_current("expected field name after `.`".into());
@@ -673,6 +677,14 @@ mod tests {
     #[test]
     fn parse_chained_tuple_field_access() {
         let (root, errors) = parse_expr_to_tree("result.0");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::FIELD_EXPR);
+    }
+
+    #[test]
+    fn parse_nested_tuple_field_chain() {
+        // logos glues `1.0` into FLOAT_LIT; postfix must still accept it.
+        let (root, errors) = parse_expr_to_tree("t.1.0");
         assert!(errors.is_empty(), "errors: {errors:?}");
         assert_eq!(first_child_kind(&root), SyntaxKind::FIELD_EXPR);
     }

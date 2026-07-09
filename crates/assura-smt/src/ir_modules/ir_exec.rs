@@ -44,14 +44,18 @@ pub fn apply_ir_body_constraints<B: IrTermBuilder>(
         }
         // Track flatten names for nested field loads so hop 2+ use
         // `param__f1__f2` free vars matching AST deep-field encoding (#896).
+        // Numeric indices use `"0"`, `"1"`, … so nested tuples `t.1.0` match (#899).
         if let IrExprKind::Field {
-            slot,
-            name: Some(fname),
-            ..
+            slot, index, name, ..
         } = &instr.expr
-            && let Some(base_name) = slot_to_name.get(slot).cloned()
         {
-            slot_to_name.insert(instr.target, format!("{base_name}__{fname}"));
+            let fname = name
+                .as_deref()
+                .map(str::to_string)
+                .unwrap_or_else(|| index.to_string());
+            if let Some(base_name) = slot_to_name.get(slot).cloned() {
+                slot_to_name.insert(instr.target, format!("{base_name}__{fname}"));
+            }
         }
         if instr.target == RESULT_SLOT
             && let IrExprKind::Load(src) = &instr.expr
