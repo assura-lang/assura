@@ -42,7 +42,7 @@
 | A02003 | resolve | assura-resolve | Duplicate definition of `X` | Name collision | Name Resolution (A02xxx) | lib.rs, type_refs.rs, imports.rs |
 | A02004 | resolve | assura-resolve | Ambiguous import `X` | Multiple modules export same name | Name Resolution (A02xxx) | lib.rs, type_refs.rs, imports.rs |
 | A02005 | resolve | assura-resolve | Circular import | Module A imports B imports A | Name Resolution (A02xxx) | lib.rs, type_refs.rs, imports.rs |
-| A03001 | types | assura-types | Expected `T1`, found `T2` | Incompatible types | Type Mismatch (A03xxx) | inference.rs, clauses.rs, checks/ |
+| A03001 | types | assura-types | Expected `T1`, found `T2` / empty tuple type | Incompatible types; invalid `(,)` | Type Mismatch (A03xxx) | inference.rs, clauses.rs, checks/ |
 | A03002 | types | assura-types | Type parameter count mismatch | Wrong number of generics | Type Mismatch (A03xxx) | inference.rs, clauses.rs, checks/ |
 | A03003 | types | assura-types | Cannot unify `T1` with `T2` | Failed unification | Type Mismatch (A03xxx) | inference.rs, clauses.rs, checks/ |
 | A03004 | types | assura-types | Missing field `F` in struct | Incomplete construction | Type Mismatch (A03xxx) | inference.rs, clauses.rs, checks/ |

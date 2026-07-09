@@ -169,7 +169,8 @@ This usually means:
 ### A03001: type mismatch
 
 The most common error. An expression has type `X` but the context
-expects type `Y`.
+expects type `Y`. Also used for **empty tuple types** such as `(,)` or
+`(Int,,Bool)` (use `()` for Unit, or `(T,)` for a 1-tuple).
 
 ```
 Error A03001: type mismatch

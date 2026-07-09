@@ -52,7 +52,7 @@ pub(crate) fn check_invalid_empty_tuple_params(
             errors.push(TypeError {
                 code: "A03001".into(),
                 message: format!(
-                    "empty tuple type is not allowed for parameter `{}` (use `()` for Unit, or `(T,)` for a 1-tuple)",
+                    "empty tuple type is not allowed for `{}` (use `()` for Unit, or `(T,)` for a 1-tuple)",
                     param.name
                 ),
                 span: span.clone(),
@@ -240,10 +240,29 @@ pub(crate) fn check_clause_bodies(
                         // #909: reject empty tuple types like `(,)` or `(Int,,Bool)`.
                         check_invalid_empty_tuple_params(&clause.body, span, &mut errors);
                     }
+                    // Output types were missed initially (result: (,) type-checked as Unknown).
+                    if clause.kind == ClauseKind::Output {
+                        check_invalid_empty_tuple_params(&clause.body, span, &mut errors);
+                    }
                 }
                 // Register inline fn params with their declared types
                 for p in &c.fn_params {
                     if let Some(te) = &p.ty {
+                        if type_expr_is_invalid_empty_tuple(te) {
+                            errors.push(TypeError {
+                                code: "A03001".into(),
+                                message: format!(
+                                    "empty tuple type is not allowed for parameter `{}` (use `()` for Unit, or `(T,)` for a 1-tuple)",
+                                    p.name
+                                ),
+                                span: span.clone(),
+                                secondary: None,
+                                suggestion: Some(
+                                    "Write a non-empty tuple type, e.g. `(Int, Bool)` or `(Int,)`."
+                                        .into(),
+                                ),
+                            });
+                        }
                         contract_env.insert(p.name.clone(), crate::convert::type_from_expr(te));
                     }
                 }

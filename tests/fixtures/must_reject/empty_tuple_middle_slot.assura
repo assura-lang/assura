@@ -1,0 +1,6 @@
+// MUST REJECT A03001
+// Empty middle element in tuple type.
+contract EmptyMiddleSlot {
+    input(t: (Int,,Bool))
+    ensures { true }
+}

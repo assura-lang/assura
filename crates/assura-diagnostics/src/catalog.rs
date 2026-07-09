@@ -84,17 +84,19 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             name: "Type mismatch",
             description: "An expression has a type that does not match the expected type \
                           in context. This includes operand type mismatches in binary \
-                          operations, wrong return types, and assignment type conflicts.",
+                          operations, wrong return types, assignment type conflicts, \
+                          and invalid empty tuple types such as `(,)` or `(Int,,Bool)`.",
             example: r#"  contract Add {
       requires: x > "hello"   // comparing Int with String
   }
 
-  fn double(x: Int) -> Bool {
-      x * 2                    // returns Int, expected Bool
+  contract BadOut {
+      output(result: (,))     // empty tuple type is invalid
   }"#,
             fix: "Ensure both sides of an operation have compatible types. Check that \
                  function return types match their declared output type. Use explicit \
-                 conversions when needed (e.g., 'as Int').",
+                 conversions when needed (e.g., 'as Int'). For tuples, use `()` for Unit \
+                 or `(T,)` for a 1-tuple; empty elements are not allowed.",
         },
         ErrorInfo {
             code: "A03002",
