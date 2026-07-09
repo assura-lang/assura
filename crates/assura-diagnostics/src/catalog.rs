@@ -125,33 +125,38 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
         },
         ErrorInfo {
             code: "A03004",
+            name: "Missing field",
+            description: "A struct construction is missing a required field. Every field \
+                          declared on the type must be provided when building a value \
+                          of that type (unless the field has a default).",
+            example: r#"  type Point { x: Int, y: Int }
+
+  contract Build {
+      ensures: result == Point { x: 1 }   // missing field 'y'
+  }"#,
+            fix: "Add the missing field(s) listed in the error. Check the type definition \
+                 for the full list of required fields.",
+        },
+        ErrorInfo {
+            code: "A03005",
             name: "Unknown field",
-            description: "A field access (expr.field) refers to a field that does not \
-                          exist on the type of the expression. The type either has no \
-                          fields, or the field name is misspelled.",
+            description: "A field or method access (expr.field / expr.method()) refers to \
+                          a name that does not exist on the type of the expression. This \
+                          includes misspelled fields, out-of-range tuple indices, and \
+                          unknown methods on built-in types.",
             example: r#"  type Point { x: Int, y: Int }
 
   contract CheckPoint {
       requires: p.z > 0   // Point has no field 'z'
-  }"#,
-            fix: "Check the type definition for available field names. Fix the spelling \
-                 or use a valid field. If the field should exist, add it to the type \
-                 definition.",
-        },
-        ErrorInfo {
-            code: "A03005",
-            name: "Not callable",
-            description: "An expression was used in a function call position, but its \
-                          type is not a function or callable. Only functions, extern \
-                          functions, and service operations can be called.",
-            example: r#"  type Foo { x: Int }
+  }
 
-  contract Bad {
-      requires: Foo(42) > 0   // Foo is a type, not a function
+  contract BadTuple {
+      input(t: (Int, Bool))
+      ensures: result == t.2   // index 2 out of range (arity 2)
   }"#,
-            fix: "Ensure you are calling a function, not a type or variable. If you \
-                 meant to construct a value, use struct literal syntax. If you \
-                 meant to call a method, check that the method exists on the type.",
+            fix: "Check the type definition for available field names or valid tuple \
+                 indices (0-based, less than arity). Fix the spelling or use a valid \
+                 field. If the field should exist, add it to the type definition.",
         },
         ErrorInfo {
             code: "A03006",

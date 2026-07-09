@@ -320,7 +320,8 @@ fn infer_call_wrong_arg_count_a03002() {
 }
 
 #[test]
-fn infer_call_not_callable_a03005() {
+fn infer_call_not_callable_a03001() {
+    // Not-callable is A03001 (type mismatch), not A03005 (unknown field). #903
     let mut env = TypeEnv::new();
     env.insert("x".into(), Type::Int);
     let expr = Spanned::no_span(AstExpr::Call {
@@ -328,13 +329,13 @@ fn infer_call_not_callable_a03005() {
         args: vec![],
     });
     let err = infer_expr(&expr, &env).unwrap_err();
-    assert_eq!(err.code, "A03005");
+    assert_eq!(err.code, "A03001");
     assert!(err.message.contains("Int"));
     assert!(err.message.contains("not callable"));
 }
 
 #[test]
-fn infer_call_bool_not_callable_a03005() {
+fn infer_call_bool_not_callable_a03001() {
     let mut env = TypeEnv::new();
     env.insert("flag".into(), Type::Bool);
     let expr = Spanned::no_span(AstExpr::Call {
@@ -342,7 +343,7 @@ fn infer_call_bool_not_callable_a03005() {
         args: vec![Spanned::no_span(AstExpr::Literal(AstLit::Int("1".into())))],
     });
     let err = infer_expr(&expr, &env).unwrap_err();
-    assert_eq!(err.code, "A03005");
+    assert_eq!(err.code, "A03001");
 }
 
 #[test]

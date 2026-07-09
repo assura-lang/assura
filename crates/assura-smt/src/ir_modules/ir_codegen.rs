@@ -228,6 +228,36 @@ pub fn ir_module_to_body_map(module: &IrModule) -> std::collections::HashMap<Str
 }
 
 pub(crate) fn ir_type_to_rust(ty: &str) -> String {
+    let ty = ty.trim();
+    if ty.is_empty() {
+        return "_".to_string();
+    }
+    // Tuples: `(Int, Bool)` / nested `(Int, (Bool, Int))`.
+    if ty.starts_with('(') && ty.ends_with(')') {
+        let inner = &ty[1..ty.len() - 1];
+        if inner.trim().is_empty() {
+            return "()".to_string();
+        }
+        let parts = split_top_level_commas(inner);
+        let mapped: Vec<String> = parts.iter().map(|p| ir_type_to_rust(p)).collect();
+        return format!("({})", mapped.join(", "));
+    }
+    // Generics: List<T>, Option<T>, Map<K, V>, Set<T>, Result<T, E>, ...
+    if let Some(lt) = ty.find('<')
+        && ty.ends_with('>')
+    {
+        let base = ty[..lt].trim();
+        let args_str = &ty[lt + 1..ty.len() - 1];
+        let args = split_top_level_commas(args_str);
+        let mapped_args: Vec<String> = args.iter().map(|a| ir_type_to_rust(a)).collect();
+        let rust_base = match base {
+            "List" | "Sequence" => "Vec",
+            "Map" => "std::collections::BTreeMap",
+            "Set" => "std::collections::BTreeSet",
+            other => other,
+        };
+        return format!("{rust_base}<{}>", mapped_args.join(", "));
+    }
     match ty {
         "Int" => "i64".to_string(),
         "Nat" => "u64".to_string(),
@@ -236,9 +266,44 @@ pub(crate) fn ir_type_to_rust(ty: &str) -> String {
         "String" => "String".to_string(),
         "Bytes" => "Vec<u8>".to_string(),
         "Unit" => "()".to_string(),
-        "" => "_".to_string(),
+        "U8" => "u8".to_string(),
+        "U16" => "u16".to_string(),
+        "U32" => "u32".to_string(),
+        "U64" => "u64".to_string(),
+        "I8" => "i8".to_string(),
+        "I16" => "i16".to_string(),
+        "I32" => "i32".to_string(),
+        "I64" => "i64".to_string(),
+        "F32" => "f32".to_string(),
+        "F64" => "f64".to_string(),
         other => other.to_string(),
     }
+}
+
+/// Split `a, b, (c, d)` on commas that are not nested inside `()` or `<>`.
+fn split_top_level_commas(s: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut depth_paren = 0i32;
+    let mut depth_angle = 0i32;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '(' => depth_paren += 1,
+            ')' => depth_paren -= 1,
+            '<' => depth_angle += 1,
+            '>' => depth_angle -= 1,
+            ',' if depth_paren == 0 && depth_angle == 0 => {
+                parts.push(s[start..i].trim().to_string());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    let last = s[start..].trim();
+    if !last.is_empty() || parts.is_empty() {
+        parts.push(last.to_string());
+    }
+    parts
 }
 
 /// Generate a default value for an IR return type.

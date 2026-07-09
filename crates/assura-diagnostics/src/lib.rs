@@ -472,6 +472,49 @@ mod tests {
         assert!(explain("A26002").is_some(), "A26002 should exist");
     }
 
+    /// Regression #903: A03005 catalog is unknown-field, not "Not callable".
+    #[test]
+    fn test_a03005_catalog_is_unknown_field() {
+        let info = explain("A03005").expect("A03005 should exist");
+        assert_eq!(info.name, "Unknown field");
+        assert!(
+            info.description.to_lowercase().contains("field"),
+            "A03005 description should mention fields, got: {}",
+            info.description
+        );
+        let fix_lower = info.fix.to_lowercase();
+        assert!(
+            !fix_lower.contains("calling a function"),
+            "A03005 fix/Help must not mention calling a function (that was the bug): {}",
+            info.fix
+        );
+        assert!(
+            fix_lower.contains("field") || fix_lower.contains("tuple"),
+            "A03005 fix should be field-oriented, got: {}",
+            info.fix
+        );
+        // Example should show field/tuple access, not type-as-call
+        assert!(
+            info.example.contains(".z") || info.example.contains("t.2"),
+            "A03005 example should show unknown field or OOB tuple index"
+        );
+        assert!(
+            !info.example.contains("Foo(42)"),
+            "A03005 example must not be the old type-as-call snippet"
+        );
+    }
+
+    /// A03004 catalog aligns with spec: missing field on construction.
+    #[test]
+    fn test_a03004_catalog_is_missing_field() {
+        let info = explain("A03004").expect("A03004 should exist");
+        assert_eq!(info.name, "Missing field");
+        assert!(
+            info.description.to_lowercase().contains("missing"),
+            "A03004 should describe incomplete construction"
+        );
+    }
+
     #[test]
     fn test_render_diagnostic_does_not_panic() {
         // Ensure render_diagnostic does not panic on valid and edge-case inputs

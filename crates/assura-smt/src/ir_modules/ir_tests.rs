@@ -281,6 +281,14 @@ fn test_ir_type_to_rust_mapping() {
     assert_eq!(ir_type_to_rust("Unit"), "()");
     assert_eq!(ir_type_to_rust(""), "_");
     assert_eq!(ir_type_to_rust("CustomType"), "CustomType");
+    // Nested tuples (#905): intermediate IR field types must map fully
+    assert_eq!(ir_type_to_rust("(Int, Bool)"), "(i64, bool)");
+    assert_eq!(ir_type_to_rust("(Int, (Bool, Int))"), "(i64, (bool, i64))");
+    assert_eq!(ir_type_to_rust("List<Int>"), "Vec<i64>");
+    assert_eq!(
+        ir_type_to_rust("Option<(Int, Bool)>"),
+        "Option<(i64, bool)>"
+    );
 }
 
 // -------------------------------------------------------------------

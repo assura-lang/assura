@@ -138,6 +138,121 @@ fn build_write_ir_tuple_field_compiles_and_tests() {
 }
 
 #[test]
+fn build_write_ir_tuple_field_second_compiles_and_tests() {
+    // #905: result == t.1 (Bool) → field $0 .1 → Rust .1
+    let tmp = unique_temp("assura_write_ir_tuple_snd");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let assura_path = tmp.join("Snd.assura");
+    std::fs::write(
+        &assura_path,
+        "contract Snd {\n  input(t: (Int, Bool))\n  output(result: Bool)\n  ensures { result == t.1 }\n}\n",
+    )
+    .unwrap();
+
+    let out_dir = tmp.join("out");
+    let out = Command::new(assura_bin())
+        .args([
+            "build",
+            assura_path.to_str().unwrap(),
+            "--write-ir",
+            "--output",
+            out_dir.to_str().unwrap(),
+        ])
+        .current_dir(&tmp)
+        .output()
+        .expect("run assura build");
+    assert!(
+        out.status.success(),
+        "build --write-ir t.1 should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let ir_text = std::fs::read_to_string(tmp.join("Snd.ir")).unwrap();
+    assert!(
+        ir_text.contains("field $0 .1") && !ir_text.contains("Stub IR"),
+        "expected field $0 .1 IR, got:\n{ir_text}"
+    );
+    let lib = std::fs::read_to_string(out_dir.join("src/lib.rs")).unwrap();
+    assert!(
+        lib.contains(".1"),
+        "expected tuple .1 access in lib.rs, got:\n{lib}"
+    );
+
+    let test = Command::new("cargo")
+        .args(["test", "--quiet"])
+        .current_dir(&out_dir)
+        .output()
+        .expect("cargo test");
+    assert!(
+        test.status.success(),
+        "cargo test should pass: {}\n{}",
+        String::from_utf8_lossy(&test.stdout),
+        String::from_utf8_lossy(&test.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn build_write_ir_nested_tuple_field_compiles_and_tests() {
+    // #905: result == t.1.0 → chained field loads → Rust .1.0
+    let tmp = unique_temp("assura_write_ir_tuple_nested");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let assura_path = tmp.join("NestedFst.assura");
+    std::fs::write(
+        &assura_path,
+        "contract NestedFst {\n  input(t: (Int, (Bool, Int)))\n  output(result: Bool)\n  ensures { result == t.1.0 }\n}\n",
+    )
+    .unwrap();
+
+    let out_dir = tmp.join("out");
+    let out = Command::new(assura_bin())
+        .args([
+            "build",
+            assura_path.to_str().unwrap(),
+            "--write-ir",
+            "--output",
+            out_dir.to_str().unwrap(),
+        ])
+        .current_dir(&tmp)
+        .output()
+        .expect("run assura build");
+    assert!(
+        out.status.success(),
+        "build --write-ir t.1.0 should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let ir_text = std::fs::read_to_string(tmp.join("NestedFst.ir")).unwrap();
+    assert!(
+        ir_text.contains("field")
+            && (ir_text.contains(".1") || ir_text.contains(" .1"))
+            && (ir_text.contains(".0") || ir_text.contains(" .0"))
+            && !ir_text.contains("Stub IR"),
+        "expected nested field IR for t.1.0, got:\n{ir_text}"
+    );
+    let lib = std::fs::read_to_string(out_dir.join("src/lib.rs")).unwrap();
+    assert!(
+        lib.contains(".1") && lib.contains(".0"),
+        "expected chained .1/.0 access in lib.rs, got:\n{lib}"
+    );
+
+    let test = Command::new("cargo")
+        .args(["test", "--quiet"])
+        .current_dir(&out_dir)
+        .output()
+        .expect("cargo test");
+    assert!(
+        test.status.success(),
+        "cargo test should pass: {}\n{}",
+        String::from_utf8_lossy(&test.stdout),
+        String::from_utf8_lossy(&test.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn build_write_ir_length_value_compiles_and_tests() {
     // result == xs.length() → call length + Rust .len() as u64
     let tmp = unique_temp("assura_write_ir_len");
