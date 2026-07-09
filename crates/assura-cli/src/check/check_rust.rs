@@ -432,11 +432,8 @@ fn run_llm_analysis(
 
         for (_file_path, items) in file_items {
             for item in items {
-                if let assura_rust_analyzer::AnnotatedItemKind::Function {
-                    name,
-                    params,
-                    ..
-                } = &item.kind
+                if let assura_rust_analyzer::AnnotatedItemKind::Function { name, params, .. } =
+                    &item.kind
                 {
                     if item.contract.requires.is_empty() && item.contract.ensures.is_empty() {
                         continue;
