@@ -1986,3 +1986,43 @@ contract C {
         "expected A03001 for struct field empty tuple, got {errs:?}"
     );
 }
+
+#[test]
+fn empty_tuple_inside_list_rejected_a03001() {
+    // Generic arg comma-split used to split `(,)` into Named("(")+Named(")") and
+    // accept List<(,)> without A03001 (and mis-count Map arity).
+    let src = r#"
+contract Bad {
+  input(xs: List<(,)>)
+  ensures { true }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A03001" && e.message.contains("empty tuple")),
+        "expected A03001 for List<(,)>, got {errs:?}"
+    );
+}
+
+#[test]
+fn empty_tuple_inside_map_value_rejected_a03001() {
+    let src = r#"
+contract Bad {
+  input(m: Map<String, (,)>)
+  ensures { true }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A03001" && e.message.contains("empty tuple")),
+        "expected A03001 for Map value empty tuple, got {errs:?}"
+    );
+    assert!(
+        !errs.iter().any(|e| e.code == "A03002"),
+        "must not misreport as type-arg arity error, got {errs:?}"
+    );
+}

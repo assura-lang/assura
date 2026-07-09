@@ -272,18 +272,18 @@ pub(crate) fn parse_type_tokens(tokens: &[String]) -> Type {
             inner
         };
 
-        // Split on commas at depth 0
+        // Split on commas at depth 0 (angles and parens so List<(,)> / Map<(K,V), V> work)
         let mut args: Vec<Type> = Vec::new();
         let mut current: Vec<String> = Vec::new();
         let mut d = 0i32;
         for tok in inner {
             match *tok {
-                "<" => {
+                "<" | "(" | "[" | "{" => {
                     d += 1;
                     current.push(tok.to_string());
                 }
-                ">" => {
-                    d -= 1;
+                ">" | ")" | "]" | "}" => {
+                    d = d.saturating_sub(1);
                     current.push(tok.to_string());
                 }
                 "," if d == 0 => {
@@ -774,5 +774,27 @@ mod tests {
         // (Int) without comma is grouping, not a 1-tuple.
         let tokens = tokens(&["(", "Int", ")"]);
         assert_eq!(parse_type_tokens(&tokens), Type::Int);
+    }
+
+    #[test]
+    fn parse_type_tokens_list_of_empty_tuple_is_error() {
+        let tokens = tokens(&["List", "<", "(", ",", ")", ">"]);
+        // Depth-aware split yields List of Error (empty-tuple marker).
+        assert_eq!(
+            parse_type_tokens(&tokens),
+            Type::List(Box::new(Type::Error))
+        );
+    }
+
+    #[test]
+    fn parse_type_tokens_map_tuple_key() {
+        let tokens = tokens(&["Map", "<", "(", "Int", ",", "Bool", ")", ",", "String", ">"]);
+        assert_eq!(
+            parse_type_tokens(&tokens),
+            Type::Map(
+                Box::new(Type::Tuple(vec![Type::Int, Type::Bool])),
+                Box::new(Type::String)
+            )
+        );
     }
 }

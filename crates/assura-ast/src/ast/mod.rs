@@ -1131,14 +1131,37 @@ pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
     }
 
     // Simple generic: Name<Arg1, Arg2>
+    // Split args only at depth-0 commas so `List<(,)>`, `Map<(Int, Bool), String>`,
+    // and nested `Map<List<Int>, Bool>` keep nested commas inside one argument.
     if tokens.len() >= 4 && tokens[1] == "<" && tokens.last().map(|s| s.as_str()) == Some(">") {
         let name = tokens[0].clone();
         let inner = &tokens[2..tokens.len() - 1];
-        let args: Vec<TypeExpr> = inner
-            .split(|t| t == ",")
-            .filter(|s| !s.is_empty())
-            .filter_map(try_parse_type_tokens)
-            .collect();
+        let mut args: Vec<TypeExpr> = Vec::new();
+        let mut depth: i32 = 0;
+        let mut start = 0usize;
+        for (i, t) in inner.iter().enumerate() {
+            match t.as_str() {
+                "(" | "[" | "<" | "{" => depth += 1,
+                ")" | "]" | ">" | "}" => depth = depth.saturating_sub(1),
+                "," if depth == 0 => {
+                    let slice = &inner[start..i];
+                    if !slice.is_empty() {
+                        args.push(
+                            try_parse_type_tokens(slice)
+                                .unwrap_or_else(|| TypeExpr::Named(slice.join(" "))),
+                        );
+                    }
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        let slice = &inner[start..];
+        if !slice.is_empty() {
+            args.push(
+                try_parse_type_tokens(slice).unwrap_or_else(|| TypeExpr::Named(slice.join(" "))),
+            );
+        }
         if !args.is_empty() {
             return Some(TypeExpr::Generic(name, args));
         }
