@@ -601,3 +601,48 @@ fn expr_references_result_apply_false() {
     });
     assert!(!expr_references_result(&expr));
 }
+
+// -------------------------------------------------------------------
+// try_parse_type_tokens: single-element trailing-comma tuples
+// -------------------------------------------------------------------
+
+#[test]
+fn try_parse_type_tokens_single_element_trailing_comma() {
+    let tokens: Vec<String> = ["(", "Int", ",", ")"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    let te = try_parse_type_tokens(&tokens).expect("parse");
+    match te {
+        TypeExpr::Tuple(elems) => {
+            assert_eq!(elems.len(), 1, "expected 1-tuple, got {elems:?}");
+            assert!(matches!(&elems[0], TypeExpr::Named(n) if n == "Int"));
+        }
+        other => panic!("expected Tuple, got {other:?}"),
+    }
+}
+
+#[test]
+fn try_parse_type_tokens_pair_still_tuple() {
+    let tokens: Vec<String> = ["(", "Int", ",", "Bool", ")"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    let te = try_parse_type_tokens(&tokens).expect("parse");
+    match te {
+        TypeExpr::Tuple(elems) => assert_eq!(elems.len(), 2),
+        other => panic!("expected Tuple, got {other:?}"),
+    }
+}
+
+#[test]
+fn try_parse_type_tokens_paren_group_not_tuple() {
+    // (Int) without comma is grouping, not a 1-tuple.
+    let tokens: Vec<String> = ["(", "Int", ")"].into_iter().map(String::from).collect();
+    let te = try_parse_type_tokens(&tokens).expect("parse");
+    // Falls through to Named join (grouping not stripped) — not Tuple.
+    assert!(
+        !matches!(te, TypeExpr::Tuple(_)),
+        "bare (Int) must not be a Tuple, got {te:?}"
+    );
+}

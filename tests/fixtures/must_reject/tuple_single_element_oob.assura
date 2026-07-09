@@ -1,0 +1,7 @@
+// MUST REJECT A03005
+// Single-element tuple with trailing comma; index 1 is OOB.
+contract BadUnitTuple {
+    input(t: (Int,))
+    output(result: Int)
+    ensures { result == t.1 }
+}

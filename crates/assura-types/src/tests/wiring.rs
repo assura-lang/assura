@@ -1797,3 +1797,46 @@ fn s004_merge_arms_unit_test() {
 }
 
 // ===========================================================================
+
+#[test]
+fn tuple_pair_oob_from_source_a03005() {
+    let src = r#"
+contract Bad {
+  input(t: (Int, Bool))
+  output(result: Int)
+  ensures { result == t.2 }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter().any(|e| e.code == "A03005"),
+        "expected A03005 for t.2, got {errs:?}"
+    );
+}
+
+#[test]
+fn tuple_single_element_oob_from_source_a03005() {
+    // input(t: (Int,)) with t.1 must reject A03005 (full pipeline).
+    let src = r#"
+contract Bad {
+  input(t: (Int,))
+  output(result: Int)
+  ensures { result == t.1 }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let result = type_check(resolved);
+    match result {
+        Ok(typed) => panic!(
+            "expected A03005 for t.1 on arity-1 tuple, type_check succeeded; env has t={:?}",
+            typed.type_env.lookup("t")
+        ),
+        Err(errs) => {
+            assert!(
+                errs.iter().any(|e| e.code == "A03005"),
+                "expected A03005 for t.1 on arity-1 tuple, got {errs:?}"
+            );
+        }
+    }
+}

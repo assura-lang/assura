@@ -1138,10 +1138,12 @@ pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
         }
     }
 
-    // Tuple: (T1, T2, …) with at least one comma (otherwise just grouping).
+    // Tuple: (T1, T2, …) or single-element with trailing comma (T,).
+    // Without a comma, (T) is grouping and falls through (not a 1-tuple).
+    // Min length 4 covers `(Int,)` = ["(", "Int", ",", ")"].
     if tokens.first().map(|s| s.as_str()) == Some("(")
         && tokens.last().map(|s| s.as_str()) == Some(")")
-        && tokens.len() >= 5
+        && tokens.len() >= 4
     {
         let inner = &tokens[1..tokens.len() - 1];
         let mut elems: Vec<TypeExpr> = Vec::new();
@@ -1174,7 +1176,8 @@ pub fn try_parse_type_tokens(tokens: &[String]) -> Option<TypeExpr> {
                         .unwrap_or_else(|| TypeExpr::Named(slice.join(" "))),
                 );
             }
-            if elems.len() >= 2 {
+            // (T,) is a 1-tuple; (T, U) is 2+; empty (,) is not a valid type.
+            if !elems.is_empty() {
                 return Some(TypeExpr::Tuple(elems));
             }
         }

@@ -190,14 +190,15 @@ Error A03005: unknown field `len` on type List<Int>
 In Assura contracts, use `length(xs)` instead of `xs.len()`. The
 contract language uses mathematical functions, not Rust methods.
 
-### A03006: wrong number of arguments
+### A03006: clause body not Bool
 
 ```
-Error A03006: function `clamp` expects 3 arguments, got 2
+Error A03006: requires clause must be Bool, found Int
 ```
 
-Check the function signature. In contracts, all arguments must be
-provided explicitly (no defaults).
+`requires` / `ensures` / `invariant` clause bodies must be boolean
+predicates. Use comparisons (`x > 0`) or logical operators, not bare
+arithmetic (`x + 1`). (Arity mismatches on function calls use A03002.)
 
 ## Effect Errors
 
