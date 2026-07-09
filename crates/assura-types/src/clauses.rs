@@ -441,8 +441,23 @@ pub(crate) fn check_clause_bodies(
                     check_clause_expr(&clause.kind, &clause.body, env, &mut errors, span);
                 }
             }
-            // TypeDef, EnumDef, Prophecy, and CodecRegistry don't have direct expression bodies
-            Decl::TypeDef(_) | Decl::EnumDef(_) | Decl::Prophecy(_) | Decl::CodecRegistry(_) => {}
+            Decl::TypeDef(td) => {
+                // Struct field types: `type T { f: (,) }` must reject empty tuples.
+                if let assura_parser::ast::TypeBody::Struct(fields) = &td.body {
+                    for f in fields {
+                        if let Some(te) = &f.ty {
+                            check_invalid_empty_tuple_type_expr(
+                                te,
+                                &format!("field `{}.{}`", td.name, f.name),
+                                span,
+                                &mut errors,
+                            );
+                        }
+                    }
+                }
+            }
+            // Enum variant fields are name tokens only; Prophecy/Codec have no type anns here
+            Decl::EnumDef(_) | Decl::Prophecy(_) | Decl::CodecRegistry(_) => {}
         }
     }
 

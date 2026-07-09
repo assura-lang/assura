@@ -299,8 +299,12 @@ fn lower_type_struct_generic_field_with_comma() {
             assert_eq!(fields[0].name, "m");
             assert_eq!(fields[1].name, "n");
             assert!(
-                fields[0].ty.is_some(),
-                "Map field type should parse, got {:?}",
+                matches!(
+                    &fields[0].ty,
+                    Some(crate::ast::TypeExpr::Generic(name, args))
+                        if name == "Map" && args.len() == 2
+                ),
+                "Map field should be Generic with 2 args, got {:?}",
                 fields[0].ty
             );
             assert_eq!(
@@ -931,5 +935,55 @@ requires { 1 + true } // trivia after braced body (tests clause + expr span)
         }
     } else {
         panic!("expected Contract decl");
+    }
+}
+
+#[test]
+fn lower_type_struct_empty_tuple_field_keeps_comma() {
+    // `(,)` must not lower to Unit (comma was stripped from field type tokens).
+    let src = r#"
+        type T {
+            f: (,)
+        }
+    "#;
+    let (sf, errors) = parse_and_lower(src);
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    if let Decl::TypeDef(td) = &sf.decls[0].node {
+        if let TypeBody::Struct(fields) = &td.body {
+            assert_eq!(fields.len(), 1);
+            assert_eq!(fields[0].name, "f");
+            assert!(
+                matches!(&fields[0].ty, Some(crate::ast::TypeExpr::Tuple(e)) if e.is_empty()),
+                "expected empty Tuple marker, got {:?}",
+                fields[0].ty
+            );
+        } else {
+            panic!("expected Struct");
+        }
+    } else {
+        panic!("expected TypeDef");
+    }
+}
+
+#[test]
+fn lower_type_struct_pair_tuple_field() {
+    let src = r#"
+        type T {
+            p: (Int, Bool)
+        }
+    "#;
+    let (sf, errors) = parse_and_lower(src);
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    if let Decl::TypeDef(td) = &sf.decls[0].node {
+        if let TypeBody::Struct(fields) = &td.body {
+            assert!(
+                matches!(
+                    &fields[0].ty,
+                    Some(crate::ast::TypeExpr::Tuple(e)) if e.len() == 2
+                ),
+                "expected pair tuple, got {:?}",
+                fields[0].ty
+            );
+        }
     }
 }

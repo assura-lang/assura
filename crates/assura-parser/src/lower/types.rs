@@ -148,9 +148,10 @@ pub(super) fn lower_field_def(n: &SyntaxNode) -> FieldDef {
             if !saw_colon {
                 return false;
             }
-            if matches!(t.kind(), SyntaxKind::SEMICOLON | SyntaxKind::COMMA)
-                || cst::is_trivia(t.kind())
-            {
+            // Keep COMMA: needed for `Map<K, V>` and tuple types `(Int, Bool)`.
+            // Field separators live outside the FIELD_DEF CST node; stripping
+            // commas here turned `(,)` into `()` (Unit) and broke generics.
+            if t.kind() == SyntaxKind::SEMICOLON || cst::is_trivia(t.kind()) {
                 return false;
             }
             true

@@ -1966,3 +1966,23 @@ fn bad(x: Int) -> (,)
         "expected A03001 for empty return type, got {errs:?}"
     );
 }
+
+#[test]
+fn empty_tuple_struct_field_rejected_a03001() {
+    let src = r#"
+type T {
+  f: (,)
+}
+contract C {
+  input(x: T)
+  ensures { true }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A03001" && e.message.contains("empty tuple")),
+        "expected A03001 for struct field empty tuple, got {errs:?}"
+    );
+}
