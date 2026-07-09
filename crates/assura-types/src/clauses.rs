@@ -82,6 +82,27 @@ fn type_expr_is_invalid_empty_tuple(te: &assura_parser::ast::TypeExpr) -> bool {
     }
 }
 
+fn check_invalid_empty_tuple_type_expr(
+    te: &assura_parser::ast::TypeExpr,
+    where_: &str,
+    span: &std::ops::Range<usize>,
+    errors: &mut Vec<TypeError>,
+) {
+    if type_expr_is_invalid_empty_tuple(te) {
+        errors.push(TypeError {
+            code: "A03001".into(),
+            message: format!(
+                "empty tuple type is not allowed for {where_} (use `()` for Unit, or `(T,)` for a 1-tuple)"
+            ),
+            span: span.clone(),
+            secondary: None,
+            suggestion: Some(
+                "Write a non-empty tuple type, e.g. `(Int, Bool)` or `(Int,)`.".into(),
+            ),
+        });
+    }
+}
+
 /// Collect parameter types from an input clause body (types only, no env mutation).
 ///
 /// Used by service operation/query type enrichment to build the parameter
@@ -248,21 +269,12 @@ pub(crate) fn check_clause_bodies(
                 // Register inline fn params with their declared types
                 for p in &c.fn_params {
                     if let Some(te) = &p.ty {
-                        if type_expr_is_invalid_empty_tuple(te) {
-                            errors.push(TypeError {
-                                code: "A03001".into(),
-                                message: format!(
-                                    "empty tuple type is not allowed for parameter `{}` (use `()` for Unit, or `(T,)` for a 1-tuple)",
-                                    p.name
-                                ),
-                                span: span.clone(),
-                                secondary: None,
-                                suggestion: Some(
-                                    "Write a non-empty tuple type, e.g. `(Int, Bool)` or `(Int,)`."
-                                        .into(),
-                                ),
-                            });
-                        }
+                        check_invalid_empty_tuple_type_expr(
+                            te,
+                            &format!("parameter `{}`", p.name),
+                            span,
+                            &mut errors,
+                        );
                         contract_env.insert(p.name.clone(), crate::convert::type_from_expr(te));
                     }
                 }
@@ -285,6 +297,20 @@ pub(crate) fn check_clause_bodies(
                 if f.is_lemma {
                     check_lemma_fn_effects(f, span, &mut errors);
                 }
+                // Reject empty tuple return types (fn f() -> (,)).
+                if let Some(te) = &f.return_ty {
+                    check_invalid_empty_tuple_type_expr(te, "return type", span, &mut errors);
+                }
+                for p in &f.params {
+                    if let Some(te) = &p.ty {
+                        check_invalid_empty_tuple_type_expr(
+                            te,
+                            &format!("parameter `{}`", p.name),
+                            span,
+                            &mut errors,
+                        );
+                    }
+                }
                 // Build a scoped env with `result` bound to the return type
                 // so ensures clauses can type-check `result` correctly.
                 let ret_ty = crate::convert::resolve_type_opt(f.return_ty.as_ref());
@@ -299,6 +325,19 @@ pub(crate) fn check_clause_bodies(
                 }
             }
             Decl::Extern(ex) => {
+                if let Some(te) = &ex.return_ty {
+                    check_invalid_empty_tuple_type_expr(te, "return type", span, &mut errors);
+                }
+                for p in &ex.params {
+                    if let Some(te) = &p.ty {
+                        check_invalid_empty_tuple_type_expr(
+                            te,
+                            &format!("parameter `{}`", p.name),
+                            span,
+                            &mut errors,
+                        );
+                    }
+                }
                 let ret_ty = crate::convert::resolve_type_opt(ex.return_ty.as_ref());
                 let ext_env = env_with_result(env, &ret_ty);
                 for clause in &ex.clauses {
@@ -311,6 +350,19 @@ pub(crate) fn check_clause_bodies(
                 }
             }
             Decl::Bind(b) => {
+                if let Some(te) = &b.return_ty {
+                    check_invalid_empty_tuple_type_expr(te, "return type", span, &mut errors);
+                }
+                for p in &b.params {
+                    if let Some(te) = &p.ty {
+                        check_invalid_empty_tuple_type_expr(
+                            te,
+                            &format!("parameter `{}`", p.name),
+                            span,
+                            &mut errors,
+                        );
+                    }
+                }
                 let ret_ty = crate::convert::resolve_type_opt(b.return_ty.as_ref());
                 let bind_env = env_with_result(env, &ret_ty);
                 for clause in &b.clauses {
@@ -356,12 +408,14 @@ pub(crate) fn check_clause_bodies(
                     for clause in clauses {
                         if clause.kind == ClauseKind::Input {
                             register_input_clause_params(&clause.body, &mut op_env);
+                            check_invalid_empty_tuple_params(&clause.body, span, &mut errors);
                         }
                         if clause.kind == ClauseKind::Output {
                             let ty = extract_output_type_from_body(&clause.body);
                             if !ty.is_indeterminate() {
                                 output_ty = ty;
                             }
+                            check_invalid_empty_tuple_params(&clause.body, span, &mut errors);
                         }
                     }
                     let ensures_env = env_with_result(&op_env, &output_ty);

@@ -1,0 +1,8 @@
+// MUST REJECT A03001
+service S {
+    operation op {
+        input(t: (,))
+        output(result: Int)
+        ensures { result == 0 }
+    }
+}
