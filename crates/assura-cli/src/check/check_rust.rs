@@ -435,7 +435,6 @@ fn run_llm_analysis(
                 if let assura_rust_analyzer::AnnotatedItemKind::Function {
                     name,
                     params,
-                    return_type: _,
                     ..
                 } = &item.kind
                 {

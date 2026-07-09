@@ -402,11 +402,8 @@ pub(crate) fn strip_fn_prefix(line: &str) -> Option<(bool, &str)> {
         // Handle pub(crate), pub(super), pub(in path)
         let trimmed = rest.trim_start();
         if let Some(after_paren) = trimmed.strip_prefix('(') {
-            if let Some(close) = after_paren.find(')') {
-                rest = &after_paren[close + 1..];
-            } else {
-                return None;
-            }
+            let close = after_paren.find(')')?;
+            rest = &after_paren[close + 1..];
         } else {
             rest = trimmed;
         }
