@@ -3223,7 +3223,7 @@ setup.
 | HN: Vera discussion | "If models write code, why use human languages?" | https://news.ycombinator.com/item?id=47955118 |
 | r/ProgrammingLanguages | "Do we need a new PL in the AI era?" | https://www.reddit.com/r/ProgrammingLanguages/comments/1to3zh5/ |
 | CodeRabbit 2025 | AI code produces 1.7x more issues per PR | https://coderabbit.ai/blog/state-of-ai-vs-human-code-generation-report |
-| OOPSLA 2025 | Property tests catch 50x more bugs per test | https://cseweb.ucsd.edu/~mcoblenz/assets/pdf/OOPSLA_2025_PBT.pdf |
+| OOPSLA 2025 | Property tests catch 50x more bugs per test | https://doi.org/10.1145/3764068 |
 | Vericoding benchmark | Dafny LLM verification at 82-96% | https://arxiv.org/abs/2509.22908 |
 | METR 2025 RCT | AI tools made experienced devs 19% slower | https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/ |
 | Jacques Dubnov | Human readability is 87-97% overhead | https://pub.towardsai.net/when-the-ai-is-your-programmer-the-programming-language-must-change-3dd0cbae13dc |
@@ -3245,7 +3245,7 @@ setup.
 | 7 | https://dl.acm.org/doi/10.1145/3643795.3648376 | MoonBit ACM paper |
 | 8 | https://arxiv.org/abs/2509.22908 | Vericoding benchmark |
 | 9 | https://coderabbit.ai/blog/state-of-ai-vs-human-code-generation-report | CodeRabbit AI vs human code report |
-| 10 | https://cseweb.ucsd.edu/~mcoblenz/assets/pdf/OOPSLA_2025_PBT.pdf | OOPSLA PBT study |
+| 10 | https://doi.org/10.1145/3764068 | OOPSLA PBT study (Ravi & Coblenz, PACMPL 2025) |
 | 11 | https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/ | METR AI developer study |
 | 12 | https://arxiv.org/html/2502.07728v1 | SPARK + AI verification paper |
 | 13 | https://github.blog/ai-and-ml/generative-ai/spec-driven-development-with-ai-get-started-with-a-new-open-source-toolkit/ | GitHub Spec Kit |

@@ -1021,13 +1021,17 @@ fn infer_call(
         // TypeParam: calling a type param (e.g. `T(args)`) is a
         // constructor-style pattern; return the type param itself.
         Type::TypeParam(name) => Ok(Type::TypeParam(name)),
-        // Definitely not callable.
+        // Definitely not callable (A03001 type mismatch; A03005 is unknown field).
         other => Err(TypeError {
-            code: "A03005".into(),
+            code: "A03001".into(),
             message: format!("type `{other}` is not callable"),
             span: span.clone(),
             secondary: None,
-            suggestion: None,
+            suggestion: Some(
+                "Ensure you are calling a function, not a type or variable. \
+                 If you meant to construct a value, use struct literal syntax."
+                    .into(),
+            ),
         }),
     }
 }

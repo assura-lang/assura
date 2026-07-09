@@ -763,6 +763,33 @@ mod tests {
         );
     }
 
+    /// #903: catalog Help for A03005 must be field-oriented (not "calling a function").
+    #[test]
+    fn a03005_catalog_help_is_field_oriented() {
+        let err = TypeError {
+            code: "A03005".into(),
+            message: "tuple index `2` out of range for type `(Int, Bool)` (arity 2)".into(),
+            span: 0..5,
+            secondary: None,
+            suggestion: None,
+        };
+        let diag: assura_diagnostics::Diagnostic = err.into();
+        let s = diag
+            .suggestion
+            .expect("A03005 catalog should provide Help/suggestion");
+        let help = s.message.to_lowercase();
+        assert!(
+            !help.contains("calling a function"),
+            "A03005 Help must not mention calling a function, got: {}",
+            s.message
+        );
+        assert!(
+            help.contains("field") || help.contains("tuple"),
+            "A03005 Help should be field-oriented, got: {}",
+            s.message
+        );
+    }
+
     #[test]
     fn type_error_to_diagnostic_no_suggestion_for_unknown_code() {
         let err = TypeError {
