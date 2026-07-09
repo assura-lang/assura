@@ -987,3 +987,41 @@ fn lower_type_struct_pair_tuple_field() {
         }
     }
 }
+
+#[test]
+fn lower_type_struct_trailing_comma_not_in_type() {
+    // Field separators are inside FIELD_DEF; they must not become type tokens
+    // (codegen would emit `i64,,` from Named("Int ,") round-trip).
+    let src = r#"
+        type Point {
+            x: Int,
+            y: Int,
+        }
+    "#;
+    let (sf, errors) = parse_and_lower(src);
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    if let Decl::TypeDef(td) = &sf.decls[0].node {
+        if let TypeBody::Struct(fields) = &td.body {
+            assert_eq!(fields.len(), 2);
+            for f in fields {
+                assert_eq!(
+                    f.ty,
+                    Some(crate::ast::TypeExpr::Named("Int".into())),
+                    "field {} should be plain Named Int, got {:?}",
+                    f.name,
+                    f.ty
+                );
+                let tokens = f.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+                assert!(
+                    !tokens.iter().any(|t| t == ","),
+                    "field {} tokens must not include separator comma: {tokens:?}",
+                    f.name
+                );
+            }
+        } else {
+            panic!("expected Struct");
+        }
+    } else {
+        panic!("expected TypeDef");
+    }
+}
