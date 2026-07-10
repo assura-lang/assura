@@ -688,8 +688,18 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = cmp {cmp} ${a} ${b} : Bool"));
                     Some(slot)
                 }
-                ("clone" | "to_owned" | "into" | "copied" | "cloned", 0) => {
+                ("clone" | "to_owned" | "into" | "copied" | "cloned" | "as_ref" | "as_mut", 0) => {
                     encode_syn_expr(&m.receiver, param_names, lines, next)
+                }
+                ("not", 0) => {
+                    let zero = *next;
+                    *next += 1;
+                    lines.push(format!("${zero} = const 0 : Bool"));
+                    let inner = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = cmp eq ${inner} ${zero} : Bool"));
+                    Some(slot)
                 }
 
                 ("is_multiple_of", 1) => {
@@ -1230,5 +1240,18 @@ fn f(x: i64) -> i64 {
         assert!(ir0.contains("const 1"), "{ir0}");
         assert!(try_ir_from_rust_body("Pb", &px(), Some("i64"), "x.pow(5)").is_none());
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "P").expect("parse");
+    }
+
+    #[test]
+    fn as_ref_not_body_ir() {
+        let ir = try_ir_from_rust_body("R", &px(), Some("i64"), "x.as_ref()").expect("as_ref");
+        assert!(ir.contains("$result = load $0"), "{ir}");
+        let pab = vec![ParamInfo {
+            name: "a".into(),
+            ty: "bool".into(),
+        }];
+        let n = try_ir_from_rust_body("N", &pab, Some("bool"), "a.not()").expect("not");
+        assert!(n.contains("cmp eq"), "{n}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&n, "N").expect("parse");
     }
 }
