@@ -268,7 +268,7 @@ pub(crate) fn check_unused_imports(
     errors: &mut Vec<ResolutionError>,
 ) {
     for imp in imports {
-        // Unresolved imports are not "unused"; they failed to load (A02006).
+        // Unresolved imports are not "unused"; they failed to load (A02010).
         // Circular imports already have A02005.
         if imp.status == ImportStatus::Circular || imp.status == ImportStatus::Unresolved {
             continue;

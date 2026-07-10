@@ -115,9 +115,10 @@ this table over guessing the phase.
 
 | Code | Phase | Primary crate | Typical meaning | Start in tree |
 |------|-------|---------------|-----------------|---------------|
-| A02006 | resolve | assura-resolve | Import / path resolution failure | imports.rs |
+| A02006 | resolve | assura-resolve | Duplicate import | imports.rs |
 | A02007 | resolve | assura-resolve | Unused import | unused.rs |
-| A02008 | resolve | assura-resolve | Import / module path error | imports.rs |
+| A02008 | resolve | assura-resolve | Invalid import path segment | imports.rs |
+| A02010 | resolve | assura-resolve | Cannot resolve import (module not found) | imports.rs, lib.rs |
 | A03006 | types | assura-types | Clause body not `Bool` where required | clauses.rs |
 | A03007 | types | assura-types | Numeric / refinement constraint failure | checks/numeric.rs, domain/numeric.rs |
 | A03010 | types | assura-types | Type / annotation mismatch (impl) | inference.rs, clauses.rs, checks/ |

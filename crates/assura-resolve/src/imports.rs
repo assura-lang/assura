@@ -145,13 +145,13 @@ pub(crate) fn resolve_imports(
             } else {
                 // Unknown module. When the module map is non-empty (project
                 // discovery), every local module was already loaded, so a miss
-                // is a hard A02006 error. With an empty map (single-file
+                // is a hard A02010 error. With an empty map (single-file
                 // resolve), external/stdlib modules may exist but are not
                 // loaded here — those stay Unresolved without a hard error
-                // (surface as A02006 warning from the caller if desired).
+                // (surface as A02010 warning from the caller if desired).
                 if !module_map.is_empty() {
                     errors.push(ResolutionError {
-                        code: "A02006".into(),
+                        code: "A02010".into(),
                         message: format!(
                             "cannot resolve import `{path_str}`: module not found in project"
                         ),
@@ -280,8 +280,8 @@ mod tests {
         let result = resolve_imports(&imports, &module_map, &HashSet::new(), &mut errors);
         assert_eq!(result[0].status, ImportStatus::Unresolved);
         assert!(
-            errors.iter().any(|e| e.code == "A02006"),
-            "expected A02006, got {errors:?}"
+            errors.iter().any(|e| e.code == "A02010"),
+            "expected A02010, got {errors:?}"
         );
     }
 

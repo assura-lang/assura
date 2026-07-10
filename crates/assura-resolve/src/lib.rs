@@ -657,7 +657,7 @@ pub fn resolve_with_modules(
     resolve_type_refs(source, &table, &resolved_imports, module, &mut errors);
 
     // --- Unresolved imports in single-file mode (empty module map) ---
-    // Project mode already hard-errors via A02006 in resolve_imports when the
+    // Project mode already hard-errors via A02010 in resolve_imports when the
     // map is non-empty. For single-file resolve, warn so agents see "not found"
     // instead of the misleading A02007 "unused import".
     let mut warnings = Vec::new();
@@ -666,7 +666,7 @@ pub fn resolve_with_modules(
             if imp.status == ImportStatus::Unresolved {
                 let path_str = imp.path.join(".");
                 warnings.push(ResolutionError {
-                    code: "A02006".into(),
+                    code: "A02010".into(),
                     message: format!(
                         "cannot resolve import `{path_str}`: module not found \
                          (single-file check has no project module map; use \
@@ -684,7 +684,7 @@ pub fn resolve_with_modules(
 
     // --- Check for unused imports (A02007) ---
     // These are warnings, not errors: they don't prevent resolution.
-    // Skips Unresolved imports (handled above / as A02006 errors).
+    // Skips Unresolved imports (handled above / as A02010 errors).
     let referenced_names = collect_referenced_names(source);
     check_unused_imports(&resolved_imports, &referenced_names, &mut warnings);
 

@@ -67,7 +67,7 @@ pub(crate) fn run_check_project(
             eprintln!("Error: {issue}");
         } else {
             all_diags.push(
-                assura_diagnostics::Diagnostic::error("A02006", issue.clone(), 0..0)
+                assura_diagnostics::Diagnostic::error("A02010", issue.clone(), 0..0)
                     .with_file(project_root.display().to_string()),
             );
         }
