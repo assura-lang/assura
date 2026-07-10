@@ -1,10 +1,10 @@
 //! Encode simple Rust function bodies as Assura Implementation IR for check-rust.
 //!
-//! Supports int/bool arith, abs/min/max/clamp/saturating, is_positive/negative/zero,
-//! `is_multiple_of`, logical `&&`/`||`, unary `-`/`!`, `into`/`as` identity,
-//! multi-let, if/match (incl. guards), simple and nested `if`/`else` (expression
-//! branches), simple `match` with int/bool/wildcard arms, and Bool comparisons for
-//! `bool` return types. Body text is extracted with `syn` (co-publish-safe).
+//! Supports int/bool arith, abs/min/max/clamp/saturating/saturating_neg, abs_diff,
+//! is_positive/negative/zero, `is_multiple_of`, PartialOrd methods, logical `&&`/`||`,
+//! unary `-`/`!`/`*`/`&`, `into`/`as`/`clone`/`copied` identity, multi-let, if/match
+//! (incl. guards), simple and nested `if`/`else`, simple `match` with int/bool/wildcard
+//! arms, and Bool comparisons. Body text is extracted with `syn` (co-publish-safe).
 //!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
 //! `eval_ir_block` clones parent slots into each block; reusing `$1`/`$2` for
@@ -504,6 +504,10 @@ fn encode_syn_expr(
     match expr {
         syn::Expr::Paren(p) => encode_syn_expr(&p.expr, param_names, lines, next),
         syn::Expr::Group(g) => encode_syn_expr(&g.expr, param_names, lines, next),
+        syn::Expr::Reference(r) => encode_syn_expr(&r.expr, param_names, lines, next),
+        syn::Expr::Unary(u) if matches!(u.op, syn::UnOp::Deref(_)) => {
+            encode_syn_expr(&u.expr, param_names, lines, next)
+        }
         syn::Expr::Path(path) if path.path.segments.len() == 1 => {
             let name = path.path.segments[0].ident.to_string();
             param_names.iter().position(|n| *n == name)
@@ -644,7 +648,16 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = cmp eq ${a} ${z} : Bool"));
                     Some(slot)
                 }
-                ("clone" | "to_owned" | "into", 0) => {
+                ("lt" | "le" | "gt" | "ge" | "eq" | "ne", 1) => {
+                    let cmp = method.as_str();
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = cmp {cmp} ${a} ${b} : Bool"));
+                    Some(slot)
+                }
+                ("clone" | "to_owned" | "into" | "copied" | "cloned", 0) => {
                     encode_syn_expr(&m.receiver, param_names, lines, next)
                 }
 
@@ -679,6 +692,40 @@ fn encode_syn_expr(
                     let mx = *next;
                     *next += 1;
                     lines.push(format!("${mx} = call max (${a}, ${lo}) : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = call min (${mx}, ${hi}) : Int"));
+                    Some(slot)
+                }
+                ("abs_diff", 1) => {
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
+                    let d = *next;
+                    *next += 1;
+                    lines.push(format!("${d} = arith sub ${a} ${b} : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = call abs (${d}) : Int"));
+                    Some(slot)
+                }
+                ("saturating_neg", 0) => {
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let zero = *next;
+                    *next += 1;
+                    lines.push(format!("${zero} = const 0 : Int"));
+                    let neg = *next;
+                    *next += 1;
+                    lines.push(format!("${neg} = arith sub ${zero} ${a} : Int"));
+                    let lo = *next;
+                    *next += 1;
+                    let (lo_v, hi_v) = SAT_BOUNDS.get()?;
+                    lines.push(format!("${lo} = const {lo_v} : Int"));
+                    let hi = *next;
+                    *next += 1;
+                    lines.push(format!("${hi} = const {hi_v} : Int"));
+                    let mx = *next;
+                    *next += 1;
+                    lines.push(format!("${mx} = call max (${neg}, ${lo}) : Int"));
                     let slot = *next;
                     *next += 1;
                     lines.push(format!("${slot} = call min (${mx}, ${hi}) : Int"));
@@ -1047,5 +1094,50 @@ fn f(x: i64) -> i64 {
             try_ir_from_rust_body("M", &pxy, Some("bool"), "x.is_multiple_of(y)").expect("imo");
         assert!(ir.contains("arith mod") && ir.contains("cmp eq"), "{ir}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "M").expect("parse");
+    }
+
+    #[test]
+    fn abs_diff_and_ref_deref_body_ir() {
+        let pxy = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "i64".into(),
+            },
+            ParamInfo {
+                name: "y".into(),
+                ty: "i64".into(),
+            },
+        ];
+        let ir = try_ir_from_rust_body("D", &pxy, Some("i64"), "x.abs_diff(y)").expect("diff");
+        assert!(ir.contains("arith sub") && ir.contains("call abs"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "D").expect("parse");
+        let r = try_ir_from_rust_body("R", &px(), Some("i64"), "&x").expect("ref");
+        assert!(r.contains("$result = load $0"), "{r}");
+        let d = try_ir_from_rust_body("De", &px(), Some("i64"), "*&x").expect("deref");
+        assert!(d.contains("$result = load $0"), "{d}");
+    }
+
+    #[test]
+    fn saturating_neg_body_ir() {
+        let ir = try_ir_from_rust_body("N", &px(), Some("i64"), "x.saturating_neg()").expect("neg");
+        assert!(ir.contains("arith sub") && ir.contains("call max"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "N").expect("parse");
+    }
+
+    #[test]
+    fn copied_cloned_identity_body_ir() {
+        let ir = try_ir_from_rust_body("C", &px(), Some("i64"), "x.copied()").expect("copied");
+        assert!(ir.contains("$result = load $0"), "{ir}");
+        let ir2 = try_ir_from_rust_body("Cl", &px(), Some("i64"), "x.cloned()").expect("cloned");
+        assert!(ir2.contains("$result = load $0"), "{ir2}");
+    }
+
+    #[test]
+    fn partial_ord_methods_body_ir() {
+        let ir = try_ir_from_rust_body("G", &px(), Some("bool"), "x.gt(&0)").expect("gt");
+        assert!(ir.contains("cmp gt"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "G").expect("parse");
+        let ir2 = try_ir_from_rust_body("E", &px(), Some("bool"), "x.eq(&0)").expect("eq");
+        assert!(ir2.contains("cmp eq"), "{ir2}");
     }
 }

@@ -155,7 +155,7 @@ assura infer src/main.rs
 assura check-rust src/
 # Body proof paths (in order):
 #   1) co-located {Name}.ir
-#   2) encoded Rust body (int/bool/&&/||, if/else/match, multi-let, abs/min/max/clamp/saturating, is_multiple_of, into/as)
+#   2) encoded Rust body (int/bool/&&/||, if/else/match, multi-let, abs/min/max/clamp/saturating/abs_diff, is_multiple_of, into/as, PartialOrd)
 # Otherwise ensures are body_not_modeled (not silent verified/skipped).
 assura check-rust src/ --json
 

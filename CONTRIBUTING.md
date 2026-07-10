@@ -143,7 +143,7 @@ cargo test -p <crate> --locked --lib
 
 `assura check-rust` proves `/// @ensures` against either a co-located
 `{Name}.ir` sidecar or a **encoded** Rust body (int/bool arith, if/else,
-match literals and identity guards, multi-let folds, abs/min/max/clamp/saturating, &&/||, is_multiple_of, into/as). Bodies
+match literals and identity guards, multi-let folds, abs/min/max/clamp/saturating/abs_diff, &&/||, is_multiple_of, into/as, PartialOrd). Bodies
 that cannot be modeled report `body_not_modeled` and exit **1** (including
 SMT skipped/checked soft passes). Do not treat empty/skipped SMT as proof.
 
