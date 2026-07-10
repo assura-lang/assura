@@ -36,17 +36,38 @@ fn validate_diff_format(format: &str) {
 /// `--verify --json` can emit a single combined document).
 pub(crate) fn run_diff(old_path: &str, new_path: &str, format: &str) -> (bool, serde_json::Value) {
     validate_diff_format(format);
+    let is_json = format == "json";
     let old_src = match fs::read_to_string(old_path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Error reading {old_path}: {e}");
+            if is_json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "error": "cannot_read",
+                    "path": old_path,
+                    "message": format!("Error reading {old_path}: {e}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error reading {old_path}: {e}");
+            }
             process::exit(1);
         }
     };
     let new_src = match fs::read_to_string(new_path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Error reading {new_path}: {e}");
+            if is_json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "error": "cannot_read",
+                    "path": new_path,
+                    "message": format!("Error reading {new_path}: {e}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error reading {new_path}: {e}");
+            }
             process::exit(1);
         }
     };
@@ -54,10 +75,10 @@ pub(crate) fn run_diff(old_path: &str, new_path: &str, format: &str) -> (bool, s
     let (old_ast, old_errs) = assura_parser::parse(&old_src);
     let (new_ast, new_errs) = assura_parser::parse(&new_src);
 
-    if !old_errs.is_empty() {
+    if !old_errs.is_empty() && !is_json {
         eprintln!("Warning: {old_path} has {} parse error(s)", old_errs.len());
     }
-    if !new_errs.is_empty() {
+    if !new_errs.is_empty() && !is_json {
         eprintln!("Warning: {new_path} has {} parse error(s)", new_errs.len());
     }
 
@@ -193,17 +214,38 @@ pub(crate) fn run_diff_verify(
     structural: Option<serde_json::Value>,
 ) {
     validate_diff_format(format);
+    let is_json = format == "json";
     let old_src = match fs::read_to_string(old_path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Error reading {old_path}: {e}");
+            if is_json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "error": "cannot_read",
+                    "path": old_path,
+                    "message": format!("Error reading {old_path}: {e}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error reading {old_path}: {e}");
+            }
             process::exit(1);
         }
     };
     let new_src = match fs::read_to_string(new_path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Error reading {new_path}: {e}");
+            if is_json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "error": "cannot_read",
+                    "path": new_path,
+                    "message": format!("Error reading {new_path}: {e}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error reading {new_path}: {e}");
+            }
             process::exit(1);
         }
     };
