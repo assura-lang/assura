@@ -2779,6 +2779,35 @@ fn check_watch_rejects_stdin_json() {
     assert_eq!(v["error"], "watch_stdin_unsupported");
 }
 
+/// abs/min method bodies encode and verify simple ensures.
+#[test]
+fn check_rust_encodes_abs_min_bodies() {
+    let tmp = unique_temp("assura_check_rust_body_abs");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("lib.rs"),
+        r#"
+/// @ensures result >= 0
+fn abs_like(x: i64) -> i64 { x.abs() }
+
+/// @ensures result <= x
+/// @ensures result <= y
+fn mymin(x: i64, y: i64) -> i64 { x.min(y) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("lib.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "abs/min bodies should pass: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+    assert!(v["verified"].as_u64().unwrap_or(0) >= 3, "{stdout}");
+}
+
 /// Nested / mul body encoding: correct body verifies; wrong body CEs.
 #[test]
 fn check_rust_encodes_nested_and_mul_bodies() {
