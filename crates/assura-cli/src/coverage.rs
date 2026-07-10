@@ -139,31 +139,32 @@ pub(crate) fn run_coverage(
                 .cloned()
                 .unwrap_or_else(|| "?".to_string());
             covered.push((file.clone(), fn_name.clone(), cf));
-        } else if fn_name == "check"
-            && let Some(names) = codegen_contracts_by_file.get(file)
-        {
-            // Generated `pub fn check` under `/// Contract: SafeDivision` (#961).
-            let mut matched = None;
-            for n in names {
-                if contract_names.contains(n.as_str()) {
-                    matched = Some(
-                        contract_files
-                            .get(n.as_str())
-                            .cloned()
-                            .unwrap_or_else(|| format!("codegen ({n})")),
-                    );
-                    break;
+        } else if fn_name == "check" {
+            // Generated Assura bodies are always `pub fn check` (#961):
+            // - single-file: `/// Contract: Name` in the same source
+            // - multi-file: `src/contract_<snake>.rs` for contract `Name`
+            let mut matched: Option<String> = None;
+            if let Some(names) = codegen_contracts_by_file.get(file) {
+                for n in names {
+                    if contract_names.contains(n.as_str()) {
+                        matched = Some(
+                            contract_files
+                                .get(n.as_str())
+                                .cloned()
+                                .unwrap_or_else(|| format!("codegen ({n})")),
+                        );
+                        break;
+                    }
                 }
+                if matched.is_none() && !names.is_empty() {
+                    matched = Some(format!("codegen ({})", names.join(", ")));
+                }
+            }
+            if matched.is_none() {
+                matched = contract_from_codegen_filename(file, &contract_names, &contract_files);
             }
             if let Some(cf) = matched {
                 covered.push((file.clone(), fn_name.clone(), cf));
-            } else if !names.is_empty() {
-                // Codegen body present even if .assura was not under contracts_dir.
-                covered.push((
-                    file.clone(),
-                    fn_name.clone(),
-                    format!("codegen ({})", names.join(", ")),
-                ));
             } else {
                 uncovered.push((file.clone(), fn_name.clone(), 0));
             }
@@ -274,6 +275,29 @@ fn codegen_contract_names(source: &str) -> Vec<String> {
         }
     }
     names
+}
+
+/// Multi-file codegen writes `contract_{name.to_lowercase()}.rs` for a contract.
+fn contract_from_codegen_filename(
+    file: &str,
+    contract_names: &std::collections::HashSet<String>,
+    contract_files: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    let stem = std::path::Path::new(file)
+        .file_stem()
+        .and_then(|s| s.to_str())?;
+    let lowered = stem.strip_prefix("contract_")?;
+    for name in contract_names {
+        if name.to_lowercase() == lowered {
+            return Some(
+                contract_files
+                    .get(name.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| format!("codegen ({name})")),
+            );
+        }
+    }
+    None
 }
 
 /// Names of public functions that carry inline `/// @requires` / `@ensures`
