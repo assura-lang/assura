@@ -265,8 +265,10 @@ pub(crate) fn run_check_project(
         }
     }
 
+    let vacuous_showcase = showcase_only && total_modules == 0 && total_errors == 0;
+
     if output_mode == OutputMode::Json {
-        let report = serde_json::json!({
+        let mut report = serde_json::json!({
             "project": project_root.display().to_string(),
             "modules": total_modules,
             "bindings": total_bindings,
@@ -275,6 +277,15 @@ pub(crate) fn run_check_project(
             "results": module_results,
             "diagnostics": all_diags,
         });
+        if showcase_only {
+            report["showcase_only"] = serde_json::json!(true);
+        }
+        if vacuous_showcase {
+            report["vacuous"] = serde_json::json!(true);
+            report["vacuous_reason"] = serde_json::json!(
+                "no SHOWCASE-marked modules matched; check demos with // SHOWCASE headers"
+            );
+        }
         println!(
             "{}",
             serde_json::to_string_pretty(&report).unwrap_or_default()
@@ -284,6 +295,9 @@ pub(crate) fn run_check_project(
         eprintln!(
             "Project: {total_modules} module(s), {total_bindings} binding(s), {total_errors} error(s)"
         );
+        if vacuous_showcase {
+            eprintln!("Warning: --showcase-only matched 0 files (no // SHOWCASE headers found).");
+        }
     }
 
     if total_errors > 0 {
