@@ -2874,3 +2874,49 @@ fn explain_json_and_doctor_json() {
     );
     assert!(dstdout.contains("\"checks\"") || dstdout.contains("assura"));
 }
+
+#[test]
+fn fmt_accepts_directory() {
+    let tmp = unique_temp("assura_fmt_dir");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("src")).unwrap();
+    std::fs::write(
+        tmp.join("src/a.assura"),
+        "contract A{input(x:Int)requires{x>=0}ensures{x>=0}}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.join("src/b.assura"),
+        "contract B{input(y:Int)requires{y>0}ensures{y>0}}\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["fmt", tmp.to_str().unwrap()])
+        .current_dir(workspace_root())
+        .output()
+        .expect("fmt dir");
+    assert!(
+        out.status.success(),
+        "fmt dir should succeed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let a = std::fs::read_to_string(tmp.join("src/a.assura")).unwrap();
+    assert!(
+        a.contains('\n') && a.lines().count() > 1,
+        "expected expanded a.assura: {a:?}"
+    );
+
+    let check = Command::new(assura_bin())
+        .args(["fmt", tmp.to_str().unwrap(), "--check"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("fmt --check dir");
+    assert!(
+        check.status.success(),
+        "fmt --check after fmt should pass: {}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
