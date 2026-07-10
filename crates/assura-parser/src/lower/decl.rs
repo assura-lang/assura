@@ -18,7 +18,7 @@ use super::types::{lower_enum_def, lower_type_def};
 pub(super) fn lower_contract(n: &SyntaxNode) -> ContractDecl {
     let name = super::first_ident(n);
     let type_params = super::lower_type_params(n);
-    let clauses: Vec<Clause> = n
+    let mut clauses: Vec<Clause> = n
         .children()
         .filter(|c| c.kind() == SyntaxKind::CLAUSE)
         .map(|c| lower_clause(&c))
@@ -31,6 +31,28 @@ pub(super) fn lower_contract(n: &SyntaxNode) -> ContractDecl {
         .filter(|c| c.kind() == SyntaxKind::FN_DEF)
         .flat_map(|c| super::lower_param_list(&c))
         .collect();
+
+    // If the contract has no `output(...)` but an inline `fn` declares a
+    // return type, synthesize `output(result: T)` so SMT/codegen/IR see
+    // Int (etc.) instead of Unit (dogfood: `fn id(x: Int) -> Int` alone).
+    let has_output = clauses.iter().any(|c| c.kind == ClauseKind::Output);
+    if !has_output {
+        let first_fn = n.children().find(|c| c.kind() == SyntaxKind::FN_DEF);
+        if let Some(fn_node) = first_fn {
+            let ret_tokens = super::find_child(&fn_node, SyntaxKind::RETURN_TYPE)
+                .map(|rt| super::collect_return_type_tokens(&rt))
+                .unwrap_or_default();
+            if !ret_tokens.is_empty() {
+                let mut body_tokens = vec!["result".into(), ":".into()];
+                body_tokens.extend(ret_tokens);
+                clauses.push(Clause {
+                    kind: ClauseKind::Output,
+                    body: Spanned::no_span(Expr::Raw(body_tokens)),
+                    effect_variables: vec![],
+                });
+            }
+        }
+    }
 
     ContractDecl {
         name,
