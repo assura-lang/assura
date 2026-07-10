@@ -43,16 +43,26 @@ fn type_from_type_expr(te: &assura_parser::ast::TypeExpr) -> assura_types::Type 
     }
 }
 
+fn is_concrete_type(ty: &assura_types::Type) -> bool {
+    !matches!(ty, assura_types::Type::Unknown | assura_types::Type::Error)
+}
+
 fn resolve_param_type(
     name: &str,
     parsed_ty: Option<&assura_parser::ast::TypeExpr>,
     type_env: Option<&assura_types::TypeEnv>,
 ) -> assura_types::Type {
-    type_env
-        .and_then(|env| env.lookup(name))
-        .cloned()
-        .or_else(|| parsed_ty.map(type_from_type_expr))
-        .unwrap_or(assura_types::Type::Unknown)
+    let from_env = type_env.and_then(|env| env.lookup(name)).cloned();
+    let from_ast = parsed_ty.map(type_from_type_expr);
+    // Prefer a concrete AST annotation over indeterminate env entries
+    // (inline `fn` params are often Unknown in the type env for contracts).
+    match (from_env, from_ast) {
+        (Some(ref t), _) if is_concrete_type(t) => t.clone(),
+        (_, Some(ref t)) if is_concrete_type(t) => t.clone(),
+        (Some(t), _) => t,
+        (_, Some(t)) => t,
+        _ => assura_types::Type::Unknown,
+    }
 }
 
 /// Extract a `TestableContract` from any declaration that has clauses.
