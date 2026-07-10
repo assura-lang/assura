@@ -65,16 +65,22 @@ fn resolve_build_config<'a>(
     }
 }
 
-/// Run verification on a typed file and print results. Returns the verification
-/// results and elapsed time in milliseconds.
+/// True when human-facing chatter (stdout/stderr progress) should print.
+fn human_speak(output_mode: OutputMode, verbosity: Verbosity) -> bool {
+    output_mode == OutputMode::Human && verbosity != Verbosity::Quiet
+}
+
+/// Run verification on a typed file and optionally print results.
+/// Returns the verification results and elapsed time in milliseconds.
 fn verify_and_print(
     typed: &assura_types::TypedFile,
     filename: &str,
     solver: assura_smt::SolverChoice,
+    output_mode: OutputMode,
     verbosity: Verbosity,
 ) -> (Vec<assura_smt::VerificationResult>, f64) {
     let qwarnings = assura_smt::validate_quantifier_bounds(typed);
-    if verbosity != Verbosity::Quiet {
+    if human_speak(output_mode, verbosity) {
         for w in &qwarnings {
             eprintln!(
                 "warning: unbounded quantifier in {}: {} ({})",
@@ -94,19 +100,46 @@ fn verify_and_print(
     let results = assura_pipeline::verify_typed(typed, filename, &verify_config);
     let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
 
-    if verbosity == Verbosity::Verbose {
+    if output_mode == OutputMode::Human && verbosity == Verbosity::Verbose {
         eprintln!(
             "  verify:    {} clause(s) ({verify_ms:.2}ms)",
             results.len()
         );
     }
-    if verbosity != Verbosity::Quiet && !results.is_empty() {
+    if human_speak(output_mode, verbosity) && !results.is_empty() {
         eprintln!();
         eprintln!("Verification ({} clause(s)):", results.len());
         let _ =
             assura_smt::display::write_grouped_verification(&mut std::io::stderr(), &results, "  ");
     }
     (results, verify_ms)
+}
+
+/// Result of optional `cargo build` validation after codegen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CargoCheckStatus {
+    Skipped,
+    Ok,
+    Failed,
+    CargoNotFound,
+}
+
+impl CargoCheckStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Skipped => "skipped",
+            Self::Ok => "ok",
+            Self::Failed => "failed",
+            Self::CargoNotFound => "cargo_not_found",
+        }
+    }
+}
+
+fn compile_target_label(target: &assura_codegen::CompileTarget) -> &'static str {
+    match target {
+        assura_codegen::CompileTarget::Native => "native",
+        assura_codegen::CompileTarget::Wasm => "wasm",
+    }
 }
 
 /// Options for `assura build`.
@@ -153,6 +186,7 @@ pub(crate) fn run_build(opts: BuildOpts<'_>) {
     if Path::new(filename).is_dir() {
         run_build_project(
             Path::new(filename),
+            output_mode,
             verbosity,
             bc.out_dir_str,
             bc.compile_target,
@@ -175,7 +209,16 @@ pub(crate) fn run_build(opts: BuildOpts<'_>) {
     };
 
     let source = fs::read_to_string(filename).unwrap_or_else(|e| {
-        eprintln!("Error: {filename}: {e}");
+        if output_mode == OutputMode::Json {
+            let report = serde_json::json!({
+                "ok": false,
+                "file": filename,
+                "error": format!("{e}"),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: {filename}: {e}");
+        }
         process::exit(2);
     });
 
@@ -185,7 +228,7 @@ pub(crate) fn run_build(opts: BuildOpts<'_>) {
         &output,
         crate::timing::TimingOptions {
             filename,
-            output_mode: OutputMode::Human,
+            output_mode,
             verbosity,
             project: bc.project.as_ref().map(|(cfg, root)| {
                 (
@@ -215,20 +258,29 @@ pub(crate) fn run_build(opts: BuildOpts<'_>) {
         ..
     } = output;
     if has_errors {
-        assura_diagnostics::report_diagnostics_human(&diagnostics, filename, &source);
-        eprintln!("{filename}: {} error(s) found", diagnostics.len());
+        if output_mode == OutputMode::Json {
+            let report = serde_json::json!({
+                "ok": false,
+                "file": filename,
+                "diagnostics": diagnostics,
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            assura_diagnostics::report_diagnostics_human(&diagnostics, filename, &source);
+            eprintln!("{filename}: {} error(s) found", diagnostics.len());
+        }
         process::exit(1);
     }
     let typed = typed.expect("type check should succeed if has_errors is false");
 
     // Offline IR write (no LLM) before verify so co-located sidecars are loaded.
     if write_ir {
-        write_colocated_ir_sidecars(&typed, filename, verbosity);
+        write_colocated_ir_sidecars(&typed, filename, verbosity, output_mode);
     }
 
     // Verify
     let (verification_results, verify_ms) =
-        verify_and_print(&typed, filename, bc.solver, verbosity);
+        verify_and_print(&typed, filename, bc.solver, output_mode, verbosity);
 
     // Prefer co-located IR sidecars for codegen bodies (#866).
     // `--write-ir` runs above, so sidecars are already on disk for this load.
@@ -239,9 +291,16 @@ pub(crate) fn run_build(opts: BuildOpts<'_>) {
             .as_ref()
             .map(|(p, _)| p.ai.clone())
             .unwrap_or_default();
-        auto_implement_contracts(&typed, filename, &bc.compiler_config, verbosity, &ai_config)
+        auto_implement_contracts(
+            &typed,
+            filename,
+            &bc.compiler_config,
+            verbosity,
+            output_mode,
+            &ai_config,
+        )
     } else {
-        rust_bodies_from_ir_sidecars(&typed, filename, verbosity)
+        rust_bodies_from_ir_sidecars(&typed, filename, verbosity, output_mode)
     };
 
     // Codegen
@@ -254,20 +313,29 @@ pub(crate) fn run_build(opts: BuildOpts<'_>) {
     };
     let mut project = assura_codegen::codegen_with_config(&typed, &backend_config);
     if bin {
-        inject_bin_main(&mut project, &typed, verbosity);
+        inject_bin_main(&mut project, &typed, verbosity, output_mode);
     }
 
     // Write output
     let out_dir = Path::new(effective_out_dir_str);
     fs::create_dir_all(out_dir).unwrap_or_else(|e| {
-        eprintln!(
-            "Error: cannot create {}/ directory: {e}",
-            effective_out_dir_str
-        );
+        if output_mode == OutputMode::Json {
+            let report = serde_json::json!({
+                "ok": false,
+                "file": filename,
+                "error": format!("cannot create {}/: {e}", effective_out_dir_str),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!(
+                "Error: cannot create {}/ directory: {e}",
+                effective_out_dir_str
+            );
+        }
         process::exit(1);
     });
     let codegen_ms = codegen_start.elapsed().as_secs_f64() * 1000.0;
-    if verbosity == Verbosity::Verbose {
+    if output_mode == OutputMode::Human && verbosity == Verbosity::Verbose {
         eprintln!(
             "  codegen:   {} file(s) ({codegen_ms:.2}ms)",
             project.files.len()
@@ -281,29 +349,50 @@ pub(crate) fn run_build(opts: BuildOpts<'_>) {
         eprintln!();
     }
 
-    write_generated_project(
+    let mut written = write_generated_project(
         filename,
         out_dir,
         &project,
         &typed,
         &bc.compile_target,
         verbosity,
+        output_mode,
     );
-    write_unresolved_tests(
+    written.extend(write_unresolved_tests(
         out_dir,
         &verification_results,
         parsed_file.as_ref(),
         &typed,
         verbosity,
-    );
-    run_cargo_build(
+        output_mode,
+    ));
+    let cargo_check = run_cargo_build(
         filename,
         effective_out_dir_str,
         out_dir,
         &bc.compile_target,
         no_check,
         verbosity,
+        output_mode,
     );
+
+    if output_mode == OutputMode::Json {
+        let verification_json: Vec<serde_json::Value> = verification_results
+            .iter()
+            .map(assura_smt::VerificationResult::to_json_value)
+            .collect();
+        let report = serde_json::json!({
+            "ok": true,
+            "file": filename,
+            "output_dir": effective_out_dir_str,
+            "target": compile_target_label(&bc.compile_target),
+            "files": written,
+            "verification": verification_json,
+            "cargo_check": cargo_check.as_str(),
+            "no_check": no_check,
+        });
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +401,7 @@ pub(crate) fn run_build(opts: BuildOpts<'_>) {
 
 /// Write the generated Rust project to the output directory: Cargo.toml,
 /// source files, IR sidecars, metadata JSON, and .cargo/config.toml for WASM.
+/// Returns paths written (for JSON reporting).
 fn write_generated_project(
     filename: &str,
     out_dir: &Path,
@@ -319,14 +409,28 @@ fn write_generated_project(
     typed: &assura_types::TypedFile,
     compile_target: &assura_codegen::CompileTarget,
     verbosity: Verbosity,
-) {
+    output_mode: OutputMode,
+) -> Vec<String> {
+    let speak = human_speak(output_mode, verbosity);
+    let mut written = Vec::new();
+
     // Cargo.toml
     let cargo_path = out_dir.join("Cargo.toml");
     fs::write(&cargo_path, &project.cargo_toml).unwrap_or_else(|e| {
-        eprintln!("Error: cannot write {}: {e}", cargo_path.display());
+        if output_mode == OutputMode::Json {
+            let report = serde_json::json!({
+                "ok": false,
+                "file": filename,
+                "error": format!("cannot write {}: {e}", cargo_path.display()),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: cannot write {}: {e}", cargo_path.display());
+        }
         process::exit(1);
     });
-    if verbosity != Verbosity::Quiet {
+    written.push(cargo_path.display().to_string());
+    if speak {
         println!("  wrote {}", cargo_path.display());
     }
 
@@ -344,8 +448,11 @@ fn write_generated_project(
                 continue;
             }
             let ir_path = ir_dir.join(format!("{name}.ir"));
-            if fs::write(&ir_path, &ir_text).is_ok() && verbosity != Verbosity::Quiet {
-                println!("  wrote {}", ir_path.display());
+            if fs::write(&ir_path, &ir_text).is_ok() {
+                written.push(ir_path.display().to_string());
+                if speak {
+                    println!("  wrote {}", ir_path.display());
+                }
             }
         }
     }
@@ -355,15 +462,34 @@ fn write_generated_project(
         let full_path = out_dir.join(rel_path);
         if let Some(parent) = full_path.parent() {
             fs::create_dir_all(parent).unwrap_or_else(|e| {
-                eprintln!("Error: cannot create directory {}: {e}", parent.display());
+                if output_mode == OutputMode::Json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "file": filename,
+                        "error": format!("cannot create directory {}: {e}", parent.display()),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("Error: cannot create directory {}: {e}", parent.display());
+                }
                 process::exit(1);
             });
         }
         fs::write(&full_path, content).unwrap_or_else(|e| {
-            eprintln!("Error: cannot write {}: {e}", full_path.display());
+            if output_mode == OutputMode::Json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "file": filename,
+                    "error": format!("cannot write {}: {e}", full_path.display()),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: cannot write {}: {e}", full_path.display());
+            }
             process::exit(1);
         });
-        if verbosity != Verbosity::Quiet {
+        written.push(full_path.display().to_string());
+        if speak {
             println!("  wrote {}", full_path.display());
         }
     }
@@ -373,9 +499,14 @@ fn write_generated_project(
         let json_path = out_dir.join("assura-contracts.json");
         if let Ok(json) = serde_json::to_string_pretty(meta) {
             if let Err(e) = fs::write(&json_path, &json) {
-                eprintln!("Warning: could not write {}: {e}", json_path.display());
-            } else if verbosity != Verbosity::Quiet {
-                println!("  wrote {}", json_path.display());
+                if speak {
+                    eprintln!("Warning: could not write {}: {e}", json_path.display());
+                }
+            } else {
+                written.push(json_path.display().to_string());
+                if speak {
+                    println!("  wrote {}", json_path.display());
+                }
             }
         }
     }
@@ -384,29 +515,50 @@ fn write_generated_project(
     if matches!(compile_target, assura_codegen::CompileTarget::Wasm) {
         let cargo_dir = out_dir.join(".cargo");
         fs::create_dir_all(&cargo_dir).unwrap_or_else(|e| {
-            eprintln!("Error: cannot create {}: {e}", cargo_dir.display());
+            if output_mode == OutputMode::Json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "file": filename,
+                    "error": format!("cannot create {}: {e}", cargo_dir.display()),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: cannot create {}: {e}", cargo_dir.display());
+            }
             process::exit(1);
         });
         let config_toml = cargo_dir.join("config.toml");
         fs::write(&config_toml, "[build]\ntarget = \"wasm32-wasip1\"\n").unwrap_or_else(|e| {
-            eprintln!("Error: cannot write {}: {e}", config_toml.display());
+            if output_mode == OutputMode::Json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "file": filename,
+                    "error": format!("cannot write {}: {e}", config_toml.display()),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: cannot write {}: {e}", config_toml.display());
+            }
             process::exit(1);
         });
-        if verbosity != Verbosity::Quiet {
+        written.push(config_toml.display().to_string());
+        if speak {
             println!("  wrote {}", config_toml.display());
         }
     }
+    written
 }
 
 /// Auto-generate proptest tests for contracts whose verification was
-/// timeout or unknown.
+/// timeout or unknown. Returns paths written (for JSON reporting).
 fn write_unresolved_tests(
     out_dir: &Path,
     verification_results: &[assura_smt::VerificationResult],
     parsed_file: Option<&assura_parser::ast::SourceFile>,
     typed: &assura_types::TypedFile,
     verbosity: Verbosity,
-) {
+    output_mode: OutputMode,
+) -> Vec<String> {
     let has_unresolved = verification_results.iter().any(|r| {
         matches!(
             r,
@@ -414,9 +566,11 @@ fn write_unresolved_tests(
                 | assura_smt::VerificationResult::Unknown { .. }
         )
     });
-    let Some(pf) = parsed_file else { return };
+    let Some(pf) = parsed_file else {
+        return Vec::new();
+    };
     if !has_unresolved {
-        return;
+        return Vec::new();
     }
 
     let mut test_gen = assura_types::TestGenerator::new();
@@ -458,6 +612,7 @@ fn write_unresolved_tests(
         }
     }
     let tests = test_gen.generate_all();
+    let mut written = Vec::new();
     if !tests.is_empty() {
         let tests_dir = out_dir.join("tests");
         fs::create_dir_all(&tests_dir).ok();
@@ -469,14 +624,18 @@ fn write_unresolved_tests(
             content.push_str(&t.body);
             content.push_str("\n\n");
         }
-        if fs::write(&test_file, &content).is_ok() && verbosity != Verbosity::Quiet {
-            println!(
-                "  wrote {} ({} tests for unresolved contracts)",
-                test_file.display(),
-                tests.len()
-            );
+        if fs::write(&test_file, &content).is_ok() {
+            written.push(test_file.display().to_string());
+            if human_speak(output_mode, verbosity) {
+                println!(
+                    "  wrote {} ({} tests for unresolved contracts)",
+                    test_file.display(),
+                    tests.len()
+                );
+            }
         }
     }
+    written
 }
 
 /// Run `cargo build` on the generated project and report results.
@@ -487,12 +646,14 @@ fn run_cargo_build(
     compile_target: &assura_codegen::CompileTarget,
     no_check: bool,
     verbosity: Verbosity,
-) {
+    output_mode: OutputMode,
+) -> CargoCheckStatus {
+    let speak = human_speak(output_mode, verbosity);
     if no_check {
-        if verbosity != Verbosity::Quiet {
+        if speak {
             println!("OK  {filename} -> {out_dir_str}/ (check skipped)");
         }
-        return;
+        return CargoCheckStatus::Skipped;
     }
 
     let is_wasm = matches!(compile_target, assura_codegen::CompileTarget::Wasm);
@@ -510,42 +671,38 @@ fn run_cargo_build(
 
     match cargo_result {
         Ok(output) if output.status.success() => {
-            report_build_success(filename, out_dir, out_dir_str, is_wasm, verbosity);
+            if speak {
+                report_build_success(filename, out_dir, out_dir_str, is_wasm);
+            }
+            CargoCheckStatus::Ok
         }
         Ok(output) => {
-            if verbosity != Verbosity::Quiet {
+            if speak {
                 println!("OK  {filename} -> {out_dir_str}/");
-            }
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            eprintln!();
-            eprintln!("warning: generated Rust does not compile:");
-            for line in stderr.lines() {
-                if line.starts_with("error") || line.contains("-->") {
-                    eprintln!("  {line}");
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                eprintln!();
+                eprintln!("warning: generated Rust does not compile:");
+                for line in stderr.lines() {
+                    if line.starts_with("error") || line.contains("-->") {
+                        eprintln!("  {line}");
+                    }
                 }
+                eprintln!();
+                eprintln!("  Run `cd {out_dir_str} && cargo build` to see full errors.");
+                eprintln!("  Use `--no-check` to skip this validation.");
             }
-            eprintln!();
-            eprintln!("  Run `cd {out_dir_str} && cargo build` to see full errors.");
-            eprintln!("  Use `--no-check` to skip this validation.");
+            CargoCheckStatus::Failed
         }
         Err(_) => {
-            if verbosity != Verbosity::Quiet {
+            if speak {
                 println!("OK  {filename} -> {out_dir_str}/ (cargo build skipped: cargo not found)");
             }
+            CargoCheckStatus::CargoNotFound
         }
     }
 }
 
-fn report_build_success(
-    filename: &str,
-    out_dir: &Path,
-    out_dir_str: &str,
-    is_wasm: bool,
-    verbosity: Verbosity,
-) {
-    if verbosity == Verbosity::Quiet {
-        return;
-    }
+fn report_build_success(filename: &str, out_dir: &Path, out_dir_str: &str, is_wasm: bool) {
     if is_wasm {
         let wasm_dir = out_dir.join("target/wasm32-wasip1/debug");
         if let Some(ref wf) = find_wasm_artifact(&wasm_dir) {
@@ -674,9 +831,11 @@ fn auto_implement_contracts(
     source_path: &str,
     config: &CompilerConfig,
     verbosity: Verbosity,
+    output_mode: OutputMode,
     ai_config: &assura_config::AiConfig,
 ) -> std::collections::HashMap<String, String> {
     let mut ir_bodies = std::collections::HashMap::new();
+    let speak = human_speak(output_mode, verbosity);
 
     let contexts = assura_smt::ir_prompt_contexts_for_typed(typed, Some(Path::new(source_path)));
     if contexts.is_empty() {
@@ -684,7 +843,7 @@ fn auto_implement_contracts(
     }
 
     for ctx in &contexts {
-        if verbosity != Verbosity::Quiet {
+        if speak {
             eprint!("  auto-implement {}...", ctx.decl_name);
         }
 
@@ -693,30 +852,36 @@ fn auto_implement_contracts(
         // verify_ir validates the IR against the first contract it finds,
         // so we must pass just this contract (not the full multi-contract file).
         let single_contract_source = build_single_contract_source(ctx);
+        // Suppress LLM progress chatter under --json (agents parse stdout only).
+        let llm_verbosity = if output_mode == OutputMode::Json {
+            Verbosity::Quiet
+        } else {
+            verbosity
+        };
         match call_llm_for_ir(
             &ctx.decl_name,
             &prompt,
             &single_contract_source,
             config,
-            verbosity,
+            llm_verbosity,
             &ctx.params,
             ai_config,
         ) {
             Some(rust_body) => {
-                if verbosity != Verbosity::Quiet {
+                if speak {
                     eprintln!(" ok");
                 }
                 ir_bodies.insert(ctx.decl_name.clone(), rust_body);
             }
             None => {
-                if verbosity != Verbosity::Quiet {
+                if speak {
                     eprintln!(" failed (will use todo!())");
                 }
             }
         }
     }
 
-    if verbosity != Verbosity::Quiet {
+    if speak {
         let total = contexts.len();
         let ok = ir_bodies.len();
         eprintln!("  auto-implement: {ok}/{total} contracts implemented by LLM");
@@ -968,7 +1133,9 @@ fn write_colocated_ir_sidecars(
     typed: &assura_types::TypedFile,
     source_path: &str,
     verbosity: Verbosity,
+    output_mode: OutputMode,
 ) {
+    let speak = human_speak(output_mode, verbosity);
     let parent = Path::new(source_path)
         .parent()
         .unwrap_or_else(|| Path::new("."));
@@ -977,22 +1144,24 @@ fn write_colocated_ir_sidecars(
     for (name, ir_text) in assura_smt::stub_ir_sidecars_for_typed(typed) {
         if ir_text.contains("Stub IR") {
             skipped_stub += 1;
-            if verbosity == Verbosity::Verbose {
+            if output_mode == OutputMode::Human && verbosity == Verbosity::Verbose {
                 eprintln!("  --write-ir: skip stub for `{name}` (ensures not auto-synthesizable)");
             }
             continue;
         }
         let path = parent.join(format!("{name}.ir"));
         if let Err(e) = fs::write(&path, &ir_text) {
-            eprintln!("Warning: could not write {}: {e}", path.display());
+            if speak {
+                eprintln!("Warning: could not write {}: {e}", path.display());
+            }
         } else {
             wrote += 1;
-            if verbosity != Verbosity::Quiet {
+            if speak {
                 println!("  wrote co-located IR {}", path.display());
             }
         }
     }
-    if verbosity != Verbosity::Quiet && wrote == 0 && skipped_stub > 0 {
+    if speak && wrote == 0 && skipped_stub > 0 {
         eprintln!(
             "  --write-ir: no analyzable ensures to materialize ({skipped_stub} stub(s) skipped); use --auto-implement or hand-write .ir"
         );
@@ -1004,11 +1173,12 @@ fn inject_bin_main(
     project: &mut assura_codegen::GeneratedProject,
     typed: &assura_types::TypedFile,
     verbosity: Verbosity,
+    output_mode: OutputMode,
 ) {
     // Pick first contract/fn job name.
     let names = assura_smt::collect_verification_job_names(typed);
     let Some(primary) = names.first() else {
-        if verbosity != Verbosity::Quiet {
+        if human_speak(output_mode, verbosity) {
             eprintln!("  --bin: no contracts found; skipping main.rs");
         }
         return;
@@ -1067,7 +1237,7 @@ fn main() {{
             "\n[[bin]]\nname = \"{bin_name}\"\npath = \"src/main.rs\"\n"
         ));
     }
-    if verbosity != Verbosity::Quiet {
+    if human_speak(output_mode, verbosity) {
         eprintln!("  codegen: added binary entry for `{primary}`");
     }
 }
@@ -1131,6 +1301,7 @@ fn rust_bodies_from_ir_sidecars(
     typed: &assura_types::TypedFile,
     source_path: &str,
     verbosity: Verbosity,
+    output_mode: OutputMode,
 ) -> std::collections::HashMap<String, String> {
     let path = Path::new(source_path);
     let parent = path
@@ -1146,7 +1317,7 @@ fn rust_bodies_from_ir_sidecars(
         };
         // Stubs must not become `todo!()` replacements (identity load != ensures).
         if ir_text.contains("Stub IR") {
-            if verbosity == Verbosity::Verbose {
+            if output_mode == OutputMode::Human && verbosity == Verbosity::Verbose {
                 eprintln!("  codegen: skip co-located stub IR for `{}`", ctx.decl_name);
             }
             continue;
@@ -1176,7 +1347,7 @@ fn rust_bodies_from_ir_sidecars(
         out.insert(ctx.decl_name.clone(), body);
     }
 
-    if verbosity != Verbosity::Quiet && !out.is_empty() {
+    if human_speak(output_mode, verbosity) && !out.is_empty() {
         let names: Vec<&str> = out.keys().map(String::as_str).collect();
         eprintln!(
             "  codegen: injected co-located IR for {} contract(s): {}",
@@ -1231,66 +1402,102 @@ fn strip_markdown_fences(text: &str) -> String {
 
 pub(crate) fn run_build_project(
     project_dir: &Path,
+    output_mode: OutputMode,
     verbosity: Verbosity,
     output_dir: &str,
     target: assura_codegen::CompileTarget,
     no_check: bool,
     runtime_checks: bool,
 ) {
+    let speak = human_speak(output_mode, verbosity);
     let (project_root, dep_map, dep_warnings) = load_project_deps(project_dir);
 
-    eprintln!("Building project at {}", project_root.display());
-    for w in &dep_warnings {
-        eprintln!("Warning: {w}");
+    if speak {
+        eprintln!("Building project at {}", project_root.display());
+        for w in &dep_warnings {
+            eprintln!("Warning: {w}");
+        }
     }
 
     let (resolved_files, warnings) =
         match assura_resolve::discover_and_resolve_project_with_deps(&project_root, &dep_map) {
             Ok(pair) => pair,
             Err(errors) => {
-                for e in &errors {
-                    eprintln!("Error: {e}");
+                if output_mode == OutputMode::Json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "project": project_root.display().to_string(),
+                        "errors": errors.iter().map(|e| e.to_string()).collect::<Vec<_>>(),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    for e in &errors {
+                        eprintln!("Error: {e}");
+                    }
                 }
                 process::exit(1);
             }
         };
 
-    for w in &warnings {
-        eprintln!("Warning: {w}");
+    if speak {
+        for w in &warnings {
+            eprintln!("Warning: {w}");
+        }
     }
 
     let mut all_typed = Vec::new();
     let mut has_errors = false;
+    let mut module_errors: Vec<serde_json::Value> = Vec::new();
 
     for (module_path, resolved) in resolved_files {
         match assura_types::type_check(resolved) {
             Ok(typed) => {
                 all_typed.push((module_path.clone(), typed));
-                if verbosity == Verbosity::Verbose {
+                if output_mode == OutputMode::Human && verbosity == Verbosity::Verbose {
                     eprintln!("OK  {module_path}");
                 }
             }
             Err(errors) => {
                 has_errors = true;
-                eprintln!("ERR {module_path}: {} error(s)", errors.len());
-                for err in &errors {
-                    eprintln!("  {}: {}", err.code, err.message);
+                if output_mode == OutputMode::Json {
+                    module_errors.push(serde_json::json!({
+                        "module": module_path,
+                        "errors": errors.iter().map(|e| serde_json::json!({
+                            "code": e.code.to_string(),
+                            "message": e.message,
+                        })).collect::<Vec<_>>(),
+                    }));
+                } else {
+                    eprintln!("ERR {module_path}: {} error(s)", errors.len());
+                    for err in &errors {
+                        eprintln!("  {}: {}", err.code, err.message);
+                    }
                 }
             }
         }
     }
 
     if has_errors {
-        eprintln!("Build failed: type errors in project");
+        if output_mode == OutputMode::Json {
+            let report = serde_json::json!({
+                "ok": false,
+                "project": project_root.display().to_string(),
+                "modules": module_errors,
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Build failed: type errors in project");
+        }
         process::exit(1);
     }
 
     // Generate code for each module
     let out_dir = Path::new(output_dir);
     let mut generated_files = 0usize;
+    let mut written_paths: Vec<String> = Vec::new();
     let mut cargo_toml_written = false;
     let backend_config = assura_codegen::BackendConfig {
-        target,
+        target: target.clone(),
         runtime_checks,
         ..Default::default()
     };
@@ -1303,9 +1510,19 @@ pub(crate) fn run_build_project(
                 let _ = fs::create_dir_all(parent);
             }
             if let Err(e) = fs::write(&cargo_path, &project.cargo_toml) {
-                eprintln!("Error writing {}: {e}", cargo_path.display());
+                if output_mode == OutputMode::Json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "project": project_root.display().to_string(),
+                        "error": format!("cannot write {}: {e}", cargo_path.display()),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("Error writing {}: {e}", cargo_path.display());
+                }
                 process::exit(1);
             }
+            written_paths.push(cargo_path.display().to_string());
             cargo_toml_written = true;
         }
         for (rel_path, content) in &project.files {
@@ -1314,31 +1531,51 @@ pub(crate) fn run_build_project(
                 let _ = fs::create_dir_all(parent);
             }
             if let Err(e) = fs::write(&file_out, content) {
-                eprintln!("Error writing {}: {e}", file_out.display());
+                if output_mode == OutputMode::Json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "project": project_root.display().to_string(),
+                        "error": format!("cannot write {}: {e}", file_out.display()),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("Error writing {}: {e}", file_out.display());
+                }
                 process::exit(1);
             }
+            written_paths.push(file_out.display().to_string());
             generated_files += 1;
         }
 
         // Write sidecar metadata JSON
         if let Some(ref meta) = project.metadata {
             let json_path = out_dir.join("assura-contracts.json");
-            if let Ok(json) = serde_json::to_string_pretty(meta)
-                && let Err(e) = fs::write(&json_path, json)
-            {
-                eprintln!("Warning: could not write {}: {e}", json_path.display());
+            if let Ok(json) = serde_json::to_string_pretty(meta) {
+                if let Err(e) = fs::write(&json_path, json) {
+                    if speak {
+                        eprintln!("Warning: could not write {}: {e}", json_path.display());
+                    }
+                } else {
+                    written_paths.push(json_path.display().to_string());
+                }
             }
         }
     }
 
-    eprintln!(
-        "Generated {generated_files} file(s) in {}",
-        out_dir.display()
-    );
+    if speak {
+        eprintln!(
+            "Generated {generated_files} file(s) in {}",
+            out_dir.display()
+        );
+    }
+
+    let mut cargo_check = CargoCheckStatus::Skipped;
 
     // Build the generated code to produce artifacts
     if !no_check && out_dir.join("Cargo.toml").exists() {
-        eprintln!("Running cargo build on generated code...");
+        if speak {
+            eprintln!("Running cargo build on generated code...");
+        }
         let status = std::process::Command::new("cargo")
             .arg("build")
             .current_dir(out_dir)
@@ -1347,19 +1584,55 @@ pub(crate) fn run_build_project(
             .status();
         match status {
             Ok(s) if s.success() => {
-                eprintln!("Generated code compiled successfully");
+                cargo_check = CargoCheckStatus::Ok;
+                if speak {
+                    eprintln!("Generated code compiled successfully");
+                }
             }
             Ok(s) => {
-                eprintln!(
-                    "Generated code failed to compile (exit {})",
-                    s.code().unwrap_or(-1)
-                );
+                cargo_check = CargoCheckStatus::Failed;
+                if output_mode == OutputMode::Json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "project": project_root.display().to_string(),
+                        "output_dir": out_dir.display().to_string(),
+                        "files": written_paths,
+                        "cargo_check": cargo_check.as_str(),
+                        "error": format!(
+                            "generated code failed to compile (exit {})",
+                            s.code().unwrap_or(-1)
+                        ),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!(
+                        "Generated code failed to compile (exit {})",
+                        s.code().unwrap_or(-1)
+                    );
+                }
                 process::exit(1);
             }
             Err(e) => {
-                eprintln!("Failed to run cargo build: {e}");
+                cargo_check = CargoCheckStatus::CargoNotFound;
+                if speak {
+                    eprintln!("Failed to run cargo build: {e}");
+                }
             }
         }
+    }
+
+    if output_mode == OutputMode::Json {
+        let report = serde_json::json!({
+            "ok": true,
+            "project": project_root.display().to_string(),
+            "output_dir": out_dir.display().to_string(),
+            "target": compile_target_label(&target),
+            "files": written_paths,
+            "generated_file_count": generated_files,
+            "cargo_check": cargo_check.as_str(),
+            "no_check": no_check,
+        });
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
     }
 }
 
@@ -1368,6 +1641,44 @@ pub(crate) fn run_build_project(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---------------------------------------------------------------
+    // JSON purity helpers
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn human_speak_false_for_json_even_when_verbose() {
+        assert!(!human_speak(OutputMode::Json, Verbosity::Verbose));
+        assert!(!human_speak(OutputMode::Json, Verbosity::Normal));
+        assert!(!human_speak(OutputMode::Json, Verbosity::Quiet));
+    }
+
+    #[test]
+    fn human_speak_respects_quiet_and_human() {
+        assert!(human_speak(OutputMode::Human, Verbosity::Normal));
+        assert!(human_speak(OutputMode::Human, Verbosity::Verbose));
+        assert!(!human_speak(OutputMode::Human, Verbosity::Quiet));
+    }
+
+    #[test]
+    fn cargo_check_status_as_str_labels() {
+        assert_eq!(CargoCheckStatus::Skipped.as_str(), "skipped");
+        assert_eq!(CargoCheckStatus::Ok.as_str(), "ok");
+        assert_eq!(CargoCheckStatus::Failed.as_str(), "failed");
+        assert_eq!(CargoCheckStatus::CargoNotFound.as_str(), "cargo_not_found");
+    }
+
+    #[test]
+    fn compile_target_label_native_and_wasm() {
+        assert_eq!(
+            compile_target_label(&assura_codegen::CompileTarget::Native),
+            "native"
+        );
+        assert_eq!(
+            compile_target_label(&assura_codegen::CompileTarget::Wasm),
+            "wasm"
+        );
+    }
 
     // ---------------------------------------------------------------
     // find_wasm_artifact
