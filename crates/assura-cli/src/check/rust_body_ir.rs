@@ -714,9 +714,11 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = cmp {cmp} ${a} ${b} : Bool"));
                     Some(slot)
                 }
-                ("clone" | "to_owned" | "into" | "copied" | "cloned" | "as_ref" | "as_mut", 0) => {
-                    encode_syn_expr(&m.receiver, param_names, lines, next)
-                }
+                (
+                    "clone" | "to_owned" | "into" | "copied" | "cloned" | "as_ref" | "as_mut"
+                    | "borrow" | "borrow_mut",
+                    0,
+                ) => encode_syn_expr(&m.receiver, param_names, lines, next),
                 ("not", 0) => {
                     let zero = *next;
                     *next += 1;
@@ -1288,5 +1290,11 @@ fn f(x: i64) -> i64 { let y = &x; *y }
             .expect("chain");
         assert!(ir.contains("call abs") && ir.contains("cmp gt"), "{ir}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "C").expect("parse");
+    }
+
+    #[test]
+    fn borrow_identity_body_ir() {
+        let ir = try_ir_from_rust_body("B", &px(), Some("i64"), "x.borrow()").expect("borrow");
+        assert!(ir.contains("$result = load $0"), "{ir}");
     }
 }
