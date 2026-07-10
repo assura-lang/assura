@@ -28,7 +28,18 @@ pub(crate) fn format_clause_body(clause: &assura_parser::ast::Clause) -> String 
     assura_parser::display::expr_to_string(&clause.body)
 }
 
+fn validate_diff_format(format: &str) {
+    match format {
+        "human" | "json" => {}
+        other => {
+            eprintln!("Error: invalid --format '{other}' (expected human or json)");
+            process::exit(2);
+        }
+    }
+}
+
 pub(crate) fn run_diff(old_path: &str, new_path: &str, format: &str) -> bool {
+    validate_diff_format(format);
     let old_src = match fs::read_to_string(old_path) {
         Ok(s) => s,
         Err(e) => {
@@ -165,6 +176,7 @@ pub(crate) fn run_diff(old_path: &str, new_path: &str, format: &str) -> bool {
 /// - Precondition weakening: old_requires => new_requires
 /// - Postcondition strengthening: new_ensures => old_ensures
 pub(crate) fn run_diff_verify(old_path: &str, new_path: &str, format: &str) {
+    validate_diff_format(format);
     let old_src = match fs::read_to_string(old_path) {
         Ok(s) => s,
         Err(e) => {
