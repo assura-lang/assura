@@ -2705,6 +2705,28 @@ fn check_watch_rejects_stdin() {
     );
 }
 
+/// `check --watch --json` on a missing path must emit JSON, not bare stderr.
+#[test]
+fn check_watch_missing_path_json() {
+    let out = Command::new(assura_bin())
+        .args(["check", "/no/such/watch/path.assura", "--watch", "--json"])
+        .output()
+        .expect("failed to run assura check --watch --json");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "missing path should exit 2: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("watch missing path --json must be JSON");
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["error"], "cannot_resolve_path");
+    assert_eq!(v["watch"], true);
+}
+
 #[test]
 fn check_showcase_only_filters_by_header() {
     let tmp = unique_temp("assura_showcase_only");
