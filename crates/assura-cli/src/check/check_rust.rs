@@ -457,7 +457,7 @@ pub(crate) fn run_check_rust(
             "errors": total_errors,
             "body_not_modeled": total_body_not_modeled,
             "results": all_results,
-            "policy": "check-rust proves annotations against co-located .ir or encoded Rust bodies (int/bool arith, if/else, match lit/_, abs/min/max); ensures without a body model are body_not_modeled (including skipped SMT)",
+            "policy": "check-rust proves annotations against co-located .ir or encoded Rust bodies (int/bool arith, if/else/match, multi-let, abs/min/max); ensures without a body model are body_not_modeled (including skipped SMT)",
         });
         println!("{}", serde_json::to_string_pretty(&summary).unwrap());
         if total_errors > 0 || total_body_not_modeled > 0 {
