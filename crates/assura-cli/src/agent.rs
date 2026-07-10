@@ -1,8 +1,33 @@
 // `assura agent-instructions` -- print compact agent reference
 // ---------------------------------------------------------------------------
 
-pub(crate) fn run_agent_instructions() {
+pub(crate) fn run_agent_instructions(output_mode: assura_config::OutputMode) {
+    let markdown = agent_instructions_markdown();
+    if output_mode == assura_config::OutputMode::Json {
+        let report = serde_json::json!({
+            "title": "Assura: AI Agent Quick Reference",
+            "markdown": markdown,
+            "install": [
+                "cargo install assura --locked",
+                "assura doctor",
+                "assura check path/to/file.assura",
+            ],
+            "commands": [
+                "check", "build", "infer", "ir-prompt", "audit", "init",
+                "fmt", "explain", "test-gen", "doctor", "coverage",
+                "completions", "lsp", "agent-instructions",
+            ],
+        });
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    } else {
+        print!("{markdown}");
+    }
+}
+
+/// Build the human-readable agent quick reference markdown.
+pub(crate) fn agent_instructions_markdown() -> String {
     use assura_codegen::type_map::rust_type_to_assura;
+    use std::fmt::Write;
 
     // Build the type mapping table dynamically from the codegen module
     let type_pairs: Vec<(&str, &str)> = vec![
@@ -60,24 +85,9 @@ pub(crate) fn run_agent_instructions() {
         ),
     ];
 
-    // Build the error code ranges from the diagnostics catalog
-    let catalog = assura_diagnostics::error_catalog();
-    let mut code_groups: std::collections::BTreeMap<String, Vec<String>> =
-        std::collections::BTreeMap::new();
-    for info in &catalog {
-        let prefix = if info.code.len() >= 4 {
-            &info.code[..4]
-        } else {
-            info.code
-        };
-        code_groups
-            .entry(prefix.to_string())
-            .or_default()
-            .push(format!("{}: {}", info.code, info.name));
-    }
-
-    // Output the instructions
-    print!(
+    let mut out = String::new();
+    write!(
+        out,
         r#"# Assura: AI Agent Quick Reference
 
 ## What is Assura?
@@ -141,16 +151,18 @@ contract ContractName {{
 | Rust Type | Assura Type |
 |-----------|-------------|
 "#
-    );
+    )
+    .unwrap();
 
     for (rust, assura) in &type_pairs {
-        println!("| `{rust}` | `{assura}` |");
+        writeln!(out, "| `{rust}` | `{assura}` |").unwrap();
     }
     for (rust, assura) in &dynamic_pairs {
-        println!("| `{rust}` | `{assura}` |");
+        writeln!(out, "| `{rust}` | `{assura}` |").unwrap();
     }
 
-    print!(
+    write!(
+        out,
         r#"
 ## Binding Contracts to Existing Rust Functions
 
@@ -280,7 +292,10 @@ contract WriteLog {{
 }}
 ```
 "#
-    );
+    )
+    .unwrap();
+
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -290,14 +305,35 @@ mod tests {
     #[test]
     fn agent_instructions_include_cargo_install() {
         // Install section must stay in the printed reference after co-publish.
-        let src = include_str!("agent.rs");
+        let md = super::agent_instructions_markdown();
         assert!(
-            src.contains("cargo install assura --locked"),
+            md.contains("cargo install assura --locked"),
             "agent-instructions must document crates.io install"
         );
         assert!(
-            src.contains("## Install the CLI"),
+            md.contains("## Install the CLI"),
             "agent-instructions must have an Install the CLI section"
+        );
+    }
+
+    #[test]
+    fn agent_instructions_json_is_valid_object() {
+        let md = super::agent_instructions_markdown();
+        let report = serde_json::json!({
+            "title": "Assura: AI Agent Quick Reference",
+            "markdown": md,
+        });
+        let text = serde_json::to_string(&report).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert!(
+            parsed["markdown"]
+                .as_str()
+                .unwrap()
+                .contains("Contract Syntax")
+        );
+        assert_eq!(
+            parsed["title"].as_str().unwrap(),
+            "Assura: AI Agent Quick Reference"
         );
     }
 
