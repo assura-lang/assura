@@ -19,7 +19,7 @@
 // ============================================================================
 
 project use_after_free_demo {
-  profile: [core, mem, sec]
+    profile: [core, mem, sec]
 }
 
 module mem.use_after_free;
@@ -32,21 +32,21 @@ module mem.use_after_free;
 // ---------------------------------------------------------------------------
 
 contract BufferAllocationBounds {
-  input(
+    input(
     requested_size: Nat,
     max_alloc_size: Nat
-  )
+    )
 
-  requires { requested_size > 0 }
-  requires { max_alloc_size > 0 }
-  requires { requested_size <= max_alloc_size }
-  requires { max_alloc_size <= 1073741824 }
+    requires { requested_size > 0 }
+    requires { max_alloc_size > 0 }
+    requires { requested_size <= max_alloc_size }
+    requires { max_alloc_size <= 1073741824 }
 
-  // PROVEN BY Z3: allocation is within system limits
-  ensures { requested_size <= 1073741824 }
-  ensures { max_alloc_size >= requested_size }
+    // PROVEN BY Z3: allocation is within system limits
+    ensures { requested_size <= 1073741824 }
+    ensures { max_alloc_size >= requested_size }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -58,22 +58,22 @@ contract BufferAllocationBounds {
 // ---------------------------------------------------------------------------
 
 contract SafeBufferWrite {
-  input(
+    input(
     buffer_size: Nat,
     write_offset: Nat,
     write_length: Nat
-  )
+    )
 
-  requires { buffer_size > 0 }
-  requires { write_offset >= 0 }
-  requires { write_length > 0 }
-  requires { write_offset + write_length <= buffer_size }
+    requires { buffer_size > 0 }
+    requires { write_offset >= 0 }
+    requires { write_length > 0 }
+    requires { write_offset + write_length <= buffer_size }
 
-  // PROVEN BY Z3: write stays within buffer bounds
-  ensures { write_offset + write_length <= buffer_size }
-  ensures { write_length <= buffer_size }
+    // PROVEN BY Z3: write stays within buffer bounds
+    ensures { write_offset + write_length <= buffer_size }
+    ensures { write_length <= buffer_size }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -84,21 +84,21 @@ contract SafeBufferWrite {
 // ---------------------------------------------------------------------------
 
 contract EnvVarLengthValidation {
-  input(
+    input(
     env_value: Bytes,
     max_env_length: Nat
-  )
+    )
 
-  requires { env_value.length() > 0 }
-  requires { max_env_length > 0 }
-  requires { env_value.length() <= max_env_length }
-  requires { max_env_length <= 32768 }
+    requires { env_value.length() > 0 }
+    requires { max_env_length > 0 }
+    requires { env_value.length() <= max_env_length }
+    requires { max_env_length <= 32768 }
 
-  // PROVEN BY Z3: validated env var is within safe bounds
-  ensures { env_value.length() <= 32768 }
-  ensures { max_env_length >= env_value.length() }
+    // PROVEN BY Z3: validated env var is within safe bounds
+    ensures { env_value.length() <= 32768 }
+    ensures { max_env_length >= env_value.length() }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -110,22 +110,22 @@ contract EnvVarLengthValidation {
 // ---------------------------------------------------------------------------
 
 contract HeapMetadataIntegrity {
-  input(
+    input(
     buffer_start: Nat,
     buffer_size: Nat,
     metadata_size: Nat
-  )
+    )
 
-  requires { buffer_start > 0 }
-  requires { buffer_size > 0 }
-  requires { metadata_size > 0 }
-  requires { buffer_start >= metadata_size }
+    requires { buffer_start > 0 }
+    requires { buffer_size > 0 }
+    requires { metadata_size > 0 }
+    requires { buffer_start >= metadata_size }
 
-  // PROVEN BY Z3: metadata region is before buffer start
-  ensures { buffer_start >= metadata_size }
-  ensures { buffer_start - metadata_size >= 0 }
+    // PROVEN BY Z3: metadata region is before buffer start
+    ensures { buffer_start >= metadata_size }
+    ensures { buffer_start - metadata_size >= 0 }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -133,15 +133,15 @@ contract HeapMetadataIntegrity {
 // ---------------------------------------------------------------------------
 
 fn validate_realloc_size(
-    current_size: Nat,
-    new_size: Nat
+current_size: Nat,
+new_size: Nat
 )
-  requires { current_size > 0 }
-  requires { new_size > 0 }
-  requires { new_size >= current_size }
-  ensures  { new_size >= current_size }
-  ensures  { new_size - current_size >= 0 }
-  effects { pure }
+requires { current_size > 0 }
+requires { new_size > 0 }
+requires { new_size >= current_size }
+ensures  { new_size >= current_size }
+ensures  { new_size - current_size >= 0 }
+effects { pure }
 
 // ============================================================================
 // Summary: What Assura proves at compile time

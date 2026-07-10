@@ -28,9 +28,9 @@
 // ============================================================
 contract UpdateInitialWindowSizeOverflow {
     input(
-        window_size: Int,           // current stream remote_window_size (int32)
-        new_initial: Int,           // new SETTINGS value (validated: 0..MAX_WINDOW)
-        old_initial: Int            // previous SETTINGS value (0..MAX_WINDOW)
+    window_size: Int,           // current stream remote_window_size (int32)
+    new_initial: Int,           // new SETTINGS value (validated: 0..MAX_WINDOW)
+    old_initial: Int            // previous SETTINGS value (0..MAX_WINDOW)
     )
     requires { window_size >= -2147483648 }
     requires { window_size <= 2147483647 }
@@ -62,8 +62,8 @@ contract UpdateInitialWindowSizeOverflow {
 // ============================================================
 contract WindowUpdateOverflowCheck {
     input(
-        current_window: Int,        // stream->remote_window_size (can be negative)
-        increment: Int              // window_size_increment (1..MAX_WINDOW)
+    current_window: Int,        // stream->remote_window_size (can be negative)
+    increment: Int              // window_size_increment (1..MAX_WINDOW)
     )
     requires { current_window >= -2147483648 }
     requires { current_window <= 2147483647 }
@@ -96,12 +96,12 @@ contract WindowUpdateOverflowCheck {
 // ============================================================
 contract SettingsWindowUpdateTwoStreams {
     input(
-        w0: Int,                    // initial_window_size
-        data_1: Int,                // bytes sent on stream 1
-        data_2: Int,                // bytes sent on stream 2
-        w1: Int,                    // new initial_window_size from SETTINGS
-        wu_increment: Int,          // WINDOW_UPDATE increment for stream 1
-        conn_window: Int            // initial connection-level window
+    w0: Int,                    // initial_window_size
+    data_1: Int,                // bytes sent on stream 1
+    data_2: Int,                // bytes sent on stream 2
+    w1: Int,                    // new initial_window_size from SETTINGS
+    wu_increment: Int,          // WINDOW_UPDATE increment for stream 1
+    conn_window: Int            // initial connection-level window
     )
     // Initial window size constraints (SETTINGS range)
     requires { w0 >= 0 }
@@ -175,10 +175,10 @@ contract SettingsWindowUpdateTwoStreams {
 // ============================================================
 contract AdjustLocalWindowDecrease {
     input(
-        local_window: Int,          // local_window_size (must be >= 0)
-        recv_window: Int,           // recv_window_size (can be negative)
-        recv_reduction: Int,        // recv_reduction (non-negative debt)
-        delta: Int                  // negative delta (decrease amount)
+    local_window: Int,          // local_window_size (must be >= 0)
+    recv_window: Int,           // recv_window_size (can be negative)
+    recv_reduction: Int,        // recv_reduction (non-negative debt)
+    delta: Int                  // negative delta (decrease amount)
     )
     requires { local_window >= 0 }
     requires { local_window <= 2147483647 }
@@ -234,10 +234,10 @@ contract AdjustLocalWindowDecrease {
 // ============================================================
 contract AdjustLocalWindowIncrease {
     input(
-        local_window: Int,
-        recv_window: Int,
-        recv_reduction: Int,
-        delta: Int                  // positive delta (increase)
+    local_window: Int,
+    recv_window: Int,
+    recv_reduction: Int,
+    delta: Int                  // positive delta (increase)
     )
     requires { local_window >= 0 }
     requires { local_window <= 2147483647 }
@@ -289,11 +289,11 @@ contract AdjustLocalWindowIncrease {
 // ============================================================
 contract DecreaseReceiveIncrease {
     input(
-        local_window: Int,          // initial local_window_size
-        recv_window: Int,           // initial recv_window_size
-        recv_reduction: Int,        // initial recv_reduction
-        decrease_amount: Int,       // how much to decrease (positive value)
-        data_received: Int          // bytes received between decrease and increase
+    local_window: Int,          // initial local_window_size
+    recv_window: Int,           // initial recv_window_size
+    recv_reduction: Int,        // initial recv_reduction
+    decrease_amount: Int,       // how much to decrease (positive value)
+    data_received: Int          // bytes received between decrease and increase
     )
     requires { local_window >= 1 }
     requires { local_window <= 2147483647 }
@@ -358,13 +358,13 @@ contract DecreaseReceiveIncrease {
 // ============================================================
 contract ConnectionStreamWindowDivergence {
     input(
-        initial_window: Int,        // W0 initial window for streams
-        conn_window: Int,           // connection-level window (unchanged by SETTINGS)
-        n_streams: Int,             // number of active streams
-        data_per_stream: Int,       // data sent per stream before SETTINGS
-        new_initial: Int,           // W1 new initial window from SETTINGS
-        wu_target_stream: Int,      // WINDOW_UPDATE target stream index
-        wu_increment: Int           // WINDOW_UPDATE increment
+    initial_window: Int,        // W0 initial window for streams
+    conn_window: Int,           // connection-level window (unchanged by SETTINGS)
+    n_streams: Int,             // number of active streams
+    data_per_stream: Int,       // data sent per stream before SETTINGS
+    new_initial: Int,           // W1 new initial window from SETTINGS
+    wu_target_stream: Int,      // WINDOW_UPDATE target stream index
+    wu_increment: Int           // WINDOW_UPDATE increment
     )
     requires { initial_window >= 0 }
     requires { initial_window <= 2147483647 }
@@ -426,10 +426,10 @@ contract ConnectionStreamWindowDivergence {
 // ============================================================
 contract ConsumedSizeOverflow {
     input(
-        consumed_size: Int,         // current consumed_size (int32)
-        recv_window_size: Int,      // current recv_window_size (int32)
-        delta_size: Int,            // incoming data size (positive)
-        local_window_size: Int      // local window (positive)
+    consumed_size: Int,         // current consumed_size (int32)
+    recv_window_size: Int,      // current recv_window_size (int32)
+    delta_size: Int,            // incoming data size (positive)
+    local_window_size: Int      // local window (positive)
     )
     requires { consumed_size >= 0 }
     requires { consumed_size <= 2147483647 }
@@ -463,10 +463,10 @@ contract ConsumedSizeOverflow {
 // ============================================================
 contract DataSendWindowConservation {
     input(
-        session_window: Int,        // session->remote_window_size
-        stream_window: Int,         // stream->remote_window_size
-        max_frame_size: Int,        // remote max_frame_size setting
-        requested: Int              // NGHTTP2_DATA_PAYLOADLEN (16384)
+    session_window: Int,        // session->remote_window_size
+    stream_window: Int,         // stream->remote_window_size
+    max_frame_size: Int,        // remote max_frame_size setting
+    requested: Int              // NGHTTP2_DATA_PAYLOADLEN (16384)
     )
     requires { session_window >= 1 }
     requires { session_window <= 2147483647 }
@@ -505,10 +505,10 @@ contract DataSendWindowConservation {
 // ============================================================
 contract SettingsPartialFailure {
     input(
-        stream1_window: Int,        // stream 1 current window
-        stream2_window: Int,        // stream 2 current window
-        old_initial: Int,           // previous SETTINGS value
-        new_initial: Int            // new SETTINGS value
+    stream1_window: Int,        // stream 1 current window
+    stream2_window: Int,        // stream 2 current window
+    old_initial: Int,           // previous SETTINGS value
+    new_initial: Int            // new SETTINGS value
     )
     requires { stream1_window >= -2147483648 }
     requires { stream1_window <= 2147483647 }
@@ -539,8 +539,8 @@ contract SettingsPartialFailure {
 // ============================================================
 contract WindowUpdateTrigger {
     input(
-        local_window_size: Int,
-        recv_window_size: Int
+    local_window_size: Int,
+    recv_window_size: Int
     )
     requires { local_window_size >= 1 }
     requires { local_window_size <= 2147483647 }
@@ -570,14 +570,14 @@ contract WindowUpdateTrigger {
 // ============================================================
 contract FullStateMachineThreeStreams {
     input(
-        w0: Int,                    // initial window
-        conn_w: Int,                // connection window
-        sent_1: Int,                // data sent on stream 1
-        sent_2: Int,                // data sent on stream 2
-        sent_3: Int,                // data sent on stream 3
-        w1: Int,                    // new initial window from SETTINGS
-        wu_stream1: Int,            // WINDOW_UPDATE on stream 1
-        second_send_1: Int          // second data send attempt on stream 1
+    w0: Int,                    // initial window
+    conn_w: Int,                // connection window
+    sent_1: Int,                // data sent on stream 1
+    sent_2: Int,                // data sent on stream 2
+    sent_3: Int,                // data sent on stream 3
+    w1: Int,                    // new initial window from SETTINGS
+    wu_stream1: Int,            // WINDOW_UPDATE on stream 1
+    second_send_1: Int          // second data send attempt on stream 1
     )
     requires { w0 >= 0 }
     requires { w0 <= 2147483647 }

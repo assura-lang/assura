@@ -28,16 +28,16 @@
 // ============================================================
 contract ResourceLifecycleDoubleFree {
     input(
-        // Which thread runs at each step (0=allocator, 1=dealloc_B, 2=dealloc_C)
-        step1_thread: Int,
-        step2_thread: Int,
-        step3_thread: Int,
-        step4_thread: Int,
+    // Which thread runs at each step (0=allocator, 1=dealloc_B, 2=dealloc_C)
+    step1_thread: Int,
+    step2_thread: Int,
+    step3_thread: Int,
+    step4_thread: Int,
 
-        // What each thread "saw" when it read the state
-        // (models non-atomic read: thread reads stale value)
-        b_saw_state: Int,           // what dealloc B read
-        c_saw_state: Int            // what dealloc C read
+    // What each thread "saw" when it read the state
+    // (models non-atomic read: thread reads stale value)
+    b_saw_state: Int,           // what dealloc B read
+    c_saw_state: Int            // what dealloc C read
     )
     // Thread selection is valid
     requires { step1_thread >= 0 }
@@ -97,15 +97,15 @@ contract ResourceLifecycleDoubleFree {
 // ============================================================
 contract ConnectionPoolMaxSize {
     input(
-        max_size: Int,              // pool max (e.g. 10)
-        initial_count: Int,         // current connections at start
+    max_size: Int,              // pool max (e.g. 10)
+    initial_count: Int,         // current connections at start
 
-        // Thread A reads count, then creates if < max
-        a_reads: Int,               // what A sees
-        // Thread B reads count, then creates if < max
-        b_reads: Int,               // what B sees
-        // Thread C reads count, then creates if < max
-        c_reads: Int                // what C sees
+    // Thread A reads count, then creates if < max
+    a_reads: Int,               // what A sees
+    // Thread B reads count, then creates if < max
+    b_reads: Int,               // what B sees
+    // Thread C reads count, then creates if < max
+    c_reads: Int                // what C sees
     )
     requires { max_size >= 1 }
     requires { max_size <= 100 }
@@ -140,16 +140,16 @@ contract ConnectionPoolMaxSize {
 // ============================================================
 contract CASCounterCorrect {
     input(
-        initial: Int,
-        // Thread A round 1
-        a1_read: Int,               // A reads value
-        a1_cas_succeeds: Int,       // 1 if CAS succeeds, 0 if fails
-        // Thread B round 1
-        b1_read: Int,
-        b1_cas_succeeds: Int,
-        // Whoever failed retries in round 2
-        retry_read: Int,
-        retry_cas_succeeds: Int
+    initial: Int,
+    // Thread A round 1
+    a1_read: Int,               // A reads value
+    a1_cas_succeeds: Int,       // 1 if CAS succeeds, 0 if fails
+    // Thread B round 1
+    b1_read: Int,
+    b1_cas_succeeds: Int,
+    // Whoever failed retries in round 2
+    retry_read: Int,
+    retry_cas_succeeds: Int
     )
     requires { initial >= 0 }
     requires { initial <= 2147483647 }
@@ -198,9 +198,9 @@ contract CASCounterCorrect {
 // ============================================================
 contract NonAtomicIncrementRace {
     input(
-        initial: Int,
-        a_reads: Int,               // Thread A reads counter
-        b_reads: Int                // Thread B reads counter
+    initial: Int,
+    a_reads: Int,               // Thread A reads counter
+    b_reads: Int                // Thread B reads counter
     )
     requires { initial >= 0 }
     requires { initial <= 2147483647 }
@@ -229,12 +229,12 @@ contract NonAtomicIncrementRace {
 // ============================================================
 contract SemaphoreTOCTOU {
     input(
-        total_permits: Int,         // semaphore capacity
-        // 4 threads each read the permit count
-        t1_reads: Int,
-        t2_reads: Int,
-        t3_reads: Int,
-        t4_reads: Int
+    total_permits: Int,         // semaphore capacity
+    // 4 threads each read the permit count
+    t1_reads: Int,
+    t2_reads: Int,
+    t3_reads: Int,
+    t4_reads: Int
     )
     requires { total_permits >= 1 }
     requires { total_permits <= 3 }
@@ -270,17 +270,17 @@ contract SemaphoreTOCTOU {
 // ============================================================
 contract RingBufferConcurrent {
     input(
-        capacity: Int,
-        head: Int,                  // consumer position
-        tail: Int,                  // producer position
+    capacity: Int,
+    head: Int,                  // consumer position
+    tail: Int,                  // producer position
 
-        // Producer A: reads tail, writes at tail, increments tail
-        a_reads_tail: Int,
-        // Producer B: reads tail, writes at tail, increments tail
-        b_reads_tail: Int,
+    // Producer A: reads tail, writes at tail, increments tail
+    a_reads_tail: Int,
+    // Producer B: reads tail, writes at tail, increments tail
+    b_reads_tail: Int,
 
-        // Consumer: reads head, reads at head, increments head
-        c_reads_head: Int
+    // Consumer: reads head, reads at head, increments head
+    c_reads_head: Int
     )
     requires { capacity >= 1 }
     requires { capacity <= 1024 }
@@ -331,25 +331,25 @@ contract RingBufferConcurrent {
 // ============================================================
 contract ABAStackProblem {
     input(
-        addr_a: Int,                // address of node A
-        addr_b: Int,                // address of node B
-        addr_c: Int,                // address of node C
+    addr_a: Int,                // address of node A
+    addr_b: Int,                // address of node B
+    addr_c: Int,                // address of node C
 
-        // Thread 1: reads top, sees addr_a
-        t1_read_top: Int,
-        t1_next_of_read: Int,       // A->next = B
+    // Thread 1: reads top, sees addr_a
+    t1_read_top: Int,
+    t1_next_of_read: Int,       // A->next = B
 
-        // Thread 2: pops A (top = B), pops B (top = C), pushes A (top = A->C)
-        t2_pop1_top: Int,           // reads top = A
-        t2_after_pop1: Int,         // top becomes B
-        t2_pop2_top: Int,           // reads top = B
-        t2_after_pop2: Int,         // top becomes C
-        t2_push_a: Int,             // pushes A, A->next = C, top = A
+    // Thread 2: pops A (top = B), pops B (top = C), pushes A (top = A->C)
+    t2_pop1_top: Int,           // reads top = A
+    t2_after_pop1: Int,         // top becomes B
+    t2_pop2_top: Int,           // reads top = B
+    t2_after_pop2: Int,         // top becomes C
+    t2_push_a: Int,             // pushes A, A->next = C, top = A
 
-        // Thread 1 resumes: CAS(top, addr_a, addr_b)
-        t1_cas_expected: Int,       // expects addr_a
-        t1_cas_actual: Int,         // actual top is addr_a (Thread 2 pushed it back!)
-        t1_cas_succeeds: Int        // CAS succeeds! (ABA)
+    // Thread 1 resumes: CAS(top, addr_a, addr_b)
+    t1_cas_expected: Int,       // expects addr_a
+    t1_cas_actual: Int,         // actual top is addr_a (Thread 2 pushed it back!)
+    t1_cas_succeeds: Int        // CAS succeeds! (ABA)
     )
     // Distinct addresses
     requires { addr_a >= 1 }
@@ -404,12 +404,12 @@ contract ABAStackProblem {
 // ============================================================
 contract AtomicFetchAddCorrect {
     input(
-        initial: Int,
-        // Order in which threads run (permutation)
-        order_1: Int,               // which thread goes first (0-3)
-        order_2: Int,
-        order_3: Int,
-        order_4: Int
+    initial: Int,
+    // Order in which threads run (permutation)
+    order_1: Int,               // which thread goes first (0-3)
+    order_2: Int,
+    order_3: Int,
+    order_4: Int
     )
     requires { initial >= 0 }
     requires { initial <= 2147483640 }

@@ -20,7 +20,7 @@
 // ============================================================================
 
 project crypto_weakness_demo {
-  profile: [core, sec]
+    profile: [core, sec]
 }
 
 module sec.crypto_weakness;
@@ -34,21 +34,21 @@ module sec.crypto_weakness;
 // ---------------------------------------------------------------------------
 
 contract MinimumKeyLength {
-  input(
+    input(
     key_length_bits: Nat,
     min_key_bits: Nat
-  )
+    )
 
-  requires { key_length_bits > 0 }
-  requires { min_key_bits >= 128 }
-  requires { key_length_bits >= min_key_bits }
-  requires { key_length_bits <= 512 }
+    requires { key_length_bits > 0 }
+    requires { min_key_bits >= 128 }
+    requires { key_length_bits >= min_key_bits }
+    requires { key_length_bits <= 512 }
 
-  // PROVEN BY Z3: key meets minimum strength
-  ensures { key_length_bits >= 128 }
-  ensures { key_length_bits <= 512 }
+    // PROVEN BY Z3: key meets minimum strength
+    ensures { key_length_bits >= 128 }
+    ensures { key_length_bits <= 512 }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -60,20 +60,20 @@ contract MinimumKeyLength {
 // ---------------------------------------------------------------------------
 
 contract BlockSizeValidation {
-  input(
+    input(
     block_size_bits: Nat,
     min_block_bits: Nat
-  )
+    )
 
-  requires { block_size_bits > 0 }
-  requires { min_block_bits >= 128 }
-  requires { block_size_bits >= min_block_bits }
+    requires { block_size_bits > 0 }
+    requires { min_block_bits >= 128 }
+    requires { block_size_bits >= min_block_bits }
 
-  // PROVEN BY Z3: block size meets minimum
-  ensures { block_size_bits >= 128 }
-  ensures { block_size_bits >= min_block_bits }
+    // PROVEN BY Z3: block size meets minimum
+    ensures { block_size_bits >= 128 }
+    ensures { block_size_bits >= min_block_bits }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -85,21 +85,21 @@ contract BlockSizeValidation {
 // ---------------------------------------------------------------------------
 
 contract ProtocolVersionMinimum {
-  input(
+    input(
     protocol_version: Nat,
     min_version: Nat
-  )
+    )
 
-  // TLS 1.2 = 771, TLS 1.3 = 772
-  requires { min_version >= 771 }
-  requires { protocol_version >= min_version }
-  requires { protocol_version <= 772 }
+    // TLS 1.2 = 771, TLS 1.3 = 772
+    requires { min_version >= 771 }
+    requires { protocol_version >= min_version }
+    requires { protocol_version <= 772 }
 
-  // PROVEN BY Z3: protocol version is TLS 1.2 or higher
-  ensures { protocol_version >= 771 }
-  ensures { protocol_version <= 772 }
+    // PROVEN BY Z3: protocol version is TLS 1.2 or higher
+    ensures { protocol_version >= 771 }
+    ensures { protocol_version <= 772 }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -111,21 +111,21 @@ contract ProtocolVersionMinimum {
 // ---------------------------------------------------------------------------
 
 contract HashOutputLength {
-  input(
+    input(
     hash_bits: Nat,
     min_hash_bits: Nat
-  )
+    )
 
-  requires { hash_bits > 0 }
-  requires { min_hash_bits >= 256 }
-  requires { hash_bits >= min_hash_bits }
-  requires { hash_bits <= 1024 }
+    requires { hash_bits > 0 }
+    requires { min_hash_bits >= 256 }
+    requires { hash_bits >= min_hash_bits }
+    requires { hash_bits <= 1024 }
 
-  // PROVEN BY Z3: hash output meets minimum strength
-  ensures { hash_bits >= 256 }
-  ensures { hash_bits <= 1024 }
+    // PROVEN BY Z3: hash output meets minimum strength
+    ensures { hash_bits >= 256 }
+    ensures { hash_bits <= 1024 }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -133,15 +133,15 @@ contract HashOutputLength {
 // ---------------------------------------------------------------------------
 
 fn validate_iv_length(
-    iv_length_bits: Nat,
-    block_size_bits: Nat
+iv_length_bits: Nat,
+block_size_bits: Nat
 )
-  requires { iv_length_bits > 0 }
-  requires { block_size_bits > 0 }
-  requires { iv_length_bits == block_size_bits }
-  ensures  { iv_length_bits == block_size_bits }
-  ensures  { iv_length_bits > 0 }
-  effects { pure }
+requires { iv_length_bits > 0 }
+requires { block_size_bits > 0 }
+requires { iv_length_bits == block_size_bits }
+ensures  { iv_length_bits == block_size_bits }
+ensures  { iv_length_bits > 0 }
+effects { pure }
 
 // ============================================================================
 // Summary: What Assura proves at compile time

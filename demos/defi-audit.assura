@@ -23,11 +23,11 @@
 // ============================================================
 contract TokenTransferConservation {
     input(
-        balance_sender: Int,        // sender's balance before
-        balance_receiver: Int,      // receiver's balance before
-        total_supply: Int,          // total token supply
-        other_balances: Int,        // sum of ALL other balances
-        amount: Int                 // transfer amount
+    balance_sender: Int,        // sender's balance before
+    balance_receiver: Int,      // receiver's balance before
+    total_supply: Int,          // total token supply
+    other_balances: Int,        // sum of ALL other balances
+    amount: Int                 // transfer amount
     )
     // Valid initial state
     requires { balance_sender >= 0 }
@@ -66,11 +66,11 @@ contract TokenTransferConservation {
 // ============================================================
 contract UncheckedTransferOverflow {
     input(
-        balance_sender: Int,
-        balance_receiver: Int,
-        total_supply: Int,
-        other_balances: Int,
-        amount: Int
+    balance_sender: Int,
+    balance_receiver: Int,
+    total_supply: Int,
+    other_balances: Int,
+    amount: Int
     )
     requires { balance_sender >= 0 }
     requires { balance_sender <= 4294967295 }
@@ -116,10 +116,10 @@ contract UncheckedTransferOverflow {
 // ============================================================
 contract ReentrancyWithdrawBug {
     input(
-        user_balance: Int,          // attacker's deposited balance
-        contract_eth: Int,          // contract's total ETH
-        withdraw_amount: Int,       // amount per withdrawal
-        num_reentrant_calls: Int    // how many times attacker re-enters
+    user_balance: Int,          // attacker's deposited balance
+    contract_eth: Int,          // contract's total ETH
+    withdraw_amount: Int,       // amount per withdrawal
+    num_reentrant_calls: Int    // how many times attacker re-enters
     )
     requires { user_balance >= 0 }
     requires { contract_eth >= 0 }
@@ -160,11 +160,11 @@ contract ReentrancyWithdrawBug {
 // ============================================================
 contract FlashLoanOracleManipulation {
     input(
-        reserve_a: Int,             // AMM pool reserve of token A
-        reserve_b: Int,             // AMM pool reserve of token B
-        flash_amount: Int,          // flash loaned amount of A
-        lending_collateral: Int,    // collateral in lending protocol
-        lending_debt: Int           // debt in lending protocol
+    reserve_a: Int,             // AMM pool reserve of token A
+    reserve_b: Int,             // AMM pool reserve of token B
+    flash_amount: Int,          // flash loaned amount of A
+    lending_collateral: Int,    // collateral in lending protocol
+    lending_debt: Int           // debt in lending protocol
     )
     requires { reserve_a >= 1 }
     requires { reserve_a <= 1000000000 }
@@ -216,14 +216,14 @@ contract FlashLoanOracleManipulation {
 // ============================================================
 contract ApproveRaceCondition {
     input(
-        alice_balance: Int,
-        bob_balance: Int,
-        old_approval: Int,          // current approval (100)
-        new_approval: Int,          // Alice's new approval (50)
+    alice_balance: Int,
+    bob_balance: Int,
+    old_approval: Int,          // current approval (100)
+    new_approval: Int,          // Alice's new approval (50)
 
-        // Bob's actions
-        bob_uses_old: Int,          // Bob transfers using old approval
-        bob_uses_new: Int           // Bob transfers using new approval
+    // Bob's actions
+    bob_uses_old: Int,          // Bob transfers using old approval
+    bob_uses_new: Int           // Bob transfers using new approval
     )
     requires { alice_balance >= 0 }
     requires { bob_balance >= 0 }
@@ -266,13 +266,13 @@ contract ApproveRaceCondition {
 // ============================================================
 contract VaultShareInflation {
     input(
-        attacker_deposit: Int,      // attacker's initial deposit (1 wei)
-        donation: Int,              // attacker donates directly to vault
-        victim_deposit: Int,        // victim's deposit
+    attacker_deposit: Int,      // attacker's initial deposit (1 wei)
+    donation: Int,              // attacker donates directly to vault
+    victim_deposit: Int,        // victim's deposit
 
-        // Share calculation
-        total_shares_before: Int,   // shares outstanding before victim
-        total_assets_before: Int    // assets in vault before victim
+    // Share calculation
+    total_shares_before: Int,   // shares outstanding before victim
+    total_assets_before: Int    // assets in vault before victim
     )
     requires { attacker_deposit >= 1 }
     requires { donation >= 0 }
@@ -314,9 +314,9 @@ contract VaultShareInflation {
 // ============================================================
 contract AMMConstantProductFee {
     input(
-        reserve_x: Int,
-        reserve_y: Int,
-        amount_in: Int              // amount of X being swapped in
+    reserve_x: Int,
+    reserve_y: Int,
+    amount_in: Int              // amount of X being swapped in
     )
     requires { reserve_x >= 1 }
     requires { reserve_x <= 1000000000 }
@@ -373,10 +373,10 @@ contract AMMConstantProductFee {
 // ============================================================
 contract VaultRoundingExtraction {
     input(
-        total_assets: Int,          // vault total assets
-        total_shares: Int,          // vault total shares
-        deposit_amount: Int,        // attacker deposits
-        rounds: Int                 // number of deposit/withdraw cycles
+    total_assets: Int,          // vault total assets
+    total_shares: Int,          // vault total shares
+    deposit_amount: Int,        // attacker deposits
+    rounds: Int                 // number of deposit/withdraw cycles
     )
     requires { total_assets >= 1 }
     requires { total_assets <= 1000000000 }

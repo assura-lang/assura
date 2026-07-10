@@ -17,11 +17,11 @@
 // ============================================================
 contract PlatformFeeOverflowUint128 {
     input(
-        total_shares: Int,
-        exchange_rate: Int,
-        platform_fee: Int,
-        time_delta: Int,
-        one_share: Int
+    total_shares: Int,
+    exchange_rate: Int,
+    platform_fee: Int,
+    time_delta: Int,
+    one_share: Int
     )
     // uint128 for shares, uint96 for rate (actual Solidity types)
     requires { total_shares >= 1 }
@@ -51,8 +51,8 @@ contract PlatformFeeOverflowUint128 {
 // ============================================================
 contract CumulativeFeeDoS {
     input(
-        existing_fees: Int,
-        new_fees: Int
+    existing_fees: Int,
+    new_fees: Int
     )
     // Both are uint128 (after the truncation cast)
     requires { existing_fees >= 0 }
@@ -81,9 +81,9 @@ contract CumulativeFeeDoS {
 // ============================================================
 contract FeeClaimDecimalTruncation {
     input(
-        fees_owed_base: Int,
-        base_decimals: Int,
-        fee_asset_decimals: Int
+    fees_owed_base: Int,
+    base_decimals: Int,
+    fee_asset_decimals: Int
     )
     requires { fees_owed_base >= 1 }
     requires { fees_owed_base <= 340282366920938463463374607431768211455 }
@@ -112,10 +112,10 @@ contract FeeClaimDecimalTruncation {
 // ============================================================
 contract RateJumpMEVOpportunity {
     input(
-        deposit_amount: Int,
-        rate_before: Int,
-        rate_after: Int,
-        one_share: Int
+    deposit_amount: Int,
+    rate_before: Int,
+    rate_after: Int,
+    one_share: Int
     )
     requires { deposit_amount >= 1000000000000000000 }
     requires { deposit_amount <= 1000000000000000000000000 }
@@ -159,12 +159,12 @@ contract RateJumpMEVOpportunity {
 // ============================================================
 contract PerformanceFeeSplitManipulation {
     input(
-        initial_hwm: Int,
-        total_increase: Int,
-        split_point: Int,
-        total_shares: Int,
-        perf_fee: Int,
-        one_share: Int
+    initial_hwm: Int,
+    total_increase: Int,
+    split_point: Int,
+    total_shares: Int,
+    perf_fee: Int,
+    one_share: Int
     )
     requires { initial_hwm >= 1000000000000000000 }
     requires { initial_hwm <= 79228162514264337593543950335 }
@@ -204,12 +204,12 @@ contract PerformanceFeeSplitManipulation {
 // ============================================================
 contract ShareLockBypassCheck {
     input(
-        deposit_amount: Int,
-        rate: Int,
-        one_share: Int,
-        premium: Int,
-        lock_period: Int,
-        time_since_deposit: Int
+    deposit_amount: Int,
+    rate: Int,
+    one_share: Int,
+    premium: Int,
+    lock_period: Int,
+    time_since_deposit: Int
     )
     requires { deposit_amount >= 1 }
     requires { deposit_amount <= 1000000000000000000000000000 }

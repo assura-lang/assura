@@ -19,7 +19,7 @@
 // ============================================================================
 
 project stack_overflow_demo {
-  profile: [core, mem, sec]
+    profile: [core, mem, sec]
 }
 
 module mem.stack_overflow;
@@ -33,21 +33,21 @@ module mem.stack_overflow;
 // ---------------------------------------------------------------------------
 
 contract FormatPrecisionValidation {
-  input(
+    input(
     precision: Nat,
     max_precision: Nat
-  )
+    )
 
-  requires { precision >= 0 }
-  requires { max_precision > 0 }
-  requires { precision <= max_precision }
-  requires { max_precision <= 65536 }
+    requires { precision >= 0 }
+    requires { max_precision > 0 }
+    requires { precision <= max_precision }
+    requires { max_precision <= 65536 }
 
-  // PROVEN BY Z3: precision is within safe bounds
-  ensures { precision <= 65536 }
-  ensures { max_precision >= precision }
+    // PROVEN BY Z3: precision is within safe bounds
+    ensures { precision <= 65536 }
+    ensures { max_precision >= precision }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -59,26 +59,26 @@ contract FormatPrecisionValidation {
 // ---------------------------------------------------------------------------
 
 contract StackBufferSizing {
-  input(
+    input(
     fmt_precision: Nat,
     fmt_width: Nat,
     prefix_len: Nat,
     buf_size: Nat
-  )
+    )
 
-  requires { fmt_precision >= 0 }
-  requires { fmt_width >= 0 }
-  requires { prefix_len >= 0 }
-  requires { buf_size > 0 }
-  // Buffer must hold: prefix + max(precision, width) + null terminator
-  requires { prefix_len + fmt_precision <= buf_size }
-  requires { prefix_len + fmt_width <= buf_size }
+    requires { fmt_precision >= 0 }
+    requires { fmt_width >= 0 }
+    requires { prefix_len >= 0 }
+    requires { buf_size > 0 }
+    // Buffer must hold: prefix + max(precision, width) + null terminator
+    requires { prefix_len + fmt_precision <= buf_size }
+    requires { prefix_len + fmt_width <= buf_size }
 
-  // PROVEN BY Z3: buffer is large enough for both precision and width
-  ensures { prefix_len + fmt_precision <= buf_size }
-  ensures { prefix_len + fmt_width <= buf_size }
+    // PROVEN BY Z3: buffer is large enough for both precision and width
+    ensures { prefix_len + fmt_precision <= buf_size }
+    ensures { prefix_len + fmt_width <= buf_size }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -89,21 +89,21 @@ contract StackBufferSizing {
 // ---------------------------------------------------------------------------
 
 contract FormatStringLength {
-  input(
+    input(
     format_string: Bytes,
     max_format_length: Nat
-  )
+    )
 
-  requires { format_string.length() > 0 }
-  requires { max_format_length > 0 }
-  requires { format_string.length() <= max_format_length }
-  requires { max_format_length <= 8192 }
+    requires { format_string.length() > 0 }
+    requires { max_format_length > 0 }
+    requires { format_string.length() <= max_format_length }
+    requires { max_format_length <= 8192 }
 
-  // PROVEN BY Z3: format string is within safe bounds
-  ensures { format_string.length() <= 8192 }
-  ensures { max_format_length >= format_string.length() }
+    // PROVEN BY Z3: format string is within safe bounds
+    ensures { format_string.length() <= 8192 }
+    ensures { max_format_length >= format_string.length() }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -115,21 +115,21 @@ contract FormatStringLength {
 // ---------------------------------------------------------------------------
 
 contract OutputWithinStackFrame {
-  input(
+    input(
     output_length: Nat,
     max_stack_buffer: Nat
-  )
+    )
 
-  requires { output_length > 0 }
-  requires { max_stack_buffer > 0 }
-  requires { output_length <= max_stack_buffer }
-  requires { max_stack_buffer <= 1048576 }
+    requires { output_length > 0 }
+    requires { max_stack_buffer > 0 }
+    requires { output_length <= max_stack_buffer }
+    requires { max_stack_buffer <= 1048576 }
 
-  // PROVEN BY Z3: output fits within stack allocation
-  ensures { output_length <= 1048576 }
-  ensures { max_stack_buffer >= output_length }
+    // PROVEN BY Z3: output fits within stack allocation
+    ensures { output_length <= 1048576 }
+    ensures { max_stack_buffer >= output_length }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -137,16 +137,16 @@ contract OutputWithinStackFrame {
 // ---------------------------------------------------------------------------
 
 fn validate_specifier_count(
-    specifier_count: Nat,
-    max_specifiers: Nat
+specifier_count: Nat,
+max_specifiers: Nat
 )
-  requires { specifier_count >= 0 }
-  requires { max_specifiers > 0 }
-  requires { specifier_count <= max_specifiers }
-  requires { max_specifiers <= 256 }
-  ensures  { specifier_count <= 256 }
-  ensures  { max_specifiers >= specifier_count }
-  effects { pure }
+requires { specifier_count >= 0 }
+requires { max_specifiers > 0 }
+requires { specifier_count <= max_specifiers }
+requires { max_specifiers <= 256 }
+ensures  { specifier_count <= 256 }
+ensures  { max_specifiers >= specifier_count }
+effects { pure }
 
 // ============================================================================
 // Summary: What Assura proves at compile time

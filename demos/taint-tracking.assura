@@ -18,7 +18,7 @@
 // ============================================================================
 
 project taint_demo {
-  profile: [core, mem, sec]
+    profile: [core, mem, sec]
 }
 
 module sec.taint_tracking;
@@ -35,8 +35,8 @@ feature_max HEADER_SIZE: Nat = 16
 // ---------------------------------------------------------------------------
 
 type FtsSegment = {
-  header_size: Nat;
-  content_len: Nat;
+    header_size: Nat;
+    content_len: Nat;
 };
 
 // ---------------------------------------------------------------------------
@@ -50,10 +50,10 @@ type FtsSegment = {
 // External function that reads raw bytes from a database.
 // The result is untrusted because the data is user-controlled.
 extern fn read_blob(table: String, id: Nat) -> Bytes
-  requires { id >= 0 }
-  ensures  { result.length() >= 0 }
-  effects  { database.read }
-  boundary { untrusted }
+requires { id >= 0 }
+ensures  { result.length() >= 0 }
+effects  { database.read }
+boundary { untrusted }
 
 // ---------------------------------------------------------------------------
 // Contract: validate_and_bound_index
@@ -65,17 +65,17 @@ extern fn read_blob(table: String, id: Nat) -> Bytes
 // ---------------------------------------------------------------------------
 
 contract ValidateAndBoundIndex {
-  input(raw_index: Int @taint:untrusted, max: Nat @taint:trusted)
+    input(raw_index: Int @taint:untrusted, max: Nat @taint:trusted)
 
-  // Inputs: the max bound is positive, and the raw index is in range
-  requires { max > 0 }
-  requires { raw_index >= 0 }
-  requires { raw_index < max }
+    // Inputs: the max bound is positive, and the raw index is in range
+    requires { max > 0 }
+    requires { raw_index >= 0 }
+    requires { raw_index < max }
 
-  // This follows directly from the requires: max > 0 and raw_index < max
-  ensures { max > raw_index }
+    // This follows directly from the requires: max > 0 and raw_index < max
+    ensures { max > raw_index }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -87,23 +87,23 @@ contract ValidateAndBoundIndex {
 // ---------------------------------------------------------------------------
 
 contract SafeBufferRead {
-  input(
+    input(
     buf: Bytes @taint:validated,
     offset: Nat @taint:validated,
     length: Nat @taint:validated
-  )
+    )
 
-  // The caller has validated these constraints before calling
-  requires { buf.length() > 0 }
-  requires { offset < buf.length() }
-  requires { length > 0 }
-  requires { offset + length <= buf.length() }
+    // The caller has validated these constraints before calling
+    requires { buf.length() > 0 }
+    requires { offset < buf.length() }
+    requires { length > 0 }
+    requires { offset + length <= buf.length() }
 
-  // Provable from requires: the read region is within bounds
-  ensures { offset + length <= buf.length() }
-  ensures { offset < buf.length() }
+    // Provable from requires: the read region is within bounds
+    ensures { offset + length <= buf.length() }
+    ensures { offset < buf.length() }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -116,18 +116,18 @@ contract SafeBufferRead {
 // ---------------------------------------------------------------------------
 
 contract ValidateSegmentBounds {
-  input(header_size: Nat, content_len: Nat)
+    input(header_size: Nat, content_len: Nat)
 
-  requires { header_size <= MAX_SEGMENT }
-  requires { content_len <= MAX_SEGMENT }
-  requires { header_size >= HEADER_SIZE }
+    requires { header_size <= MAX_SEGMENT }
+    requires { content_len <= MAX_SEGMENT }
+    requires { header_size >= HEADER_SIZE }
 
-  // Provable: bounded inputs produce bounded sums
-  ensures { header_size + content_len <= MAX_SEGMENT + MAX_SEGMENT }
-  // Provable: the header is at least the minimum size
-  ensures { header_size >= HEADER_SIZE }
+    // Provable: bounded inputs produce bounded sums
+    ensures { header_size + content_len <= MAX_SEGMENT + MAX_SEGMENT }
+    // Provable: the header is at least the minimum size
+    ensures { header_size >= HEADER_SIZE }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -139,10 +139,10 @@ contract ValidateSegmentBounds {
 // ---------------------------------------------------------------------------
 
 fn process_segment(data: Bytes @taint:validated, offset: Nat @taint:validated) -> Nat
-  requires { data.length() > 0 }
-  requires { offset < data.length() }
-  ensures  { offset < data.length() }
-  effects  { pure }
+requires { data.length() > 0 }
+requires { offset < data.length() }
+ensures  { offset < data.length() }
+effects  { pure }
 
 // ---------------------------------------------------------------------------
 // Contract: safe_array_access
@@ -154,14 +154,14 @@ fn process_segment(data: Bytes @taint:validated, offset: Nat @taint:validated) -
 // ---------------------------------------------------------------------------
 
 contract SafeArrayAccess {
-  input(buffer: Bytes, index: Nat)
+    input(buffer: Bytes, index: Nat)
 
-  requires { buffer.length() > 0 }
-  requires { index < buffer.length() }
+    requires { buffer.length() > 0 }
+    requires { index < buffer.length() }
 
-  // Provable from requires
-  ensures { index < buffer.length() }
-  ensures { buffer.length() > 0 }
+    // Provable from requires
+    ensures { index < buffer.length() }
+    ensures { buffer.length() > 0 }
 
-  effects { pure }
+    effects { pure }
 }

@@ -22,7 +22,7 @@
 // ============================================================================
 
 project integer_overflow_demo {
-  profile: [core, sec, num]
+    profile: [core, sec, num]
 }
 
 module num.integer_overflow;
@@ -36,22 +36,22 @@ module num.integer_overflow;
 // ---------------------------------------------------------------------------
 
 contract SafeSizeAccumulation {
-  input(
+    input(
     running_total: Nat,
     new_arg_length: Nat,
     max_buffer_size: Nat
-  )
+    )
 
-  requires { running_total >= 0 }
-  requires { new_arg_length > 0 }
-  requires { max_buffer_size > 0 }
-  requires { running_total + new_arg_length <= max_buffer_size }
+    requires { running_total >= 0 }
+    requires { new_arg_length > 0 }
+    requires { max_buffer_size > 0 }
+    requires { running_total + new_arg_length <= max_buffer_size }
 
-  // PROVEN BY Z3: accumulation does not overflow
-  ensures { running_total + new_arg_length <= max_buffer_size }
-  ensures { new_arg_length <= max_buffer_size }
+    // PROVEN BY Z3: accumulation does not overflow
+    ensures { running_total + new_arg_length <= max_buffer_size }
+    ensures { new_arg_length <= max_buffer_size }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -62,20 +62,20 @@ contract SafeSizeAccumulation {
 // ---------------------------------------------------------------------------
 
 contract BufferMatchesCalculatedSize {
-  input(
+    input(
     calculated_size: Nat,
     allocated_size: Nat
-  )
+    )
 
-  requires { calculated_size > 0 }
-  // Buffer must have room for data plus null terminator
-  requires { allocated_size >= calculated_size + 1 }
+    requires { calculated_size > 0 }
+    // Buffer must have room for data plus null terminator
+    requires { allocated_size >= calculated_size + 1 }
 
-  // PROVEN BY Z3: buffer is sufficient
-  ensures { allocated_size >= calculated_size + 1 }
-  ensures { allocated_size > calculated_size }
+    // PROVEN BY Z3: buffer is sufficient
+    ensures { allocated_size >= calculated_size + 1 }
+    ensures { allocated_size > calculated_size }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -87,21 +87,21 @@ contract BufferMatchesCalculatedSize {
 // ---------------------------------------------------------------------------
 
 contract ArgumentLengthBounded {
-  input(
+    input(
     arg_length: Nat,
     max_arg_length: Nat
-  )
+    )
 
-  requires { arg_length > 0 }
-  requires { max_arg_length > 0 }
-  requires { arg_length <= max_arg_length }
-  requires { max_arg_length <= 131072 }
+    requires { arg_length > 0 }
+    requires { max_arg_length > 0 }
+    requires { arg_length <= max_arg_length }
+    requires { max_arg_length <= 131072 }
 
-  // PROVEN BY Z3: argument is within limits
-  ensures { arg_length <= 131072 }
-  ensures { max_arg_length >= arg_length }
+    // PROVEN BY Z3: argument is within limits
+    ensures { arg_length <= 131072 }
+    ensures { max_arg_length >= arg_length }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -113,22 +113,22 @@ contract ArgumentLengthBounded {
 // ---------------------------------------------------------------------------
 
 contract SafeMultiplication {
-  input(
+    input(
     element_count: Nat,
     element_size: Nat,
     max_total: Nat
-  )
+    )
 
-  requires { element_count > 0 }
-  requires { element_size > 0 }
-  requires { max_total > 0 }
-  requires { element_count * element_size <= max_total }
+    requires { element_count > 0 }
+    requires { element_size > 0 }
+    requires { max_total > 0 }
+    requires { element_count * element_size <= max_total }
 
-  // PROVEN BY Z3: product is within bounds
-  ensures { element_count * element_size <= max_total }
-  ensures { element_size <= max_total }
+    // PROVEN BY Z3: product is within bounds
+    ensures { element_count * element_size <= max_total }
+    ensures { element_size <= max_total }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -136,16 +136,16 @@ contract SafeMultiplication {
 // ---------------------------------------------------------------------------
 
 fn validate_argument_count(
-    argc: Nat,
-    max_argc: Nat
+argc: Nat,
+max_argc: Nat
 )
-  requires { argc >= 1 }
-  requires { max_argc > 0 }
-  requires { argc <= max_argc }
-  requires { max_argc <= 4096 }
-  ensures  { argc <= 4096 }
-  ensures  { max_argc >= argc }
-  effects { pure }
+requires { argc >= 1 }
+requires { max_argc > 0 }
+requires { argc <= max_argc }
+requires { max_argc <= 4096 }
+ensures  { argc <= 4096 }
+ensures  { max_argc >= argc }
+effects { pure }
 
 // ============================================================================
 // Summary: What Assura proves at compile time
