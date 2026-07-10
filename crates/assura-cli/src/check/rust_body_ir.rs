@@ -248,6 +248,8 @@ fn emit_value_blocks(
 
 fn block_as_expr(block: &syn::Block) -> Option<&syn::Expr> {
     match block.stmts.as_slice() {
+        // `return e` / `return e;` as sole statement (common in if branches).
+        [syn::Stmt::Expr(syn::Expr::Return(ret), _)] => ret.expr.as_deref(),
         [syn::Stmt::Expr(e, _)] => Some(e),
         _ => None,
     }
@@ -541,5 +543,23 @@ fn with_let(x: i64) -> i64 { let y = x + 1; y }
     fn unsupported_returns_none() {
         assert!(try_ir_from_rust_body("F", &px(), Some("i64"), "x && y").is_none());
         assert!(try_ir_from_rust_body("F", &px(), Some("i64"), "foo(x)").is_none());
+    }
+
+    #[test]
+    fn if_return_stmt_branches_extract_and_encode() {
+        let src = r#"
+fn f(x: i64) -> i64 {
+    if x > 0 {
+        return x;
+    } else {
+        return 0;
+    }
+}
+"#;
+        let body = extract_body_return(src, "f").expect("extract if");
+        assert!(body.contains("if"), "{body}");
+        let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
+        assert!(ir.contains("then #1 else #2"), "{ir}");
+        assert_no_slot_overlap_with_entry(&ir);
     }
 }
