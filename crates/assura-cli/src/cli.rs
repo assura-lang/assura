@@ -543,7 +543,7 @@ pub fn run() {
             run_test_gen(&file, output.as_deref(), verbosity, output_mode)
         }
         Commands::AgentInstructions => run_agent_instructions(output_mode),
-        Commands::Doctor => run_doctor(output_mode),
+        Commands::Doctor => run_doctor(output_mode, verbosity),
         Commands::Lsp => run_lsp(),
         Commands::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "assura", &mut std::io::stdout());
