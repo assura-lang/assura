@@ -29,8 +29,15 @@ pub(crate) fn collect_verification_jobs(typed: &TypedFile) -> Vec<VerificationJo
     impl DeclVisitor for JobCollector {
         fn visit_contract(&mut self, c: &ContractDecl) {
             let output_ty = extract_output_return_type(&c.clauses);
+            // Merge input() and inline fn params by name so
+            // `input(x: Int)` + `fn f(x: Int)` is one slot, not two.
             let mut input_params = extract_input_params(&c.clauses);
-            input_params.extend_from_slice(&c.fn_params);
+            for p in &c.fn_params {
+                if input_params.iter().any(|e| e.name == p.name) {
+                    continue;
+                }
+                input_params.push(p.clone());
+            }
             self.0
                 .push((c.name.clone(), c.clauses.clone(), input_params, output_ty));
         }
@@ -109,4 +116,28 @@ pub(crate) fn collect_verification_jobs(typed: &TypedFile) -> Vec<VerificationJo
     let mut collector = JobCollector(Vec::new());
     assura_ast::walk_decls(&mut collector, &typed.resolved.source.decls);
     collector.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contract_input_and_fn_params_deduped() {
+        let src = r#"
+contract Safe {
+  input(x: Int, y: Int)
+  requires { y != 0 }
+  ensures { true }
+  fn div(x: Int, y: Int) -> Int
+}
+"#;
+        let typed = crate::test_util::typecheck_ok(src);
+        let jobs = collect_verification_jobs(&typed);
+        assert_eq!(jobs.len(), 1);
+        let params = &jobs[0].2;
+        assert_eq!(params.len(), 2, "params should be deduped: {params:?}");
+        assert_eq!(params[0].name, "x");
+        assert_eq!(params[1].name, "y");
+    }
 }
