@@ -210,7 +210,7 @@ pub(crate) fn run_coverage(
 
     let is_json = format == "json";
 
-    let below_min = min_coverage.is_some_and(|min| pct < min);
+    let below_min = coverage_below_minimum(pct, min_coverage);
     if is_json {
         let mut report = serde_json::json!({
             "ok": !below_min,
@@ -269,6 +269,11 @@ pub(crate) fn run_coverage(
         }
         process::exit(1);
     }
+}
+
+/// Whether coverage percent fails an optional minimum threshold.
+pub(crate) fn coverage_below_minimum(pct: f64, min_coverage: Option<f64>) -> bool {
+    min_coverage.is_some_and(|min| pct < min)
 }
 
 /// Assura contract names embedded by codegen (`/// Contract: SafeDivision`).
@@ -460,6 +465,15 @@ contract SafeDiv {
         collect_contract_names_from_dir(tmp.path(), &mut names, &mut files);
 
         assert!(names.contains("SafeDiv"), "should find SafeDiv contract");
+    }
+
+    #[test]
+    fn coverage_below_minimum_threshold() {
+        assert!(!coverage_below_minimum(80.0, None));
+        assert!(!coverage_below_minimum(80.0, Some(80.0)));
+        assert!(!coverage_below_minimum(90.0, Some(80.0)));
+        assert!(coverage_below_minimum(79.9, Some(80.0)));
+        assert!(coverage_below_minimum(0.0, Some(1.0)));
     }
 
     #[test]

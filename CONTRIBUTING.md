@@ -123,6 +123,13 @@ cargo test --workspace --locked
 cargo check --no-default-features -p assura-smt
 ```
 
+Faster local gate (fmt + guards + clippy on key crates + one demo check):
+
+```bash
+bash scripts/preflight.sh
+bash scripts/preflight.sh assura-types assura-smt   # subset
+```
+
 While iterating on a single crate (faster, agent-friendly):
 
 ```bash

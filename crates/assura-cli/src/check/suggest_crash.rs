@@ -34,7 +34,17 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
         match CrashArtifact::from_file(Path::new(input)) {
             Ok(a) => vec![a],
             Err(e) => {
-                eprintln!("Error reading crash artifact {input}: {e}");
+                if output_mode == OutputMode::Json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "error": "crash_input_read_failed",
+                        "path": input,
+                        "message": format!("Error reading crash artifact {input}: {e}"),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("Error reading crash artifact {input}: {e}");
+                }
                 process::exit(1);
             }
         }
@@ -103,7 +113,17 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
             .map(|items| vec![(target_path.to_path_buf(), items)])
             .unwrap_or_default()
     } else {
-        eprintln!("Error: {target} is not a file or directory");
+        if output_mode == OutputMode::Json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": "target_not_found",
+                "path": target,
+                "message": format!("{target} is not a file or directory"),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: {target} is not a file or directory");
+        }
         process::exit(1);
     };
 
@@ -118,8 +138,18 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
     let provider = match assura_llm::HttpProvider::new(config) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("LLM provider error: {e}");
-            eprintln!("Set the API key environment variable to enable LLM analysis.");
+            if output_mode == OutputMode::Json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "error": "llm_provider",
+                    "message": format!("{e}"),
+                    "hint": "Set the API key environment variable to enable LLM analysis.",
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("LLM provider error: {e}");
+                eprintln!("Set the API key environment variable to enable LLM analysis.");
+            }
             process::exit(1);
         }
     };
