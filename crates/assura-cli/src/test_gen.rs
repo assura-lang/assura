@@ -253,7 +253,19 @@ pub(crate) fn run_test_gen(
                 }
             }
             Err(e) => {
-                eprintln!("Error writing {path}: {e}");
+                if output_mode == assura_config::OutputMode::Json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "status": "error",
+                        "source": filename,
+                        "output": path,
+                        "error": "write_failed",
+                        "message": format!("Error writing {path}: {e}"),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("Error writing {path}: {e}");
+                }
                 process::exit(1);
             }
         }

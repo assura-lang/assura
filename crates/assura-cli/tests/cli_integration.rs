@@ -2725,6 +2725,35 @@ fn check_watch_rejects_stdin_json() {
     assert_eq!(v["error"], "watch_stdin_unsupported");
 }
 
+/// test-gen -o write failure under --json must be parseable.
+#[test]
+fn test_gen_write_fail_json() {
+    let tmp = unique_temp("assura_test_gen_write");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("c.assura"),
+        "contract C { requires { true } ensures { true } fn f(x: Int) -> Int }\n",
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args([
+            "test-gen",
+            tmp.join("c.assura").to_str().unwrap(),
+            "-o",
+            "/no/write/out.rs",
+            "--json",
+        ])
+        .output()
+        .expect("failed to run test-gen -o --json");
+    assert_eq!(out.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("test-gen write fail --json must be JSON");
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["error"], "write_failed");
+}
+
 /// #977: clap missing required args under global --json must be JSON.
 #[test]
 fn clap_missing_arg_json() {
