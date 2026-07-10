@@ -705,7 +705,10 @@ pub fn build_enum_def(e: &assura_ast::EnumDef) -> Vec<RustItem> {
                 fields: v
                     .fields
                     .iter()
-                    .map(|f| RustType::Raw(super::map_type_token(f).to_string()))
+                    .map(|f| {
+                        let toks: Vec<String> = f.split_whitespace().map(String::from).collect();
+                        RustType::Raw(super::map_type_tokens(&toks))
+                    })
                     .collect(),
                 attrs: vec![],
             })

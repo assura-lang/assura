@@ -357,6 +357,37 @@ fn lower_enum_variant_fields_exclude_commas() {
 }
 
 #[test]
+fn lower_enum_variant_tuple_and_generic_fields() {
+    // Multi-token payload types stay as one space-joined field each (#914).
+    let src = "enum E { Pair((Int, Bool)), Box(List<Int>), Both(List<Int>, (Int,)) }";
+    let (sf, errors) = parse_and_lower(src);
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    if let Decl::EnumDef(ed) = &sf.decls[0].node {
+        assert_eq!(ed.variants[0].name, "Pair");
+        assert_eq!(ed.variants[0].fields, vec!["( Int , Bool )"]);
+        assert_eq!(ed.variants[1].name, "Box");
+        assert_eq!(ed.variants[1].fields, vec!["List < Int >"]);
+        assert_eq!(ed.variants[2].name, "Both");
+        assert_eq!(ed.variants[2].fields.len(), 2);
+        assert_eq!(ed.variants[2].fields[1], "( Int , )");
+    } else {
+        panic!("expected EnumDef");
+    }
+}
+
+#[test]
+fn lower_enum_variant_empty_tuple_field_keeps_marker_tokens() {
+    let src = "enum E { Bad((,)) }";
+    let (sf, errors) = parse_and_lower(src);
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    if let Decl::EnumDef(ed) = &sf.decls[0].node {
+        assert_eq!(ed.variants[0].fields, vec!["( , )"]);
+    } else {
+        panic!("expected EnumDef");
+    }
+}
+
+#[test]
 fn lower_expr_binary() {
     let src = r#"
         contract Foo {

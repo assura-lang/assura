@@ -59,7 +59,9 @@ pub(crate) fn collect_referenced_names(source: &SourceFile) -> HashSet<String> {
                     ServiceItem::EnumDef(e) => {
                         for v in &e.variants {
                             for f in &v.fields {
-                                self.names.insert(f.clone());
+                                let toks: Vec<String> =
+                                    f.split_whitespace().map(String::from).collect();
+                                collect_type_token_names(&toks, self.names);
                             }
                         }
                     }
@@ -77,7 +79,8 @@ pub(crate) fn collect_referenced_names(source: &SourceFile) -> HashSet<String> {
         fn visit_enum_def(&mut self, e: &EnumDef) {
             for v in &e.variants {
                 for f in &v.fields {
-                    self.names.insert(f.clone());
+                    let toks: Vec<String> = f.split_whitespace().map(String::from).collect();
+                    collect_type_token_names(&toks, self.names);
                 }
             }
         }

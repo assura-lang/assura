@@ -487,8 +487,44 @@ pub(crate) fn check_clause_bodies(
                     TypeBody::Empty => {}
                 }
             }
-            // Enum variant fields are name tokens only; Prophecy/Codec have no type anns here
-            Decl::EnumDef(_) | Decl::Prophecy(_) | Decl::CodecRegistry(_) => {}
+            Decl::EnumDef(e) => {
+                // Payload field types: `enum E { V((,)), W(List<(,)>) }`
+                // Empty slots from `V(, Int)` or `V(Int,,Bool)` are also invalid
+                // (trailing `V(Int,)` does not produce an empty field).
+                use assura_parser::ast::try_parse_type_tokens;
+                for variant in &e.variants {
+                    for (i, field) in variant.fields.iter().enumerate() {
+                        if field.is_empty() {
+                            errors.push(TypeError {
+                                code: "A03001".into(),
+                                message: format!(
+                                    "empty type is not allowed for enum variant `{}.{}` field {} (remove the extra comma)",
+                                    e.name, variant.name, i
+                                ),
+                                span: span.clone(),
+                                secondary: None,
+                                suggestion: Some(
+                                    "Write a complete field type between commas, e.g. `V(Int, Bool)`."
+                                        .into(),
+                                ),
+                            });
+                            continue;
+                        }
+                        let toks: Vec<String> =
+                            field.split_whitespace().map(String::from).collect();
+                        if let Some(te) = try_parse_type_tokens(&toks) {
+                            check_invalid_empty_tuple_type_expr(
+                                &te,
+                                &format!("enum variant `{}.{}` field {}", e.name, variant.name, i),
+                                span,
+                                &mut errors,
+                            );
+                        }
+                    }
+                }
+            }
+            // Prophecy/Codec have no payload type anns here
+            Decl::Prophecy(_) | Decl::CodecRegistry(_) => {}
         }
     }
 
