@@ -3053,3 +3053,25 @@ fn fmt_accepts_directory() {
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+/// --dump-smt mkdir failure under --json must be parseable.
+#[test]
+fn check_dump_smt_mkdir_fail_json() {
+    let out = Command::new(assura_bin())
+        .args([
+            "check",
+            "demos/heartbleed.assura",
+            "--dump-smt",
+            "/no/write/path",
+            "--json",
+        ])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check --dump-smt --json");
+    assert_eq!(out.status.code(), Some(2));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("dump-smt mkdir fail --json must be JSON");
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["error"], "dump_smt_mkdir_failed");
+}
