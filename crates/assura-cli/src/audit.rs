@@ -12,6 +12,9 @@ pub(crate) struct AuditOptions<'a> {
     pub(crate) max_functions: Option<usize>,
     pub(crate) timeout_ms: u64,
     pub(crate) unsafe_only: bool,
+    /// True when global `--json` or explicit `--format json` was requested
+    /// (so invalid `--format` values still emit JSON errors).
+    pub(crate) as_json: bool,
 }
 
 pub(crate) fn run_audit(opts: AuditOptions<'_>) {
@@ -23,8 +26,9 @@ pub(crate) fn run_audit(opts: AuditOptions<'_>) {
         max_functions,
         timeout_ms: _timeout_ms,
         unsafe_only,
+        as_json,
     } = opts;
-    validate_human_json_format(format, "audit");
+    validate_human_json_format(format, "audit", as_json);
     let is_json = format == "json";
     // Phase 1: Discover Rust source files
     let root = Path::new(path);
@@ -771,6 +775,7 @@ mod tests {
             max_functions: Some(10),
             timeout_ms: 5000,
             unsafe_only: true,
+            as_json: true,
         };
         assert_eq!(opts.path, "/tmp/project");
         assert_eq!(opts.depth, "medium");
@@ -779,6 +784,7 @@ mod tests {
         assert_eq!(opts.max_functions, Some(10));
         assert_eq!(opts.timeout_ms, 5000);
         assert!(opts.unsafe_only);
+        assert!(opts.as_json);
     }
 
     #[test]
@@ -791,11 +797,13 @@ mod tests {
             max_functions: None,
             timeout_ms: 30000,
             unsafe_only: false,
+            as_json: false,
         };
         assert_eq!(opts.path, ".");
         assert!(opts.focus.is_none());
         assert!(opts.max_functions.is_none());
         assert!(!opts.unsafe_only);
+        assert!(!opts.as_json);
     }
 
     // ---- Generated contract quality ----

@@ -8,8 +8,9 @@ pub(crate) fn run_coverage(
     contracts_dir: &str,
     format: &str,
     min_coverage: Option<f64>,
+    as_json: bool,
 ) {
-    validate_human_json_format(format, "coverage");
+    validate_human_json_format(format, "coverage", as_json);
     let root = Path::new(path);
     let src_dir = root.join("src");
 

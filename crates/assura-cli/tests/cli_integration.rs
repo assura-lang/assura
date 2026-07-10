@@ -2725,6 +2725,23 @@ fn check_watch_rejects_stdin_json() {
     assert_eq!(v["error"], "watch_stdin_unsupported");
 }
 
+/// Global `--json` with invalid `--format` must emit JSON (coverage/audit/diff).
+#[test]
+fn coverage_invalid_format_json() {
+    let out = Command::new(assura_bin())
+        .args(["coverage", ".", "--format", "xml", "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run coverage --format xml --json");
+    assert_eq!(out.status.code(), Some(2));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("invalid --format under --json must be JSON");
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["error"], "invalid_format");
+    assert_eq!(v["format"], "xml");
+}
+
 /// `check --watch --json` on a missing path must emit JSON, not bare stderr.
 #[test]
 fn check_watch_missing_path_json() {
