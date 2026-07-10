@@ -562,6 +562,19 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = call {method} (${a}, ${b}) : Int"));
                     Some(slot)
                 }
+                // x.clamp(lo, hi) ≡ min(max(x, lo), hi)
+                ("clamp", 2) => {
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let lo = encode_syn_expr(&m.args[0], param_names, lines, next)?;
+                    let hi = encode_syn_expr(&m.args[1], param_names, lines, next)?;
+                    let mx = *next;
+                    *next += 1;
+                    lines.push(format!("${mx} = call max (${a}, ${lo}) : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = call min (${mx}, ${hi}) : Int"));
+                    Some(slot)
+                }
                 _ => None,
             }
         }
@@ -743,6 +756,13 @@ fn multi_let(x: i64) -> i64 { let a = x + 1; let b = a + 1; b }
     }
 
     #[test]
+    fn clamp_method_body_ir() {
+        let ir =
+            try_ir_from_rust_body("C", &px(), Some("i64"), "x . clamp (0 , 10)").expect("clamp");
+        assert!(ir.contains("call max") && ir.contains("call min"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "C").expect("parse");
+    }
+
     fn abs_min_max_method_and_call() {
         let abs = try_ir_from_rust_body("A", &px(), Some("i64"), "x . abs ()").expect("abs");
         assert!(abs.contains("call abs"), "{abs}");

@@ -3215,6 +3215,32 @@ fn notb(b: bool) -> bool { !b }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
 }
 
+/// x.clamp(lo, hi) encodes as min(max(x, lo), hi).
+#[test]
+fn check_rust_encodes_clamp() {
+    let tmp = unique_temp("assura_check_rust_clamp");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+/// @ensures result <= 10
+fn f(x: i64) -> i64 { x.clamp(0, 10) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "clamp should pass: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+    assert!(v["verified"].as_u64().unwrap_or(0) >= 2, "{stdout}");
+}
+
 /// Nested if/else-if encodes multi-block IR and can CE wrong branches.
 #[test]
 fn check_rust_encodes_nested_if_body() {
