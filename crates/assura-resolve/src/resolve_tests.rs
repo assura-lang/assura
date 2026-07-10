@@ -1410,6 +1410,35 @@ contract Foo {
 }
 
 #[test]
+fn contract_input_and_inline_fn_same_params_not_duplicate() {
+    // Dogfood: natural form combines input(...) with named inline fn.
+    let src = r#"
+contract Safe {
+  input(x: Int, y: Int)
+  requires { y != 0 }
+  ensures { true }
+  fn div(x: Int, y: Int) -> Int
+}
+"#;
+    let file = parse_ok(src);
+    let resolved = resolve(&file).expect("input + inline fn should not A02003");
+    let params: Vec<&str> = resolved
+        .symbols
+        .symbols
+        .iter()
+        .filter(|s| s.kind == SymbolKind::Parameter)
+        .map(|s| s.name.as_str())
+        .collect();
+    assert!(params.contains(&"x"));
+    assert!(params.contains(&"y"));
+    assert_eq!(
+        params.iter().filter(|n| **n == "x").count(),
+        1,
+        "x registered once"
+    );
+}
+
+#[test]
 fn contract_input_params_accessible_from_ensures() {
     // Params declared in input should be usable in ensures
     let src = r#"
