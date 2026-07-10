@@ -17,7 +17,17 @@ pub(crate) fn check_file_once(
     let source = match fs::read_to_string(filename) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Error: {filename}: {e}");
+            if output_mode == OutputMode::Json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "file": filename,
+                    "error": format!("{e}"),
+                    "message": format!("{filename}: {e}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: {filename}: {e}");
+            }
             return true;
         }
     };

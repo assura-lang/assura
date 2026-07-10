@@ -87,7 +87,7 @@ pub(crate) fn agent_instructions_markdown() -> String {
     ];
 
     let mut out = String::new();
-    write!(
+    let _ = write!(
         out,
         r#"# Assura: AI Agent Quick Reference
 
@@ -152,17 +152,16 @@ contract ContractName {{
 | Rust Type | Assura Type |
 |-----------|-------------|
 "#
-    )
-    .unwrap();
+    );
 
     for (rust, assura) in &type_pairs {
-        writeln!(out, "| `{rust}` | `{assura}` |").unwrap();
+        let _ = writeln!(out, "| `{rust}` | `{assura}` |");
     }
     for (rust, assura) in &dynamic_pairs {
-        writeln!(out, "| `{rust}` | `{assura}` |").unwrap();
+        let _ = writeln!(out, "| `{rust}` | `{assura}` |");
     }
 
-    write!(
+    let _ = write!(
         out,
         r#"
 ## Binding Contracts to Existing Rust Functions
@@ -200,6 +199,7 @@ assura check file.assura --json            # pure JSON for agents
 assura check file.assura --watch           # re-check on changes
 assura check file.assura --stats           # verification statistics
 assura check-rust src/lib.rs               # /// @requires / @ensures on Rust
+assura check-rust src/lib.rs --json        # pure JSON; without co-located .ir ensures are body_not_modeled
 
 # Build: verify + generate Rust
 assura build file.assura                   # default output: generated/ beside source
@@ -300,8 +300,7 @@ contract WriteLog {{
 }}
 ```
 "#
-    )
-    .unwrap();
+    );
 
     out
 }
@@ -331,8 +330,9 @@ mod tests {
             "title": "Assura: AI Agent Quick Reference",
             "markdown": md,
         });
-        let text = serde_json::to_string(&report).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let text = serde_json::to_string(&report).expect("serialize agent instructions JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&text).expect("parse agent instructions JSON");
         assert!(
             parsed["markdown"]
                 .as_str()
