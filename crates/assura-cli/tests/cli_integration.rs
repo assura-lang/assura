@@ -3378,7 +3378,8 @@ fn check_rust_encodes_saturating_mul() {
     std::fs::write(
         tmp.join("ok.rs"),
         r#"
-/// @ensures result >= 0
+/// @requires x >= 0
+/// @ensures result >= x
 fn f(x: i64) -> i64 { x.saturating_mul(2) }
 "#,
     )
