@@ -512,6 +512,31 @@ fn encode_syn_expr(
             let name = path.path.segments[0].ident.to_string();
             param_names.iter().position(|n| *n == name)
         }
+        // i64::MIN / i64::MAX / u8::MAX (fits i64) as Int consts
+        syn::Expr::Path(path) if path.path.segments.len() == 2 => {
+            let ty = path.path.segments[0].ident.to_string();
+            let name = path.path.segments[1].ident.to_string();
+            let val: Option<i64> = match (ty.as_str(), name.as_str()) {
+                ("i8", "MIN") => Some(i8::MIN as i64),
+                ("i8", "MAX") => Some(i8::MAX as i64),
+                ("i16", "MIN") => Some(i16::MIN as i64),
+                ("i16", "MAX") => Some(i16::MAX as i64),
+                ("i32", "MIN") => Some(i32::MIN as i64),
+                ("i32", "MAX") => Some(i32::MAX as i64),
+                ("i64", "MIN") | ("isize", "MIN") => Some(i64::MIN),
+                ("i64", "MAX") | ("isize", "MAX") => Some(i64::MAX),
+                ("u8", "MAX") => Some(u8::MAX as i64),
+                ("u16", "MAX") => Some(u16::MAX as i64),
+                ("u32", "MAX") => Some(u32::MAX as i64),
+                ("u8" | "u16" | "u32", "MIN") => Some(0),
+                _ => None,
+            };
+            let v = val?;
+            let slot = *next;
+            *next += 1;
+            lines.push(format!("${slot} = const {v} : Int"));
+            Some(slot)
+        }
         syn::Expr::Lit(syn::ExprLit {
             lit: syn::Lit::Int(n),
             ..
@@ -648,6 +673,12 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = cmp eq ${a} ${z} : Bool"));
                     Some(slot)
                 }
+                ("default", 0) => {
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const 0 : Int"));
+                    Some(slot)
+                }
                 ("lt" | "le" | "gt" | "ge" | "eq" | "ne", 1) => {
                     let cmp = method.as_str();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -674,6 +705,34 @@ fn encode_syn_expr(
                     *next += 1;
                     lines.push(format!("${slot} = cmp eq ${rem} ${z} : Bool"));
                     Some(slot)
+                }
+                ("pow", 1) => {
+                    let syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Int(n),
+                        ..
+                    }) = &m.args[0]
+                    else {
+                        return None;
+                    };
+                    let exp: u32 = n.base10_parse().ok()?;
+                    if exp > 4 {
+                        return None;
+                    }
+                    let base = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    if exp == 0 {
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const 1 : Int"));
+                        return Some(slot);
+                    }
+                    let mut acc = base;
+                    for _ in 1..exp {
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = arith mul ${acc} ${base} : Int"));
+                        acc = slot;
+                    }
+                    Some(acc)
                 }
 
                 ("min" | "max", 1) => {
@@ -801,6 +860,12 @@ fn encode_syn_expr(
                 ("from", 1) if path.path.segments.len() == 2 => {
                     // i64::from(x) identity for integer-like
                     encode_syn_expr(&c.args[0], param_names, lines, next)
+                }
+                ("default", 0) => {
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const 0 : Int"));
+                    Some(slot)
                 }
                 _ => None,
             }
@@ -1139,5 +1204,31 @@ fn f(x: i64) -> i64 {
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "G").expect("parse");
         let ir2 = try_ir_from_rust_body("E", &px(), Some("bool"), "x.eq(&0)").expect("eq");
         assert!(ir2.contains("cmp eq"), "{ir2}");
+    }
+
+    #[test]
+    fn default_const_body_ir() {
+        let ir = try_ir_from_rust_body("D", &px(), Some("i64"), "i64::default()").expect("default");
+        assert!(ir.contains("const 0"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "D").expect("parse");
+    }
+
+    #[test]
+    fn associated_min_max_body_ir() {
+        let ir = try_ir_from_rust_body("M", &px(), Some("i64"), "i64::MAX").expect("max");
+        assert!(ir.contains(&i64::MAX.to_string()), "{ir}");
+        let ir2 = try_ir_from_rust_body("N", &px(), Some("i64"), "i64::MIN").expect("min");
+        assert!(ir2.contains(&i64::MIN.to_string()), "{ir2}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "M").expect("parse");
+    }
+
+    #[test]
+    fn pow_const_body_ir() {
+        let ir = try_ir_from_rust_body("P", &px(), Some("i64"), "x.pow(2)").expect("pow2");
+        assert!(ir.contains("arith mul"), "{ir}");
+        let ir0 = try_ir_from_rust_body("P0", &px(), Some("i64"), "x.pow(0)").expect("pow0");
+        assert!(ir0.contains("const 1"), "{ir0}");
+        assert!(try_ir_from_rust_body("Pb", &px(), Some("i64"), "x.pow(5)").is_none());
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "P").expect("parse");
     }
 }
