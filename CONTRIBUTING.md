@@ -139,6 +139,18 @@ cargo check -p <crate> --locked
 cargo test -p <crate> --locked --lib
 ```
 
+### `check-rust` body proof
+
+`assura check-rust` proves `/// @ensures` against either a co-located
+`{Name}.ir` sidecar or a **encoded** Rust body (int/bool arith, if/else,
+match literals and identity guards, multi-let folds, abs/min/max). Bodies
+that cannot be modeled report `body_not_modeled` and exit **1** (including
+SMT skipped/checked soft passes). Do not treat empty/skipped SMT as proof.
+
+Implementation: `crates/assura-cli/src/check/rust_body_ir.rs` (syn extract +
+IR text) and `should_mark_body_not_modeled` in `check_rust.rs`. Multi-block
+IR temps must use unique slots across sibling blocks (see module docs).
+
 ### Agent / global `--json` purity
 
 Subcommands that accept global `--json` must emit **only** parseable JSON on
