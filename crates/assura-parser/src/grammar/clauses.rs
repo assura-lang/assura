@@ -541,8 +541,11 @@ fn clause_body_expr(p: &mut Parser) {
 
     // Inline: [colon] expr until next clause stopper
     p.eat(SyntaxKind::COLON);
-    // Parse an inline expression
-    if !p.eof() && !is_clause_stopper(p) {
+    // Parse an inline expression. Use hard stoppers only (keywords / `}` / `)`),
+    // not IDENT clause starters: names like `state` are valid expression
+    // identifiers (`requires: state == Connected`) but also soft clause
+    // starters for typestate. Treating them as stoppers left empty bodies.
+    if !p.eof() && !is_clause_stopper_kind(p.current()) {
         expressions::expr(p);
     }
 }

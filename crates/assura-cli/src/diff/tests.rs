@@ -677,19 +677,19 @@ contract PostCheck {
 #[test]
 fn roundtrip_service_generates_typestate() {
     // A service with states should generate typestate markers
-    // Use braced Bool clause bodies (empty / unparsed raw bodies are A03006).
+    // Colon-form typestate clauses must parse as Bool expressions (not empty Raw).
     let source = r#"
 service Connection {
     states: Disconnected -> Connected -> Authenticated
 
     operation Connect {
-        requires { true }
-        ensures { true }
+        requires: state == Disconnected
+        ensures: state == Connected
     }
 
     operation Authenticate {
-        requires { true }
-        ensures { true }
+        requires: state == Connected
+        ensures: state == Authenticated
     }
 }
 "#;
