@@ -1289,4 +1289,12 @@ fn f(x: i64) -> i64 { let y = &x; *y }
     fn narrowing_cast_returns_none() {
         assert!(try_ir_from_rust_body("N", &px(), Some("i32"), "x as i32").is_none());
     }
+
+    #[test]
+    fn nested_method_chain_body_ir() {
+        let ir = try_ir_from_rust_body("C", &px(), Some("bool"), "x.abs().is_positive()")
+            .expect("chain");
+        assert!(ir.contains("call abs") && ir.contains("cmp gt"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "C").expect("parse");
+    }
 }
