@@ -200,7 +200,7 @@ pub(crate) fn list_ir_prompt_decls(file: &str) -> Vec<String> {
     let Ok(source) = fs::read_to_string(file) else {
         return Vec::new();
     };
-    let Ok(typed) = compile_typed(&source, file) else {
+    let Ok(typed) = compile_typed(&source, file, /*json*/ false) else {
         return Vec::new();
     };
     assura_smt::ir_prompt_contexts_for_typed(&typed, Some(Path::new(file)))
