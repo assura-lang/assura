@@ -2661,3 +2661,59 @@ fn check_showcase_only_filters_by_header() {
     );
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn diff_global_json_flag_emits_json() {
+    let tmp = unique_temp("assura_diff_global_json");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let a = tmp.join("a.assura");
+    let b = tmp.join("b.assura");
+    std::fs::write(
+        &a,
+        "contract T { input(x: Int) requires { x >= 0 } ensures { x >= 0 } }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        &b,
+        "contract T { input(x: Int) requires { x > 0 } ensures { x >= 0 } }\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["diff", a.to_str().unwrap(), b.to_str().unwrap(), "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("diff --json");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.trim_start().starts_with('{'),
+        "global --json should yield JSON, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("\"changes\"") || stdout.contains("identical"),
+        "JSON should have changes/identical: {stdout}"
+    );
+    // Should not print human "Requires:" banner as sole format
+    assert!(
+        !stdout.starts_with("T:"),
+        "must not be human-only format: {stdout}"
+    );
+
+    let id = Command::new(assura_bin())
+        .args(["diff", a.to_str().unwrap(), a.to_str().unwrap(), "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("diff identical --json");
+    let id_out = String::from_utf8_lossy(&id.stdout);
+    assert!(
+        id_out.trim_start().starts_with('{'),
+        "identical diff --json should be JSON: {id_out}"
+    );
+    assert!(
+        !id_out.contains("No structural differences"),
+        "must not print human identical message: {id_out}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
