@@ -172,9 +172,11 @@ The most common error. An expression has type `X` but the context
 expects type `Y`. Also used for **empty tuple types** such as `(,)`,
 `(Int,,Bool)`, nested `List<(,)>` / `Map<String, (,)>`, type aliases
 (`type Bad = (,)` or `type Bad = List<(,)>`), refined bases
-(`type Bad = { x: (,) | true }`), and empty tuple params or returns on
-`fn` / `service` (use `()` for Unit, or `(T,)` for a 1-tuple). Pair
-tuples in params work: `fn f(t: (Int, Bool))`.
+(`type Bad = { x: (,) | true }`), enum payloads (`enum E { Bad((,)) }`),
+and empty tuple params or returns on `fn` / `service` (use `()` for
+Unit, or `(T,)` for a 1-tuple). Pair tuples and generics work in enum
+payloads and params: `enum E { Box(List<Int>), Pair((Int, Bool)) }`,
+`fn f(t: (Int, Bool))`.
 
 ```
 Error A03001: type mismatch
