@@ -3517,6 +3517,68 @@ fn f(x: i32) -> i64 { i64::from(x) }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Logical && / || on bools encode and verify (0/1 mul / or-ne0).
+#[test]
+fn check_rust_encodes_bool_logic() {
+    let tmp = unique_temp("assura_check_rust_bool_logic");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == (a && b)
+fn both(a: bool, b: bool) -> bool { a && b }
+
+/// @ensures result == (a || b)
+fn either(a: bool, b: bool) -> bool { a || b }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "bool logic should pass: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+    assert!(v["verified"].as_u64().unwrap_or(0) >= 2, "{stdout}");
+}
+
+/// is_multiple_of encodes mod/eq; into/as are identity on i64.
+#[test]
+fn check_rust_encodes_multiple_into_as() {
+    let tmp = unique_temp("assura_check_rust_multiple_into");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == (x % 2 == 0)
+fn even(x: i64) -> bool { x.is_multiple_of(2) }
+
+/// @ensures result == x
+fn id_into(x: i64) -> i64 { x.into() }
+
+/// @ensures result == x
+fn id_as(x: i64) -> i64 { x as i64 }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "multiple/into/as should pass: {stdout}"
+    );
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+    assert!(v["verified"].as_u64().unwrap_or(0) >= 3, "{stdout}");
+}
+
 /// Nested if/else-if encodes multi-block IR and can CE wrong branches.
 #[test]
 fn check_rust_encodes_nested_if_body() {
