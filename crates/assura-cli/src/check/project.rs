@@ -53,17 +53,25 @@ pub(crate) fn run_check_project(
             }
         };
 
-    for w in &warnings {
-        if output_mode == OutputMode::Human {
-            eprintln!("Warning: {w}");
-        }
-    }
-
     let mut total_errors = 0usize;
     let mut total_modules = 0usize;
     let mut total_bindings = 0usize;
     let mut module_results: Vec<serde_json::Value> = Vec::new();
     let mut all_diags: Vec<assura_diagnostics::Diagnostic> = Vec::new();
+
+    // discover_and_resolve returns per-module resolution failures in `warnings`.
+    // Count them as project errors so a missing import fails the check.
+    for issue in &warnings {
+        total_errors += 1;
+        if output_mode == OutputMode::Human {
+            eprintln!("Error: {issue}");
+        } else {
+            all_diags.push(
+                assura_diagnostics::Diagnostic::error("A02006", issue.clone(), 0..0)
+                    .with_file(project_root.display().to_string()),
+            );
+        }
+    }
 
     // Module map keys are declared `module a.b` names (or filesystem-derived
     // dotted paths), not on-disk paths. Scan source files once for SHOWCASE.

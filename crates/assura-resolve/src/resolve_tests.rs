@@ -624,7 +624,7 @@ import b;
 
 #[test]
 fn import_mixed_resolved_and_unresolved() {
-    // One import resolves, another does not.
+    // One import resolves, another does not. Non-empty module map => A02006 error.
     let target_src = r#"
 module known.mod;
 
@@ -640,10 +640,17 @@ import unknown.mod;
 "#;
     let file = parse_ok(src);
     let mut visited = HashSet::new();
-    let resolved = resolve_with_modules(&file, &module_map, &mut visited).expect("should succeed");
-    assert_eq!(resolved.imports.len(), 2);
-    assert_eq!(resolved.imports[0].status, ImportStatus::Resolved);
-    assert_eq!(resolved.imports[1].status, ImportStatus::Unresolved);
+    let result = resolve_with_modules(&file, &module_map, &mut visited);
+    assert!(
+        result.is_err(),
+        "missing module in project map should hard-error"
+    );
+    let errs = result.unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A02006" && e.message.contains("unknown.mod")),
+        "expected A02006 for unknown.mod, got {errs:?}"
+    );
 }
 
 #[test]
@@ -1119,6 +1126,8 @@ import std.collections;
 
 #[test]
 fn unused_import_reported_as_warning() {
+    // Single-file resolve: unknown import is A02006 (cannot resolve), not
+    // the misleading A02007 unused import.
     let src = r#"
 import std.math;
 contract Foo {
@@ -1131,8 +1140,44 @@ requires { x > 0 }
         resolved
             .warnings
             .iter()
+            .any(|w| w.code == "A02006" && w.message.contains("std.math")),
+        "expected A02006 cannot-resolve warning for std.math, got {:?}",
+        resolved.warnings
+    );
+    assert!(
+        resolved.warnings.iter().all(|w| w.code != "A02007"),
+        "unresolved imports must not also be A02007 unused"
+    );
+}
+
+#[test]
+fn unused_resolved_import_is_a02007() {
+    // When the module is in the map, an unused import is A02007.
+    let target_src = r#"
+module std.math;
+type T { x: Int }
+"#;
+    let target_file = parse_ok(target_src);
+    let mut module_map = ModuleMap::new();
+    module_map.insert("std.math".to_string(), target_file);
+
+    let src = r#"
+import std.math;
+contract Foo {
+requires { true }
+}
+"#;
+    let file = parse_ok(src);
+    let mut visited = HashSet::new();
+    let resolved =
+        resolve_with_modules(&file, &module_map, &mut visited).expect("resolve succeeds");
+    assert!(
+        resolved
+            .warnings
+            .iter()
             .any(|w| w.code == "A02007" && w.message.contains("std.math")),
-        "expected unused import warning for std.math"
+        "expected A02007 unused for resolved import, got {:?}",
+        resolved.warnings
     );
 }
 
@@ -1724,13 +1769,33 @@ fn multi_file_missing_import() {
     )
     .unwrap();
 
-    // Should still succeed (unresolved imports are warnings, not fatal)
-    let (resolved, _) = discover_and_resolve_project(&dir)
-        .expect("project should resolve even with missing import");
-    assert!(
-        resolved.contains_key("main"),
-        "main should resolve even with missing import"
-    );
+    // Missing imports hard-fail with A02006 when a project module map is present.
+    let result = discover_and_resolve_project(&dir);
+    match result {
+        Ok((resolved, issues)) => {
+            // Some modules may still resolve; issues must report the miss.
+            assert!(
+                !issues.is_empty() || !resolved.contains_key("main"),
+                "missing import must surface as issue or omit the broken module"
+            );
+            if !issues.is_empty() {
+                assert!(
+                    issues
+                        .iter()
+                        .any(|i| i.contains("nonexistent") || i.contains("resolution")),
+                    "expected missing-import issue, got {issues:?}"
+                );
+            }
+        }
+        Err(errors) => {
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| e.contains("resolution") || e.contains("nonexistent")),
+                "expected resolution error, got {errors:?}"
+            );
+        }
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
