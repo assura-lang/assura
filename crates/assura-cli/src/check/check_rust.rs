@@ -133,6 +133,7 @@ pub(crate) fn run_check_rust(
     let mut total_clauses = 0usize;
     let mut total_verified = 0usize;
     let mut total_errors = 0usize;
+    let mut total_body_not_modeled = 0usize;
     let mut all_results: Vec<serde_json::Value> = Vec::new();
 
     for (file_path, items) in &file_items {
@@ -289,6 +290,34 @@ pub(crate) fn run_check_rust(
                 } else {
                     item_status = "verified";
                 }
+
+                // #951: heuristic IR synthesis can "verify" ensures without the
+                // Rust body. Co-located `{Name}.ir` is the only body model we
+                // accept as proof for check-rust. Without it, never claim
+                // `verified` when the annotation has ensures (result may be free
+                // or synthesized).
+                let has_ensures = !item.contract.ensures.is_empty();
+                let colocated = assura_smt::LoadedVerifyExtras::load(file_path.as_path(), typed);
+                let has_body_ir = colocated.loaded_names().iter().any(|n| n == &item_name);
+                if should_mark_body_not_modeled(
+                    has_ensures,
+                    has_body_ir,
+                    item_status,
+                    item_verified,
+                    item_errors,
+                ) {
+                    if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
+                        eprintln!(
+                            "  note: `{item_name}` has no co-located IR; ensures were not \
+                             proven against the Rust body (status body_not_modeled)"
+                        );
+                    }
+                    item_skipped += item_verified;
+                    item_verified = 0;
+                    item_status = "body_not_modeled";
+                    total_body_not_modeled += 1;
+                }
+
                 total_verified += item_verified;
                 total_errors += item_errors;
             } else if parse_ok {
@@ -366,13 +395,18 @@ pub(crate) fn run_check_rust(
             "clauses": total_clauses,
             "verified": total_verified,
             "errors": total_errors,
+            "body_not_modeled": total_body_not_modeled,
             "results": all_results,
+            "policy": "check-rust proves annotations (+ co-located .ir); Rust bodies are not encoded without IR",
         });
         println!("{}", serde_json::to_string_pretty(&summary).unwrap());
+        if total_errors > 0 || total_body_not_modeled > 0 {
+            process::exit(1);
+        }
     } else if verbosity != Verbosity::Quiet {
         println!();
         println!(
-            "check-rust: {} file(s), {} annotated item(s), {} clause(s), {} verified, {} error(s)",
+            "check-rust: {} file(s), {} annotated item(s), {} clause(s), {} verified, {} error(s), {} body_not_modeled",
             file_items.len(),
             file_items
                 .iter()
@@ -380,19 +414,26 @@ pub(crate) fn run_check_rust(
                 .sum::<usize>(),
             total_clauses,
             total_verified,
-            total_errors
+            total_errors,
+            total_body_not_modeled
         );
         if total_errors > 0 {
             eprintln!("{total_errors} verification error(s)");
             process::exit(1);
+        } else if total_body_not_modeled > 0 {
+            eprintln!(
+                "{total_body_not_modeled} item(s) not proven against the Rust body \
+                 (add co-located {{Name}}.ir or use check on .assura + IR)"
+            );
+            process::exit(1);
         } else if total_verified == 0 {
             println!(
-                "No clauses SMT-verified (annotations parsed; add IR or synthesizable ensures for proof)"
+                "No clauses SMT-verified (annotations parsed; add co-located IR for body proof)"
             );
         } else {
             println!("All hard verification checks passed ({total_verified} verified)");
         }
-    } else if total_errors > 0 {
+    } else if total_errors > 0 || total_body_not_modeled > 0 {
         process::exit(1);
     }
 }
@@ -804,4 +845,47 @@ pub(crate) fn clause_to_json(
         "body": clause.body,
         "offset": clause.offset,
     })
+}
+
+/// Whether check-rust should downgrade SMT "verified" to `body_not_modeled`.
+///
+/// See #951: without co-located IR, ensures may be proven only against
+/// synthesized IR shapes, not the annotated Rust function body.
+pub(crate) fn should_mark_body_not_modeled(
+    has_ensures: bool,
+    has_body_ir: bool,
+    item_status: &str,
+    item_verified: usize,
+    item_errors: usize,
+) -> bool {
+    has_ensures
+        && !has_body_ir
+        && item_verified > 0
+        && item_errors == 0
+        && matches!(item_status, "verified" | "partial")
+}
+
+#[cfg(test)]
+mod body_policy_tests {
+    use super::should_mark_body_not_modeled;
+
+    #[test]
+    fn marks_synthesized_ensures_without_ir() {
+        assert!(should_mark_body_not_modeled(true, false, "verified", 1, 0));
+        assert!(should_mark_body_not_modeled(true, false, "partial", 1, 0));
+    }
+
+    #[test]
+    fn keeps_verified_when_colocated_ir_present() {
+        assert!(!should_mark_body_not_modeled(true, true, "verified", 1, 0));
+    }
+
+    #[test]
+    fn keeps_requires_only_or_errors() {
+        assert!(!should_mark_body_not_modeled(
+            false, false, "verified", 1, 0
+        ));
+        assert!(!should_mark_body_not_modeled(true, false, "error", 0, 1));
+        assert!(!should_mark_body_not_modeled(true, false, "skipped", 0, 0));
+    }
 }
