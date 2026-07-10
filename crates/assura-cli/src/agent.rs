@@ -199,7 +199,7 @@ assura check file.assura --json            # pure JSON for agents
 assura check file.assura --watch           # re-check on changes
 assura check file.assura --stats           # verification statistics
 assura check-rust src/lib.rs               # /// @requires / @ensures on Rust
-assura check-rust src/lib.rs --json        # pure JSON; body proof: .ir or encoded int/bool/&&/||/if/match/multi-let/abs/min/max/clamp/saturating/abs_diff/pow/is_multiple_of/into/as/default/PartialOrd; else body_not_modeled
+assura check-rust src/lib.rs --json        # pure JSON; body proof: .ir or encoded int/bool/&&/||/if/match/multi-let/abs/min/max/clamp/saturating/abs_diff/pow/is_multiple_of/into/as/default/PartialOrd/borrow/deref; else body_not_modeled
 
 # Build: verify + generate Rust
 assura build file.assura                   # default output: generated/ beside source
