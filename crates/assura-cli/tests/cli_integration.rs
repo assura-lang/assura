@@ -3682,6 +3682,33 @@ fn sq(x: i64) -> i64 { x.pow(2) }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// bool.not() and as_ref identity encode.
+#[test]
+fn check_rust_encodes_not_method() {
+    let tmp = unique_temp("assura_check_rust_not");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == !a
+fn n(a: bool) -> bool { a.not() }
+
+/// @ensures result == x
+fn r(x: i64) -> i64 { x.as_ref() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "not/as_ref should pass: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Nested if/else-if encodes multi-block IR and can CE wrong branches.
 #[test]
 fn check_rust_encodes_nested_if_body() {
