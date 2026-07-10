@@ -222,7 +222,8 @@ assura suggest-from-crash --target src/lib.rs --crash-dir artifacts/
 # Docs / diff / playground
 assura doc file.assura --verify
 assura diff old.assura new.assura --verify --json
-assura repl
+assura repl                                # interactive contract playground
+assura repl --json                         # NDJSON one object per command
 
 # Other
 assura init my-project                     # scaffold assura.toml + starter contract

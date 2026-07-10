@@ -26,10 +26,23 @@ pub(crate) fn run_check_rust(
 ) {
     use assura_rust_analyzer::{AnnotatedItem, AnnotatedItemKind};
 
+    let json = output_mode == OutputMode::Json;
     if layer > 3 {
-        eprintln!(
-            "Error: invalid --layer {layer} (expected 0=structural, 1=SMT, 2=quantified/termination, 3=BMC)"
-        );
+        if json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": "invalid_layer",
+                "layer": layer,
+                "message": format!(
+                    "invalid --layer {layer} (expected 0=structural, 1=SMT, 2=quantified/termination, 3=BMC)"
+                ),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!(
+                "Error: invalid --layer {layer} (expected 0=structural, 1=SMT, 2=quantified/termination, 3=BMC)"
+            );
+        }
         process::exit(2);
     }
 
@@ -40,7 +53,17 @@ pub(crate) fn run_check_rust(
         match assura_rust_analyzer::scan_directory(p) {
             Ok(results) => results,
             Err(e) => {
-                eprintln!("Error scanning directory: {e}");
+                if json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "path": path,
+                        "error": "scan_failed",
+                        "message": format!("Error scanning directory: {e}"),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("Error scanning directory: {e}");
+                }
                 process::exit(1);
             }
         }
@@ -48,23 +71,59 @@ pub(crate) fn run_check_rust(
         match assura_rust_analyzer::parse_rust_file(p) {
             Ok(items) if !items.is_empty() => vec![(p.to_path_buf(), items)],
             Ok(_) => {
-                if verbosity != Verbosity::Quiet {
+                if json {
+                    let report = serde_json::json!({
+                        "ok": true,
+                        "path": path,
+                        "items": 0,
+                        "message": format!("{path}: no inline contract annotations found"),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else if verbosity != Verbosity::Quiet {
                     println!("{path}: no inline contract annotations found");
                 }
                 return;
             }
             Err(e) => {
-                eprintln!("Error parsing {path}: {e}");
+                if json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "path": path,
+                        "error": "parse_failed",
+                        "message": format!("Error parsing {path}: {e}"),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("Error parsing {path}: {e}");
+                }
                 process::exit(1);
             }
         }
     } else {
-        eprintln!("Error: {path} is not a file or directory");
+        if json {
+            let report = serde_json::json!({
+                "ok": false,
+                "path": path,
+                "error": "not_found",
+                "message": format!("{path} is not a file or directory"),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: {path} is not a file or directory");
+        }
         process::exit(1);
     };
 
     if file_items.is_empty() {
-        if verbosity != Verbosity::Quiet {
+        if json {
+            let report = serde_json::json!({
+                "ok": true,
+                "path": path,
+                "items": 0,
+                "message": format!("No inline contract annotations found in {path}"),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else if verbosity != Verbosity::Quiet {
             println!("No inline contract annotations found in {path}");
         }
         return;

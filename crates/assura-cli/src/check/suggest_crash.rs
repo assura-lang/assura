@@ -59,12 +59,31 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
             }
             Ok(a) => a,
             Err(e) => {
-                eprintln!("Error reading crash directory {dir}: {e}");
+                if output_mode == OutputMode::Json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "error": "crash_dir_read_failed",
+                        "path": dir,
+                        "message": format!("Error reading crash directory {dir}: {e}"),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("Error reading crash directory {dir}: {e}");
+                }
                 process::exit(1);
             }
         }
     } else {
-        eprintln!("Error: specify --crash-input or --crash-dir");
+        if output_mode == OutputMode::Json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": "missing_crash_input",
+                "message": "specify --crash-input or --crash-dir",
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: specify --crash-input or --crash-dir");
+        }
         process::exit(1);
     };
 
