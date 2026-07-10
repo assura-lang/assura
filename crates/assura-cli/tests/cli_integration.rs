@@ -3733,6 +3733,38 @@ fn f(x: i64) -> i64 { let y = &x; *y }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Narrowing `as i32` must not pretend to model the body (BNM).
+#[test]
+fn check_rust_narrowing_cast_body_not_modeled() {
+    let tmp = unique_temp("assura_check_rust_narrow_cast");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == x
+fn f(x: i64) -> i32 { x as i32 }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    // Should not claim verified body model; BNM or type issues
+    assert!(
+        v["body_not_modeled"].as_u64().unwrap_or(0) >= 1
+            || !out.status.success(),
+        "narrowing cast must not soft-pass as verified body: {stdout}"
+    );
+    // specifically no false success with body_not_modeled=0 and verified>0 without model
+    if out.status.success() {
+        assert_ne!(v["body_not_modeled"], 0, "must BNM: {stdout}");
+    }
+}
+
 /// Nested if/else-if encodes multi-block IR and can CE wrong branches.
 #[test]
 fn check_rust_encodes_nested_if_body() {
