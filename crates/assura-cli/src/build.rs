@@ -615,31 +615,30 @@ pub(crate) fn resolve_output_dir<'a>(cli_output: &'a str, config_output: &'a str
     }
 }
 
-/// When using the default relative output name (`generated`), resolve it next
-/// to the input file so `assura build /tmp/project/lib.assura` writes to
+/// When using the **default** output name (`generated`), resolve it next to
+/// the input file so `assura build /tmp/project/lib.assura` writes to
 /// `/tmp/project/generated/` instead of `./generated/`.
 ///
-/// Explicit relative paths (e.g. `--output myproj/gen`) stay CWD-relative so
-/// `assura build myproj/contracts/lib.assura --output myproj/gen` does not
-/// nest as `myproj/contracts/myproj/gen`.
+/// Any other relative `--output` (including single-segment names like
+/// `covproj` or multi-segment `myproj/gen`) stays CWD-relative. Dogfood:
+/// `build contracts/lib.assura --output covproj` must not write
+/// `contracts/covproj/`.
 ///
-/// Returns `None` if the path should not be rewritten (absolute, multi-component
-/// relative, or input has no parent).
+/// Returns `None` if the path should not be rewritten.
 fn resolve_output_dir_for_file(out_dir_str: &str, filename: &str) -> Option<std::path::PathBuf> {
     let out_path = Path::new(out_dir_str);
     if out_path.is_absolute() {
         return None;
     }
-    // Only rewrite the bare default (or other single-segment) output names.
-    // Paths with separators are explicit CWD-relative destinations.
-    if out_path.components().count() != 1 {
+    // Only rewrite the CLI/config default directory name.
+    if out_dir_str != "generated" {
         return None;
     }
     let input_parent = Path::new(filename).parent()?;
     if input_parent == Path::new("") || input_parent == Path::new(".") {
         return None;
     }
-    Some(input_parent.join(out_dir_str))
+    Some(input_parent.join("generated"))
 }
 
 /// Resolve the SMT solver.
@@ -1511,6 +1510,16 @@ mod tests {
         assert!(
             p.is_none(),
             "explicit relative multi-segment --output should not join source parent"
+        );
+    }
+
+    #[test]
+    fn explicit_single_segment_output_stays_cwd_relative() {
+        // --output covproj must not become contracts/covproj
+        let p = resolve_output_dir_for_file("covproj", "covproj/contracts/lib.assura");
+        assert!(
+            p.is_none(),
+            "explicit single-segment --output should stay CWD-relative"
         );
     }
 
