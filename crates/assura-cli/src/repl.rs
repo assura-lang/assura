@@ -60,8 +60,38 @@ pub(crate) fn run_repl(output_mode: OutputMode) {
         let trimmed = line.trim();
 
         if !in_block {
-            if trimmed == ":quit" || trimmed == ":q" || trimmed == ":exit" {
+            // Colon commands and bare quit/exit/help (agents often omit the colon).
+            if matches!(trimmed, ":quit" | ":q" | ":exit" | "quit" | "q" | "exit") {
+                if json {
+                    println!("{}", serde_json::json!({ "ok": true, "command": "quit" }));
+                }
                 break;
+            }
+            if matches!(trimmed, ":help" | "help" | "?") {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "ok": true,
+                            "command": "help",
+                            "commands": [
+                                ":type <rust_type>",
+                                ":explain <code>",
+                                ":load <file>",
+                                ":quit | quit | exit",
+                            ],
+                            "note": "Paste a contract (brace-balanced) to parse and verify.",
+                        })
+                    );
+                } else {
+                    println!("Commands:");
+                    println!("  :type <rust_type>     Show Assura type mapping");
+                    println!("  :explain <code>       Explain an error code");
+                    println!("  :load <file>          Load and verify a file");
+                    println!("  :quit / quit / exit   Exit");
+                    println!("  (or paste a contract to parse and verify)");
+                }
+                continue;
             }
             if trimmed.is_empty() {
                 continue;

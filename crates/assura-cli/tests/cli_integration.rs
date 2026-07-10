@@ -1094,6 +1094,60 @@ fn repl_quit_command_exits_zero() {
     );
 }
 
+/// Bare `quit` / `help` under --json must not be parsed as contract source.
+#[test]
+fn repl_json_bare_help_and_quit() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut child = Command::new(assura_bin())
+        .args(["repl", "--json"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to start assura repl --json");
+
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"help\nquit\n")
+        .unwrap();
+
+    let out = child.wait_with_output().expect("failed to wait on repl");
+    assert!(out.status.success(), "repl json help/quit should exit 0");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut saw_help = false;
+    let mut saw_quit = false;
+    for line in stdout.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let v: serde_json::Value =
+            serde_json::from_str(line).unwrap_or_else(|e| panic!("NDJSON line: {e}\n{line}"));
+        if v["command"] == "help" {
+            saw_help = true;
+            assert_eq!(v["ok"], true);
+            assert!(v["commands"].is_array());
+        }
+        if v["command"] == "quit" {
+            saw_quit = true;
+        }
+        // Must not treat "help" as a contract declaration
+        assert!(
+            v.get("declarations").is_none()
+                || !v["declarations"]
+                    .as_array()
+                    .map(|a| a.iter().any(|x| x.as_str() == Some("help ")))
+                    .unwrap_or(false),
+            "must not parse help as contract: {line}"
+        );
+    }
+    assert!(saw_help, "expected help NDJSON object, got: {stdout}");
+    assert!(saw_quit, "expected quit NDJSON object, got: {stdout}");
+}
+
 #[test]
 fn repl_type_command_maps_rust_types() {
     use std::io::Write;
