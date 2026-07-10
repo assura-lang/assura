@@ -3,16 +3,27 @@
 use super::super::*;
 
 // ---------------------------------------------------------------------------
-// Project-mode check: resolve and type-check all .assura files in a project
+// Project-mode check: resolve, type-check, and SMT-verify all .assura files
 // ---------------------------------------------------------------------------
+
+/// Map a module key (`a`, `pkg.sub`) to an on-disk `.assura` path under the
+/// project root (filesystem-derived modules use dotted path segments).
+fn module_key_to_path(project_root: &Path, module_path: &str) -> std::path::PathBuf {
+    let mut path = project_root.to_path_buf();
+    for segment in module_path.split('.') {
+        path.push(segment);
+    }
+    path.set_extension("assura");
+    path
+}
 
 pub(crate) fn run_check_project(
     project_dir: &Path,
     output_mode: OutputMode,
-    _verbosity: Verbosity,
+    verbosity: Verbosity,
     config: &CompilerConfig,
     showcase_only: bool,
-    _strict: bool,
+    strict: bool,
 ) {
     let (project_root, dep_map, dep_warnings) = load_project_deps(project_dir);
 
@@ -109,15 +120,114 @@ pub(crate) fn run_check_project(
                 let bindings = typed.type_env.len();
                 total_bindings += bindings;
                 let symbols = typed.resolved.symbols.symbols.len();
+
+                // SMT verify (same as single-file check). Without this,
+                // `assura check <dir>` only resolved/type-checked and
+                // silently accepted counterexamples (dogfood R85).
+                let file_path = module_key_to_path(&project_root, &module_path);
+                let filename = file_path.display().to_string();
+                let mut module_verify_errors = 0usize;
+                let mut verify_summaries: Vec<serde_json::Value> = Vec::new();
+                if config.verify.layer >= 1 {
+                    let results = assura_pipeline::verify_typed(&typed, &filename, config);
+                    for r in &results {
+                        match r {
+                            assura_smt::VerificationResult::Verified { .. } => {
+                                if output_mode == OutputMode::Human && verbosity != Verbosity::Quiet
+                                {
+                                    eprintln!("    {} ... verified", r.clause_desc());
+                                }
+                            }
+                            assura_smt::VerificationResult::Counterexample {
+                                clause_desc,
+                                model,
+                                ..
+                            } => {
+                                module_verify_errors += 1;
+                                total_errors += 1;
+                                if output_mode == OutputMode::Human {
+                                    eprintln!(
+                                        "    {clause_desc} ... COUNTEREXAMPLE\n      | {model}"
+                                    );
+                                }
+                                all_diags.push(
+                                    assura_diagnostics::Diagnostic::error(
+                                        "A05100",
+                                        format!(
+                                            "verification failed for {clause_desc}: counterexample: {model}"
+                                        ),
+                                        0..0,
+                                    )
+                                    .with_file(filename.clone()),
+                                );
+                            }
+                            assura_smt::VerificationResult::Timeout { clause_desc } => {
+                                module_verify_errors += 1;
+                                total_errors += 1;
+                                if output_mode == OutputMode::Human {
+                                    eprintln!("    {clause_desc} ... timeout");
+                                }
+                                all_diags.push(
+                                    assura_diagnostics::Diagnostic::error(
+                                        "A05101",
+                                        format!("verification timeout for {clause_desc}"),
+                                        0..0,
+                                    )
+                                    .with_file(filename.clone()),
+                                );
+                            }
+                            assura_smt::VerificationResult::Unknown {
+                                clause_desc,
+                                reason,
+                            } => {
+                                let known = assura_smt::is_known_smt_limitation(reason);
+                                if strict || !known {
+                                    module_verify_errors += 1;
+                                    total_errors += 1;
+                                }
+                                if output_mode == OutputMode::Human {
+                                    let tag = if known { "skipped" } else { "unknown" };
+                                    eprintln!("    {clause_desc} ... {tag} ({reason})");
+                                }
+                                if strict || !known {
+                                    all_diags.push(
+                                        assura_diagnostics::Diagnostic::error(
+                                            "A05102",
+                                            format!(
+                                                "verification unknown for {clause_desc}: {reason}"
+                                            ),
+                                            0..0,
+                                        )
+                                        .with_file(filename.clone()),
+                                    );
+                                }
+                            }
+                        }
+                        verify_summaries.push(r.to_json_value());
+                    }
+                }
+
+                let status = if module_verify_errors > 0 {
+                    "error"
+                } else {
+                    "ok"
+                };
                 if output_mode == OutputMode::Human {
-                    eprintln!("OK  {module_path}: {symbols} symbol(s), {bindings} binding(s)");
+                    if module_verify_errors > 0 {
+                        eprintln!(
+                            "ERR {module_path}: {symbols} symbol(s), {bindings} binding(s), {module_verify_errors} verify error(s)"
+                        );
+                    } else {
+                        eprintln!("OK  {module_path}: {symbols} symbol(s), {bindings} binding(s)");
+                    }
                 } else {
                     module_results.push(serde_json::json!({
                         "module": module_path,
-                        "status": "ok",
+                        "status": status,
                         "symbols": symbols,
                         "bindings": bindings,
-                        "errors": 0,
+                        "errors": module_verify_errors,
+                        "verification": verify_summaries,
                     }));
                 }
             }
