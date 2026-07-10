@@ -20,7 +20,7 @@
 // ============================================================================
 
 project effect_handler {
-  profile: [core, sec]
+    profile: [core, sec]
 }
 
 module eff.io_containment;
@@ -30,13 +30,13 @@ module eff.io_containment;
 // ---------------------------------------------------------------------------
 
 type RequestPayload = {
-  size: Nat;
-  priority: Nat;
+    size: Nat;
+    priority: Nat;
 };
 
 type ResponseMetadata = {
-  status_code: Nat;
-  latency_ms: Nat;
+    status_code: Nat;
+    latency_ms: Nat;
 };
 
 // ---------------------------------------------------------------------------
@@ -48,14 +48,14 @@ type ResponseMetadata = {
 // ---------------------------------------------------------------------------
 
 contract ValidateRequestSize {
-  input(payload_size: Nat, max_size: Nat)
+    input(payload_size: Nat, max_size: Nat)
 
-  requires { payload_size >= 0 }
-  requires { max_size == 1048576 }
-  requires { payload_size <= max_size }
-  ensures  { payload_size <= 1048576 }
-  ensures  { max_size >= payload_size }
-  effects { pure }
+    requires { payload_size >= 0 }
+    requires { max_size == 1048576 }
+    requires { payload_size <= max_size }
+    ensures  { payload_size <= 1048576 }
+    ensures  { max_size >= payload_size }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -67,14 +67,14 @@ contract ValidateRequestSize {
 // ---------------------------------------------------------------------------
 
 contract RateLimitEnforcement {
-  input(current_count: Nat, max_per_window: Nat)
+    input(current_count: Nat, max_per_window: Nat)
 
-  requires { current_count >= 0 }
-  requires { max_per_window == 1000 }
-  requires { current_count < max_per_window }
-  ensures  { current_count + 1 <= 1000 }
-  ensures  { max_per_window - current_count >= 1 }
-  effects { pure }
+    requires { current_count >= 0 }
+    requires { max_per_window == 1000 }
+    requires { current_count < max_per_window }
+    ensures  { current_count + 1 <= 1000 }
+    ensures  { max_per_window - current_count >= 1 }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -86,14 +86,14 @@ contract RateLimitEnforcement {
 // ---------------------------------------------------------------------------
 
 contract RetryBudget {
-  input(retries_used: Nat, max_retries: Nat)
+    input(retries_used: Nat, max_retries: Nat)
 
-  requires { retries_used >= 0 }
-  requires { max_retries == 5 }
-  requires { retries_used < max_retries }
-  ensures  { retries_used + 1 <= 5 }
-  ensures  { max_retries - retries_used >= 1 }
-  effects { pure }
+    requires { retries_used >= 0 }
+    requires { max_retries == 5 }
+    requires { retries_used < max_retries }
+    ensures  { retries_used + 1 <= 5 }
+    ensures  { max_retries - retries_used >= 1 }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -105,15 +105,15 @@ contract RetryBudget {
 // ---------------------------------------------------------------------------
 
 contract TimeoutEnforcement {
-  input(elapsed_ms: Nat, timeout_ms: Nat)
+    input(elapsed_ms: Nat, timeout_ms: Nat)
 
-  requires { elapsed_ms >= 0 }
-  requires { timeout_ms > 0 }
-  requires { timeout_ms <= 30000 }
-  requires { elapsed_ms <= timeout_ms }
-  ensures  { timeout_ms - elapsed_ms >= 0 }
-  ensures  { elapsed_ms <= 30000 }
-  effects { pure }
+    requires { elapsed_ms >= 0 }
+    requires { timeout_ms > 0 }
+    requires { timeout_ms <= 30000 }
+    requires { elapsed_ms <= timeout_ms }
+    ensures  { timeout_ms - elapsed_ms >= 0 }
+    ensures  { elapsed_ms <= 30000 }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -125,14 +125,14 @@ contract TimeoutEnforcement {
 // ---------------------------------------------------------------------------
 
 contract BatchOperationSize {
-  input(batch_size: Nat, max_batch: Nat)
+    input(batch_size: Nat, max_batch: Nat)
 
-  requires { batch_size > 0 }
-  requires { max_batch == 100 }
-  requires { batch_size <= max_batch }
-  ensures  { batch_size <= 100 }
-  ensures  { max_batch >= batch_size }
-  effects { pure }
+    requires { batch_size > 0 }
+    requires { max_batch == 100 }
+    requires { batch_size <= max_batch }
+    ensures  { batch_size <= 100 }
+    ensures  { max_batch >= batch_size }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -144,13 +144,13 @@ contract BatchOperationSize {
 // ---------------------------------------------------------------------------
 
 fn compute_priority_score(base_priority: Nat, urgency: Nat) -> Nat
-  requires { base_priority >= 0 }
-  requires { urgency >= 0 }
-  requires { urgency <= 10 }
-  requires { base_priority + urgency <= 1000 }
-  ensures  { base_priority + urgency <= 1000 }
-  ensures  { urgency <= 10 }
-  effects { pure }
+requires { base_priority >= 0 }
+requires { urgency >= 0 }
+requires { urgency <= 10 }
+requires { base_priority + urgency <= 1000 }
+ensures  { base_priority + urgency <= 1000 }
+ensures  { urgency <= 10 }
+effects { pure }
 
 // ============================================================================
 // Summary: What Assura proves at compile time

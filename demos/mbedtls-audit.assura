@@ -146,7 +146,7 @@ contract CbcDecryptPaddingArithmetic {
 // ============================================================
 contract AeadRecordLengthConsistency {
     input(buf_len: Int, data_offset_init: Int, data_len_init: Int,
-          dynamic_iv_len: Int, taglen: Int)
+    dynamic_iv_len: Int, taglen: Int)
 
     // buf_len from record header parsing
     requires { buf_len >= 0 }
@@ -198,7 +198,7 @@ contract AeadRecordLengthConsistency {
 // ============================================================
 contract TlsFragmentAccumulation {
     input(in_hslen: Int, in_hsfraglen: Int, in_msglen: Int,
-          in_buf_len: Int, payload_start_offset: Int)
+    in_buf_len: Int, payload_start_offset: Int)
 
     // in_hslen = header_len + total_msg_len, set from first fragment
     requires { in_hslen >= 4 }
@@ -324,7 +324,7 @@ contract DtlsClientHelloOffsets {
 // ============================================================
 contract AeadDecryptOutputBuffer {
     input(buf_len: Int, data_offset: Int, data_len: Int,
-          dynamic_iv_len: Int, taglen: Int)
+    dynamic_iv_len: Int, taglen: Int)
 
     // Initial record invariant
     requires { buf_len >= 5 }

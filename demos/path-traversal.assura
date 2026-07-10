@@ -19,7 +19,7 @@
 // ============================================================================
 
 project path_traversal_demo {
-  profile: [core, sec]
+    profile: [core, sec]
 }
 
 module sec.path_traversal;
@@ -33,22 +33,22 @@ module sec.path_traversal;
 // ---------------------------------------------------------------------------
 
 contract PathDepthValidation {
-  input(
+    input(
     path_depth: Int @taint:untrusted,
     max_depth: Nat @taint:trusted
-  )
+    )
 
-  // After normalization, depth must be non-negative (no upward traversal)
-  requires { path_depth >= 0 }
-  requires { max_depth > 0 }
-  requires { path_depth <= max_depth }
-  requires { max_depth <= 256 }
+    // After normalization, depth must be non-negative (no upward traversal)
+    requires { path_depth >= 0 }
+    requires { max_depth > 0 }
+    requires { path_depth <= max_depth }
+    requires { max_depth <= 256 }
 
-  // PROVEN BY Z3: path is within allowed depth
-  ensures { path_depth <= 256 }
-  ensures { max_depth >= path_depth }
+    // PROVEN BY Z3: path is within allowed depth
+    ensures { path_depth <= 256 }
+    ensures { max_depth >= path_depth }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -60,24 +60,24 @@ contract PathDepthValidation {
 // ---------------------------------------------------------------------------
 
 contract DecodedPathLength {
-  input(
+    input(
     encoded_length: Nat,
     decoded_length: Nat,
     max_path_length: Nat
-  )
+    )
 
-  requires { encoded_length > 0 }
-  requires { decoded_length > 0 }
-  // Decoded is never longer than encoded
-  requires { decoded_length <= encoded_length }
-  requires { encoded_length <= max_path_length }
-  requires { max_path_length <= 4096 }
+    requires { encoded_length > 0 }
+    requires { decoded_length > 0 }
+    // Decoded is never longer than encoded
+    requires { decoded_length <= encoded_length }
+    requires { encoded_length <= max_path_length }
+    requires { max_path_length <= 4096 }
 
-  // PROVEN BY Z3: decoded path fits within buffer
-  ensures { decoded_length <= max_path_length }
-  ensures { decoded_length <= 4096 }
+    // PROVEN BY Z3: decoded path fits within buffer
+    ensures { decoded_length <= max_path_length }
+    ensures { decoded_length <= 4096 }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -89,19 +89,19 @@ contract DecodedPathLength {
 // ---------------------------------------------------------------------------
 
 contract DocumentRootContainment {
-  input(
+    input(
     root_prefix_length: Nat,
     full_path_length: Nat
-  )
+    )
 
-  requires { root_prefix_length > 0 }
-  requires { full_path_length >= root_prefix_length }
+    requires { root_prefix_length > 0 }
+    requires { full_path_length >= root_prefix_length }
 
-  // PROVEN BY Z3: the full path is at least as long as the root
-  ensures { full_path_length >= root_prefix_length }
-  ensures { full_path_length - root_prefix_length >= 0 }
+    // PROVEN BY Z3: the full path is at least as long as the root
+    ensures { full_path_length >= root_prefix_length }
+    ensures { full_path_length - root_prefix_length >= 0 }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -113,21 +113,21 @@ contract DocumentRootContainment {
 // ---------------------------------------------------------------------------
 
 contract PathComponentValidation {
-  input(
+    input(
     component_length: Nat,
     max_component_length: Nat
-  )
+    )
 
-  requires { component_length > 0 }
-  requires { max_component_length > 0 }
-  requires { component_length <= max_component_length }
-  requires { max_component_length <= 255 }
+    requires { component_length > 0 }
+    requires { max_component_length > 0 }
+    requires { component_length <= max_component_length }
+    requires { max_component_length <= 255 }
 
-  // PROVEN BY Z3: component is within filesystem limits
-  ensures { component_length <= 255 }
-  ensures { max_component_length >= component_length }
+    // PROVEN BY Z3: component is within filesystem limits
+    ensures { component_length <= 255 }
+    ensures { max_component_length >= component_length }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -135,15 +135,15 @@ contract PathComponentValidation {
 // ---------------------------------------------------------------------------
 
 fn count_remaining_depth(
-    current_depth: Nat,
-    max_depth: Nat
+current_depth: Nat,
+max_depth: Nat
 )
-  requires { current_depth >= 0 }
-  requires { max_depth > 0 }
-  requires { current_depth < max_depth }
-  ensures  { max_depth - current_depth >= 1 }
-  ensures  { current_depth < max_depth }
-  effects { pure }
+requires { current_depth >= 0 }
+requires { max_depth > 0 }
+requires { current_depth < max_depth }
+ensures  { max_depth - current_depth >= 1 }
+ensures  { current_depth < max_depth }
+effects { pure }
 
 // ============================================================================
 // Summary: What Assura proves at compile time

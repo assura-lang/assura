@@ -21,7 +21,7 @@
 // ============================================================================
 
 project null_deref_demo {
-  profile: [core, sec]
+    profile: [core, sec]
 }
 
 module sec.null_deref;
@@ -35,21 +35,21 @@ module sec.null_deref;
 // ---------------------------------------------------------------------------
 
 contract AlgorithmListBounds {
-  input(
+    input(
     algorithm_count: Nat,
     max_algorithms: Nat
-  )
+    )
 
-  requires { algorithm_count > 0 }
-  requires { max_algorithms > 0 }
-  requires { algorithm_count <= max_algorithms }
-  requires { max_algorithms <= 64 }
+    requires { algorithm_count > 0 }
+    requires { max_algorithms > 0 }
+    requires { algorithm_count <= max_algorithms }
+    requires { max_algorithms <= 64 }
 
-  // PROVEN BY Z3: algorithm count within safe limits
-  ensures { algorithm_count <= 64 }
-  ensures { max_algorithms >= algorithm_count }
+    // PROVEN BY Z3: algorithm count within safe limits
+    ensures { algorithm_count <= 64 }
+    ensures { max_algorithms >= algorithm_count }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -60,21 +60,21 @@ contract AlgorithmListBounds {
 // ---------------------------------------------------------------------------
 
 contract KexMessageBounds {
-  input(
+    input(
     message: Bytes,
     max_message_size: Nat
-  )
+    )
 
-  requires { message.length() > 0 }
-  requires { max_message_size > 0 }
-  requires { message.length() <= max_message_size }
-  requires { max_message_size <= 262144 }
+    requires { message.length() > 0 }
+    requires { max_message_size > 0 }
+    requires { message.length() <= max_message_size }
+    requires { max_message_size <= 262144 }
 
-  // PROVEN BY Z3: message size is within limits
-  ensures { message.length() <= 262144 }
-  ensures { max_message_size >= message.length() }
+    // PROVEN BY Z3: message size is within limits
+    ensures { message.length() <= 262144 }
+    ensures { max_message_size >= message.length() }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -86,21 +86,21 @@ contract KexMessageBounds {
 // ---------------------------------------------------------------------------
 
 contract SafeStringExtraction {
-  input(
+    input(
     remaining_bytes: Nat,
     declared_length: Nat
-  )
+    )
 
-  // Length prefix is 4 bytes, then the string content
-  requires { remaining_bytes >= 4 }
-  requires { declared_length > 0 }
-  requires { declared_length + 4 <= remaining_bytes }
+    // Length prefix is 4 bytes, then the string content
+    requires { remaining_bytes >= 4 }
+    requires { declared_length > 0 }
+    requires { declared_length + 4 <= remaining_bytes }
 
-  // PROVEN BY Z3: string fits within remaining message
-  ensures { declared_length + 4 <= remaining_bytes }
-  ensures { declared_length <= remaining_bytes - 4 }
+    // PROVEN BY Z3: string fits within remaining message
+    ensures { declared_length + 4 <= remaining_bytes }
+    ensures { declared_length <= remaining_bytes - 4 }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -112,21 +112,21 @@ contract SafeStringExtraction {
 // ---------------------------------------------------------------------------
 
 contract SessionKeySizeValidation {
-  input(
+    input(
     key_size: Nat,
     required_key_size: Nat
-  )
+    )
 
-  requires { key_size > 0 }
-  requires { required_key_size > 0 }
-  requires { key_size == required_key_size }
-  requires { required_key_size <= 64 }
+    requires { key_size > 0 }
+    requires { required_key_size > 0 }
+    requires { key_size == required_key_size }
+    requires { required_key_size <= 64 }
 
-  // PROVEN BY Z3: key size matches requirement
-  ensures { key_size == required_key_size }
-  ensures { key_size <= 64 }
+    // PROVEN BY Z3: key size matches requirement
+    ensures { key_size == required_key_size }
+    ensures { key_size <= 64 }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -134,16 +134,16 @@ contract SessionKeySizeValidation {
 // ---------------------------------------------------------------------------
 
 fn validate_banner_length(
-    banner_length: Nat,
-    max_banner_length: Nat
+banner_length: Nat,
+max_banner_length: Nat
 )
-  requires { banner_length >= 0 }
-  requires { max_banner_length > 0 }
-  requires { banner_length <= max_banner_length }
-  requires { max_banner_length <= 8192 }
-  ensures  { banner_length <= 8192 }
-  ensures  { max_banner_length >= banner_length }
-  effects { pure }
+requires { banner_length >= 0 }
+requires { max_banner_length > 0 }
+requires { banner_length <= max_banner_length }
+requires { max_banner_length <= 8192 }
+ensures  { banner_length <= 8192 }
+ensures  { max_banner_length >= banner_length }
+effects { pure }
 
 // ============================================================================
 // Summary: What Assura proves at compile time

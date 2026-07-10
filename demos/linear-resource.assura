@@ -15,7 +15,7 @@
 // ============================================================================
 
 project linear_resource {
-  profile: [core, sec]
+    profile: [core, sec]
 }
 
 module resource.linear;
@@ -25,8 +25,8 @@ module resource.linear;
 // ---------------------------------------------------------------------------
 
 type FileDescriptor = {
-  fd: Nat;
-  is_valid: Bool;
+    fd: Nat;
+    is_valid: Bool;
 };
 
 // ---------------------------------------------------------------------------
@@ -37,14 +37,14 @@ type FileDescriptor = {
 // ---------------------------------------------------------------------------
 
 contract FdWithinLimit {
-  input(fd: Nat, max_fd: Nat)
+    input(fd: Nat, max_fd: Nat)
 
-  requires { fd >= 0 }
-  requires { fd < max_fd }
-  requires { max_fd <= 1024 }
-  ensures  { fd < 1024 }
-  ensures  { max_fd - fd >= 1 }
-  effects { pure }
+    requires { fd >= 0 }
+    requires { fd < max_fd }
+    requires { max_fd <= 1024 }
+    ensures  { fd < 1024 }
+    ensures  { max_fd - fd >= 1 }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -55,15 +55,15 @@ contract FdWithinLimit {
 // ---------------------------------------------------------------------------
 
 contract ReadWithinBuffer {
-  input(buffer_size: Nat, read_request: Nat, offset: Nat)
+    input(buffer_size: Nat, read_request: Nat, offset: Nat)
 
-  requires { buffer_size > 0 }
-  requires { read_request > 0 }
-  requires { offset >= 0 }
-  requires { offset + read_request <= buffer_size }
-  ensures  { offset + read_request <= buffer_size }
-  ensures  { read_request <= buffer_size }
-  effects { pure }
+    requires { buffer_size > 0 }
+    requires { read_request > 0 }
+    requires { offset >= 0 }
+    requires { offset + read_request <= buffer_size }
+    ensures  { offset + read_request <= buffer_size }
+    ensures  { read_request <= buffer_size }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -74,15 +74,15 @@ contract ReadWithinBuffer {
 // ---------------------------------------------------------------------------
 
 contract WriteWithinData {
-  input(data_length: Nat, write_length: Nat, data_offset: Nat)
+    input(data_length: Nat, write_length: Nat, data_offset: Nat)
 
-  requires { data_length > 0 }
-  requires { write_length > 0 }
-  requires { data_offset >= 0 }
-  requires { data_offset + write_length <= data_length }
-  ensures  { data_offset + write_length <= data_length }
-  ensures  { write_length <= data_length }
-  effects { pure }
+    requires { data_length > 0 }
+    requires { write_length > 0 }
+    requires { data_offset >= 0 }
+    requires { data_offset + write_length <= data_length }
+    ensures  { data_offset + write_length <= data_length }
+    ensures  { write_length <= data_length }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -93,14 +93,14 @@ contract WriteWithinData {
 // ---------------------------------------------------------------------------
 
 contract SeekPositionValid {
-  input(file_size: Nat, seek_to: Nat)
+    input(file_size: Nat, seek_to: Nat)
 
-  requires { file_size >= 0 }
-  requires { seek_to >= 0 }
-  requires { seek_to <= file_size }
-  ensures  { seek_to <= file_size }
-  ensures  { file_size >= seek_to }
-  effects { pure }
+    requires { file_size >= 0 }
+    requires { seek_to >= 0 }
+    requires { seek_to <= file_size }
+    ensures  { seek_to <= file_size }
+    ensures  { file_size >= seek_to }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -111,15 +111,15 @@ contract SeekPositionValid {
 // ---------------------------------------------------------------------------
 
 contract ResourceCountAfterOpen {
-  input(current_open: Nat, max_allowed: Nat)
+    input(current_open: Nat, max_allowed: Nat)
 
-  requires { current_open >= 0 }
-  requires { max_allowed > 0 }
-  requires { current_open < max_allowed }
-  requires { max_allowed <= 1024 }
-  ensures  { current_open + 1 <= max_allowed }
-  ensures  { current_open + 1 <= 1024 }
-  effects { pure }
+    requires { current_open >= 0 }
+    requires { max_allowed > 0 }
+    requires { current_open < max_allowed }
+    requires { max_allowed <= 1024 }
+    ensures  { current_open + 1 <= max_allowed }
+    ensures  { current_open + 1 <= 1024 }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -127,10 +127,10 @@ contract ResourceCountAfterOpen {
 // ---------------------------------------------------------------------------
 
 fn resource_count_after_close(current_open: Nat)
-  requires { current_open >= 1 }
-  ensures  { current_open - 1 >= 0 }
-  ensures  { current_open >= 1 }
-  effects { pure }
+requires { current_open >= 1 }
+ensures  { current_open - 1 >= 0 }
+ensures  { current_open >= 1 }
+effects { pure }
 
 // ============================================================================
 // Summary: What Assura proves at compile time

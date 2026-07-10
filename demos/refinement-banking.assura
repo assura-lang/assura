@@ -20,7 +20,7 @@
 // ============================================================================
 
 project refinement_banking {
-  profile: [core, sec, num]
+    profile: [core, sec, num]
 }
 
 module finance.banking;
@@ -30,14 +30,14 @@ module finance.banking;
 // ---------------------------------------------------------------------------
 
 type Account = {
-  id: Nat;
-  balance: Nat;
+    id: Nat;
+    balance: Nat;
 };
 
 type TransferRequest = {
-  from_id: Nat;
-  to_id: Nat;
-  amount: Nat;
+    from_id: Nat;
+    to_id: Nat;
+    amount: Nat;
 };
 
 // ---------------------------------------------------------------------------
@@ -49,15 +49,15 @@ type TransferRequest = {
 // ---------------------------------------------------------------------------
 
 fn transfer_preserves_sender_balance(
-    sender_balance: Nat,
-    amount: Nat
+sender_balance: Nat,
+amount: Nat
 )
-  requires { sender_balance >= 0 }
-  requires { amount > 0 }
-  requires { amount <= sender_balance }
-  ensures  { sender_balance - amount >= 0 }
-  ensures  { sender_balance >= amount }
-  effects: pure
+requires { sender_balance >= 0 }
+requires { amount > 0 }
+requires { amount <= sender_balance }
+ensures  { sender_balance - amount >= 0 }
+ensures  { sender_balance >= amount }
+effects: pure
 
 // ---------------------------------------------------------------------------
 // Verifiable property: money conservation in a two-account transfer
@@ -67,17 +67,17 @@ fn transfer_preserves_sender_balance(
 // ---------------------------------------------------------------------------
 
 fn transfer_conserves_money(
-    sender_bal: Nat,
-    receiver_bal: Nat,
-    amount: Nat
+sender_bal: Nat,
+receiver_bal: Nat,
+amount: Nat
 )
-  requires { sender_bal >= 0 }
-  requires { receiver_bal >= 0 }
-  requires { amount > 0 }
-  requires { amount <= sender_bal }
-  ensures  { sender_bal - amount + receiver_bal + amount == sender_bal + receiver_bal }
-  ensures  { sender_bal + receiver_bal >= amount }
-  effects: pure
+requires { sender_bal >= 0 }
+requires { receiver_bal >= 0 }
+requires { amount > 0 }
+requires { amount <= sender_bal }
+ensures  { sender_bal - amount + receiver_bal + amount == sender_bal + receiver_bal }
+ensures  { sender_bal + receiver_bal >= amount }
+effects: pure
 
 // ---------------------------------------------------------------------------
 // Verifiable property: withdrawal limits
@@ -90,18 +90,18 @@ fn transfer_conserves_money(
 feature_max DAILY_WITHDRAWAL_LIMIT: Nat = 10000
 
 fn withdrawal_within_daily_limit(
-    balance: Nat,
-    withdrawal: Nat,
-    daily_withdrawn: Nat
+balance: Nat,
+withdrawal: Nat,
+daily_withdrawn: Nat
 )
-  requires { balance >= 0 }
-  requires { withdrawal > 0 }
-  requires { withdrawal <= balance }
-  requires { daily_withdrawn >= 0 }
-  requires { daily_withdrawn + withdrawal <= DAILY_WITHDRAWAL_LIMIT }
-  ensures  { balance - withdrawal >= 0 }
-  ensures  { daily_withdrawn + withdrawal <= DAILY_WITHDRAWAL_LIMIT }
-  effects: pure
+requires { balance >= 0 }
+requires { withdrawal > 0 }
+requires { withdrawal <= balance }
+requires { daily_withdrawn >= 0 }
+requires { daily_withdrawn + withdrawal <= DAILY_WITHDRAWAL_LIMIT }
+ensures  { balance - withdrawal >= 0 }
+ensures  { daily_withdrawn + withdrawal <= DAILY_WITHDRAWAL_LIMIT }
+effects: pure
 
 // ---------------------------------------------------------------------------
 // Verifiable property: minimum balance enforcement
@@ -112,17 +112,17 @@ fn withdrawal_within_daily_limit(
 // ---------------------------------------------------------------------------
 
 fn minimum_balance_maintained(
-    balance: Nat,
-    debit: Nat,
-    min_balance: Nat
+balance: Nat,
+debit: Nat,
+min_balance: Nat
 )
-  requires { balance >= 0 }
-  requires { debit > 0 }
-  requires { min_balance >= 0 }
-  requires { balance - debit >= min_balance }
-  ensures  { balance - debit >= min_balance }
-  ensures  { balance >= debit + min_balance }
-  effects: pure
+requires { balance >= 0 }
+requires { debit > 0 }
+requires { min_balance >= 0 }
+requires { balance - debit >= min_balance }
+ensures  { balance - debit >= min_balance }
+ensures  { balance >= debit + min_balance }
+effects: pure
 
 // ---------------------------------------------------------------------------
 // Verifiable property: fee deduction safety
@@ -132,17 +132,17 @@ fn minimum_balance_maintained(
 // ---------------------------------------------------------------------------
 
 fn fee_deduction_safe(
-    balance: Nat,
-    amount: Nat,
-    fee: Nat
+balance: Nat,
+amount: Nat,
+fee: Nat
 )
-  requires { balance >= 0 }
-  requires { amount > 0 }
-  requires { fee >= 0 }
-  requires { amount + fee <= balance }
-  ensures  { balance - amount - fee >= 0 }
-  ensures  { amount + fee <= balance }
-  effects: pure
+requires { balance >= 0 }
+requires { amount > 0 }
+requires { fee >= 0 }
+requires { amount + fee <= balance }
+ensures  { balance - amount - fee >= 0 }
+ensures  { amount + fee <= balance }
+effects: pure
 
 // ============================================================================
 // Summary: What Assura proves at compile time

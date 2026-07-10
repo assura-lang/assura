@@ -30,7 +30,7 @@
 // ============================================================================
 
 project heartbleed_demo {
-  profile: [core, mem, sec]
+    profile: [core, mem, sec]
 }
 
 module tls.heartbeat;
@@ -51,35 +51,35 @@ module tls.heartbeat;
 // ---------------------------------------------------------------------------
 
 contract HeartbeatSafeResponse {
-  input(
+    input(
     record_length: Nat,
     payload_length: Nat,
     padding_length: Nat
-  )
+    )
 
-  // THE FIX: verify that claimed sizes fit within the actual record.
-  // header_size = 3 (type byte + 2-byte length field)
-  requires { record_length >= 3 }
-  requires { padding_length >= 16 }
-  requires { payload_length >= 1 }
-  requires { payload_length <= 16384 }
+    // THE FIX: verify that claimed sizes fit within the actual record.
+    // header_size = 3 (type byte + 2-byte length field)
+    requires { record_length >= 3 }
+    requires { padding_length >= 16 }
+    requires { payload_length >= 1 }
+    requires { payload_length <= 16384 }
 
-  // This is the one-line fix that was missing in OpenSSL:
-  // header (3) + payload + padding must fit within the record
-  requires { 3 + payload_length + padding_length <= record_length }
+    // This is the one-line fix that was missing in OpenSSL:
+    // header (3) + payload + padding must fit within the record
+    requires { 3 + payload_length + padding_length <= record_length }
 
-  // PROVEN BY Z3: the payload we copy back fits within received data.
-  // After the 3-byte header, (record_length - 3) bytes are available.
-  // We only copy payload_length bytes, which is <= available bytes.
-  ensures { payload_length <= record_length - 3 }
+    // PROVEN BY Z3: the payload we copy back fits within received data.
+    // After the 3-byte header, (record_length - 3) bytes are available.
+    // We only copy payload_length bytes, which is <= available bytes.
+    ensures { payload_length <= record_length - 3 }
 
-  // PROVEN BY Z3: the total of payload + padding fits
-  ensures { payload_length + padding_length <= record_length - 3 }
+    // PROVEN BY Z3: the total of payload + padding fits
+    ensures { payload_length + padding_length <= record_length - 3 }
 
-  // PROVEN BY Z3: payload is bounded by the RFC maximum
-  ensures { payload_length <= 16384 }
+    // PROVEN BY Z3: payload is bounded by the RFC maximum
+    ensures { payload_length <= 16384 }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -92,28 +92,28 @@ contract HeartbeatSafeResponse {
 // ---------------------------------------------------------------------------
 
 contract SafeMemcpy {
-  input(
+    input(
     src_length: Nat,
     src_offset: Nat,
     copy_length: Nat
-  )
+    )
 
-  // Source buffer has data
-  requires { src_length > 0 }
+    // Source buffer has data
+    requires { src_length > 0 }
 
-  // The copy region must be within the source buffer
-  requires { src_offset >= 0 }
-  requires { src_offset < src_length }
-  requires { copy_length > 0 }
-  requires { src_offset + copy_length <= src_length }
+    // The copy region must be within the source buffer
+    requires { src_offset >= 0 }
+    requires { src_offset < src_length }
+    requires { copy_length > 0 }
+    requires { src_offset + copy_length <= src_length }
 
-  // PROVEN BY Z3: the copy end does not exceed the buffer
-  ensures { src_offset + copy_length <= src_length }
+    // PROVEN BY Z3: the copy end does not exceed the buffer
+    ensures { src_offset + copy_length <= src_length }
 
-  // PROVEN BY Z3: the copy length is bounded by buffer size
-  ensures { copy_length <= src_length }
+    // PROVEN BY Z3: the copy length is bounded by buffer size
+    ensures { copy_length <= src_length }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -128,26 +128,26 @@ contract SafeMemcpy {
 // ---------------------------------------------------------------------------
 
 contract ValidateHeartbeatRequest {
-  input(
+    input(
     record_data: Bytes,
     declared_payload_len: Nat
-  )
+    )
 
-  // We received enough data for at least: header (3) + 1 byte payload + padding (16) = 20
-  requires { record_data.length() >= 20 }
+    // We received enough data for at least: header (3) + 1 byte payload + padding (16) = 20
+    requires { record_data.length() >= 20 }
 
-  // The declared payload must fit within what we actually received
-  requires { declared_payload_len >= 1 }
-  requires { 3 + declared_payload_len + 16 <= record_data.length() }
+    // The declared payload must fit within what we actually received
+    requires { declared_payload_len >= 1 }
+    requires { 3 + declared_payload_len + 16 <= record_data.length() }
 
-  // PROVEN BY Z3: the actual available data exceeds the declared payload.
-  // This is the invariant that prevents Heartbleed-class over-reads.
-  ensures { declared_payload_len <= record_data.length() - 3 - 16 }
+    // PROVEN BY Z3: the actual available data exceeds the declared payload.
+    // This is the invariant that prevents Heartbleed-class over-reads.
+    ensures { declared_payload_len <= record_data.length() - 3 - 16 }
 
-  // PROVEN BY Z3: we have enough room for the minimum valid record
-  ensures { record_data.length() >= 20 }
+    // PROVEN BY Z3: we have enough room for the minimum valid record
+    ensures { record_data.length() >= 20 }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -159,23 +159,23 @@ contract ValidateHeartbeatRequest {
 // ---------------------------------------------------------------------------
 
 contract HeartbeatResponseBuffer {
-  input(
+    input(
     payload_length: Nat,
     response_buffer_size: Nat
-  )
+    )
 
-  // Payload was already validated
-  requires { payload_length >= 1 }
-  requires { payload_length <= 16384 }
+    // Payload was already validated
+    requires { payload_length >= 1 }
+    requires { payload_length <= 16384 }
 
-  // Response buffer must fit header + payload + padding
-  requires { response_buffer_size >= 3 + payload_length + 16 }
+    // Response buffer must fit header + payload + padding
+    requires { response_buffer_size >= 3 + payload_length + 16 }
 
-  // PROVEN BY Z3: response buffer is large enough for the copy
-  ensures { response_buffer_size >= payload_length + 19 }
+    // PROVEN BY Z3: response buffer is large enough for the copy
+    ensures { response_buffer_size >= payload_length + 19 }
 
-  // PROVEN BY Z3: response buffer has room for at least the minimum
-  ensures { response_buffer_size >= 20 }
+    // PROVEN BY Z3: response buffer has room for at least the minimum
+    ensures { response_buffer_size >= 20 }
 
-  effects { pure }
+    effects { pure }
 }

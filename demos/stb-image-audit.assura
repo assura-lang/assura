@@ -15,46 +15,46 @@
 // involves a right shift then multiply by y. Does the check cover it?
 // =========================================================================
 contract PngInterlaceImgLen {
-  input(
+    input(
     img_n: Nat,
     x: Nat,
     depth: Nat,
     y: Nat
-  )
+    )
 
-  // img_n: 1-4 (PNG channels)
-  requires { img_n >= 1 }
-  requires { img_n <= 4 }
-  // depth: 1,2,4,8,16
-  requires { depth >= 1 }
-  requires { depth <= 16 }
-  // x, y from interlace pass: derived from image dimensions / spacing
-  // STBI_MAX_DIMENSIONS = 16777216
-  requires { x >= 1 }
-  requires { x <= 16777216 }
-  requires { y >= 1 }
-  requires { y <= 16777216 }
+    // img_n: 1-4 (PNG channels)
+    requires { img_n >= 1 }
+    requires { img_n <= 4 }
+    // depth: 1,2,4,8,16
+    requires { depth >= 1 }
+    requires { depth <= 16 }
+    // x, y from interlace pass: derived from image dimensions / spacing
+    // STBI_MAX_DIMENSIONS = 16777216
+    requires { x >= 1 }
+    requires { x <= 16777216 }
+    requires { y >= 1 }
+    requires { y <= 16777216 }
 
-  // The code checks: stbi__mad3sizes_valid(img_n, x, depth, 7)
-  // which validates: img_n*x*depth + 7 <= INT_MAX
-  requires { img_n * x * depth + 7 <= 2147483647 }
+    // The code checks: stbi__mad3sizes_valid(img_n, x, depth, 7)
+    // which validates: img_n*x*depth + 7 <= INT_MAX
+    requires { img_n * x * depth + 7 <= 2147483647 }
 
-  // Then computes: img_width_bytes = (img_n*x*depth + 7) >> 3
-  //                img_len = (img_width_bytes + 1) * y
-  // But the check on line 4719 is: mad2sizes_valid(img_width_bytes, y, img_width_bytes)
-  // which validates: img_width_bytes * y + img_width_bytes <= INT_MAX
-  // which is: img_width_bytes * (y + 1) <= INT_MAX
-  //
-  // The ACTUAL computation is: (img_width_bytes + 1) * y
-  // which is: img_width_bytes * y + y
-  //
-  // These are DIFFERENT:
-  //   check:  img_width_bytes * y + img_width_bytes = img_width_bytes * (y+1)
-  //   actual: img_width_bytes * y + y               = (img_width_bytes+1) * y
-  //
-  // Are there values where the check passes but the actual computation overflows?
+    // Then computes: img_width_bytes = (img_n*x*depth + 7) >> 3
+    //                img_len = (img_width_bytes + 1) * y
+    // But the check on line 4719 is: mad2sizes_valid(img_width_bytes, y, img_width_bytes)
+    // which validates: img_width_bytes * y + img_width_bytes <= INT_MAX
+    // which is: img_width_bytes * (y + 1) <= INT_MAX
+    //
+    // The ACTUAL computation is: (img_width_bytes + 1) * y
+    // which is: img_width_bytes * y + y
+    //
+    // These are DIFFERENT:
+    //   check:  img_width_bytes * y + img_width_bytes = img_width_bytes * (y+1)
+    //   actual: img_width_bytes * y + y               = (img_width_bytes+1) * y
+    //
+    // Are there values where the check passes but the actual computation overflows?
 
-  ensures { x * y <= 2147483647 }
+    ensures { x * y <= 2147483647 }
 }
 
 // =========================================================================
@@ -70,21 +70,21 @@ contract PngInterlaceImgLen {
 // has a bug. Let Z3 check.
 // =========================================================================
 contract GifPcountOverflow {
-  input(
+    input(
     w: Nat,
     h: Nat
-  )
+    )
 
-  requires { w >= 1 }
-  requires { h >= 1 }
-  requires { w <= 16777216 }
-  requires { h <= 16777216 }
+    requires { w >= 1 }
+    requires { h >= 1 }
+    requires { w <= 16777216 }
+    requires { h <= 16777216 }
 
-  // mad3sizes_valid(4, w, h, 0) says: 4*w*h+0 <= INT_MAX
-  requires { 4 * w * h <= 2147483647 }
+    // mad3sizes_valid(4, w, h, 0) says: 4*w*h+0 <= INT_MAX
+    requires { 4 * w * h <= 2147483647 }
 
-  // pcount = w * h should not overflow INT_MAX
-  ensures { w * h <= 2147483647 }
+    // pcount = w * h should not overflow INT_MAX
+    ensures { w * h <= 2147483647 }
 }
 
 // =========================================================================
@@ -101,32 +101,32 @@ contract GifPcountOverflow {
 // only runs in the non-interlace path; line 4883 is in the interlace loop.
 // =========================================================================
 contract PngInterlaceUncheckedImgLen {
-  input(
+    input(
     img_n: Nat,
     x: Nat,
     depth: Nat,
     y: Nat
-  )
+    )
 
-  requires { img_n >= 1 }
-  requires { img_n <= 4 }
-  requires { depth >= 1 }
-  requires { depth <= 16 }
-  // In interlace pass, x and y are derived from image dims / spacing
-  // max img_x/img_y = 16777216, spacing min = 1, so x,y can be up to 16777216
-  requires { x >= 1 }
-  requires { x <= 16777216 }
-  requires { y >= 1 }
-  requires { y <= 16777216 }
+    requires { img_n >= 1 }
+    requires { img_n <= 4 }
+    requires { depth >= 1 }
+    requires { depth <= 16 }
+    // In interlace pass, x and y are derived from image dims / spacing
+    // max img_x/img_y = 16777216, spacing min = 1, so x,y can be up to 16777216
+    requires { x >= 1 }
+    requires { x <= 16777216 }
+    requires { y >= 1 }
+    requires { y <= 16777216 }
 
-  // The interlace path does NOT call mad3sizes_valid on (img_n*x*depth+7)
-  // for each sub-pass. It only checks the full image once.
-  // So we only have STBI_MAX_DIMENSIONS as the bound.
+    // The interlace path does NOT call mad3sizes_valid on (img_n*x*depth+7)
+    // for each sub-pass. It only checks the full image once.
+    // So we only have STBI_MAX_DIMENSIONS as the bound.
 
-  // img_width_bytes = ((img_n * x * depth + 7) >> 3)
-  // img_len = (img_width_bytes + 1) * y
-  // stored in uint32, so must fit in 0..4294967295
-  ensures { img_n * x * depth + 7 <= 2147483647 }
+    // img_width_bytes = ((img_n * x * depth + 7) >> 3)
+    // img_len = (img_width_bytes + 1) * y
+    // stored in uint32, so must fit in 0..4294967295
+    ensures { img_n * x * depth + 7 <= 2147483647 }
 }
 
 // =========================================================================
@@ -144,28 +144,28 @@ contract PngInterlaceUncheckedImgLen {
 // can't overflow. Unless... let Z3 check the exact boundary.
 // =========================================================================
 contract Mad2Boundary {
-  input(
+    input(
     a: Nat,
     b: Nat,
     add: Nat
-  )
+    )
 
-  requires { a >= 0 }
-  requires { b >= 0 }
-  requires { add >= 0 }
-  requires { a <= 2147483647 }
-  requires { b <= 2147483647 }
-  requires { add <= 2147483647 }
+    requires { a >= 0 }
+    requires { b >= 0 }
+    requires { add >= 0 }
+    requires { a <= 2147483647 }
+    requires { b <= 2147483647 }
+    requires { add <= 2147483647 }
 
-  // mul2sizes_valid: a <= INT_MAX / b (when b > 0)
-  // This means a*b <= INT_MAX (safe)
-  requires { b >= 1 }
-  requires { a * b <= 2147483647 }
+    // mul2sizes_valid: a <= INT_MAX / b (when b > 0)
+    // This means a*b <= INT_MAX (safe)
+    requires { b >= 1 }
+    requires { a * b <= 2147483647 }
 
-  // addsizes_valid: a*b + add <= INT_MAX
-  // Since a*b <= INT_MAX and add >= 0, this CAN still overflow
-  // a*b could be INT_MAX and add could be 1
-  ensures { a * b + add <= 2147483647 }
+    // addsizes_valid: a*b + add <= INT_MAX
+    // Since a*b <= INT_MAX and add >= 0, this CAN still overflow
+    // a*b could be INT_MAX and add could be 1
+    ensures { a * b + add <= 2147483647 }
 }
 
 // =========================================================================
@@ -195,16 +195,16 @@ contract Mad2Boundary {
 // Let Z3 check anyway.
 // =========================================================================
 contract GifFramePcount {
-  input(
+    input(
     w: Nat,
     h: Nat
-  )
+    )
 
-  requires { w >= 1 }
-  requires { h >= 1 }
-  requires { w <= 2147483647 }
-  requires { h <= 2147483647 }
-  requires { 4 * w * h <= 2147483647 }
+    requires { w >= 1 }
+    requires { h >= 1 }
+    requires { w <= 2147483647 }
+    requires { h <= 2147483647 }
+    requires { 4 * w * h <= 2147483647 }
 
-  ensures { 4 * w * h <= 2147483647 }
+    ensures { 4 * w * h <= 2147483647 }
 }

@@ -22,7 +22,7 @@
 // ============================================================================
 
 project typestate_protocol {
-  profile: [core, sec]
+    profile: [core, sec]
 }
 
 module tls.handshake;
@@ -32,13 +32,13 @@ module tls.handshake;
 // ---------------------------------------------------------------------------
 
 type CipherSuite = {
-  id: Nat;
-  key_length: Nat;
+    id: Nat;
+    key_length: Nat;
 };
 
 type HandshakeMessage = {
-  msg_type: Nat;
-  length: Nat;
+    msg_type: Nat;
+    length: Nat;
 };
 
 // ---------------------------------------------------------------------------
@@ -50,13 +50,13 @@ type HandshakeMessage = {
 // ---------------------------------------------------------------------------
 
 enum TlsState {
-  Initial
-  ClientHelloSent
-  ServerHelloReceived
-  Negotiated
-  Authenticated
-  Connected
-  Closed
+    Initial
+    ClientHelloSent
+    ServerHelloReceived
+    Negotiated
+    Authenticated
+    Connected
+    Closed
 }
 
 // ---------------------------------------------------------------------------
@@ -67,15 +67,15 @@ enum TlsState {
 // ---------------------------------------------------------------------------
 
 fn handshake_step_bounded(
-    current_step: Nat,
-    total_steps: Nat
+current_step: Nat,
+total_steps: Nat
 )
-  requires { current_step >= 0 }
-  requires { current_step < total_steps }
-  requires { total_steps == 7 }
-  ensures  { current_step <= 6 }
-  ensures  { total_steps - current_step >= 1 }
-  effects: pure
+requires { current_step >= 0 }
+requires { current_step < total_steps }
+requires { total_steps == 7 }
+ensures  { current_step <= 6 }
+ensures  { total_steps - current_step >= 1 }
+effects: pure
 
 // ---------------------------------------------------------------------------
 // Verifiable property: cipher suite key length validation
@@ -85,15 +85,15 @@ fn handshake_step_bounded(
 // ---------------------------------------------------------------------------
 
 fn validate_cipher_suite(
-    key_length: Nat,
-    min_key_length: Nat
+key_length: Nat,
+min_key_length: Nat
 )
-  requires { key_length >= min_key_length }
-  requires { min_key_length >= 128 }
-  requires { key_length <= 256 }
-  ensures  { key_length >= 128 }
-  ensures  { key_length <= 256 }
-  effects: pure
+requires { key_length >= min_key_length }
+requires { min_key_length >= 128 }
+requires { key_length <= 256 }
+ensures  { key_length >= 128 }
+ensures  { key_length <= 256 }
+effects: pure
 
 // ---------------------------------------------------------------------------
 // Verifiable property: message sequence ordering
@@ -104,14 +104,14 @@ fn validate_cipher_suite(
 // ---------------------------------------------------------------------------
 
 fn message_ordering_valid(
-    prev_type: Nat,
-    curr_type: Nat
+prev_type: Nat,
+curr_type: Nat
 )
-  requires { prev_type >= 0 }
-  requires { curr_type > prev_type }
-  ensures  { curr_type > prev_type }
-  ensures  { curr_type >= 1 }
-  effects: pure
+requires { prev_type >= 0 }
+requires { curr_type > prev_type }
+ensures  { curr_type > prev_type }
+ensures  { curr_type >= 1 }
+effects: pure
 
 // ---------------------------------------------------------------------------
 // Verifiable property: certificate chain depth limit
@@ -125,16 +125,16 @@ feature_max MAX_CHAIN_DEPTH: Nat = 10
 feature_max MAX_TICKET_LIFETIME: Nat = 604800
 
 fn certificate_chain_bounded(
-    chain_depth: Nat,
-    current_cert: Nat
+chain_depth: Nat,
+current_cert: Nat
 )
-  requires { chain_depth >= 1 }
-  requires { chain_depth <= MAX_CHAIN_DEPTH }
-  requires { current_cert >= 0 }
-  requires { current_cert < chain_depth }
-  ensures  { current_cert < MAX_CHAIN_DEPTH }
-  ensures  { chain_depth - current_cert >= 1 }
-  effects: pure
+requires { chain_depth >= 1 }
+requires { chain_depth <= MAX_CHAIN_DEPTH }
+requires { current_cert >= 0 }
+requires { current_cert < chain_depth }
+ensures  { current_cert < MAX_CHAIN_DEPTH }
+ensures  { chain_depth - current_cert >= 1 }
+effects: pure
 
 // ---------------------------------------------------------------------------
 // Verifiable property: session ticket lifetime
@@ -144,17 +144,17 @@ fn certificate_chain_bounded(
 // ---------------------------------------------------------------------------
 
 fn session_ticket_lifetime_valid(
-    issued_at: Nat,
-    current_time: Nat,
-    max_lifetime: Nat
+issued_at: Nat,
+current_time: Nat,
+max_lifetime: Nat
 )
-  requires { issued_at >= 0 }
-  requires { current_time >= issued_at }
-  requires { max_lifetime == MAX_TICKET_LIFETIME }
-  requires { current_time - issued_at <= max_lifetime }
-  ensures  { current_time - issued_at <= MAX_TICKET_LIFETIME }
-  ensures  { current_time >= issued_at }
-  effects: pure
+requires { issued_at >= 0 }
+requires { current_time >= issued_at }
+requires { max_lifetime == MAX_TICKET_LIFETIME }
+requires { current_time - issued_at <= max_lifetime }
+ensures  { current_time - issued_at <= MAX_TICKET_LIFETIME }
+ensures  { current_time >= issued_at }
+effects: pure
 
 // ============================================================================
 // Summary: What Assura proves at compile time

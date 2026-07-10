@@ -12,7 +12,7 @@
 // ============================================================================
 
 project image_crate_audit {
-  profile: [core, mem, sec]
+    profile: [core, mem, sec]
 }
 
 module image_audit;
@@ -32,45 +32,45 @@ module image_audit;
 // ---------------------------------------------------------------------------
 
 contract OverlayBoundsBottomSafe {
-  input(
+    input(
     bottom_width: Nat,
     bottom_height: Nat,
     top_width: Nat,
     top_height: Nat,
     x: Int,
     y: Int
-  )
+    )
 
-  // Model the constraints from the actual code
-  // Images have positive dimensions (u32 in Rust, so 0..4294967295)
-  requires { bottom_width >= 1 }
-  requires { bottom_width <= 65535 }
-  requires { bottom_height >= 1 }
-  requires { bottom_height <= 65535 }
-  requires { top_width >= 1 }
-  requires { top_width <= 65535 }
-  requires { top_height >= 1 }
-  requires { top_height <= 65535 }
+    // Model the constraints from the actual code
+    // Images have positive dimensions (u32 in Rust, so 0..4294967295)
+    requires { bottom_width >= 1 }
+    requires { bottom_width <= 65535 }
+    requires { bottom_height >= 1 }
+    requires { bottom_height <= 65535 }
+    requires { top_width >= 1 }
+    requires { top_width <= 65535 }
+    requires { top_height >= 1 }
+    requires { top_height <= 65535 }
 
-  // The images overlap (the function returns early if they don't)
-  requires { x < bottom_width }
-  requires { y < bottom_height }
-  requires { x + top_width > 0 }
-  requires { y + top_height > 0 }
+    // The images overlap (the function returns early if they don't)
+    requires { x < bottom_width }
+    requires { y < bottom_height }
+    requires { x + top_width > 0 }
+    requires { y + top_height > 0 }
 
-  // Model the actual computation from overlay_bounds_ext:
-  // max_x = x + top_width (saturating, but within i64 range here)
-  // max_inbounds_x = clamp(max_x, 0, bottom_width)
-  // origin_bottom_x = clamp(x, 0, bottom_width)
-  // x_range = max_inbounds_x - origin_bottom_x
+    // Model the actual computation from overlay_bounds_ext:
+    // max_x = x + top_width (saturating, but within i64 range here)
+    // max_inbounds_x = clamp(max_x, 0, bottom_width)
+    // origin_bottom_x = clamp(x, 0, bottom_width)
+    // x_range = max_inbounds_x - origin_bottom_x
 
-  // The key property: origin_bottom_x + x_range <= bottom_width
-  // This expands to: max_inbounds_x <= bottom_width
-  // Since max_inbounds_x = clamp(x + top_width, 0, bottom_width),
-  // this is always true by construction.
-  ensures { bottom_width >= 1 }
+    // The key property: origin_bottom_x + x_range <= bottom_width
+    // This expands to: max_inbounds_x <= bottom_width
+    // Since max_inbounds_x = clamp(x + top_width, 0, bottom_width),
+    // this is always true by construction.
+    ensures { bottom_width >= 1 }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -93,29 +93,29 @@ contract OverlayBoundsBottomSafe {
 // ---------------------------------------------------------------------------
 
 contract BmpNumBytesOverflow {
-  input(
+    input(
     width: Nat,
     height: Nat,
     channels: Nat
-  )
+    )
 
-  // width and height come from BMP header (i32, but positive after check)
-  // MAX_WIDTH_HEIGHT = 0xFFFF = 65535
-  requires { width >= 1 }
-  requires { width <= 65535 }
-  requires { height >= 1 }
-  requires { height <= 65535 }
+    // width and height come from BMP header (i32, but positive after check)
+    // MAX_WIDTH_HEIGHT = 0xFFFF = 65535
+    requires { width >= 1 }
+    requires { width <= 65535 }
+    requires { height >= 1 }
+    requires { height <= 65535 }
 
-  // channels is 3 (RGB) or 4 (RGBA) for BMP
-  requires { channels >= 3 }
-  requires { channels <= 4 }
+    // channels is 3 (RGB) or 4 (RGBA) for BMP
+    requires { channels >= 3 }
+    requires { channels <= 4 }
 
-  // The product channels * width * height must not overflow usize (2^64)
-  // On 64-bit: 4 * 65535 * 65535 = 17,179,344,900 < 2^64, so this always fits.
-  // This is actually safe. But let's verify:
-  ensures { channels * width * height <= 17179869184 }
+    // The product channels * width * height must not overflow usize (2^64)
+    // On 64-bit: 4 * 65535 * 65535 = 17,179,344,900 < 2^64, so this always fits.
+    // This is actually safe. But let's verify:
+    ensures { channels * width * height <= 17179869184 }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -136,36 +136,36 @@ contract BmpNumBytesOverflow {
 // ---------------------------------------------------------------------------
 
 contract RleDeltaXOverflow {
-  input(
+    input(
     width: Nat,
     current_x: Nat,
     x_delta: Nat,
     y_delta: Nat
-  )
+    )
 
-  // width is from the BMP header, capped
-  requires { width >= 1 }
-  requires { width <= 65535 }
+    // width is from the BMP header, capped
+    requires { width >= 1 }
+    requires { width <= 65535 }
 
-  // current_x is within the row
-  requires { current_x >= 0 }
-  requires { current_x < width }
+    // current_x is within the row
+    requires { current_x >= 0 }
+    requires { current_x < width }
 
-  // x_delta and y_delta are u8 (read from stream)
-  requires { x_delta >= 0 }
-  requires { x_delta <= 255 }
-  requires { y_delta >= 0 }
-  requires { y_delta <= 255 }
+    // x_delta and y_delta are u8 (read from stream)
+    requires { x_delta >= 0 }
+    requires { x_delta <= 255 }
+    requires { y_delta >= 0 }
+    requires { y_delta <= 255 }
 
-  // After the delta, x should NOT exceed the width.
-  // The code does: x += x_delta as u32
-  // WITHOUT checking x + x_delta < width.
-  //
-  // If this ensures clause gets a COUNTEREXAMPLE from Z3,
-  // it means there exist valid inputs where x overflows the row.
-  ensures { current_x + x_delta < width }
+    // After the delta, x should NOT exceed the width.
+    // The code does: x += x_delta as u32
+    // WITHOUT checking x + x_delta < width.
+    //
+    // If this ensures clause gets a COUNTEREXAMPLE from Z3,
+    // it means there exist valid inputs where x overflows the row.
+    ensures { current_x + x_delta < width }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -181,34 +181,34 @@ contract RleDeltaXOverflow {
 // ---------------------------------------------------------------------------
 
 contract RleDeltaResumeStaleX {
-  input(
+    input(
     width: Nat,
     old_x: Nat,
     x_delta: Nat,
     y_delta: Nat
-  )
+    )
 
-  requires { width >= 1 }
-  requires { width <= 65535 }
+    requires { width >= 1 }
+    requires { width <= 65535 }
 
-  // old_x could be anything if a previous delta already pushed it past width
-  requires { old_x >= 0 }
-  requires { old_x <= 65535 }
+    // old_x could be anything if a previous delta already pushed it past width
+    requires { old_x >= 0 }
+    requires { old_x <= 65535 }
 
-  // Deltas from the stream
-  requires { x_delta >= 0 }
-  requires { x_delta <= 255 }
-  requires { y_delta >= 1 }  // This path only taken when y_delta > 0
+    // Deltas from the stream
+    requires { x_delta >= 0 }
+    requires { x_delta <= 255 }
+    requires { y_delta >= 1 }  // This path only taken when y_delta > 0
 
-  // After: new_x = old_x + x_delta (the code just does x += x_delta)
-  // On the new row, the code does: for _ in 0..x { pixel_iter.next() }
-  // If x > width, this loop tries to skip more pixels than exist in the row.
-  //
-  // The ensures checks: can new_x exceed width?
-  // If Z3 finds a counterexample, it means the resume logic is unsafe.
-  ensures { old_x + x_delta < width }
+    // After: new_x = old_x + x_delta (the code just does x += x_delta)
+    // On the new row, the code does: for _ in 0..x { pixel_iter.next() }
+    // If x > width, this loop tries to skip more pixels than exist in the row.
+    //
+    // The ensures checks: can new_x exceed width?
+    // If Z3 finds a counterexample, it means the resume logic is unsafe.
+    ensures { old_x + x_delta < width }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -228,29 +228,29 @@ contract RleDeltaResumeStaleX {
 // ---------------------------------------------------------------------------
 
 contract ThumbnailDivisionGuard {
-  input(
+    input(
     width: Nat,
     height: Nat,
     new_width: Nat,
     new_height: Nat
-  )
+    )
 
-  // Source image has valid dimensions
-  requires { width >= 1 }
-  requires { height >= 1 }
+    // Source image has valid dimensions
+    requires { width >= 1 }
+    requires { height >= 1 }
 
-  // Target dimensions are u32 -- any value is accepted by the type system
-  requires { new_width >= 0 }
-  requires { new_height >= 0 }
+    // Target dimensions are u32 -- any value is accepted by the type system
+    requires { new_width >= 0 }
+    requires { new_height >= 0 }
 
-  // The code guards: if height == 0 || width == 0 { return out; }
-  // But does NOT guard: if new_height == 0 || new_width == 0 { ... }
-  //
-  // This ensures should be violated when new_width or new_height is 0:
-  ensures { new_width >= 1 }
-  ensures { new_height >= 1 }
+    // The code guards: if height == 0 || width == 0 { return out; }
+    // But does NOT guard: if new_height == 0 || new_width == 0 { ... }
+    //
+    // This ensures should be violated when new_width or new_height is 0:
+    ensures { new_width >= 1 }
+    ensures { new_height >= 1 }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -270,35 +270,35 @@ contract ThumbnailDivisionGuard {
 // ---------------------------------------------------------------------------
 
 contract BottomUpRowIndex {
-  input(
+    input(
     height: Nat,
     start_row: Nat,
     file_row: Nat
-  )
+    )
 
-  requires { height >= 1 }
-  requires { height <= 65535 }
+    requires { height >= 1 }
+    requires { height <= 65535 }
 
-  // start_row is restored from RLE checkpoint
-  requires { start_row >= 0 }
-  requires { start_row <= 65535 }
+    // start_row is restored from RLE checkpoint
+    requires { start_row >= 0 }
+    requires { start_row <= 65535 }
 
-  // file_row is in start_row..height range
-  requires { file_row >= start_row }
-  requires { file_row < height }
+    // file_row is in start_row..height range
+    requires { file_row >= start_row }
+    requires { file_row < height }
 
-  // The computation: height - 1 - file_row must not underflow
-  // Since file_row < height, we have height - 1 - file_row >= 0.
-  // This should be safe.
-  ensures { height - 1 - file_row >= 0 }
+    // The computation: height - 1 - file_row must not underflow
+    // Since file_row < height, we have height - 1 - file_row >= 0.
+    // This should be safe.
+    ensures { height - 1 - file_row >= 0 }
 
-  // BUT: what if start_row >= height? The loop start_row..height
-  // produces an empty range. That's safe (no iterations), but it means
-  // no rows are decoded. Is that correct behavior?
-  // Let's check: can start_row >= height happen?
-  ensures { start_row < height }
+    // BUT: what if start_row >= height? The loop start_row..height
+    // produces an empty range. That's safe (no iterations), but it means
+    // no rows are decoded. Is that correct behavior?
+    // Let's check: can start_row >= height happen?
+    ensures { start_row < height }
 
-  effects { pure }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -321,34 +321,34 @@ contract BottomUpRowIndex {
 // ---------------------------------------------------------------------------
 
 contract FastBlurRadiusPanic {
-  input(
+    input(
     width: Nat,
     height: Nat,
     sigma_x100: Nat
-  )
+    )
 
-  // Image dimensions (u32)
-  requires { width >= 1 }
-  requires { width <= 65535 }
-  requires { height >= 1 }
-  requires { height <= 65535 }
+    // Image dimensions (u32)
+    requires { width >= 1 }
+    requires { width <= 65535 }
+    requires { height >= 1 }
+    requires { height <= 65535 }
 
-  // sigma is f32, model as integer * 100 for Z3
-  // sigma = sigma_x100 / 100
-  requires { sigma_x100 >= 1 }
+    // sigma is f32, model as integer * 100 for Z3
+    // sigma = sigma_x100 / 100
+    requires { sigma_x100 >= 1 }
 
-  // w_ideal = sqrt(12 * sigma^2 / 3 + 1) = sqrt(4 * sigma^2 + 1)
-  // radius ~= (w_ideal - 1) / 2 ~= sigma (for large sigma)
-  // Panic when: width + radius > 2^64 (usize::MAX on 64-bit)
-  //
-  // Since width <= 65535, we need radius > 2^64 - 65535, which needs
-  // sigma > ~2^64. Not reachable from f32 (max ~3.4e38).
-  //
-  // BUT on 32-bit systems (usize = u32), we need radius > 2^32 - 65535.
-  // sigma > ~2^32 IS reachable from f32.
-  //
-  // For 32-bit safety: width + sigma_approx must fit in 2^32
-  ensures { width + sigma_x100 <= 4294967295 }
+    // w_ideal = sqrt(12 * sigma^2 / 3 + 1) = sqrt(4 * sigma^2 + 1)
+    // radius ~= (w_ideal - 1) / 2 ~= sigma (for large sigma)
+    // Panic when: width + radius > 2^64 (usize::MAX on 64-bit)
+    //
+    // Since width <= 65535, we need radius > 2^64 - 65535, which needs
+    // sigma > ~2^64. Not reachable from f32 (max ~3.4e38).
+    //
+    // BUT on 32-bit systems (usize = u32), we need radius > 2^32 - 65535.
+    // sigma > ~2^32 IS reachable from f32.
+    //
+    // For 32-bit safety: width + sigma_approx must fit in 2^32
+    ensures { width + sigma_x100 <= 4294967295 }
 
-  effects { pure }
+    effects { pure }
 }

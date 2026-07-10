@@ -6,7 +6,7 @@
 // `result == x` instead of treating result as free.
 
 contract ShowcaseEcho {
-  input(x: Int)
-  output(result: Int)
-  ensures { result == x }
+    input(x: Int)
+    output(result: Int)
+    ensures { result == x }
 }

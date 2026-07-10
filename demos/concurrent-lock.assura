@@ -23,7 +23,7 @@
 // ============================================================================
 
 project concurrent_lock {
-  profile: [core, sec]
+    profile: [core, sec]
 }
 
 module conc.lock_ordering;
@@ -33,13 +33,13 @@ module conc.lock_ordering;
 // ---------------------------------------------------------------------------
 
 type LockHandle = {
-  id: Nat;
-  rank: Nat;
+    id: Nat;
+    rank: Nat;
 };
 
 type LockSet = {
-  count: Nat;
-  max_held: Nat;
+    count: Nat;
+    max_held: Nat;
 };
 
 // ---------------------------------------------------------------------------
@@ -51,13 +51,13 @@ type LockSet = {
 // ---------------------------------------------------------------------------
 
 contract LockOrderingAcquire {
-  input(held_max_rank: Nat, new_lock_rank: Nat)
+    input(held_max_rank: Nat, new_lock_rank: Nat)
 
-  requires { held_max_rank >= 0 }
-  requires { new_lock_rank > held_max_rank }
-  ensures  { new_lock_rank > held_max_rank }
-  ensures  { new_lock_rank >= 1 }
-  effects { pure }
+    requires { held_max_rank >= 0 }
+    requires { new_lock_rank > held_max_rank }
+    ensures  { new_lock_rank > held_max_rank }
+    ensures  { new_lock_rank >= 1 }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -69,14 +69,14 @@ contract LockOrderingAcquire {
 // ---------------------------------------------------------------------------
 
 contract LockCountBounded {
-  input(locks_held: Nat, max_locks: Nat)
+    input(locks_held: Nat, max_locks: Nat)
 
-  requires { locks_held >= 0 }
-  requires { max_locks == 8 }
-  requires { locks_held < max_locks }
-  ensures  { locks_held + 1 <= 8 }
-  ensures  { max_locks - locks_held >= 1 }
-  effects { pure }
+    requires { locks_held >= 0 }
+    requires { max_locks == 8 }
+    requires { locks_held < max_locks }
+    ensures  { locks_held + 1 <= 8 }
+    ensures  { max_locks - locks_held >= 1 }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -88,14 +88,14 @@ contract LockCountBounded {
 // ---------------------------------------------------------------------------
 
 contract LockReleaseOrder {
-  input(top_rank: Nat, next_rank: Nat)
+    input(top_rank: Nat, next_rank: Nat)
 
-  requires { top_rank > 0 }
-  requires { next_rank >= 0 }
-  requires { top_rank > next_rank }
-  ensures  { top_rank > next_rank }
-  ensures  { top_rank >= 1 }
-  effects { pure }
+    requires { top_rank > 0 }
+    requires { next_rank >= 0 }
+    requires { top_rank > next_rank }
+    ensures  { top_rank > next_rank }
+    ensures  { top_rank >= 1 }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -107,14 +107,14 @@ contract LockReleaseOrder {
 // ---------------------------------------------------------------------------
 
 contract TwoLockAcquisition {
-  input(lock_a_rank: Nat, lock_b_rank: Nat)
+    input(lock_a_rank: Nat, lock_b_rank: Nat)
 
-  requires { lock_a_rank >= 1 }
-  requires { lock_b_rank > lock_a_rank }
-  requires { lock_b_rank <= 100 }
-  ensures  { lock_b_rank > lock_a_rank }
-  ensures  { lock_a_rank < lock_b_rank }
-  effects { pure }
+    requires { lock_a_rank >= 1 }
+    requires { lock_b_rank > lock_a_rank }
+    requires { lock_b_rank <= 100 }
+    ensures  { lock_b_rank > lock_a_rank }
+    ensures  { lock_a_rank < lock_b_rank }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -126,15 +126,15 @@ contract TwoLockAcquisition {
 // ---------------------------------------------------------------------------
 
 contract LockRankAssignment {
-  input(id: Nat, rank: Nat, max_id: Nat)
+    input(id: Nat, rank: Nat, max_id: Nat)
 
-  requires { id >= 0 }
-  requires { id < max_id }
-  requires { rank == id + 1 }
-  requires { max_id <= 100 }
-  ensures  { rank >= 1 }
-  ensures  { rank <= 100 }
-  effects { pure }
+    requires { id >= 0 }
+    requires { id < max_id }
+    requires { rank == id + 1 }
+    requires { max_id <= 100 }
+    ensures  { rank >= 1 }
+    ensures  { rank <= 100 }
+    effects { pure }
 }
 
 // ---------------------------------------------------------------------------
@@ -142,10 +142,10 @@ contract LockRankAssignment {
 // ---------------------------------------------------------------------------
 
 fn lock_count_after_release(locks_held: Nat)
-  requires { locks_held >= 1 }
-  ensures  { locks_held - 1 >= 0 }
-  ensures  { locks_held >= 1 }
-  effects { pure }
+requires { locks_held >= 1 }
+ensures  { locks_held - 1 >= 0 }
+ensures  { locks_held >= 1 }
+effects { pure }
 
 // ============================================================================
 // Summary: What Assura proves at compile time

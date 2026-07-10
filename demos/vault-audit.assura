@@ -25,10 +25,10 @@
 // ============================================================
 contract DepositShareRounding {
     input(
-        deposit_amount: Int,        // amount of deposit asset (18 decimals)
-        rate: Int,                  // exchange rate from accountant (18 decimals)
-        one_share: Int,             // 10^18 for 18-decimal vault
-        share_premium: Int          // 0-1000 (basis points, max 10%)
+    deposit_amount: Int,        // amount of deposit asset (18 decimals)
+    rate: Int,                  // exchange rate from accountant (18 decimals)
+    one_share: Int,             // 10^18 for 18-decimal vault
+    share_premium: Int          // 0-1000 (basis points, max 10%)
     )
     requires { deposit_amount >= 1 }
     requires { deposit_amount <= 1000000000000000000000000000 }
@@ -66,9 +66,9 @@ contract DepositShareRounding {
 // ============================================================
 contract WithdrawRounding {
     input(
-        share_amount: Int,          // shares to burn
-        rate: Int,                  // exchange rate
-        one_share: Int              // 10^18
+    share_amount: Int,          // shares to burn
+    rate: Int,                  // exchange rate
+    one_share: Int              // 10^18
     )
     requires { share_amount >= 1 }
     requires { share_amount <= 1000000000000000000000000000 }
@@ -103,14 +103,14 @@ contract WithdrawRounding {
 // ============================================================
 contract FeeUint128Truncation {
     input(
-        total_shares: Int,          // total supply (uint128, 18 decimals)
-        exchange_rate: Int,         // current rate (uint96, 18 decimals)
-        new_rate: Int,              // new rate (uint96)
-        highwater_mark: Int,        // previous high (uint96)
-        platform_fee: Int,          // platform fee in bps (max 2000 = 20%)
-        performance_fee: Int,       // performance fee in bps (max 5000 = 50%)
-        time_delta: Int,            // seconds since last update
-        one_share: Int
+    total_shares: Int,          // total supply (uint128, 18 decimals)
+    exchange_rate: Int,         // current rate (uint96, 18 decimals)
+    new_rate: Int,              // new rate (uint96)
+    highwater_mark: Int,        // previous high (uint96)
+    platform_fee: Int,          // platform fee in bps (max 2000 = 20%)
+    performance_fee: Int,       // performance fee in bps (max 5000 = 50%)
+    time_delta: Int,            // seconds since last update
+    one_share: Int
     )
     requires { total_shares >= 0 }
     requires { total_shares <= 340282366920938463463374607431768211455 }
@@ -181,10 +181,10 @@ contract FeeUint128Truncation {
 // ============================================================
 contract ExchangeRateBoundsCheck {
     input(
-        current_rate: Int,          // current exchange rate (uint96)
-        new_rate: Int,              // proposed new rate (uint96)
-        upper_bound: Int,           // max allowed ratio (>= 10000)
-        lower_bound: Int            // min allowed ratio (<= 10000)
+    current_rate: Int,          // current exchange rate (uint96)
+    new_rate: Int,              // proposed new rate (uint96)
+    upper_bound: Int,           // max allowed ratio (>= 10000)
+    lower_bound: Int            // min allowed ratio (<= 10000)
     )
     requires { current_rate >= 1 }
     requires { current_rate <= 79228162514264337593543950335 }
@@ -227,11 +227,11 @@ contract ExchangeRateBoundsCheck {
 // ============================================================
 contract DepositWithdrawExtraction {
     input(
-        deposit_amount: Int,
-        rate_at_deposit: Int,
-        rate_at_withdraw: Int,
-        one_share: Int,
-        share_premium: Int
+    deposit_amount: Int,
+    rate_at_deposit: Int,
+    rate_at_withdraw: Int,
+    one_share: Int,
+    share_premium: Int
     )
     requires { deposit_amount >= 1 }
     requires { deposit_amount <= 1000000000000000000000000000 }
@@ -269,10 +269,10 @@ contract DepositWithdrawExtraction {
 // ============================================================
 contract PlatformFeeTimeProportional {
     input(
-        minimum_assets: Int,        // min(shares * old_rate, shares * new_rate) / ONE_SHARE
-        platform_fee: Int,          // fee in bps (max 2000)
-        time_total: Int,            // total time period
-        time_split: Int             // split point for two updates
+    minimum_assets: Int,        // min(shares * old_rate, shares * new_rate) / ONE_SHARE
+    platform_fee: Int,          // fee in bps (max 2000)
+    time_total: Int,            // total time period
+    time_split: Int             // split point for two updates
     )
     requires { minimum_assets >= 1 }
     requires { minimum_assets <= 1000000000000000000000000000 }
@@ -310,9 +310,9 @@ contract PlatformFeeTimeProportional {
 // ============================================================
 contract ChangeDecimalsPrecision {
     input(
-        amount: Int,                // fee amount in base decimals
-        from_decimals: Int,         // base decimals (e.g. 18)
-        to_decimals: Int            // fee asset decimals (e.g. 6 for USDC)
+    amount: Int,                // fee amount in base decimals
+    from_decimals: Int,         // base decimals (e.g. 18)
+    to_decimals: Int            // fee asset decimals (e.g. 6 for USDC)
     )
     requires { amount >= 1 }
     requires { amount <= 340282366920938463463374607431768211455 }
@@ -347,11 +347,11 @@ contract ChangeDecimalsPrecision {
 // ============================================================
 contract SharePremiumSplitAttack {
     input(
-        total_deposit: Int,         // total amount to deposit
-        rate: Int,
-        one_share: Int,
-        premium: Int,               // share premium in bps
-        num_splits: Int             // number of deposits to split into
+    total_deposit: Int,         // total amount to deposit
+    rate: Int,
+    one_share: Int,
+    premium: Int,               // share premium in bps
+    num_splits: Int             // number of deposits to split into
     )
     requires { total_deposit >= 2 }
     requires { total_deposit <= 1000000000000000000000000000 }
