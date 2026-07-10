@@ -520,6 +520,23 @@ fn emit_sat_clamp(val: usize, lines: &mut Vec<String>, next: &mut usize) -> Opti
     Some(slot)
 }
 
+fn is_identity_peel_method(name: &str) -> bool {
+    matches!(
+        name,
+        "clone"
+            | "to_owned"
+            | "into"
+            | "copied"
+            | "cloned"
+            | "as_ref"
+            | "as_mut"
+            | "borrow"
+            | "borrow_mut"
+            | "deref"
+            | "deref_mut"
+    )
+}
+
 /// Encode `expr` into IR lines; returns the slot holding the value.
 fn encode_syn_expr(
     expr: &syn::Expr,
@@ -714,11 +731,9 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = cmp {cmp} ${a} ${b} : Bool"));
                     Some(slot)
                 }
-                (
-                    "clone" | "to_owned" | "into" | "copied" | "cloned" | "as_ref" | "as_mut"
-                    | "borrow" | "borrow_mut" | "deref" | "deref_mut",
-                    0,
-                ) => encode_syn_expr(&m.receiver, param_names, lines, next),
+                (name, 0) if is_identity_peel_method(name) => {
+                    encode_syn_expr(&m.receiver, param_names, lines, next)
+                }
                 ("not", 0) => {
                     let zero = *next;
                     *next += 1;
