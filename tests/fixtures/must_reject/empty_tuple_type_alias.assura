@@ -1,0 +1,6 @@
+// MUST REJECT A03001
+type Bad = (,)
+contract C {
+  input(t: Bad)
+  ensures { true }
+}
