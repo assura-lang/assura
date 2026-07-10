@@ -1,8 +1,9 @@
 //! Encode simple Rust function bodies as Assura Implementation IR for check-rust.
 //!
 //! Supports integer arithmetic, abs/min/max, unary `-`, single-let inline,
-//! simple and nested `if`/`else` (expression branches), and Bool comparisons
-//! for `bool` return types. Body text is extracted with `syn` (co-publish-safe).
+//! simple and nested `if`/`else` (expression branches), simple `match` with
+//! int/bool/wildcard arms (no guards/bindings), and Bool comparisons for
+//! `bool` return types. Body text is extracted with `syn` (co-publish-safe).
 //!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
 //! `eval_ir_block` clones parent slots into each block; reusing `$1`/`$2` for
@@ -109,8 +110,8 @@ pub(crate) fn try_ir_from_rust_body(
     }
     let sig = sig_parts.join(", ");
 
-    // If (including nested else-if): multi-block IR (Clamp.ir style).
-    if matches!(expr, syn::Expr::If(_)) {
+    // If / match (including nested): multi-block IR (Clamp.ir style).
+    if matches!(expr, syn::Expr::If(_) | syn::Expr::Match(_)) {
         return try_ir_from_if_tree(item_name, &sig, &ret_assura, &param_names, &expr);
     }
 
@@ -178,7 +179,7 @@ fn try_ir_from_if_tree(
     Some(ir)
 }
 
-/// Emit IR for a value expression that may be a nested if. Returns block id.
+/// Emit IR for a value expression that may be a nested if/match. Returns block id.
 fn emit_value_blocks(
     expr: &syn::Expr,
     param_names: &[&str],
@@ -233,6 +234,55 @@ fn emit_value_blocks(
             }
             Some(this_id)
         }
+        syn::Expr::Match(m) => {
+            // Simple match: int/bool/wildcard arms, no guards or bindings (#993).
+            if m.arms.is_empty() {
+                return None;
+            }
+            let this_id = *next_block;
+            *next_block += 1;
+            blocks.push((this_id, Vec::new()));
+
+            let mut arm_specs: Vec<(String, usize)> = Vec::new();
+            for arm in &m.arms {
+                if arm.guard.is_some() {
+                    return None;
+                }
+                let pat = match_pattern_ir(&arm.pat)?;
+                let body_expr = match arm.body.as_ref() {
+                    syn::Expr::Block(b) => block_as_expr(&b.block)?,
+                    other => other,
+                };
+                let arm_id = emit_value_blocks(
+                    body_expr,
+                    param_names,
+                    ret_assura,
+                    blocks,
+                    next_block,
+                    next_slot,
+                )?;
+                arm_specs.push((pat, arm_id));
+            }
+
+            let mut main_lines = Vec::new();
+            let scrut = encode_syn_expr(&m.expr, param_names, &mut main_lines, next_slot)?;
+            let arms_joined = arm_specs
+                .iter()
+                .map(|(p, id)| format!("{p} => #{id}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let out = *next_slot;
+            *next_slot += 1;
+            main_lines.push(format!(
+                "${out} = match ${scrut} {{ {arms_joined} }} : {ret_assura}"
+            ));
+            main_lines.push(format!("$result = load ${out} : {ret_assura}"));
+
+            if let Some((_, lines)) = blocks.iter_mut().find(|(id, _)| *id == this_id) {
+                *lines = main_lines;
+            }
+            Some(this_id)
+        }
         other => {
             let this_id = *next_block;
             *next_block += 1;
@@ -243,6 +293,35 @@ fn emit_value_blocks(
             blocks.push((this_id, lines));
             Some(this_id)
         }
+    }
+}
+
+/// IR match pattern text for a simple arm (int/bool/wildcard only).
+fn match_pattern_ir(pat: &syn::Pat) -> Option<String> {
+    match pat {
+        syn::Pat::Wild(_) => Some("_".into()),
+        syn::Pat::Lit(lit) => match &lit.lit {
+            syn::Lit::Int(n) => {
+                let _ = n.base10_digits().parse::<i64>().ok()?;
+                Some(n.base10_digits().to_string())
+            }
+            syn::Lit::Bool(b) => Some(if b.value {
+                "true".into()
+            } else {
+                "false".into()
+            }),
+            _ => None,
+        },
+        // `true` / `false` as path patterns
+        syn::Pat::Path(p) if p.path.segments.len() == 1 => {
+            let name = p.path.segments[0].ident.to_string();
+            if name == "true" || name == "false" {
+                Some(name)
+            } else {
+                None
+            }
+        }
+        _ => None,
     }
 }
 
@@ -561,5 +640,30 @@ fn f(x: i64) -> i64 {
         let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
         assert!(ir.contains("then #1 else #2"), "{ir}");
         assert_no_slot_overlap_with_entry(&ir);
+    }
+
+    #[test]
+    fn simple_match_body_ir() {
+        let ir = try_ir_from_rust_body("Sign", &px(), Some("i64"), "match x { 0 => 0, _ => 1 }")
+            .expect("match ir");
+        assert!(ir.contains("match $0") && ir.contains("_ => #"), "{ir}");
+        assert_no_slot_overlap_with_entry(&ir);
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "Sign").expect("parse match");
+    }
+
+    #[test]
+    fn match_with_guard_or_binding_returns_none() {
+        assert!(
+            try_ir_from_rust_body(
+                "G",
+                &px(),
+                Some("i64"),
+                "match x { n if n > 0 => n, _ => 0 }"
+            )
+            .is_none()
+        );
+        assert!(
+            try_ir_from_rust_body("B", &px(), Some("i64"), "match x { n => n, _ => 0 }").is_none()
+        );
     }
 }
