@@ -12,6 +12,7 @@ mod check_rust;
 mod project;
 mod report;
 mod run;
+mod rust_body_ir;
 mod suggest_crash;
 mod types;
 mod watch;

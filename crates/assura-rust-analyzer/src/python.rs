@@ -105,6 +105,7 @@ fn parse_python_source(source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyzerE
                         is_unsafe: false,
                         is_async: func_info.3,
                         is_public,
+                        body_return: None,
                     },
                     line: i + 1, // 1-based
                     offset: byte_offset,

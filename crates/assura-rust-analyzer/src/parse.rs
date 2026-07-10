@@ -211,6 +211,34 @@ fn extract_return_type(sig: &syn::Signature) -> Option<String> {
     }
 }
 
+/// Trailing return expression of a simple function body for IR synthesis (#975).
+///
+/// Supports expression bodies (`{ expr }`) and a single `return expr;` statement.
+/// Multi-statement bodies return `None` (not yet encoded).
+fn extract_body_return(block: &syn::Block) -> Option<String> {
+    match block.stmts.as_slice() {
+        [syn::Stmt::Expr(syn::Expr::Return(ret), _)] => ret.expr.as_ref().map(|e| expr_source(e)),
+        [syn::Stmt::Expr(expr, _)] => Some(expr_source(expr)),
+        stmts if stmts.len() == 1 => {
+            if let syn::Stmt::Expr(expr, _) = &stmts[0] {
+                Some(expr_source(expr))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn expr_source(expr: &syn::Expr) -> String {
+    // Compact token stream (syn adds spaces around operators).
+    expr.to_token_stream()
+        .to_string()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Compute line number (1-based) from byte offset in source.
 fn offset_to_line(source: &str, offset: usize) -> usize {
     let clamped = offset.min(source.len());
@@ -241,6 +269,7 @@ pub fn parse_rust_source(source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyze
                             is_unsafe: func.sig.unsafety.is_some(),
                             is_async: func.sig.asyncness.is_some(),
                             is_public: matches!(func.vis, syn::Visibility::Public(_)),
+                            body_return: extract_body_return(&func.block),
                         },
                         line: offset_to_line(source, offset),
                         offset,
@@ -317,6 +346,7 @@ pub fn parse_rust_source(source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyze
                                     return_type: extract_return_type(&method.sig),
                                     is_unsafe: method.sig.unsafety.is_some(),
                                     is_async: method.sig.asyncness.is_some(),
+                                    body_return: extract_body_return(&method.block),
                                     is_public: matches!(method.vis, syn::Visibility::Public(_)),
                                 },
                                 line: offset_to_line(source, offset),

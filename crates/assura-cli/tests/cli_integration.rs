@@ -2779,6 +2779,41 @@ fn check_watch_rejects_stdin_json() {
     assert_eq!(v["error"], "watch_stdin_unsupported");
 }
 
+/// #975: wrong identity body vs ensures x+1 must CE (not silent verified / BNM).
+#[test]
+fn check_rust_encodes_identity_body_counterexample() {
+    let tmp = unique_temp("assura_check_rust_body_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @requires x > 0
+/// @ensures result == x + 1
+fn bad(x: i64) -> i64 { x }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "wrong body should fail: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).expect("check-rust --json");
+    assert_eq!(v["body_not_modeled"], 0, "body was encoded, not BNM: {v}");
+    assert!(
+        v["errors"].as_u64().unwrap_or(0) >= 1,
+        "expected counterexample/errors: {v}"
+    );
+    let status = v["results"][0]["status"].as_str().unwrap_or("");
+    assert_eq!(status, "error", "expected error status from CE: {v}");
+}
+
 /// test-gen -o write failure under --json must be parseable.
 #[test]
 fn test_gen_write_fail_json() {

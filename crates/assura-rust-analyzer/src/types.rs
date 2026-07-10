@@ -343,6 +343,10 @@ pub enum AnnotatedItemKind {
         is_unsafe: bool,
         is_async: bool,
         is_public: bool,
+        /// Trailing return expression source (e.g. `x + 1`) when the body is
+        /// a simple expression or `return expr;`. Used by check-rust to encode
+        /// identity/arithmetic bodies as IR (#975).
+        body_return: Option<String>,
     },
     /// A struct definition.
     Struct {
