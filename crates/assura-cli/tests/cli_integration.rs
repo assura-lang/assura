@@ -3030,6 +3030,38 @@ fn check_showcase_only_filters_by_header() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// --showcase-only with zero matches is vacuous (not silent "all green").
+#[test]
+fn check_showcase_only_vacuous_when_none_match() {
+    let tmp = unique_temp("assura_showcase_vacuous");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("plain.assura"),
+        "contract C { requires { true } ensures { true } fn f(x: Int) -> Int }\n",
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check", tmp.to_str().unwrap(), "--showcase-only", "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("showcase vacuous");
+    assert!(out.status.success());
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).expect("json");
+    assert_eq!(v["modules"], 0);
+    assert_eq!(v["vacuous"], true);
+    assert_eq!(v["showcase_only"], true);
+    assert!(
+        v["vacuous_reason"]
+            .as_str()
+            .unwrap_or("")
+            .contains("SHOWCASE"),
+        "{v}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 #[test]
 fn diff_global_json_flag_emits_json() {
     let tmp = unique_temp("assura_diff_global_json");
