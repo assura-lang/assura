@@ -231,8 +231,9 @@ pub(crate) fn run_build(opts: BuildOpts<'_>) {
         verify_and_print(&typed, filename, bc.solver, verbosity);
 
     // Prefer co-located IR sidecars for codegen bodies (#866).
+    // `--write-ir` runs above, so sidecars are already on disk for this load.
     // `--auto-implement` still uses the LLM path and overwrites when it wins.
-    let mut ir_bodies = if auto_implement {
+    let ir_bodies = if auto_implement {
         let ai_config = bc
             .project
             .as_ref()
@@ -242,10 +243,6 @@ pub(crate) fn run_build(opts: BuildOpts<'_>) {
     } else {
         rust_bodies_from_ir_sidecars(&typed, filename, verbosity)
     };
-    // After --write-ir, re-load co-located sidecars so codegen injects them.
-    if write_ir && !auto_implement {
-        ir_bodies = rust_bodies_from_ir_sidecars(&typed, filename, verbosity);
-    }
 
     // Codegen
     let codegen_start = Instant::now();
