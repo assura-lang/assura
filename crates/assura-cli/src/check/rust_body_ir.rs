@@ -41,25 +41,96 @@ fn body_return_from_block(block: &syn::Block) -> Option<String> {
     match block.stmts.as_slice() {
         [syn::Stmt::Expr(syn::Expr::Return(ret), _)] => ret.expr.as_ref().map(|e| expr_source(e)),
         [syn::Stmt::Expr(expr, _)] => Some(expr_source(expr)),
-        // Single let binding returned: `let y = e; y` → encode `e` (#986).
-        [syn::Stmt::Local(local), syn::Stmt::Expr(ret, _)] => {
-            let bind_name = match &local.pat {
-                syn::Pat::Ident(id) => id.ident.to_string(),
-                _ => return None,
-            };
-            let init = local.init.as_ref()?;
-            let ret_name = match ret {
-                syn::Expr::Path(p) if p.path.segments.len() == 1 => {
-                    p.path.segments[0].ident.to_string()
-                }
-                _ => return None,
-            };
-            if bind_name != ret_name {
-                return None;
+        stmts => fold_simple_lets(stmts),
+    }
+}
+
+/// Fold `let a = e1; let b = a + 1; b` (or `return b`) into a single expression.
+/// Only simple `Pat::Ident` bindings without type ascriptions/mut; final stmt is
+/// path/return/expression that may reference prior binds.
+fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<String> {
+    if stmts.len() < 2 {
+        return None;
+    }
+    // split_last -> (last_elem, prefix)
+    let (last, binds) = stmts.split_last()?;
+    let mut env: Vec<(String, syn::Expr)> = Vec::new();
+    for stmt in binds {
+        let syn::Stmt::Local(local) = stmt else {
+            return None;
+        };
+        let name = match &local.pat {
+            syn::Pat::Ident(id) if id.by_ref.is_none() && id.mutability.is_none() => {
+                id.ident.to_string()
             }
-            Some(expr_source(&init.expr))
+            _ => return None,
+        };
+        let init = local.init.as_ref()?;
+        if init.diverge.is_some() {
+            return None;
         }
-        _ => None,
+        env.push((name, (*init.expr).clone()));
+    }
+    let mut final_expr: syn::Expr = match last {
+        syn::Stmt::Expr(syn::Expr::Return(ret), _) => (*ret.expr.as_ref()?.as_ref()).clone(),
+        syn::Stmt::Expr(e, _) => e.clone(),
+        _ => return None,
+    };
+    // Substitute later binds first so earlier names expand fully.
+    for (name, init) in env.into_iter().rev() {
+        final_expr = substitute_ident_expr(final_expr, &name, &init);
+    }
+    Some(expr_source(&final_expr))
+}
+
+/// Replace free path `name` with `replacement` (structural, supported expr kinds).
+fn substitute_ident_expr(expr: syn::Expr, name: &str, replacement: &syn::Expr) -> syn::Expr {
+    match expr {
+        syn::Expr::Path(ref p) if p.path.segments.len() == 1 => {
+            if p.path.segments[0].ident == name {
+                replacement.clone()
+            } else {
+                expr
+            }
+        }
+        syn::Expr::Paren(mut p) => {
+            *p.expr = substitute_ident_expr(*p.expr, name, replacement);
+            syn::Expr::Paren(p)
+        }
+        syn::Expr::Group(mut g) => {
+            *g.expr = substitute_ident_expr(*g.expr, name, replacement);
+            syn::Expr::Group(g)
+        }
+        syn::Expr::Unary(mut u) => {
+            *u.expr = substitute_ident_expr(*u.expr, name, replacement);
+            syn::Expr::Unary(u)
+        }
+        syn::Expr::Binary(mut b) => {
+            *b.left = substitute_ident_expr(*b.left, name, replacement);
+            *b.right = substitute_ident_expr(*b.right, name, replacement);
+            syn::Expr::Binary(b)
+        }
+        syn::Expr::MethodCall(mut m) => {
+            *m.receiver = substitute_ident_expr(*m.receiver, name, replacement);
+            let args: Vec<syn::Expr> = m
+                .args
+                .into_iter()
+                .map(|a| substitute_ident_expr(a, name, replacement))
+                .collect();
+            m.args = args.into_iter().collect();
+            syn::Expr::MethodCall(m)
+        }
+        syn::Expr::Call(mut c) => {
+            *c.func = substitute_ident_expr(*c.func, name, replacement);
+            let args: Vec<syn::Expr> = c
+                .args
+                .into_iter()
+                .map(|a| substitute_ident_expr(a, name, replacement))
+                .collect();
+            c.args = args.into_iter().collect();
+            syn::Expr::Call(c)
+        }
+        other => other,
     }
 }
 
@@ -507,6 +578,7 @@ mod tests {
 fn bad(x: i64) -> i64 { x }
 fn good(x: i64) -> i64 { x + 1 }
 fn with_let(x: i64) -> i64 { let y = x + 1; y }
+fn multi_let(x: i64) -> i64 { let a = x + 1; let b = a + 1; b }
 "#;
         assert_eq!(extract_body_return(src, "bad").as_deref(), Some("x"));
         assert_eq!(extract_body_return(src, "good").as_deref(), Some("x + 1"));
@@ -514,6 +586,13 @@ fn with_let(x: i64) -> i64 { let y = x + 1; y }
             extract_body_return(src, "with_let").as_deref(),
             Some("x + 1")
         );
+        let multi = extract_body_return(src, "multi_let").expect("multi");
+        assert!(
+            multi.contains('+') && !multi.contains("let"),
+            "multi-let should fold: {multi}"
+        );
+        let ir = try_ir_from_rust_body("M", &px(), Some("i64"), &multi).expect("ir");
+        assert!(ir.contains("arith add"), "{ir}");
     }
 
     #[test]
