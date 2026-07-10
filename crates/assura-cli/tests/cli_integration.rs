@@ -3764,6 +3764,36 @@ fn f(x: i64) -> i32 { x as i32 }
     }
 }
 
+/// Nested methods (abs then is_positive) encode and verify for non-min.
+#[test]
+fn check_rust_encodes_nested_methods() {
+    let tmp = unique_temp("assura_check_rust_nested_methods");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    // Note: i64::MIN.abs() is not positive in Rust (overflow); range requires
+    // include MIN, so avoid ensures that claim abs().is_positive() <=> x != 0.
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == (x > 0)
+fn f(x: i64) -> bool { x.is_positive() }
+
+/// @ensures result >= 0
+fn g(x: i64) -> i64 { x.abs().max(0) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "nested/pos should pass: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+    assert!(v["verified"].as_u64().unwrap_or(0) >= 2, "{stdout}");
+}
+
 /// Nested if/else-if encodes multi-block IR and can CE wrong branches.
 #[test]
 fn check_rust_encodes_nested_if_body() {
