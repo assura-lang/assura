@@ -509,6 +509,8 @@ pub(crate) struct RustFnSig {
     pub(crate) params: Vec<(String, String)>, // (name, type)
     pub(crate) return_type: String,
     pub(crate) is_pub: bool,
+    /// True when the declaration includes the `unsafe` keyword.
+    pub(crate) is_unsafe: bool,
 }
 
 /// Extract public function signatures from Rust source text.
@@ -526,8 +528,8 @@ pub(crate) fn extract_rust_fn_signatures(source: &str) -> Vec<RustFnSig> {
         // Strip leading modifiers to find `fn ` keyword.
         // Handles: pub fn, pub(crate) fn, pub async fn, pub const fn,
         //          pub unsafe fn, async fn, const fn, unsafe fn, etc.
-        let (is_pub, fn_part) = match strip_fn_prefix(line) {
-            Some(pair) => pair,
+        let (is_pub, is_unsafe, fn_part) = match strip_fn_prefix(line) {
+            Some(triple) => triple,
             None => {
                 i += 1;
                 continue;
@@ -543,7 +545,7 @@ pub(crate) fn extract_rust_fn_signatures(source: &str) -> Vec<RustFnSig> {
             j += 1;
         }
 
-        if let Some(sig) = parse_fn_signature(&full_sig, is_pub) {
+        if let Some(sig) = parse_fn_signature(&full_sig, is_pub, is_unsafe) {
             sigs.push(sig);
         }
 
@@ -553,11 +555,12 @@ pub(crate) fn extract_rust_fn_signatures(source: &str) -> Vec<RustFnSig> {
     sigs
 }
 
-/// Strip function declaration prefix and return (is_pub, rest_after_fn).
+/// Strip function declaration prefix and return `(is_pub, is_unsafe, rest_after_fn)`.
 /// Handles all modifier combinations: pub/pub(vis), async, const, unsafe.
-pub(crate) fn strip_fn_prefix(line: &str) -> Option<(bool, &str)> {
+pub(crate) fn strip_fn_prefix(line: &str) -> Option<(bool, bool, &str)> {
     let mut rest = line;
     let mut is_pub = false;
+    let mut is_unsafe = false;
 
     // Check for pub / pub(vis)
     if let Some(after_pub) = rest.strip_prefix("pub") {
@@ -581,6 +584,7 @@ pub(crate) fn strip_fn_prefix(line: &str) -> Option<(bool, &str)> {
         } else if let Some(after) = trimmed.strip_prefix("const ") {
             rest = after;
         } else if let Some(after) = trimmed.strip_prefix("unsafe ") {
+            is_unsafe = true;
             rest = after;
         } else {
             rest = trimmed;
@@ -590,11 +594,11 @@ pub(crate) fn strip_fn_prefix(line: &str) -> Option<(bool, &str)> {
 
     // Must find `fn ` keyword
     let after_fn = rest.strip_prefix("fn ")?;
-    Some((is_pub, after_fn))
+    Some((is_pub, is_unsafe, after_fn))
 }
 
 /// Parse a single function signature string like "foo(x: i64, y: &str) -> bool {"
-pub(crate) fn parse_fn_signature(sig: &str, is_pub: bool) -> Option<RustFnSig> {
+pub(crate) fn parse_fn_signature(sig: &str, is_pub: bool, is_unsafe: bool) -> Option<RustFnSig> {
     let paren_open = sig.find('(')?;
     let raw_name = sig[..paren_open].trim();
 
@@ -654,6 +658,7 @@ pub(crate) fn parse_fn_signature(sig: &str, is_pub: bool) -> Option<RustFnSig> {
         params,
         return_type,
         is_pub,
+        is_unsafe,
     })
 }
 
@@ -844,43 +849,66 @@ mod tests {
 
     #[test]
     fn strip_pub_fn() {
-        let (is_pub, rest) = strip_fn_prefix("pub fn foo()").unwrap();
+        let (is_pub, is_unsafe, rest) = strip_fn_prefix("pub fn foo()").unwrap();
         assert!(is_pub);
+        assert!(!is_unsafe);
         assert_eq!(rest, "foo()");
     }
 
     #[test]
     fn strip_plain_fn() {
-        let (is_pub, rest) = strip_fn_prefix("fn bar()").unwrap();
+        let (is_pub, is_unsafe, rest) = strip_fn_prefix("fn bar()").unwrap();
         assert!(!is_pub);
+        assert!(!is_unsafe);
         assert_eq!(rest, "bar()");
     }
 
     #[test]
     fn strip_pub_crate_fn() {
-        let (is_pub, rest) = strip_fn_prefix("pub(crate) fn baz()").unwrap();
+        let (is_pub, is_unsafe, rest) = strip_fn_prefix("pub(crate) fn baz()").unwrap();
         assert!(is_pub);
+        assert!(!is_unsafe);
         assert_eq!(rest, "baz()");
     }
 
     #[test]
     fn strip_pub_async_fn() {
-        let (is_pub, rest) = strip_fn_prefix("pub async fn fetch()").unwrap();
+        let (is_pub, is_unsafe, rest) = strip_fn_prefix("pub async fn fetch()").unwrap();
         assert!(is_pub);
+        assert!(!is_unsafe);
         assert_eq!(rest, "fetch()");
     }
 
     #[test]
     fn strip_pub_unsafe_fn() {
-        let (is_pub, rest) = strip_fn_prefix("pub unsafe fn danger()").unwrap();
+        let (is_pub, is_unsafe, rest) = strip_fn_prefix("pub unsafe fn danger()").unwrap();
         assert!(is_pub);
+        assert!(is_unsafe);
         assert_eq!(rest, "danger()");
     }
 
     #[test]
+    fn extract_marks_unsafe_per_function_not_file() {
+        // File-level contains("unsafe") would mark clean too; we only flag
+        // functions whose declaration itself has the unsafe keyword.
+        let source = r#"
+pub fn clean(x: i32) -> i32 { x }
+pub unsafe fn danger(p: *const u8) -> u8 { *p }
+pub fn also_clean() { let _ = 1; }
+"#;
+        let sigs = extract_rust_fn_signatures(source);
+        let by_name: std::collections::HashMap<_, _> =
+            sigs.into_iter().map(|s| (s.name.clone(), s)).collect();
+        assert!(!by_name["clean"].is_unsafe);
+        assert!(!by_name["also_clean"].is_unsafe);
+        assert!(by_name["danger"].is_unsafe);
+    }
+
+    #[test]
     fn strip_pub_const_fn() {
-        let (is_pub, rest) = strip_fn_prefix("pub const fn SIZE()").unwrap();
+        let (is_pub, is_unsafe, rest) = strip_fn_prefix("pub const fn SIZE()").unwrap();
         assert!(is_pub);
+        assert!(!is_unsafe);
         assert_eq!(rest, "SIZE()");
     }
 
@@ -942,23 +970,25 @@ mod tests {
 
     #[test]
     fn parse_simple_signature() {
-        let sig = parse_fn_signature("add(a: i32, b: i32) -> i32 {", true).unwrap();
+        let sig = parse_fn_signature("add(a: i32, b: i32) -> i32 {", true, false).unwrap();
         assert_eq!(sig.name, "add");
         assert_eq!(sig.params.len(), 2);
         assert_eq!(sig.return_type, "i32");
         assert!(sig.is_pub);
+        assert!(!sig.is_unsafe);
     }
 
     #[test]
     fn parse_no_return_type() {
-        let sig = parse_fn_signature("init() {", false).unwrap();
+        let sig = parse_fn_signature("init() {", false, false).unwrap();
         assert_eq!(sig.name, "init");
         assert_eq!(sig.return_type, "()");
     }
 
     #[test]
     fn parse_generic_fn() {
-        let sig = parse_fn_signature("encode<T: Serialize>(value: T) -> String {", true).unwrap();
+        let sig =
+            parse_fn_signature("encode<T: Serialize>(value: T) -> String {", true, false).unwrap();
         assert_eq!(sig.name, "encode");
         assert_eq!(sig.params.len(), 1);
     }
@@ -968,6 +998,7 @@ mod tests {
         let sig = parse_fn_signature(
             "process(data: Vec<u8>) -> Result<(), Error> where T: Clone {",
             true,
+            false,
         )
         .unwrap();
         assert_eq!(sig.return_type, "Result<(), Error>");
@@ -1075,6 +1106,7 @@ mod tests {
             ],
             return_type: "i64".to_string(),
             is_pub: true,
+            is_unsafe: false,
         };
         let mut out = String::new();
         generate_bind_skeleton("my_crate", &sig, &mut out);
@@ -1090,6 +1122,7 @@ mod tests {
             params: vec![],
             return_type: "()".to_string(),
             is_pub: true,
+            is_unsafe: false,
         };
         let mut out = String::new();
         generate_bind_skeleton("my_crate", &sig, &mut out);

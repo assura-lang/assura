@@ -72,7 +72,8 @@ pub(crate) fn run_audit(opts: AuditOptions<'_>) {
             if !sig.is_pub {
                 continue;
             }
-            if unsafe_only && !source.contains("unsafe") {
+            // Per-function filter (not file-level contains("unsafe")).
+            if unsafe_only && !sig.is_unsafe {
                 continue;
             }
             if let Some(pattern) = focus {

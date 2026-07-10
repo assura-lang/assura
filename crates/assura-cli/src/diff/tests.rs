@@ -1273,7 +1273,7 @@ fn parse_param_list_mut_self() {
 
 #[test]
 fn parse_fn_sig_basic() {
-    let sig = crate::parse_fn_signature("add(a: i64, b: i64) -> i64 {", true).unwrap();
+    let sig = crate::parse_fn_signature("add(a: i64, b: i64) -> i64 {", true, false).unwrap();
     assert_eq!(sig.name, "add");
     assert_eq!(sig.params.len(), 2);
     assert_eq!(sig.return_type, "i64");
@@ -1282,14 +1282,15 @@ fn parse_fn_sig_basic() {
 
 #[test]
 fn parse_fn_sig_with_where() {
-    let sig = crate::parse_fn_signature("process(x: T) -> T where T: Clone {", true).unwrap();
+    let sig =
+        crate::parse_fn_signature("process(x: T) -> T where T: Clone {", true, false).unwrap();
     assert_eq!(sig.name, "process");
     assert_eq!(sig.return_type, "T");
 }
 
 #[test]
 fn parse_fn_sig_no_return() {
-    let sig = crate::parse_fn_signature("do_work(x: i32) {", false).unwrap();
+    let sig = crate::parse_fn_signature("do_work(x: i32) {", false, false).unwrap();
     assert_eq!(sig.name, "do_work");
     assert_eq!(sig.return_type, "()");
     assert!(!sig.is_pub);
@@ -1305,6 +1306,7 @@ fn generate_bind_skeleton_roundtrip() {
         ],
         return_type: "i64".to_string(),
         is_pub: true,
+        is_unsafe: false,
     };
     let mut out = String::new();
     crate::generate_bind_skeleton("crate::math", &sig, &mut out);
@@ -1346,6 +1348,7 @@ fn generate_bind_skeleton_no_return() {
         params: vec![("msg".to_string(), "&str".to_string())],
         return_type: "()".to_string(),
         is_pub: true,
+        is_unsafe: false,
     };
     let mut out = String::new();
     crate::generate_bind_skeleton("crate::util", &sig, &mut out);
@@ -1371,6 +1374,7 @@ fn generate_bind_skeleton_mixed_params() {
         ],
         return_type: "bool".to_string(),
         is_pub: true,
+        is_unsafe: false,
     };
     let mut out = String::new();
     crate::generate_bind_skeleton("crate::ops", &sig, &mut out);
