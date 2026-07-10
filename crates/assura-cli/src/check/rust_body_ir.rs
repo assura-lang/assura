@@ -306,7 +306,17 @@ fn emit_value_blocks(
             Some(this_id)
         }
         syn::Expr::Match(m) => {
-            // Simple match: int/bool/wildcard arms, no guards or bindings (#993).
+            // Prefer identity-guard rewrite to if-tree (#999); else lit/_ match (#993).
+            if let Some(if_tree) = match_identity_guards_to_if(m) {
+                return emit_value_blocks(
+                    &if_tree,
+                    param_names,
+                    ret_assura,
+                    blocks,
+                    next_block,
+                    next_slot,
+                );
+            }
             if m.arms.is_empty() {
                 return None;
             }
@@ -394,6 +404,53 @@ fn match_pattern_ir(pat: &syn::Pat) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// Rewrite `match x { n if cond(n) => n, _ => e }` into nested if-tree (#999).
+/// Only identity bindings with guards + final wildcard (or plain expression default).
+fn match_identity_guards_to_if(m: &syn::ExprMatch) -> Option<syn::Expr> {
+    if m.arms.len() < 2 {
+        return None;
+    }
+    let scrut_src = expr_source(&m.expr);
+    let mut nest: Option<String> = None;
+    for arm in m.arms.iter().rev() {
+        let body = match arm.body.as_ref() {
+            syn::Expr::Block(b) => block_as_expr_owned(&b.block)?,
+            other => other.clone(),
+        };
+        let body_src = expr_source(&body);
+        match (&arm.pat, &arm.guard) {
+            (syn::Pat::Wild(_), None) => {
+                if nest.is_some() {
+                    return None;
+                }
+                nest = Some(format!("( {body_src} )"));
+            }
+            (syn::Pat::Ident(id), Some((_, guard)))
+                if id.by_ref.is_none()
+                    && id.mutability.is_none()
+                    && matches!(
+                        body,
+                        syn::Expr::Path(ref p)
+                            if p.path.segments.len() == 1
+                                && p.path.segments[0].ident == id.ident
+                    ) =>
+            {
+                let bind = id.ident.to_string();
+                let guard_sub = substitute_ident_expr(*guard.clone(), &bind, &m.expr);
+                let cond_src = expr_source(&guard_sub);
+                let then_src = scrut_src.clone();
+                let else_src = nest?;
+                nest = Some(format!(
+                    "if {cond_src} {{ {then_src} }} else {{ {else_src} }}"
+                ));
+            }
+            _ => return None,
+        }
+    }
+    let tree = nest?;
+    syn::parse_str(&tree).ok()
 }
 
 /// Branch/arm body as owned expression (return, single expr, multi-let fold).
@@ -733,16 +790,21 @@ fn f(x: i64) -> i64 {
     }
 
     #[test]
-    fn match_with_guard_or_binding_returns_none() {
-        assert!(
-            try_ir_from_rust_body(
-                "G",
-                &px(),
-                Some("i64"),
-                "match x { n if n > 0 => n, _ => 0 }"
-            )
-            .is_none()
-        );
+    fn match_identity_guard_rewrites_to_if() {
+        let ir = try_ir_from_rust_body(
+            "G",
+            &px(),
+            Some("i64"),
+            "match x { n if n > 0 => n, _ => 0 }",
+        )
+        .expect("identity guard");
+        assert!(ir.contains("cmp gt") && ir.contains("then #"), "{ir}");
+        assert_no_slot_overlap_with_entry(&ir);
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "G").expect("parse");
+    }
+
+    #[test]
+    fn match_plain_binding_still_none() {
         assert!(
             try_ir_from_rust_body("B", &px(), Some("i64"), "match x { n => n, _ => 0 }").is_none()
         );
