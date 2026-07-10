@@ -139,6 +139,19 @@ cargo check -p <crate> --locked
 cargo test -p <crate> --locked --lib
 ```
 
+### Agent / global `--json` purity
+
+Subcommands that accept global `--json` must emit **only** parseable JSON on
+stdout for both success and error paths (exit codes still signal failure).
+Do not print bare human `Error: …` lines when `--json` is set. Prefer a
+stable shape such as `{"ok":false,"error":"…","message":"…"}`.
+
+Quick check after changing a CLI error path:
+
+```bash
+cargo run -q --bin assura -- <cmd> … --json | python3 -m json.tool
+```
+
 `cargo deny check` enforces license, advisory, and source policies from
 `deny.toml` (same step as the CI Fast lint job). Install with
 `cargo install cargo-deny` if needed.
