@@ -35,6 +35,24 @@ fn body_return_from_block(block: &syn::Block) -> Option<String> {
     match block.stmts.as_slice() {
         [syn::Stmt::Expr(syn::Expr::Return(ret), _)] => ret.expr.as_ref().map(|e| expr_source(e)),
         [syn::Stmt::Expr(expr, _)] => Some(expr_source(expr)),
+        // Single let binding returned: `let y = e; y` → encode `e` (#986).
+        [syn::Stmt::Local(local), syn::Stmt::Expr(ret, _)] => {
+            let bind_name = match &local.pat {
+                syn::Pat::Ident(id) => id.ident.to_string(),
+                _ => return None,
+            };
+            let init = local.init.as_ref()?;
+            let ret_name = match ret {
+                syn::Expr::Path(p) if p.path.segments.len() == 1 => {
+                    p.path.segments[0].ident.to_string()
+                }
+                _ => return None,
+            };
+            if bind_name != ret_name {
+                return None;
+            }
+            Some(expr_source(&init.expr))
+        }
         _ => None,
     }
 }
@@ -243,9 +261,14 @@ mod tests {
 /// @ensures result == x + 1
 fn bad(x: i64) -> i64 { x }
 fn good(x: i64) -> i64 { x + 1 }
+fn with_let(x: i64) -> i64 { let y = x + 1; y }
 "#;
         assert_eq!(extract_body_return(src, "bad").as_deref(), Some("x"));
         assert_eq!(extract_body_return(src, "good").as_deref(), Some("x + 1"));
+        assert_eq!(
+            extract_body_return(src, "with_let").as_deref(),
+            Some("x + 1")
+        );
     }
 
     #[test]
