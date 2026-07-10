@@ -3262,7 +3262,10 @@ fn f(x: i64, lo: i64, hi: i64) -> i64 { x.clamp(lo, hi) }
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "parametric clamp should pass: {stdout}");
+    assert!(
+        out.status.success(),
+        "parametric clamp should pass: {stdout}"
+    );
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
     assert!(v["verified"].as_u64().unwrap_or(0) >= 2, "{stdout}");
@@ -3278,7 +3281,11 @@ fn f(x: i64, lo: i64, hi: i64) -> i64 { x.clamp(lo, hi) }
     )
     .unwrap();
     let out = Command::new(assura_bin())
-        .args(["check-rust", "--json", tmp.join("no_req.rs").to_str().unwrap()])
+        .args([
+            "check-rust",
+            "--json",
+            tmp.join("no_req.rs").to_str().unwrap(),
+        ])
         .output()
         .unwrap();
     assert!(
