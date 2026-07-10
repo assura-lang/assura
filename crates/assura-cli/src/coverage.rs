@@ -210,8 +210,10 @@ pub(crate) fn run_coverage(
 
     let is_json = format == "json";
 
+    let below_min = min_coverage.is_some_and(|min| pct < min);
     if is_json {
-        let report = serde_json::json!({
+        let mut report = serde_json::json!({
+            "ok": !below_min,
             "total_functions": total,
             "covered": covered_count,
             "uncovered": uncovered.len(),
@@ -223,6 +225,14 @@ pub(crate) fn run_coverage(
                 "file": f, "function": n, "param_count": pc
             })).collect::<Vec<_>>(),
         });
+        if let Some(min) = min_coverage {
+            report["min_coverage"] = serde_json::json!(min);
+            report["below_minimum"] = serde_json::json!(below_min);
+            if below_min {
+                report["message"] =
+                    serde_json::json!(format!("Coverage {:.1}% is below minimum {:.1}%", pct, min));
+            }
+        }
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
     } else {
         println!("Contract Coverage: {}/", src_dir.display());
@@ -250,11 +260,10 @@ pub(crate) fn run_coverage(
         }
     }
 
-    // Exit 1 if below min coverage
-    if let Some(min) = min_coverage
-        && pct < min
-    {
+    // Exit 1 if below min coverage (JSON already included ok/below_minimum).
+    if below_min {
         if !is_json {
+            let min = min_coverage.unwrap_or(0.0);
             eprintln!();
             eprintln!("Coverage {pct:.1}% is below minimum {min:.1}%");
         }
