@@ -537,6 +537,7 @@ pub fn run() {
             output.as_deref(),
             dry_run,
             focus.as_deref(),
+            output_mode,
         ),
         Commands::TestGen { file, output } => {
             run_test_gen(&file, output.as_deref(), verbosity, output_mode)
