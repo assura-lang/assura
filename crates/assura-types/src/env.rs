@@ -336,6 +336,41 @@ mod tests {
     }
 
     #[test]
+    fn enumdef_multi_token_payload_constructors() {
+        // #914: space-joined multi-token fields must parse as one payload type each.
+        let env = env_from_source(
+            "enum E { Box(List<Int>), Pair((Int, Bool)), Both(List<Int>, (Int,)) }",
+        );
+        match env.lookup("Box") {
+            Some(Type::Fn { params, ret }) => {
+                assert_eq!(params.len(), 1, "Box should be unary");
+                assert_eq!(params[0], Type::List(Box::new(Type::Int)));
+                assert_eq!(**ret, Type::Named("E".into()));
+            }
+            other => panic!("expected Fn constructor for Box, got {other:?}"),
+        }
+        match env.lookup("Pair") {
+            Some(Type::Fn { params, .. }) => {
+                assert_eq!(params.len(), 1);
+                assert_eq!(
+                    params[0],
+                    Type::Tuple(vec![Type::Int, Type::Bool]),
+                    "Pair payload should be a 2-tuple type"
+                );
+            }
+            other => panic!("expected Fn constructor for Pair, got {other:?}"),
+        }
+        match env.lookup("Both") {
+            Some(Type::Fn { params, .. }) => {
+                assert_eq!(params.len(), 2);
+                assert_eq!(params[0], Type::List(Box::new(Type::Int)));
+                assert_eq!(params[1], Type::Tuple(vec![Type::Int]));
+            }
+            other => panic!("expected Fn constructor for Both, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn contract_input_params_registered() {
         let env = env_from_source("contract C { input(n: Nat) ensures { n > 0 } }");
         // The contract name should be registered
