@@ -149,6 +149,19 @@ fn expr_source(expr: &syn::Expr) -> String {
         .join(" ")
 }
 
+/// `x.signum()` → nested if for multi-block encode.
+fn expand_signum_method(expr: &syn::Expr) -> Option<syn::Expr> {
+    let syn::Expr::MethodCall(m) = expr else {
+        return None;
+    };
+    if m.method != "signum" || !m.args.is_empty() {
+        return None;
+    }
+    let recv = expr_source(&m.receiver);
+    let tree = format!("if {recv} > 0 {{ 1 }} else {{ if {recv} < 0 {{ -1 }} else {{ 0 }} }}");
+    syn::parse_str(&tree).ok()
+}
+
 /// Build IR text for a function if `body_return` is a simple supported shape.
 pub(crate) fn try_ir_from_rust_body(
     item_name: &str,
@@ -192,7 +205,10 @@ pub(crate) fn try_ir_from_rust_body(
         }
     }
 
-    let expr: syn::Expr = syn::parse_str(body_return).ok()?;
+    let mut expr: syn::Expr = syn::parse_str(body_return).ok()?;
+    if let Some(e) = expand_signum_method(&expr) {
+        expr = e;
+    }
 
     let mut sig_parts = Vec::new();
     for (i, p) in params.iter().filter(|p| p.name != "self").enumerate() {
