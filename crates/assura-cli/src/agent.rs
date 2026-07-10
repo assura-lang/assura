@@ -13,9 +13,10 @@ pub(crate) fn run_agent_instructions(output_mode: assura_config::OutputMode) {
                 "assura check path/to/file.assura",
             ],
             "commands": [
-                "check", "build", "infer", "ir-prompt", "audit", "init",
-                "fmt", "explain", "test-gen", "doctor", "coverage",
-                "completions", "lsp", "agent-instructions",
+                "check", "check-rust", "suggest-from-crash", "build", "init",
+                "explain", "fmt", "infer", "test-gen", "agent-instructions",
+                "doctor", "lsp", "completions", "coverage", "audit", "repl",
+                "diff", "ir-prompt", "ir", "doc", "mcp",
             ],
         });
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
@@ -191,43 +192,47 @@ Dotted sub-effects: `console.read`, `console.write`, `filesystem.read`,
 ## CLI Commands
 
 ```bash
-# Check a contract file (parse + resolve + typecheck + verify)
+# Check contracts (parse + resolve + typecheck + verify)
 assura check file.assura
-assura check file.assura --layer 0        # structural checks only
-assura check file.assura --verbose         # show timing
-assura check file.assura --json            # machine-readable output
-assura check file.assura --watch           # re-check on file changes
+assura check dir/                          # project mode (multi-file + SMT)
+assura check file.assura --layer 0         # structural only
+assura check file.assura --json            # pure JSON for agents
+assura check file.assura --watch           # re-check on changes
 assura check file.assura --stats           # verification statistics
+assura check-rust src/lib.rs               # /// @requires / @ensures on Rust
 
-# Build: verify + generate Rust code
-assura build file.assura                   # output to generated/
-assura build file.assura --output src/     # custom output dir
-assura build file.assura --target wasm     # WASM target
+# Build: verify + generate Rust
+assura build file.assura                   # default output: generated/ beside source
+assura build file.assura --write-ir        # heuristic IR sidecars + inject bodies
+assura build file.assura --output out/     # CWD-relative unless bare "generated"
+assura build file.assura --target wasm
 
-# Generate skeleton contracts from Rust source
-assura infer src/lib.rs                    # all public functions
-assura infer src/lib.rs --function parse   # specific function
+# IR
+assura ir-prompt file.assura --list
+assura ir-prompt file.assura --decl Foo
+assura ir Foo.ir --contract file.assura --verify --json
+
+# Infer / audit / coverage (existing Rust)
 assura infer src/lib.rs -o contracts.assura
+assura audit . --unsafe-only
+assura coverage . --min-coverage 80
+assura suggest-from-crash --target src/lib.rs --crash-dir artifacts/
 
-# Generate Implementation IR prompts for AI agents
-assura ir-prompt file.assura --list        # list eligible declarations
-assura ir-prompt file.assura --decl Foo    # prompt for one declaration
-assura ir-prompt file.assura --pattern length-copy
-
-# Scan a Rust project
-assura audit .                             # whole workspace
-assura audit . --unsafe-only               # only unsafe code
-assura audit . --focus "parser::*"         # specific module
+# Docs / diff / playground
+assura doc file.assura --verify
+assura diff old.assura new.assura --verify --json
+assura repl
 
 # Other
-assura init my-project                     # scaffold new project
-assura fmt file.assura                     # format source
-assura explain A03001                      # explain error code
-assura test-gen file.assura                # generate tests from contracts
-assura doctor                              # check dependencies
-assura coverage .                          # contract coverage report
-assura completions zsh                     # shell completions
-assura lsp                                 # start LSP server
+assura init my-project
+assura fmt file.assura
+assura explain A03001
+assura test-gen file.assura -o tests.rs
+assura doctor
+assura completions zsh
+assura lsp
+assura mcp                                 # MCP server for agent tools
+assura agent-instructions --json           # this reference
 ```
 
 ## Error Code Ranges
