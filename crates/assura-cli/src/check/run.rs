@@ -61,13 +61,17 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
     let config = project;
 
     if watch {
+        if is_stdin_arg(filename) {
+            eprintln!("Error: --watch cannot be used with stdin (-)");
+            process::exit(2);
+        }
         run_watch_loop(filename, output_mode, verbosity, layer);
         // run_watch_loop never returns (loops until interrupted)
     }
 
     // --- Project mode: detect directory or project root ---
     let path = Path::new(filename);
-    if path.is_dir() {
+    if !is_stdin_arg(filename) && path.is_dir() {
         // Directory mode: check all .assura files in the project
         run_check_project(
             path,
@@ -80,7 +84,7 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
         return;
     }
 
-    let source = fs::read_to_string(filename).unwrap_or_else(|e| {
+    let (source, display_name) = read_source_arg(filename).unwrap_or_else(|e| {
         if output_mode == OutputMode::Json {
             let diag = assura_diagnostics::Diagnostic::error("A01000", format!("{e}"), 0..0)
                 .with_file(filename);
@@ -90,6 +94,8 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
         }
         process::exit(2);
     });
+    // Use a stable display path for diagnostics (filename stays "-" for CLI args).
+    let filename = display_name.as_str();
 
     // --- Run shared pipeline ---
     let output = compile_with_config(&source, filename, &compiler_config);

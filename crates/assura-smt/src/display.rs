@@ -151,12 +151,18 @@ pub fn format_counterexample_lines(
         && !cm.variables.is_empty()
     {
         let mut lines = Vec::new();
-        // Separate input variables from result/output variables
+        // Separate input variables from result/output variables.
+        // Deduplicate display names: extraction can yield both `result` and
+        // `__result` cleaned to the same label.
         let mut inputs = Vec::new();
         let mut outputs = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         for (name, value) in &cm.variables {
             // CounterexampleModel variables already carry clean display names
             // (stripped by counterexample_display_name at extraction time).
+            if !seen.insert(name.clone()) {
+                continue;
+            }
             let clean_value = clean_z3_value(value);
             if name == "result" || name.starts_with("result") {
                 outputs.push((name.clone(), clean_value));
@@ -431,6 +437,25 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert!(lines[0].contains("a = 10"));
         assert!(lines[1].contains("result = -1"));
+    }
+
+    #[test]
+    fn test_counterexample_dedupes_duplicate_result_names() {
+        // Extraction can emit both `result` and a cleaned `__result` as `result`.
+        let model = CounterexampleModel {
+            variables: vec![
+                ("x".to_string(), "1".to_string()),
+                ("result".to_string(), "0".to_string()),
+                ("result".to_string(), "0".to_string()),
+            ],
+        };
+        let lines = format_counterexample_lines(&Some(model), "raw");
+        let joined = lines.join(" ");
+        assert_eq!(
+            joined.matches("result =").count(),
+            1,
+            "duplicate result lines: {lines:?}"
+        );
     }
 
     #[test]

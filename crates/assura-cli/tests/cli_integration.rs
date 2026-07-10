@@ -2493,3 +2493,68 @@ fn doctor_checks_installation() {
         "doctor should check rustc and cargo: {stdout}"
     );
 }
+
+// =======================================================================
+// fixrealloop: stdin (`-`) for assura check
+// =======================================================================
+
+#[test]
+fn check_reads_source_from_stdin_dash() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut child = Command::new(assura_bin())
+        .args(["check", "-", "--json"])
+        .current_dir(workspace_root())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn assura check -");
+
+    {
+        let stdin = child.stdin.as_mut().expect("stdin");
+        stdin
+            .write_all(
+                b"contract T {\n  input(x: Int)\n  requires { x >= 0 }\n  ensures { x >= 0 }\n}\n",
+            )
+            .expect("write stdin");
+    }
+
+    let out = child.wait_with_output().expect("wait");
+    assert!(
+        out.status.success(),
+        "check - should succeed: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.trim_start().starts_with('{'),
+        "JSON output expected: {stdout}"
+    );
+    assert!(
+        stdout.contains("<stdin>") || stdout.contains("\"success\""),
+        "stdin check should produce file_info: {stdout}"
+    );
+}
+
+#[test]
+fn check_watch_rejects_stdin() {
+    let out = Command::new(assura_bin())
+        .args(["check", "-", "--watch"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura check - --watch");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "watch+stdin should exit 2: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("stdin") || stderr.contains("watch"),
+        "error should mention watch/stdin: {stderr}"
+    );
+}
