@@ -1,10 +1,10 @@
 //! Encode simple Rust function bodies as Assura Implementation IR for check-rust.
 //!
-//! Supports int/bool arith, abs/min/max/clamp/saturating/saturating_neg, abs_diff,
-//! is_positive/negative/zero, `is_multiple_of`, PartialOrd methods, logical `&&`/`||`,
-//! unary `-`/`!`/`*`/`&`, `into`/`as`/`clone`/`copied` identity, multi-let (incl. ref/cast folds), if/match
-//! (incl. guards), simple and nested `if`/`else`, simple `match` with int/bool/wildcard
-//! arms, and Bool comparisons. Body text is extracted with `syn` (co-publish-safe).
+//! Supports int/bool arith, abs/min/max/clamp/saturating(+neg)/abs_diff, is_positive/
+//! negative/zero, `is_multiple_of`, PartialOrd methods, logical `&&`/`||`, unary
+//! `-`/`!`/`*`/`&`, identity ops (`into`/`as` lossless/`clone`/`copied`/`as_ref`/`not`),
+//! `default` and integer MIN/MAX, small `pow`, multi-let (incl. ref/cast folds),
+//! if/match (incl. guards), and Bool comparisons. Body text via `syn` (co-publish-safe).
 //!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
 //! `eval_ir_block` clones parent slots into each block; reusing `$1`/`$2` for
