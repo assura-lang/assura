@@ -2952,6 +2952,59 @@ fn mul(x: i64) -> i64 { x + 2 }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
 }
 
+/// Simple match (literal + wildcard) encodes multi-block IR (#993).
+#[test]
+fn check_rust_encodes_match_body() {
+    let tmp = unique_temp("assura_check_rust_body_match");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn sign(x: i64) -> i64 {
+    match x {
+        0 => 0,
+        _ => 1,
+    }
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "match body should pass: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+    assert!(v["verified"].as_u64().unwrap_or(0) >= 1, "{stdout}");
+
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result >= 0
+fn sign(x: i64) -> i64 {
+    match x {
+        0 => 0,
+        _ => -1,
+    }
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "wrong match arm should CE");
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).expect("json");
+    assert_eq!(v["body_not_modeled"], 0);
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
+}
+
 /// Nested if/else-if encodes multi-block IR and can CE wrong branches.
 #[test]
 fn check_rust_encodes_nested_if_body() {
