@@ -363,24 +363,24 @@ pub(crate) fn resolve_module_graph(
 
     for module_path in &graph.order {
         if let Some(source) = graph.modules.get(module_path) {
-            let module_map: ModuleMap = graph
-                .modules
-                .iter()
-                .filter(|(k, _)| *k != module_path)
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-
             let mut visited = HashSet::new();
             visited.insert(module_path.clone());
 
-            match resolve_with_modules(source, &module_map, &mut visited) {
+            match resolve_with_modules(source, &graph.modules, &mut visited) {
                 Ok(result) => {
                     resolved.insert(module_path.clone(), result);
                 }
                 Err(errs) => {
                     errors.push(ModuleError {
                         module_path: module_path.clone(),
-                        message: format!("{} resolution error(s)", errs.len()),
+                        message: format!(
+                            "{} resolution error(s): {}",
+                            errs.len(),
+                            errs.iter()
+                                .map(|e| e.message.as_str())
+                                .collect::<Vec<_>>()
+                                .join("; ")
+                        ),
                     });
                 }
             }
@@ -499,23 +499,24 @@ pub fn discover_and_resolve_project_with_deps(
     let local_snapshot = all_modules.clone();
     load_dep_modules_for_project(&local_snapshot, deps, &mut all_modules, &mut errors);
 
-    // Resolve each module with access to the full module map
+    // Resolve each module with access to the full module map (including self
+    // so a one-module project still hard-errors on missing imports via A02006).
     let mut resolved = HashMap::new();
     for (module_path, source) in &all_modules {
-        let other_modules: ModuleMap = all_modules
-            .iter()
-            .filter(|(k, _)| *k != module_path)
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
         let mut visited = HashSet::new();
         visited.insert(module_path.clone());
-        match resolve_with_modules(source, &other_modules, &mut visited) {
+        match resolve_with_modules(source, &all_modules, &mut visited) {
             Ok(result) => {
                 resolved.insert(module_path.clone(), result);
             }
             Err(errs) => {
+                let detail = errs
+                    .iter()
+                    .map(|e| e.message.clone())
+                    .collect::<Vec<_>>()
+                    .join("; ");
                 errors.push(format!(
-                    "{}: {} resolution error(s)",
+                    "{}: {} resolution error(s): {detail}",
                     module_path,
                     errs.len()
                 ));

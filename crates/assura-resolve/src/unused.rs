@@ -268,7 +268,9 @@ pub(crate) fn check_unused_imports(
     errors: &mut Vec<ResolutionError>,
 ) {
     for imp in imports {
-        if imp.status == ImportStatus::Circular {
+        // Unresolved imports are not "unused"; they failed to load (A02006).
+        // Circular imports already have A02005.
+        if imp.status == ImportStatus::Circular || imp.status == ImportStatus::Unresolved {
             continue;
         }
         let introduced: Vec<&str> = if !imp.items.is_empty() {
@@ -344,9 +346,24 @@ mod tests {
     }
 
     #[test]
+    fn check_unused_skips_unresolved_imports() {
+        let referenced = HashSet::new();
+        let imports = vec![make_import(&["missing_mod"], &[])];
+        assert_eq!(imports[0].status, ImportStatus::Unresolved);
+        let mut errors = Vec::new();
+        check_unused_imports(&imports, &referenced, &mut errors);
+        assert!(
+            errors.is_empty(),
+            "unresolved imports must not be reported as unused: {errors:?}"
+        );
+    }
+
+    #[test]
     fn check_unused_imports_unused_name() {
         let referenced = HashSet::new();
-        let imports = vec![make_import(&["std", "math"], &[])];
+        // Resolved import that introduces an unused name.
+        let mut imports = vec![make_import(&["std", "math"], &[])];
+        imports[0].status = ImportStatus::Resolved;
         let mut errors = Vec::new();
         check_unused_imports(&imports, &referenced, &mut errors);
         assert_eq!(errors.len(), 1);

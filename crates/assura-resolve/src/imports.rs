@@ -143,8 +143,26 @@ pub(crate) fn resolve_imports(
             {
                 ImportStatus::Resolved
             } else {
-                // Unknown module. Not an error: could be a standard
-                // library module or external dependency not yet loaded.
+                // Unknown module. When the module map is non-empty (project
+                // discovery), every local module was already loaded, so a miss
+                // is a hard A02006 error. With an empty map (single-file
+                // resolve), external/stdlib modules may exist but are not
+                // loaded here — those stay Unresolved without a hard error
+                // (surface as A02006 warning from the caller if desired).
+                if !module_map.is_empty() {
+                    errors.push(ResolutionError {
+                        code: "A02006".into(),
+                        message: format!(
+                            "cannot resolve import `{path_str}`: module not found in project"
+                        ),
+                        span: imp.span.clone(),
+                        secondary: None,
+                        suggestion: Some(
+                            "check the module path, or add the .assura file under the project root"
+                                .into(),
+                        ),
+                    });
+                }
                 ImportStatus::Unresolved
             };
 
@@ -235,13 +253,36 @@ mod tests {
     }
 
     #[test]
-    fn resolve_unresolved_import() {
+    fn resolve_unresolved_import_empty_map_is_not_hard_error() {
         let imports = [make_import(&["std", "math"])];
         let mut errors = vec![];
         let result = resolve_imports(&imports, &ModuleMap::new(), &HashSet::new(), &mut errors);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].status, ImportStatus::Unresolved);
-        assert!(errors.is_empty()); // Unresolved is not an error
+        // Empty map: single-file mode; hard error deferred to warning path.
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn resolve_unresolved_import_nonempty_map_is_a02006() {
+        let imports = [make_import(&["missing_mod"])];
+        let mut module_map = ModuleMap::new();
+        module_map.insert(
+            "lib".into(),
+            SourceFile {
+                project: None,
+                module: None,
+                imports: vec![],
+                decls: vec![],
+            },
+        );
+        let mut errors = vec![];
+        let result = resolve_imports(&imports, &module_map, &HashSet::new(), &mut errors);
+        assert_eq!(result[0].status, ImportStatus::Unresolved);
+        assert!(
+            errors.iter().any(|e| e.code == "A02006"),
+            "expected A02006, got {errors:?}"
+        );
     }
 
     #[test]

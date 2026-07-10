@@ -2717,3 +2717,70 @@ fn diff_global_json_flag_emits_json() {
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn project_check_fails_on_missing_import() {
+    let tmp = unique_temp("assura_missing_import_proj");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("contracts")).unwrap();
+    std::fs::write(
+        tmp.join("assura.toml"),
+        "[package]\nname = \"t\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.join("contracts/lib.assura"),
+        "module lib;\ncontract C { requires { true } ensures { true } }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.join("contracts/use.assura"),
+        "module use_mod;\nimport missing_mod;\ncontract U { requires { true } ensures { true } }\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check", tmp.to_str().unwrap()])
+        .current_dir(workspace_root())
+        .output()
+        .expect("check project");
+    assert!(
+        !out.status.success(),
+        "missing import must fail project check: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("missing_mod") || stderr.contains("resolution"),
+        "stderr should mention missing import: {stderr}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn single_file_missing_import_is_a02006_not_unused() {
+    let tmp = unique_temp("assura_missing_import_single");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let path = tmp.join("x.assura");
+    std::fs::write(
+        &path,
+        "module m;\nimport missing_mod;\ncontract C { requires { true } ensures { true } }\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check", path.to_str().unwrap(), "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("check single");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("A02006"), "expected A02006, got {stdout}");
+    assert!(
+        !stdout.contains("A02007"),
+        "must not mislabel as unused import: {stdout}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
