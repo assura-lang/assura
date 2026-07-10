@@ -16,11 +16,22 @@ pub(crate) fn run_doc(
 ) {
     let path = Path::new(file);
 
+    let json = output_mode == OutputMode::Json;
     // Collect source files (single file or directory)
     let files: Vec<std::path::PathBuf> = if path.is_dir() {
         let mut entries: Vec<_> = std::fs::read_dir(path)
             .unwrap_or_else(|e| {
-                eprintln!("error: cannot read directory {file}: {e}");
+                if json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "error": "cannot_read_directory",
+                        "path": file,
+                        "message": format!("cannot read directory {file}: {e}"),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("error: cannot read directory {file}: {e}");
+                }
                 std::process::exit(2);
             })
             .filter_map(|e| e.ok())
@@ -34,7 +45,17 @@ pub(crate) fn run_doc(
     };
 
     if files.is_empty() {
-        eprintln!("error: no .assura files found in {file}");
+        if json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": "no_assura_files",
+                "path": file,
+                "message": format!("no .assura files found in {file}"),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("error: no .assura files found in {file}");
+        }
         std::process::exit(2);
     }
 
@@ -44,7 +65,17 @@ pub(crate) fn run_doc(
         let source = match std::fs::read_to_string(source_path) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("error: cannot read {}: {e}", source_path.display());
+                if json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "error": "cannot_read",
+                        "path": source_path.display().to_string(),
+                        "message": format!("cannot read {}: {e}", source_path.display()),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("error: cannot read {}: {e}", source_path.display());
+                }
                 std::process::exit(2);
             }
         };
@@ -82,23 +113,44 @@ pub(crate) fn run_doc(
     match output_dir {
         Some(dir) => {
             std::fs::create_dir_all(dir).unwrap_or_else(|e| {
-                eprintln!("error: cannot create output directory {dir}: {e}");
+                if json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "error": "cannot_create_directory",
+                        "path": dir,
+                        "message": format!("cannot create output directory {dir}: {e}"),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("error: cannot create output directory {dir}: {e}");
+                }
                 std::process::exit(2);
             });
             let out_path = Path::new(dir).join("contracts.md");
             std::fs::write(&out_path, &all_docs).unwrap_or_else(|e| {
-                eprintln!("error: cannot write {}: {e}", out_path.display());
+                if json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "error": "cannot_write",
+                        "path": out_path.display().to_string(),
+                        "message": format!("cannot write {}: {e}", out_path.display()),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("error: cannot write {}: {e}", out_path.display());
+                }
                 std::process::exit(2);
             });
-            if verbosity != Verbosity::Quiet {
-                if output_mode == OutputMode::Json {
-                    println!(
-                        "{{\"output\":\"{}\",\"status\":\"ok\"}}",
-                        out_path.display()
-                    );
-                } else {
-                    println!("Documentation written to {}", out_path.display());
-                }
+            if json {
+                let report = serde_json::json!({
+                    "ok": true,
+                    "status": "ok",
+                    "output": out_path.display().to_string(),
+                    "files": files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else if verbosity != Verbosity::Quiet {
+                println!("Documentation written to {}", out_path.display());
             }
         }
         None => {

@@ -126,10 +126,22 @@ pub(crate) fn run_test_gen(
     verbosity: Verbosity,
     output_mode: assura_config::OutputMode,
 ) {
+    let json = output_mode == assura_config::OutputMode::Json;
     let source = match fs::read_to_string(filename) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Error: {filename}: {e}");
+            if json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "status": "error",
+                    "source": filename,
+                    "error": format!("{e}"),
+                    "message": format!("{filename}: {e}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: {filename}: {e}");
+            }
             process::exit(1);
         }
     };
@@ -142,7 +154,20 @@ pub(crate) fn run_test_gen(
     } = compile(&source, filename);
 
     if has_errors || file.is_none() {
-        eprintln!("Error: {filename} has compilation errors; fix them before generating tests.");
+        if json {
+            let report = serde_json::json!({
+                "ok": false,
+                "status": "error",
+                "source": filename,
+                "error": "compilation_errors",
+                "message": format!("{filename} has compilation errors; fix them before generating tests."),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!(
+                "Error: {filename} has compilation errors; fix them before generating tests."
+            );
+        }
         process::exit(1);
     }
 
@@ -165,7 +190,18 @@ pub(crate) fn run_test_gen(
     let tests = test_gen.generate_all();
 
     if tests.is_empty() {
-        eprintln!("No testable contracts found in {filename}.");
+        if json {
+            let report = serde_json::json!({
+                "ok": true,
+                "status": "ok",
+                "source": filename,
+                "test_count": 0,
+                "message": format!("No testable contracts found in {filename}."),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("No testable contracts found in {filename}.");
+        }
         process::exit(0);
     }
 
