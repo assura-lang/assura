@@ -3133,6 +3133,37 @@ fn f(x: i64) -> i64 {
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
 }
 
+/// Guarded match with non-identity wrong arm must CE (not BNM).
+#[test]
+fn check_rust_match_guard_wrong_arm_ce() {
+    let tmp = unique_temp("assura_check_rust_match_guard_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result >= 0
+fn f(x: i64) -> i64 {
+    match x {
+        n if n > 10 => n,
+        n if n > 0 => -1,
+        _ => 0,
+    }
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "wrong guarded arm should CE");
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{v}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Nested if/else-if encodes multi-block IR and can CE wrong branches.
 #[test]
 fn check_rust_encodes_nested_if_body() {
