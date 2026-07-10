@@ -2817,3 +2817,34 @@ fn check_rejects_empty_requires_body() {
     );
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn diff_rejects_invalid_format() {
+    let tmp = unique_temp("assura_diff_bad_format");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let a = tmp.join("a.assura");
+    std::fs::write(
+        &a,
+        "contract T { input(x: Int) requires { x >= 0 } ensures { x >= 0 } }\n",
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args([
+            "diff",
+            a.to_str().unwrap(),
+            a.to_str().unwrap(),
+            "--format",
+            "xml",
+        ])
+        .current_dir(workspace_root())
+        .output()
+        .expect("diff");
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("invalid --format") || stderr.contains("expected human"),
+        "stderr: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
