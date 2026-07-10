@@ -167,6 +167,11 @@ pub(crate) fn try_ir_from_rust_body(
         Some("i16") => Some((i16::MIN as i64, i16::MAX as i64)),
         Some("i32") => Some((i32::MIN as i64, i32::MAX as i64)),
         Some("i64") | Some("isize") => Some((i64::MIN, i64::MAX)),
+        Some("u8") => Some((0, u8::MAX as i64)),
+        Some("u16") => Some((0, u16::MAX as i64)),
+        Some("u32") => Some((0, u32::MAX as i64)),
+        // u64 max exceeds i64; clamp encode uses i64 consts — skip for now
+        Some("u64") | Some("usize") => None,
         _ => None,
     };
     SAT_BOUNDS.set(sat);

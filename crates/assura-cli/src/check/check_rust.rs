@@ -927,6 +927,10 @@ fn rust_int_range_bounds(rust_ty: &str) -> Option<(&'static str, &'static str)> 
         "i16" => Some(("-32768", "32767")),
         "i32" => Some(("-2147483648", "2147483647")),
         "i64" | "isize" => Some(("-9223372036854775808", "9223372036854775807")),
+        "u8" => Some(("0", "255")),
+        "u16" => Some(("0", "65535")),
+        "u32" => Some(("0", "4294967295")),
+        // u64 max does not fit i64 IR const path; skip range inject for now
         _ => None,
     }
 }
