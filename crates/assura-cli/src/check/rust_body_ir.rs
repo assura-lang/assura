@@ -575,6 +575,33 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = call min (${mx}, ${hi}) : Int"));
                     Some(slot)
                 }
+                // saturating_add/sub: clamp arith to i64 range (#1007; needs param
+                // range requires from check_rust for soundness on unbounded Int).
+                ("saturating_add" | "saturating_sub", 1) => {
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
+                    let op = if method == "saturating_add" {
+                        "add"
+                    } else {
+                        "sub"
+                    };
+                    let sum = *next;
+                    *next += 1;
+                    lines.push(format!("${sum} = arith {op} ${a} ${b} : Int"));
+                    let lo = *next;
+                    *next += 1;
+                    lines.push(format!("${lo} = const -9223372036854775808 : Int"));
+                    let hi = *next;
+                    *next += 1;
+                    lines.push(format!("${hi} = const 9223372036854775807 : Int"));
+                    let mx = *next;
+                    *next += 1;
+                    lines.push(format!("${mx} = call max (${sum}, ${lo}) : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = call min (${mx}, ${hi}) : Int"));
+                    Some(slot)
+                }
                 _ => None,
             }
         }
@@ -763,6 +790,7 @@ fn multi_let(x: i64) -> i64 { let a = x + 1; let b = a + 1; b }
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "C").expect("parse");
     }
 
+    #[test]
     fn abs_min_max_method_and_call() {
         let abs = try_ir_from_rust_body("A", &px(), Some("i64"), "x . abs ()").expect("abs");
         assert!(abs.contains("call abs"), "{abs}");

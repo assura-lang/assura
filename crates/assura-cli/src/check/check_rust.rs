@@ -163,6 +163,19 @@ pub(crate) fn run_check_rust(
                     .push_str(&format!("  requires {{ {} }}\n", clause_body(&clause.body)));
                 total_clauses += 1;
             }
+            // Machine integer params: constrain to Rust type range so body IR
+            // models (e.g. saturating/clamp to i64) match SMT unbounded Int.
+            if let AnnotatedItemKind::Function { params, .. } = &item.kind {
+                for p in params.iter().filter(|p| p.name != "self") {
+                    if let Some((lo, hi)) = rust_int_range_bounds(&p.ty) {
+                        contract_source.push_str(&format!(
+                            "  requires {{ {} >= {} }}\n  requires {{ {} <= {} }}\n",
+                            p.name, lo, p.name, hi
+                        ));
+                        total_clauses += 2;
+                    }
+                }
+            }
             // Add ensures clauses
             for clause in &item.contract.ensures {
                 contract_source
@@ -907,6 +920,17 @@ pub(crate) fn clause_to_json(
     })
 }
 
+/// Inclusive bounds for fixed-width signed Rust integer types used as params.
+fn rust_int_range_bounds(rust_ty: &str) -> Option<(&'static str, &'static str)> {
+    match rust_ty.trim() {
+        "i8" => Some(("-128", "127")),
+        "i16" => Some(("-32768", "32767")),
+        "i32" => Some(("-2147483648", "2147483647")),
+        "i64" | "isize" => Some(("-9223372036854775808", "9223372036854775807")),
+        _ => None,
+    }
+}
+
 /// Whether check-rust should report `body_not_modeled` instead of a soft pass.
 ///
 /// See #951: without co-located IR or an encoded Rust body, ensures must not
@@ -934,6 +958,15 @@ pub(crate) fn should_mark_body_not_modeled(
 
 #[cfg(test)]
 mod body_policy_tests {
+    #[test]
+    fn rust_int_range_i64() {
+        assert_eq!(
+            super::rust_int_range_bounds("i64"),
+            Some(("-9223372036854775808", "9223372036854775807"))
+        );
+        assert!(super::rust_int_range_bounds("u64").is_none());
+    }
+
     use super::should_mark_body_not_modeled;
 
     #[test]
