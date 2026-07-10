@@ -716,12 +716,12 @@ fn encode_syn_expr(
                 _ => None,
             }
         }
-        // `x as i64` / `x as bool`: identity when Assura maps both ends to Int/Nat/Bool.
-        // Truncating casts (i64 as i32) stay unencoded (would need bounds/mod).
+        // `x as T` identity only for lossless targets (i64/isize/bool).
+        // Narrowing (`i64 as i32`) stays unencoded — both map to Int in Assura
+        // and would silently drop high bits.
         syn::Expr::Cast(c) => {
             let ty_tokens = c.ty.to_token_stream().to_string().replace(' ', "");
-            let assura = assura_codegen::type_map::rust_type_to_assura(&ty_tokens);
-            if !matches!(assura.as_str(), "Int" | "Nat" | "Bool") {
+            if !matches!(ty_tokens.as_str(), "i64" | "isize" | "bool") {
                 return None;
             }
             encode_syn_expr(&c.expr, param_names, lines, next)
@@ -1025,6 +1025,8 @@ fn f(x: i64) -> i64 {
         assert!(into.contains("$result = load $0"), "{into}");
         let cast = try_ir_from_rust_body("C", &px(), Some("i64"), "x as i64").expect("as");
         assert!(cast.contains("$result = load $0"), "{cast}");
+        // Narrowing must not pretend to be identity on unbounded Int.
+        assert!(try_ir_from_rust_body("N", &px(), Some("i32"), "x as i32").is_none());
         assura_smt::LoadedVerifyExtras::from_ir_text(&into, "I").expect("parse into");
         assura_smt::LoadedVerifyExtras::from_ir_text(&cast, "C").expect("parse cast");
     }
