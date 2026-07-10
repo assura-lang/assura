@@ -2952,6 +2952,49 @@ fn mul(x: i64) -> i64 { x + 2 }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
 }
 
+/// Multi-let bodies fold into a single expression and verify.
+#[test]
+fn check_rust_encodes_multi_let_body() {
+    let tmp = unique_temp("assura_check_rust_body_multilet");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == x + 2
+fn f(x: i64) -> i64 { let a = x + 1; let b = a + 1; b }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "multi-let should pass: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+    assert!(v["verified"].as_u64().unwrap_or(0) >= 1, "{stdout}");
+
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x + 2
+fn f(x: i64) -> i64 { let a = x + 1; let b = a; b }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "wrong multi-let should CE");
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).expect("json");
+    assert_eq!(v["body_not_modeled"], 0);
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
+}
+
 /// Simple match (literal + wildcard) encodes multi-block IR (#993).
 #[test]
 fn check_rust_encodes_match_body() {
