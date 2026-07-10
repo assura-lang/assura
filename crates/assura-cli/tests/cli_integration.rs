@@ -3241,6 +3241,60 @@ fn f(x: i64) -> i64 { x.clamp(0, 10) }
     assert!(v["verified"].as_u64().unwrap_or(0) >= 2, "{stdout}");
 }
 
+/// Parametric clamp needs lo<=hi requires for range ensures.
+#[test]
+fn check_rust_encodes_clamp_params() {
+    let tmp = unique_temp("assura_check_rust_clamp_params");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @requires lo <= hi
+/// @ensures result >= lo
+/// @ensures result <= hi
+fn f(x: i64, lo: i64, hi: i64) -> i64 { x.clamp(lo, hi) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "parametric clamp should pass: {stdout}"
+    );
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+    assert!(v["verified"].as_u64().unwrap_or(0) >= 2, "{stdout}");
+
+    // Without lo<=hi, range ensures can fail (sound CE or error).
+    std::fs::write(
+        tmp.join("no_req.rs"),
+        r#"
+/// @ensures result >= lo
+/// @ensures result <= hi
+fn f(x: i64, lo: i64, hi: i64) -> i64 { x.clamp(lo, hi) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args([
+            "check-rust",
+            "--json",
+            tmp.join("no_req.rs").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "clamp without lo<=hi should not soft-pass: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+}
+
 /// Nested if/else-if encodes multi-block IR and can CE wrong branches.
 #[test]
 fn check_rust_encodes_nested_if_body() {
