@@ -406,41 +406,34 @@ fn match_pattern_ir(pat: &syn::Pat) -> Option<String> {
     }
 }
 
-/// Rewrite `match x { n if cond(n) => n, _ => e }` into nested if-tree (#999).
-/// Only identity bindings with guards + final wildcard (or plain expression default).
+/// Rewrite `match x { n if cond(n) => body, _ => e }` into nested if-tree (#999).
+/// Binding + guard arms: substitute the scrutinee for the bind in guard and body.
+/// Final arm must be `_` without guard. No plain bindings without guards.
 fn match_identity_guards_to_if(m: &syn::ExprMatch) -> Option<syn::Expr> {
     if m.arms.len() < 2 {
         return None;
     }
-    let scrut_src = expr_source(&m.expr);
     let mut nest: Option<String> = None;
     for arm in m.arms.iter().rev() {
         let body = match arm.body.as_ref() {
             syn::Expr::Block(b) => block_as_expr_owned(&b.block)?,
             other => other.clone(),
         };
-        let body_src = expr_source(&body);
         match (&arm.pat, &arm.guard) {
             (syn::Pat::Wild(_), None) => {
                 if nest.is_some() {
                     return None;
                 }
-                nest = Some(format!("( {body_src} )"));
+                nest = Some(format!("( {} )", expr_source(&body)));
             }
             (syn::Pat::Ident(id), Some((_, guard)))
-                if id.by_ref.is_none()
-                    && id.mutability.is_none()
-                    && matches!(
-                        body,
-                        syn::Expr::Path(ref p)
-                            if p.path.segments.len() == 1
-                                && p.path.segments[0].ident == id.ident
-                    ) =>
+                if id.by_ref.is_none() && id.mutability.is_none() =>
             {
                 let bind = id.ident.to_string();
                 let guard_sub = substitute_ident_expr(*guard.clone(), &bind, &m.expr);
+                let body_sub = substitute_ident_expr(body, &bind, &m.expr);
                 let cond_src = expr_source(&guard_sub);
-                let then_src = scrut_src.clone();
+                let then_src = expr_source(&body_sub);
                 let else_src = nest?;
                 nest = Some(format!(
                     "if {cond_src} {{ {then_src} }} else {{ {else_src} }}"
@@ -801,6 +794,19 @@ fn f(x: i64) -> i64 {
         assert!(ir.contains("cmp gt") && ir.contains("then #"), "{ir}");
         assert_no_slot_overlap_with_entry(&ir);
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "G").expect("parse");
+    }
+
+    #[test]
+    fn match_guard_non_identity_body_encodes() {
+        let ir = try_ir_from_rust_body(
+            "G2",
+            &px(),
+            Some("i64"),
+            "match x { n if n > 0 => -1, _ => 0 }",
+        )
+        .expect("guard body -1");
+        assert!(ir.contains("arith sub") || ir.contains("const"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "G2").expect("parse");
     }
 
     #[test]
