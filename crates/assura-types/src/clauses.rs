@@ -489,10 +489,25 @@ pub(crate) fn check_clause_bodies(
             }
             Decl::EnumDef(e) => {
                 // Payload field types: `enum E { V((,)), W(List<(,)>) }`
+                // Empty slots from `V(, Int)` or `V(Int,,Bool)` are also invalid
+                // (trailing `V(Int,)` does not produce an empty field).
                 use assura_parser::ast::try_parse_type_tokens;
                 for variant in &e.variants {
                     for (i, field_tokens) in variant.fields.iter().enumerate() {
                         if field_tokens.is_empty() {
+                            errors.push(TypeError {
+                                code: "A03001".into(),
+                                message: format!(
+                                    "empty type is not allowed for enum variant `{}.{}` field {} (remove the extra comma)",
+                                    e.name, variant.name, i
+                                ),
+                                span: span.clone(),
+                                secondary: None,
+                                suggestion: Some(
+                                    "Write a complete field type between commas, e.g. `V(Int, Bool)`."
+                                        .into(),
+                                ),
+                            });
                             continue;
                         }
                         if let Some(te) = try_parse_type_tokens(field_tokens) {
