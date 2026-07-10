@@ -499,6 +499,13 @@ pub fn discover_and_resolve_project_with_deps(
     let local_snapshot = all_modules.clone();
     load_dep_modules_for_project(&local_snapshot, deps, &mut all_modules, &mut errors);
 
+    // Project-wide import cycle detection (A02005). Per-module resolve only
+    // sees its own name in `visited`, so a↔b cycles never trigger the
+    // self-import check. Walk the full import graph once.
+    for cycle in detect_project_import_cycles(&all_modules) {
+        errors.push(format!("circular import: {}", cycle.join(" -> ")));
+    }
+
     // Resolve each module with access to the full module map (including self
     // so a one-module project still hard-errors on missing imports via A02010).
     let mut resolved = HashMap::new();
@@ -529,6 +536,80 @@ pub fn discover_and_resolve_project_with_deps(
     } else {
         Ok((resolved, errors))
     }
+}
+
+/// DFS over declared imports to find cycles among local modules.
+///
+/// Returns one path per cycle (e.g. `["a", "b", "a"]`). Only the first
+/// cycle through each strongly-connected edge set is reported.
+fn detect_project_import_cycles(modules: &ModuleMap) -> Vec<Vec<String>> {
+    let mut cycles = Vec::new();
+    let mut color: HashMap<String, u8> = HashMap::new(); // 0=white, 1=gray, 2=black
+    let mut stack: Vec<String> = Vec::new();
+
+    fn dfs(
+        node: &str,
+        modules: &ModuleMap,
+        color: &mut HashMap<String, u8>,
+        stack: &mut Vec<String>,
+        cycles: &mut Vec<Vec<String>>,
+    ) {
+        color.insert(node.to_string(), 1);
+        stack.push(node.to_string());
+
+        if let Some(source) = modules.get(node) {
+            for imp in &source.imports {
+                let target = imp.path.join(".");
+                // Only local modules in the project map.
+                if !modules.contains_key(&target) {
+                    // Prefix match (import sub.item → module sub)
+                    if let Some((prefix, _)) = modules
+                        .keys()
+                        .filter(|k| target == **k || target.starts_with(&format!("{k}.")))
+                        .map(|k| (k.clone(), ()))
+                        .max_by_key(|(k, _)| k.len())
+                    {
+                        walk_edge(&prefix, modules, color, stack, cycles);
+                    }
+                    continue;
+                }
+                walk_edge(&target, modules, color, stack, cycles);
+            }
+        }
+
+        stack.pop();
+        color.insert(node.to_string(), 2);
+    }
+
+    fn walk_edge(
+        target: &str,
+        modules: &ModuleMap,
+        color: &mut HashMap<String, u8>,
+        stack: &mut Vec<String>,
+        cycles: &mut Vec<Vec<String>>,
+    ) {
+        match color.get(target).copied().unwrap_or(0) {
+            1 => {
+                // Back edge into gray node → cycle.
+                if let Some(start) = stack.iter().position(|n| n == target) {
+                    let mut cycle: Vec<String> = stack[start..].to_vec();
+                    cycle.push(target.to_string());
+                    cycles.push(cycle);
+                }
+            }
+            0 => dfs(target, modules, color, stack, cycles),
+            _ => {}
+        }
+    }
+
+    let mut keys: Vec<String> = modules.keys().cloned().collect();
+    keys.sort();
+    for k in keys {
+        if color.get(&k).copied().unwrap_or(0) == 0 {
+            dfs(&k, modules, &mut color, &mut stack, &mut cycles);
+        }
+    }
+    cycles
 }
 
 /// Scan all modules for imports that reference external dependencies,
