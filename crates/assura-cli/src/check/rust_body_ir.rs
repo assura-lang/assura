@@ -41,14 +41,14 @@ fn body_return_from_block(block: &syn::Block) -> Option<String> {
     match block.stmts.as_slice() {
         [syn::Stmt::Expr(syn::Expr::Return(ret), _)] => ret.expr.as_ref().map(|e| expr_source(e)),
         [syn::Stmt::Expr(expr, _)] => Some(expr_source(expr)),
-        stmts => fold_simple_lets(stmts),
+        stmts => fold_simple_lets(stmts).map(|e| expr_source(&e)),
     }
 }
 
 /// Fold `let a = e1; let b = a + 1; b` (or `return b`) into a single expression.
 /// Only simple `Pat::Ident` bindings without type ascriptions/mut; final stmt is
 /// path/return/expression that may reference prior binds.
-fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<String> {
+fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<syn::Expr> {
     if stmts.len() < 2 {
         return None;
     }
@@ -80,7 +80,7 @@ fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<String> {
     for (name, init) in env.into_iter().rev() {
         final_expr = substitute_ident_expr(final_expr, &name, &init);
     }
-    Some(expr_source(&final_expr))
+    Some(final_expr)
 }
 
 /// Replace free path `name` with `replacement` (structural, supported expr kinds).
@@ -262,10 +262,10 @@ fn emit_value_blocks(
     match expr {
         syn::Expr::If(if_expr) => {
             let else_expr = if_expr.else_branch.as_ref()?.1.as_ref();
-            let then_expr = block_as_expr(&if_expr.then_branch)?;
+            let then_expr = block_as_expr_owned(&if_expr.then_branch)?;
             let else_expr = match else_expr {
-                syn::Expr::Block(b) => block_as_expr(&b.block)?,
-                other => other,
+                syn::Expr::Block(b) => block_as_expr_owned(&b.block)?,
+                other => other.clone(),
             };
 
             let this_id = *next_block;
@@ -274,7 +274,7 @@ fn emit_value_blocks(
             blocks.push((this_id, Vec::new()));
 
             let then_id = emit_value_blocks(
-                then_expr,
+                &then_expr,
                 param_names,
                 ret_assura,
                 blocks,
@@ -282,7 +282,7 @@ fn emit_value_blocks(
                 next_slot,
             )?;
             let else_id = emit_value_blocks(
-                else_expr,
+                &else_expr,
                 param_names,
                 ret_assura,
                 blocks,
@@ -321,11 +321,11 @@ fn emit_value_blocks(
                 }
                 let pat = match_pattern_ir(&arm.pat)?;
                 let body_expr = match arm.body.as_ref() {
-                    syn::Expr::Block(b) => block_as_expr(&b.block)?,
-                    other => other,
+                    syn::Expr::Block(b) => block_as_expr_owned(&b.block)?,
+                    other => other.clone(),
                 };
                 let arm_id = emit_value_blocks(
-                    body_expr,
+                    &body_expr,
                     param_names,
                     ret_assura,
                     blocks,
@@ -396,12 +396,14 @@ fn match_pattern_ir(pat: &syn::Pat) -> Option<String> {
     }
 }
 
-fn block_as_expr(block: &syn::Block) -> Option<&syn::Expr> {
+/// Branch/arm body as owned expression (return, single expr, multi-let fold).
+fn block_as_expr_owned(block: &syn::Block) -> Option<syn::Expr> {
     match block.stmts.as_slice() {
-        // `return e` / `return e;` as sole statement (common in if branches).
-        [syn::Stmt::Expr(syn::Expr::Return(ret), _)] => ret.expr.as_deref(),
-        [syn::Stmt::Expr(e, _)] => Some(e),
-        _ => None,
+        [syn::Stmt::Expr(syn::Expr::Return(ret), _)] => {
+            Some((*ret.expr.as_ref()?.as_ref()).clone())
+        }
+        [syn::Stmt::Expr(e, _)] => Some(e.clone()),
+        stmts => fold_simple_lets(stmts),
     }
 }
 

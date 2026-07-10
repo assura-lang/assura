@@ -3048,6 +3048,38 @@ fn sign(x: i64) -> i64 {
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
 }
 
+/// If branches with simple `let y = e; y` fold and verify.
+#[test]
+fn check_rust_encodes_if_let_branch() {
+    let tmp = unique_temp("assura_check_rust_body_if_let");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn f(x: i64) -> i64 {
+    if x > 0 {
+        let y = x;
+        y
+    } else {
+        0
+    }
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "if-let branch should pass: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+    assert!(v["verified"].as_u64().unwrap_or(0) >= 1, "{stdout}");
+}
+
 /// Nested if/else-if encodes multi-block IR and can CE wrong branches.
 #[test]
 fn check_rust_encodes_nested_if_body() {
