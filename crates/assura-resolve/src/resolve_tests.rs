@@ -1805,29 +1805,22 @@ fn multi_file_circular_import() {
     let src = dir.join("src");
     std::fs::write(
         src.join("a.assura"),
-        "module a\nimport b.Bar\ncontract Foo {\n  requires(x: Int)\n}",
+        "module a\nimport b\ncontract Foo {\n  requires { true }\n}",
     )
     .unwrap();
     std::fs::write(
         src.join("b.assura"),
-        "module b\nimport a.Foo\ncontract Bar {\n  requires(y: Int)\n}",
+        "module b\nimport a\ncontract Bar {\n  requires { true }\n}",
     )
     .unwrap();
 
-    // Circular imports produce errors: one module fails to resolve
-    // because it sees the other in the visited set. The project-level
-    // function still returns Ok with partial results + warnings.
     let (resolved, warnings) = discover_and_resolve_project(&dir)
         .expect("circular import project should return Ok with warnings");
-    // At least one module should resolve; the circular one may not
     assert!(!resolved.is_empty(), "at least one module should resolve");
-    // There should be warnings about the circular import
-    let has_circ = warnings
-        .iter()
-        .any(|w| w.contains("resolution error") || w.contains("circular"));
+    let has_circ = warnings.iter().any(|w| w.contains("circular"));
     assert!(
-        has_circ || resolved.len() == 2,
-        "should have circular import warning or both resolve: warnings={warnings:?}"
+        has_circ,
+        "a↔b project import cycle must be reported: warnings={warnings:?}"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

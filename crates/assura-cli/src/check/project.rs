@@ -36,7 +36,18 @@ pub(crate) fn run_check_project(
                     let diags: Vec<_> = errors
                         .iter()
                         .map(|e| {
-                            assura_diagnostics::Diagnostic::error("A02000", e.to_string(), 0..0)
+                            let msg = e.to_string();
+                            // Map to catalog codes (A02000 is not a valid code).
+                            let code = if msg.to_ascii_lowercase().contains("circular") {
+                                "A02005"
+                            } else if msg.to_ascii_lowercase().contains("not found")
+                                || msg.to_ascii_lowercase().contains("cannot resolve")
+                            {
+                                "A02010"
+                            } else {
+                                "A02010"
+                            };
+                            assura_diagnostics::Diagnostic::error(code, msg, 0..0)
                                 .with_file(project_root.display().to_string())
                         })
                         .collect();
@@ -66,8 +77,13 @@ pub(crate) fn run_check_project(
         if output_mode == OutputMode::Human {
             eprintln!("Error: {issue}");
         } else {
+            let code = if issue.to_ascii_lowercase().contains("circular") {
+                "A02005"
+            } else {
+                "A02010"
+            };
             all_diags.push(
-                assura_diagnostics::Diagnostic::error("A02010", issue.clone(), 0..0)
+                assura_diagnostics::Diagnostic::error(code, issue.clone(), 0..0)
                     .with_file(project_root.display().to_string()),
             );
         }
