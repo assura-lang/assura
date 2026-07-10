@@ -153,6 +153,8 @@ assura infer src/main.rs
 
 # Verify inline contract annotations in Rust source files
 assura check-rust src/
+# Without co-located {Name}.ir, ensures are reported body_not_modeled (not silent verified)
+assura check-rust src/ --json
 
 # Suggest contracts for unannotated functions
 assura check-rust src/ --suggest
