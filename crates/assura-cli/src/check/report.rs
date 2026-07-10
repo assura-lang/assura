@@ -188,9 +188,11 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
     }
 
     if output_mode == OutputMode::Human {
-        let non_lex: Vec<_> = diagnostics.iter().filter(|d| d.code != "A01001").collect();
+        // Render all diagnostics, including A01001 (unexpected character).
+        // Filtering A01001 hid real errors (e.g. non-ASCII identifiers) while
+        // JSON still reported them (dogfood: `contract Café`).
         if *has_errors || verbosity != Verbosity::Quiet {
-            for d in &non_lex {
+            for d in diagnostics.iter() {
                 assura_diagnostics::render_diagnostic(d, filename, source);
             }
         }
