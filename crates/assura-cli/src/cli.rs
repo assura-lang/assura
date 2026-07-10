@@ -569,7 +569,10 @@ pub fn run() {
                     "shell": shell_name,
                     "script": script,
                 });
-                println!("{}", serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".into()));
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".into())
+                );
             } else {
                 clap_complete::generate(
                     shell,

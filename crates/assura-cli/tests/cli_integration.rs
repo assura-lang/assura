@@ -855,9 +855,7 @@ fn completions_bash_json_is_parseable() {
         serde_json::from_str(&stdout).expect("completions --json stdout must be JSON");
     assert_eq!(v["command"], "completions");
     assert_eq!(v["shell"], "bash");
-    let script = v["script"]
-        .as_str()
-        .expect("script field must be a string");
+    let script = v["script"].as_str().expect("script field must be a string");
     assert!(
         script.contains("_assura") || script.contains("assura"),
         "script should contain completion body: {}",
