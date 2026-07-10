@@ -227,6 +227,33 @@ fn verify_contract_portfolio_solver() {
 }
 
 #[test]
+fn portfolio_parallel_prefers_z3_when_cvc5_missing() {
+    // Default CLI uses parallel:true. Portfolio must merge Z3+CVC5, not CVC5-only.
+    if std::process::Command::new("cvc5")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        return;
+    }
+    let typed = crate::test_util::typecheck_ok("contract T { requires { true } ensures { true } }");
+    let results = Verifier::new(&typed)
+        .apply_options(assura_config::VerifyOptions {
+            solver: SolverChoice::Portfolio,
+            parallel: true,
+            ..assura_config::VerifyOptions::for_tests()
+        })
+        .verify();
+    assert!(
+        results
+            .iter()
+            .any(|r| matches!(r, VerificationResult::Verified { .. })),
+        "parallel portfolio must keep Z3 Verified when cvc5 missing, got {results:?}"
+    );
+}
+
+#[test]
 fn verify_contract_decreases() {
     let results = verify_contract("Test", &[make_clause(ClauseKind::Decreases)]);
     assert_eq!(results.len(), 1);

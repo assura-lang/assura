@@ -502,9 +502,27 @@ fn verify_contract_with_types_and_solver(
                 verify_contract_with_solver(ctx.contract_name, ctx.clauses, solver)
             }
         }
-        SolverChoice::Cvc5 | SolverChoice::Portfolio => {
+        SolverChoice::Cvc5 => {
             let mut cache = SessionCache::new();
             crate::cvc5_backend::verify_contract_cvc5_with_lemmas(ctx, None, &mut cache)
+        }
+        SolverChoice::Portfolio => {
+            // Parallel path must merge Z3 + CVC5 (same as non-parallel
+            // verify_portfolio_parallel). Treating Portfolio as CVC5-only
+            // dropped Z3 Verified when cvc5 was missing from PATH.
+            #[cfg(feature = "z3-verify")]
+            {
+                let z3 = crate::z3_backend::verify_contract_impl_with_types_and_ir(ctx);
+                let mut cache = SessionCache::new();
+                let cvc5 =
+                    crate::cvc5_backend::verify_contract_cvc5_with_lemmas(ctx, None, &mut cache);
+                merge_portfolio_results(z3, cvc5)
+            }
+            #[cfg(not(feature = "z3-verify"))]
+            {
+                let mut cache = SessionCache::new();
+                crate::cvc5_backend::verify_contract_cvc5_with_lemmas(ctx, None, &mut cache)
+            }
         }
     }
 }
