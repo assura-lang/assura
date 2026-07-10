@@ -510,8 +510,7 @@ pub(crate) fn check_clause_bodies(
                             });
                             continue;
                         }
-                        let toks: Vec<String> =
-                            field.split_whitespace().map(String::from).collect();
+                        let toks = crate::convert::enum_field_type_tokens(field);
                         if let Some(te) = try_parse_type_tokens(&toks) {
                             check_invalid_empty_tuple_type_expr(
                                 &te,

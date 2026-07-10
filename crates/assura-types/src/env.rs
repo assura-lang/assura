@@ -8,7 +8,7 @@ use assura_resolve::{SymbolKind, SymbolTable};
 use crate::clauses::{
     collect_input_param_types, extract_output_type_from_body, register_input_clause_params,
 };
-use crate::convert::{parse_type_tokens, resolve_type_opt, type_from_expr};
+use crate::convert::{enum_field_type_tokens, parse_type_tokens, resolve_type_opt, type_from_expr};
 use crate::domain::StdlibTypes;
 use crate::types::builtin_type;
 use crate::{Type, TypeEnv};
@@ -170,11 +170,7 @@ pub(crate) fn build_type_env(
                         let field_types: Vec<Type> = variant
                             .fields
                             .iter()
-                            .map(|f| {
-                                let toks: Vec<String> =
-                                    f.split_whitespace().map(String::from).collect();
-                                parse_type_tokens(&toks)
-                            })
+                            .map(|f| parse_type_tokens(&enum_field_type_tokens(f)))
                             .collect();
                         env.insert(
                             variant.name.clone(),

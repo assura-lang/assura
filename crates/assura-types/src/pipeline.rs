@@ -17,7 +17,7 @@ use crate::clauses::{
     check_clause_bodies, collect_input_param_types, extract_output_type_from_body,
     register_input_clause_params,
 };
-use crate::convert::{parse_type_tokens, resolve_type_opt};
+use crate::convert::{enum_field_type_tokens, parse_type_tokens, resolve_type_opt};
 use crate::env::build_type_env;
 use crate::generics::run_generic_instantiation_checks;
 use crate::{Type, TypeEnv, TypeError, TypedFile};
@@ -579,11 +579,7 @@ fn inject_imported_types(
                     let field_types: Vec<Type> = variant
                         .fields
                         .iter()
-                        .map(|f| {
-                            let toks: Vec<String> =
-                                f.split_whitespace().map(String::from).collect();
-                            parse_type_tokens(&toks)
-                        })
+                        .map(|f| parse_type_tokens(&enum_field_type_tokens(f)))
                         .collect();
                     self.env.insert(
                         variant.name.clone(),
