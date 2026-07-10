@@ -14,7 +14,52 @@ pub(crate) fn run_coverage(
     let src_dir = root.join("src");
 
     if !src_dir.exists() {
-        eprintln!("Error: no src/ directory found at {}", root.display());
+        // Contracts-only projects (e.g. `assura init`) have no src/ yet.
+        // Coverage measures public Rust functions that have Assura contracts.
+        let contracts_path = root.join(contracts_dir);
+        let mut contract_names: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        let mut contract_files: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        if contracts_path.exists() {
+            collect_contract_names_from_dir(
+                &contracts_path,
+                &mut contract_names,
+                &mut contract_files,
+            );
+        }
+        for extra_dir in &[".", "assura", "specs"] {
+            let d = root.join(extra_dir);
+            if d.exists() && d != contracts_path {
+                collect_contract_names_from_dir(&d, &mut contract_names, &mut contract_files);
+            }
+        }
+        let n = contract_names.len();
+        if format == "json" {
+            let report = serde_json::json!({
+                "error": "no_src_directory",
+                "path": root.display().to_string(),
+                "message": "coverage needs a src/ tree of Rust sources; this project has contracts only",
+                "contracts_found": n,
+                "contract_names": contract_names.into_iter().collect::<Vec<_>>(),
+                "hint": "add src/ (e.g. assura infer / rustc crate) or run coverage from a Rust project root",
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: no src/ directory found at {}", root.display());
+            if n > 0 {
+                eprintln!(
+                    "Found {n} Assura contract(s), but coverage reports which public Rust functions have contracts."
+                );
+                eprintln!(
+                    "Hint: add a src/ tree (for example after `assura infer` or in a Rust crate), then re-run coverage."
+                );
+            } else {
+                eprintln!(
+                    "Hint: coverage expects a Rust project with src/ plus optional .assura contracts."
+                );
+            }
+        }
         process::exit(2);
     }
 

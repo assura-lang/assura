@@ -539,7 +539,7 @@ pub fn run() {
             focus.as_deref(),
         ),
         Commands::TestGen { file, output } => run_test_gen(&file, output.as_deref(), verbosity),
-        Commands::AgentInstructions => run_agent_instructions(),
+        Commands::AgentInstructions => run_agent_instructions(output_mode),
         Commands::Doctor => run_doctor(output_mode),
         Commands::Lsp => run_lsp(),
         Commands::Completions { shell } => {
