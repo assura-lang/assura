@@ -381,7 +381,7 @@ pub(crate) fn run_check_rust(
                 ) {
                     if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
                         eprintln!(
-                            "  note: `{item_name}` has no co-located IR or encodable body; \
+                            "  note: `{item_name}` has no co-located .ir and body is outside the encode surface; \
                              ensures were not proven against the Rust body (status body_not_modeled)"
                         );
                     }
@@ -496,12 +496,12 @@ pub(crate) fn run_check_rust(
         } else if total_body_not_modeled > 0 {
             eprintln!(
                 "{total_body_not_modeled} item(s) not proven against the Rust body \
-                 (add co-located {{Name}}.ir or use check on .assura + IR)"
+                 (simplify body for encode, add co-located {{Name}}.ir, or use assura check + IR)"
             );
             process::exit(1);
         } else if total_verified == 0 {
             println!(
-                "No clauses SMT-verified (annotations parsed; add co-located IR for body proof)"
+                "No clauses SMT-verified (annotations parsed; simplify body for encode or add co-located IR)"
             );
         } else {
             println!("All hard verification checks passed ({total_verified} verified)");
