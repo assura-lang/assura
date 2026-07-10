@@ -2139,6 +2139,70 @@ fn init_fails_on_existing_directory() {
 }
 
 #[test]
+fn init_rejects_empty_and_invalid_names() {
+    let tmp = unique_temp("assura_init_invalid_names");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    for bad in ["", "bad name", "1lead", "a/b", ".", ".."] {
+        let out = Command::new(assura_bin())
+            .args(["init", bad])
+            .current_dir(&tmp)
+            .output()
+            .expect("failed to run assura init");
+        assert_eq!(
+            out.status.code(),
+            Some(2),
+            "init {bad:?} should exit 2: stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        // Empty name must not write into the working directory.
+        assert!(
+            !tmp.join("assura.toml").exists(),
+            "init {bad:?} must not create assura.toml in cwd"
+        );
+        assert!(
+            !tmp.join("contracts").exists(),
+            "init {bad:?} must not create contracts/ in cwd"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn check_rejects_invalid_layer() {
+    let tmp = unique_temp("assura_layer_invalid");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("ok.assura");
+    std::fs::write(
+        &src,
+        "contract T { input(x: Int) requires { x >= 0 } ensures { x >= 0 } }\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check", src.to_str().unwrap(), "--layer", "99"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check --layer 99");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "invalid layer should exit 2: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("invalid --layer") || stderr.contains("expected 0"),
+        "stderr should explain layer range: {stderr}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn init_then_check_contracts() {
     let tmp = unique_temp("assura_init_check");
     let _ = std::fs::remove_dir_all(&tmp);
