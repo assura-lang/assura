@@ -1,6 +1,6 @@
 //! Encode simple Rust function bodies as Assura Implementation IR for check-rust.
 //!
-//! Supports integer arithmetic, abs/min/max/clamp, unary `-`, multi-let fold,
+//! Supports int/bool arith, abs/min/max/clamp/saturating, is_positive/negative/zero, unary `-`, multi-let, if/match (incl. guards),
 //! simple and nested `if`/`else` (expression branches), simple `match` with
 //! int/bool/wildcard arms (no guards/bindings), and Bool comparisons for
 //! `bool` return types. Body text is extracted with `syn` (co-publish-safe).
