@@ -299,12 +299,13 @@ pub(crate) fn run_check_rust(
                 let has_ensures = !item.contract.ensures.is_empty();
                 let colocated = assura_smt::LoadedVerifyExtras::load(file_path.as_path(), typed);
                 let has_body_ir = colocated.loaded_names().iter().any(|n| n == &item_name);
-                if has_ensures
-                    && !has_body_ir
-                    && item_verified > 0
-                    && item_errors == 0
-                    && matches!(item_status, "verified" | "partial")
-                {
+                if should_mark_body_not_modeled(
+                    has_ensures,
+                    has_body_ir,
+                    item_status,
+                    item_verified,
+                    item_errors,
+                ) {
                     if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
                         eprintln!(
                             "  note: `{item_name}` has no co-located IR; ensures were not \
