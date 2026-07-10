@@ -489,8 +489,7 @@ fn resolve_extern_refs_generic(
 
 /// Check type references in enum variant fields.
 ///
-/// Each variant has `fields: Vec<Vec<String>>` (one token sequence per payload
-/// type). Check each field's tokens against the symbol table.
+/// Each field string is a single token or space-joined multi-token type.
 fn check_enum_variant_types(
     e: &EnumDef,
     table: &SymbolTable,
@@ -500,10 +499,12 @@ fn check_enum_variant_types(
     errors: &mut Vec<ResolutionError>,
 ) {
     for variant in &e.variants {
-        for field_tokens in &variant.fields {
-            if !field_tokens.is_empty() {
-                check_type_tokens(field_tokens, table, scope_id, span, lenient, errors);
+        for field in &variant.fields {
+            if field.is_empty() {
+                continue;
             }
+            let toks: Vec<String> = field.split_whitespace().map(String::from).collect();
+            check_type_tokens(&toks, table, scope_id, span, lenient, errors);
         }
     }
 }

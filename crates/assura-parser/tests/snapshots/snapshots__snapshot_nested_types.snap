@@ -158,14 +158,8 @@ SourceFile {
                         EnumVariant {
                             name: "Node",
                             fields: [
-                                "Tree",
-                                "<",
-                                "T",
-                                ">",
-                                "Tree",
-                                "<",
-                                "T",
-                                ">",
+                                "Tree < T >",
+                                "Tree < T >",
                             ],
                         },
                     ],

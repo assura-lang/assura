@@ -280,7 +280,12 @@ fn write_enum_doc(doc: &mut String, enum_def: &EnumDef) {
             if variant.fields.is_empty() {
                 let _ = writeln!(doc, "- `{}`", variant.name);
             } else {
-                let types: Vec<String> = variant.fields.iter().map(|toks| toks.join("")).collect();
+                // Field strings may be space-joined multi-token types.
+                let types: Vec<String> = variant
+                    .fields
+                    .iter()
+                    .map(|f| f.split_whitespace().collect::<Vec<_>>().join(""))
+                    .collect();
                 let _ = writeln!(doc, "- `{}({})`", variant.name, types.join(", "));
             }
         }

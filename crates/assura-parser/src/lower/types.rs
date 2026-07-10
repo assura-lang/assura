@@ -197,7 +197,7 @@ pub(super) fn lower_enum_def(n: &SyntaxNode) -> EnumDef {
 
 fn lower_enum_variant(n: &SyntaxNode) -> EnumVariant {
     let name = super::first_ident(n);
-    // Payload types inside parens (if any), one token sequence per field.
+    // Payload types inside parens (if any), one space-joined string per field.
     let fields = collect_paren_field_types(n);
     EnumVariant { name, fields }
 }
@@ -206,16 +206,23 @@ fn lower_enum_variant(n: &SyntaxNode) -> EnumVariant {
 ///
 /// Splits only on top-level commas (depth 0 for `()`, `<>`, `[]`, `{}`) so
 /// multi-token types like `(Int, Bool)`, `List<Int>`, and `Map<K, V>` stay
-/// as a single field. Empty tuple `(,)` is one field with tokens
-/// `["(", ",", ")"]` (invalid-empty marker after parse).
-fn collect_paren_field_types(n: &SyntaxNode) -> Vec<Vec<String>> {
+/// as a single field. Each field is space-joined (`"List < Int >"`) so the
+/// public `Vec<String>` shape stays co-publish-safe with crates.io
+/// `assura-ast`. Empty tuple `(,)` is one field `"( , )"`.
+fn collect_paren_field_types(n: &SyntaxNode) -> Vec<String> {
     let mut inside = false;
     let mut paren = 0i32;
     let mut angle = 0i32;
     let mut bracket = 0i32;
     let mut brace = 0i32;
-    let mut fields: Vec<Vec<String>> = Vec::new();
+    let mut fields: Vec<String> = Vec::new();
     let mut current: Vec<String> = Vec::new();
+
+    let finish_field = |current: &mut Vec<String>, fields: &mut Vec<String>| {
+        // Always push (including empty) so `V(, Int)` keeps an empty slot.
+        fields.push(current.join(" "));
+        current.clear();
+    };
 
     for el in n.children_with_tokens() {
         let Some(tok) = el.as_token() else {
@@ -241,9 +248,13 @@ fn collect_paren_field_types(n: &SyntaxNode) -> Vec<Vec<String>> {
                     paren -= 1;
                     current.push(")".to_string());
                 } else {
-                    // Outer closer: finish last field.
-                    if !current.is_empty() {
-                        fields.push(std::mem::take(&mut current));
+                    // Outer closer: finish last field only if non-empty or
+                    // we already have fields (avoid turning `V()` into `[""]`).
+                    if !current.is_empty() || !fields.is_empty() {
+                        // Trailing comma leaves empty current: do not push empty.
+                        if !current.is_empty() {
+                            finish_field(&mut current, &mut fields);
+                        }
                     }
                     break;
                 }
@@ -275,8 +286,7 @@ fn collect_paren_field_types(n: &SyntaxNode) -> Vec<Vec<String>> {
             SyntaxKind::COMMA
                 if inside && paren == 0 && angle == 0 && bracket == 0 && brace == 0 =>
             {
-                // Top-level field separator (including empty slots).
-                fields.push(std::mem::take(&mut current));
+                finish_field(&mut current, &mut fields);
             }
             _ if inside => {
                 current.push(tok.text().to_string());

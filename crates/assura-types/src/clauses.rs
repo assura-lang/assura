@@ -493,8 +493,8 @@ pub(crate) fn check_clause_bodies(
                 // (trailing `V(Int,)` does not produce an empty field).
                 use assura_parser::ast::try_parse_type_tokens;
                 for variant in &e.variants {
-                    for (i, field_tokens) in variant.fields.iter().enumerate() {
-                        if field_tokens.is_empty() {
+                    for (i, field) in variant.fields.iter().enumerate() {
+                        if field.is_empty() {
                             errors.push(TypeError {
                                 code: "A03001".into(),
                                 message: format!(
@@ -510,7 +510,9 @@ pub(crate) fn check_clause_bodies(
                             });
                             continue;
                         }
-                        if let Some(te) = try_parse_type_tokens(field_tokens) {
+                        let toks: Vec<String> =
+                            field.split_whitespace().map(String::from).collect();
+                        if let Some(te) = try_parse_type_tokens(&toks) {
                             check_invalid_empty_tuple_type_expr(
                                 &te,
                                 &format!("enum variant `{}.{}` field {}", e.name, variant.name, i),

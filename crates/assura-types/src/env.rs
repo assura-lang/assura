@@ -170,7 +170,11 @@ pub(crate) fn build_type_env(
                         let field_types: Vec<Type> = variant
                             .fields
                             .iter()
-                            .map(|f| parse_type_tokens(f))
+                            .map(|f| {
+                                let toks: Vec<String> =
+                                    f.split_whitespace().map(String::from).collect();
+                                parse_type_tokens(&toks)
+                            })
                             .collect();
                         env.insert(
                             variant.name.clone(),

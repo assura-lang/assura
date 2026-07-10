@@ -1464,15 +1464,14 @@ pub struct EnumDef {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumVariant {
     pub name: String,
-    /// Payload types for tuple variants, each as a type-token sequence.
+    /// Payload types for tuple variants, one entry per field.
     ///
-    /// Examples:
-    /// - `Red` / `Red()` → `[]`
-    /// - `Circle(Float)` → `[["Float"]]`
-    /// - `Rect(Int, Bool)` → `[["Int"], ["Bool"]]`
-    /// - `Pair((Int, Bool))` → `[["(", "Int", ",", "Bool", ")"]]`
-    /// - `Box(List<Int>)` → `[["List", "<", "Int", ">"]]`
-    pub fields: Vec<Vec<String>>,
+    /// Each entry is either a single token (`"Int"`) or a space-joined
+    /// multi-token type (`"List < Int >"`, `"( Int , Bool )"`) so
+    /// multi-token payloads work without changing the co-publishable
+    /// `Vec<String>` shape. Split with `split_whitespace()` before
+    /// `try_parse_type_tokens` / `parse_type_tokens`.
+    pub fields: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------

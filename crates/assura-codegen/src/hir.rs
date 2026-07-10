@@ -705,7 +705,10 @@ pub fn build_enum_def(e: &assura_ast::EnumDef) -> Vec<RustItem> {
                 fields: v
                     .fields
                     .iter()
-                    .map(|f| RustType::Raw(super::map_type_tokens(f)))
+                    .map(|f| {
+                        let toks: Vec<String> = f.split_whitespace().map(String::from).collect();
+                        RustType::Raw(super::map_type_tokens(&toks))
+                    })
                     .collect(),
                 attrs: vec![],
             })
@@ -1251,7 +1254,7 @@ mod tests {
                 },
                 assura_ast::EnumVariant {
                     name: "Custom".into(),
-                    fields: vec![vec!["Int".into()]],
+                    fields: vec!["Int".into()],
                 },
             ],
         };
@@ -1286,7 +1289,7 @@ mod tests {
             variants: vec![
                 assura_ast::EnumVariant {
                     name: "Some".into(),
-                    fields: vec![vec!["T".into()]],
+                    fields: vec!["T".into()],
                 },
                 assura_ast::EnumVariant {
                     name: "None".into(),
