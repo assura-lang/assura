@@ -407,6 +407,16 @@ fn parse_solver(s: &str) -> Result<assura_smt::SolverChoice, String> {
         .ok_or_else(|| format!("invalid solver: {s} (expected z3, cvc5, or portfolio)"))
 }
 
+/// Prefer global `--json` when a command's own `--format` is still the
+/// default `"human"`. Explicit `--format json|human` always wins.
+fn resolve_format_with_global_json(output_mode: OutputMode, format: String) -> String {
+    if output_mode == OutputMode::Json && format == "human" {
+        "json".to_string()
+    } else {
+        format
+    }
+}
+
 fn parse_target(s: &str) -> Result<assura_codegen::CompileTarget, String> {
     assura_codegen::CompileTarget::from_str_loose(s)
         .ok_or_else(|| format!("invalid target: {s} (expected native or wasm)"))
@@ -540,7 +550,10 @@ pub fn run() {
             contracts_dir,
             format,
             min_coverage,
-        } => run_coverage(&path, &contracts_dir, &format, min_coverage),
+        } => {
+            let format = resolve_format_with_global_json(output_mode, format);
+            run_coverage(&path, &contracts_dir, &format, min_coverage);
+        }
         Commands::Audit {
             path,
             depth,
@@ -549,15 +562,18 @@ pub fn run() {
             max_functions,
             timeout,
             unsafe_only,
-        } => run_audit(AuditOptions {
-            path: &path,
-            depth: &depth,
-            format: &format,
-            focus: focus.as_deref(),
-            max_functions,
-            timeout_ms: timeout,
-            unsafe_only,
-        }),
+        } => {
+            let format = resolve_format_with_global_json(output_mode, format);
+            run_audit(AuditOptions {
+                path: &path,
+                depth: &depth,
+                format: &format,
+                focus: focus.as_deref(),
+                max_functions,
+                timeout_ms: timeout,
+                unsafe_only,
+            });
+        }
         Commands::Repl => run_repl(),
         Commands::Diff {
             old,
@@ -565,6 +581,7 @@ pub fn run() {
             format,
             verify,
         } => {
+            let format = resolve_format_with_global_json(output_mode, format);
             let has_diff = run_diff(&old, &new, &format);
             if verify {
                 run_diff_verify(&old, &new, &format);
