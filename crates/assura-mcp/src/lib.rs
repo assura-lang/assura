@@ -411,8 +411,10 @@ fn extract_function_signatures(source: &str) -> String {
             .unwrap_or("()");
 
         let assura_ret = assura_codegen::type_map::rust_type_to_assura(ret);
+        // Emit real Assura clause syntax (not pseudo `input:` / `requires:` lines).
         output.push_str(&format!("contract {name} {{\n"));
 
+        let mut inputs = Vec::new();
         for param in params_str.split(',') {
             let param = param.trim();
             if param.is_empty() || param.starts_with("&self") || param == "self" {
@@ -421,13 +423,19 @@ fn extract_function_signatures(source: &str) -> String {
             if let Some((pname, ptype)) = param.split_once(':') {
                 let pname = pname.trim();
                 let ptype = assura_codegen::type_map::rust_type_to_assura(ptype.trim());
-                output.push_str(&format!("  input: {pname}: {ptype}\n"));
+                inputs.push(format!("{pname}: {ptype}"));
             }
         }
-
-        output.push_str(&format!("  output: result: {assura_ret}\n"));
-        output.push_str("  requires: true\n");
-        output.push_str("  ensures: true\n");
+        if inputs.is_empty() {
+            output.push_str("    input()\n");
+        } else {
+            output.push_str(&format!("    input({})\n", inputs.join(", ")));
+        }
+        if assura_ret != "Unit" && assura_ret != "()" {
+            output.push_str(&format!("    output(result: {assura_ret})\n"));
+        }
+        output.push_str("    requires { true }\n");
+        output.push_str("    ensures { true }\n");
         output.push_str("}\n\n");
     }
     if output.is_empty() {
@@ -619,7 +627,25 @@ contract Bar {
             result.contains("contract add"),
             "should contain contract name"
         );
-        assert!(result.contains("output:"), "should contain output");
+        assert!(
+            result.contains("input(a: Int, b: Int)"),
+            "should emit Assura input(...) syntax, got: {result}"
+        );
+        assert!(
+            result.contains("output(result: Int)"),
+            "should emit Assura output(...) syntax, got: {result}"
+        );
+        assert!(
+            result.contains("requires { true }"),
+            "should emit requires {{ }} clause, got: {result}"
+        );
+        // Must parse as real Assura (not pseudo-syntax).
+        let pipe = run_check_pipeline(&result, "<infer>");
+        assert!(
+            pipe.parse_errors.is_empty(),
+            "inferred contract must parse: {:?}",
+            pipe.parse_errors
+        );
     }
 
     #[test]

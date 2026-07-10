@@ -41,7 +41,18 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
     } else if let Some(dir) = crash_dir {
         match CrashArtifact::from_directory(Path::new(dir)) {
             Ok(a) if a.is_empty() => {
-                if verbosity != Verbosity::Quiet {
+                if output_mode == OutputMode::Json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "artifacts": 0,
+                            "function": null,
+                            "total_suggestions": 0,
+                            "crashes": [],
+                            "message": format!("No crash artifacts found in {dir}"),
+                        })
+                    );
+                } else if verbosity != Verbosity::Quiet {
                     println!("No crash artifacts found in {dir}");
                 }
                 return;
@@ -94,7 +105,7 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
         }
     };
 
-    if verbosity != Verbosity::Quiet {
+    if verbosity != Verbosity::Quiet && output_mode != OutputMode::Json {
         println!(
             "suggest-from-crash: {} artifact(s), target: {target}",
             artifacts.len()
@@ -158,7 +169,7 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
         );
 
         if !seen_keys.insert(dedup_key) {
-            if verbosity == Verbosity::Verbose {
+            if verbosity == Verbosity::Verbose && output_mode != OutputMode::Json {
                 println!(
                     "  skipping {} (duplicate crash class)",
                     artifact.path.display()
@@ -167,7 +178,7 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
             continue;
         }
 
-        if verbosity == Verbosity::Verbose {
+        if verbosity == Verbosity::Verbose && output_mode != OutputMode::Json {
             println!(
                 "  analyzing {} ({}, {})",
                 artifact.path.display(),
@@ -212,11 +223,12 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
                 }
             }
             Ok(_) => {
-                if verbosity == Verbosity::Verbose {
+                if verbosity == Verbosity::Verbose && output_mode != OutputMode::Json {
                     println!("  {} no suggestions", artifact.path.display());
                 }
             }
             Err(e) => {
+                // Always stderr; never pollute JSON on stdout.
                 eprintln!("  {}: LLM error: {e}", artifact.path.display(),);
             }
         }
