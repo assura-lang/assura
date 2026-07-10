@@ -442,18 +442,49 @@ pub(crate) fn check_clause_bodies(
                 }
             }
             Decl::TypeDef(td) => {
-                // Struct field types: `type T { f: (,) }` must reject empty tuples.
-                if let assura_parser::ast::TypeBody::Struct(fields) = &td.body {
-                    for f in fields {
-                        if let Some(te) = &f.ty {
+                use assura_parser::ast::{TypeBody, try_parse_type_tokens};
+                match &td.body {
+                    // Struct fields: `type T { f: (,) }`
+                    TypeBody::Struct(fields) => {
+                        for f in fields {
+                            if let Some(te) = &f.ty {
+                                check_invalid_empty_tuple_type_expr(
+                                    te,
+                                    &format!("field `{}.{}`", td.name, f.name),
+                                    span,
+                                    &mut errors,
+                                );
+                            }
+                        }
+                    }
+                    // Alias: `type T = (,)` or `type T = List<(,)>`
+                    TypeBody::Alias(tokens) => {
+                        if let Some(te) = try_parse_type_tokens(tokens) {
                             check_invalid_empty_tuple_type_expr(
-                                te,
-                                &format!("field `{}.{}`", td.name, f.name),
+                                &te,
+                                &format!("type alias `{}`", td.name),
                                 span,
                                 &mut errors,
                             );
                         }
                     }
+                    // Refined: body tokens are inside `{…}` without braces;
+                    // re-wrap so try_parse sees the refined form.
+                    TypeBody::Refined(tokens) => {
+                        let mut wrapped = Vec::with_capacity(tokens.len() + 2);
+                        wrapped.push("{".to_string());
+                        wrapped.extend(tokens.iter().cloned());
+                        wrapped.push("}".to_string());
+                        if let Some(te) = try_parse_type_tokens(&wrapped) {
+                            check_invalid_empty_tuple_type_expr(
+                                &te,
+                                &format!("refined type `{}`", td.name),
+                                span,
+                                &mut errors,
+                            );
+                        }
+                    }
+                    TypeBody::Empty => {}
                 }
             }
             // Enum variant fields are name tokens only; Prophecy/Codec have no type anns here

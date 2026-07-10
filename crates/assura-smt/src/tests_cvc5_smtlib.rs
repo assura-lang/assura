@@ -213,9 +213,7 @@ fn test_smtlib_binop_concat() {
         rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
     });
     let s = expr_to_smtlib(&expr).expect("Concat should encode");
-    assert!(s.contains("__concat"), "missing concat UF in: {s}");
-    assert!(s.contains("a"), "missing lhs in concat: {s}");
-    assert!(s.contains("b"), "missing rhs in concat: {s}");
+    assert_eq!(s, "(__concat a b)");
 }
 
 #[test]

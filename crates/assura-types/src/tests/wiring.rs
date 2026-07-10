@@ -2050,8 +2050,59 @@ fn f(t: (Int, Bool), x: Int) -> Int
   ensures { result == x }
 "#;
     let resolved = resolve_ok(src);
+    type_check(resolved).expect("pair tuple param should type-check");
+}
+
+#[test]
+fn empty_tuple_type_alias_rejected_a03001() {
+    let src = r#"
+type Bad = (,)
+contract C {
+  input(t: Bad)
+  ensures { true }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
     assert!(
-        type_check(resolved).is_ok(),
-        "pair tuple param should type-check"
+        errs.iter()
+            .any(|e| e.code == "A03001" && e.message.contains("empty tuple")),
+        "expected A03001 for type alias empty tuple, got {errs:?}"
+    );
+}
+
+#[test]
+fn empty_tuple_list_alias_rejected_a03001() {
+    let src = r#"
+type Bad = List<(,)>
+contract C {
+  input(t: Bad)
+  ensures { true }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A03001" && e.message.contains("empty tuple")),
+        "expected A03001 for List alias empty tuple, got {errs:?}"
+    );
+}
+
+#[test]
+fn empty_tuple_refined_alias_rejected_a03001() {
+    let src = r#"
+type Bad = { x: (,) | true }
+contract C {
+  input(t: Bad)
+  ensures { true }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A03001" && e.message.contains("empty tuple")),
+        "expected A03001 for refined empty tuple base, got {errs:?}"
     );
 }
