@@ -626,6 +626,24 @@ pub(crate) fn check_clause_expr(
     } else {
         ctx_span.clone()
     };
+
+    // Empty `requires { }` / `ensures { }` bodies lower to `Expr::Raw([])`
+    // (or whitespace-only raw tokens), which type as indeterminate and
+    // previously escaped the Bool check. Reject them explicitly (#928).
+    if clause_requires_bool(kind) && expr_body_is_empty(&body.node) {
+        errors.push(TypeError {
+            code: "A03006".into(),
+            message: format!(
+                "{} clause body is empty; expected a Bool expression",
+                clause_kind_label(kind),
+            ),
+            span: body_span.clone(),
+            secondary: None,
+            suggestion: Some("Write a boolean condition, e.g. `requires { x >= 0 }`.".into()),
+        });
+        return;
+    }
+
     match infer_expr_spanned(body, env, body_span.clone()) {
         Ok(ty) => {
             if clause_requires_bool(kind) && !ty.is_indeterminate() && ty != Type::Bool {
@@ -644,6 +662,14 @@ pub(crate) fn check_clause_expr(
         Err(e) => {
             errors.push(e);
         }
+    }
+}
+
+/// True when a clause body is missing any meaningful expression tokens.
+fn expr_body_is_empty(expr: &Expr) -> bool {
+    match expr {
+        Expr::Raw(tokens) => tokens.iter().all(|t| t.trim().is_empty()),
+        _ => false,
     }
 }
 
@@ -814,6 +840,21 @@ mod tests {
         let mut errors = Vec::new();
         check_clause_expr(&ClauseKind::Requires, &body, &env, &mut errors, &(0..1));
         assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn check_clause_body_empty_is_a03006() {
+        let body = Spanned::no_span(Expr::Raw(vec![]));
+        let env = TypeEnv::new();
+        let mut errors = Vec::new();
+        check_clause_expr(&ClauseKind::Requires, &body, &env, &mut errors, &(0..1));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, "A03006");
+        assert!(
+            errors[0].message.contains("empty"),
+            "message should mention empty: {}",
+            errors[0].message
+        );
     }
 
     #[test]
