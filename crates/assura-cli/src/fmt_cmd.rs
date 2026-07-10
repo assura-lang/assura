@@ -3,10 +3,11 @@ use super::*;
 // `assura fmt <file|dir> [--check]` — format .assura source file(s)
 // ---------------------------------------------------------------------------
 
-pub(crate) fn run_fmt(filename: &str, check_only: bool) {
+pub(crate) fn run_fmt(filename: &str, check_only: bool, output_mode: assura_config::OutputMode) {
+    let json = output_mode == assura_config::OutputMode::Json;
     // Match `assura check -`: format stdin to stdout (or --check only).
     if is_stdin_arg(filename) {
-        if !fmt_stdin(check_only) {
+        if !fmt_stdin(check_only, json) {
             process::exit(1);
         }
         return;
@@ -21,11 +22,30 @@ pub(crate) fn run_fmt(filename: &str, check_only: bool) {
             process::exit(2);
         }
         let mut failed = false;
+        let mut results: Vec<serde_json::Value> = Vec::new();
         for file in &files {
             let path_str = file.to_string_lossy();
-            if !fmt_one(path_str.as_ref(), check_only) {
+            // Suppress per-file JSON; emit one aggregate report below.
+            let ok = fmt_one(path_str.as_ref(), check_only, false);
+            if json && check_only {
+                results.push(serde_json::json!({
+                    "file": path_str,
+                    "formatted": ok,
+                }));
+            }
+            if !ok {
                 failed = true;
             }
+        }
+        if json && check_only {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "ok": !failed,
+                    "files": results,
+                }))
+                .unwrap()
+            );
         }
         if failed {
             process::exit(1);
@@ -33,13 +53,13 @@ pub(crate) fn run_fmt(filename: &str, check_only: bool) {
         return;
     }
 
-    if !fmt_one(filename, check_only) {
+    if !fmt_one(filename, check_only, json) {
         process::exit(1);
     }
 }
 
 /// Format stdin. Writes formatted source to stdout unless `--check`.
-fn fmt_stdin(check_only: bool) -> bool {
+fn fmt_stdin(check_only: bool, json: bool) -> bool {
     let source = match read_source_arg("-") {
         Ok((s, _)) => s,
         Err(e) => {
@@ -59,12 +79,23 @@ fn fmt_stdin(check_only: bool) -> bool {
     };
 
     if check_only {
-        if formatted == source {
-            true
-        } else {
+        let ok = formatted == source;
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "file": "<stdin>",
+                    "formatted": ok,
+                })
+            );
+        } else if !ok {
             eprintln!("<stdin>: not formatted");
-            false
         }
+        ok
+    } else if json {
+        // Still emit source so pipes work; wrap only when check.
+        print!("{formatted}");
+        true
     } else {
         print!("{formatted}");
         true
@@ -72,7 +103,7 @@ fn fmt_stdin(check_only: bool) -> bool {
 }
 
 /// Format one file. Returns `false` if `--check` failed or parse failed.
-fn fmt_one(filename: &str, check_only: bool) -> bool {
+fn fmt_one(filename: &str, check_only: bool, json: bool) -> bool {
     let source = match fs::read_to_string(filename) {
         Ok(s) => s,
         Err(e) => {
@@ -92,12 +123,22 @@ fn fmt_one(filename: &str, check_only: bool) -> bool {
     };
 
     if check_only {
-        if formatted == source {
-            true
-        } else {
+        let ok = formatted == source;
+        if json {
+            // Directory path aggregates results; single file prints here.
+            // Callers that collect results pass json=true and may skip single print
+            // for dirs (handled in run_fmt). For a single file, print now.
+            println!(
+                "{}",
+                serde_json::json!({
+                    "file": filename,
+                    "formatted": ok,
+                })
+            );
+        } else if !ok {
             eprintln!("{filename}: not formatted");
-            false
         }
+        ok
     } else {
         if let Err(e) = fs::write(filename, &formatted) {
             eprintln!("Error: cannot write {filename}: {e}");

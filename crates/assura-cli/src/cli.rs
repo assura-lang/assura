@@ -524,7 +524,7 @@ pub fn run() {
         }),
         Commands::Init { name } => run_init(&name),
         Commands::Explain { code } => run_explain(&code, output_mode),
-        Commands::Fmt { file, check } => run_fmt(&file, check),
+        Commands::Fmt { file, check } => run_fmt(&file, check, output_mode),
         Commands::Infer {
             file,
             function,
