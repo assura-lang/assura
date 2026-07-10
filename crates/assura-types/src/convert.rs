@@ -94,6 +94,14 @@ pub(crate) fn resolve_type_opt(type_expr: Option<&assura_parser::ast::TypeExpr>)
 // Type token parsing
 // ---------------------------------------------------------------------------
 
+/// Split a space-joined enum field type (`"List < Int >"`, `"Int"`) into tokens.
+///
+/// Enum payload fields keep `Vec<String>` for co-publish safety; multi-token
+/// types are stored space-joined and re-split here before parse.
+pub(crate) fn enum_field_type_tokens(field: &str) -> Vec<String> {
+    field.split_whitespace().map(String::from).collect()
+}
+
 /// Parse a raw token sequence (e.g. `["List", "<", "Int", ">"]`) into a
 /// structured `Type`. Handles base types, generic containers, refinement
 /// types, taint annotations, reference/mutable types, and union error types.
