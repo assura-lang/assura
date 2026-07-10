@@ -2784,3 +2784,28 @@ fn single_file_missing_import_is_a02010_not_unused() {
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn check_rejects_empty_requires_body() {
+    let tmp = unique_temp("assura_empty_requires");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let path = tmp.join("e.assura");
+    std::fs::write(
+        &path,
+        "contract E {\n  input(x: Int)\n  requires { }\n  ensures { true }\n}\n",
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check", path.to_str().unwrap(), "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("check");
+    assert!(!out.status.success(), "empty requires must fail");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("A03006"),
+        "expected A03006 for empty requires: {stdout}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
