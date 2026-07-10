@@ -23,8 +23,9 @@ pub(crate) fn extract_decl_summary(
     result
 }
 
+/// Human-readable clause body (Assura surface syntax), not Debug.
 pub(crate) fn format_clause_body(clause: &assura_parser::ast::Clause) -> String {
-    format!("{:?}", clause.body)
+    assura_parser::display::expr_to_string(&clause.body)
 }
 
 pub(crate) fn run_diff(old_path: &str, new_path: &str, format: &str) -> bool {
@@ -295,6 +296,44 @@ pub(crate) struct DiffEntry {
     added_clauses: Vec<String>,
     removed_clauses: Vec<String>,
     unchanged_clauses: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_clause_body_is_surface_syntax_not_debug() {
+        let src = r#"
+contract C {
+  input(x: Int)
+  ensures { x >= 0 }
+}
+"#;
+        let (ast, errs) = assura_parser::parse(src);
+        assert!(errs.is_empty(), "{errs:?}");
+        let sf = ast.expect("ast");
+        let summary = extract_decl_summary(&sf);
+        let clauses = summary.get("C").expect("contract C");
+        let ensures = clauses
+            .iter()
+            .find(|c| c.starts_with("Ensures:"))
+            .expect("ensures clause");
+        // Must not dump Debug(Spanned { node: ... })
+        assert!(
+            !ensures.contains("Spanned"),
+            "diff body must not use Debug format: {ensures}"
+        );
+        assert!(
+            ensures.contains("x") && ensures.contains("0"),
+            "expected surface expression, got {ensures}"
+        );
+        // Prefer readable comparison operator
+        assert!(
+            ensures.contains(">=") || ensures.contains("≥"),
+            "expected comparison in body: {ensures}"
+        );
+    }
 }
 
 // ===========================================================================
