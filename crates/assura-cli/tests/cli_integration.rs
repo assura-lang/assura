@@ -2725,6 +2725,31 @@ fn check_watch_rejects_stdin_json() {
     assert_eq!(v["error"], "watch_stdin_unsupported");
 }
 
+/// #977: clap missing required args under global --json must be JSON.
+#[test]
+fn clap_missing_arg_json() {
+    let out = Command::new(assura_bin())
+        .args(["fmt", "--json"])
+        .output()
+        .expect("failed to run fmt --json without file");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "missing required arg should exit 2: stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("clap missing arg under --json must be JSON");
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["error"], "cli_error");
+    assert!(
+        v["kind"].as_str().unwrap_or("").contains("Missing")
+            || v["message"].as_str().unwrap_or("").contains("required"),
+        "expected missing-arg kind/message, got {v}"
+    );
+}
+
 /// Global `--json` with invalid `--format` must emit JSON (coverage/audit/diff).
 #[test]
 fn coverage_invalid_format_json() {
