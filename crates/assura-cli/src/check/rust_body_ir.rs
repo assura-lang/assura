@@ -502,6 +502,24 @@ fn block_as_expr_owned(block: &syn::Block) -> Option<syn::Expr> {
     }
 }
 
+/// Clamp `val` slot into SAT_BOUNDS using max/min; returns result slot.
+fn emit_sat_clamp(val: usize, lines: &mut Vec<String>, next: &mut usize) -> Option<usize> {
+    let (lo_v, hi_v) = SAT_BOUNDS.get()?;
+    let lo = *next;
+    *next += 1;
+    lines.push(format!("${lo} = const {lo_v} : Int"));
+    let hi = *next;
+    *next += 1;
+    lines.push(format!("${hi} = const {hi_v} : Int"));
+    let mx = *next;
+    *next += 1;
+    lines.push(format!("${mx} = call max (${val}, ${lo}) : Int"));
+    let slot = *next;
+    *next += 1;
+    lines.push(format!("${slot} = call min (${mx}, ${hi}) : Int"));
+    Some(slot)
+}
+
 /// Encode `expr` into IR lines; returns the slot holding the value.
 fn encode_syn_expr(
     expr: &syn::Expr,
@@ -793,20 +811,7 @@ fn encode_syn_expr(
                     let neg = *next;
                     *next += 1;
                     lines.push(format!("${neg} = arith sub ${zero} ${a} : Int"));
-                    let lo = *next;
-                    *next += 1;
-                    let (lo_v, hi_v) = SAT_BOUNDS.get()?;
-                    lines.push(format!("${lo} = const {lo_v} : Int"));
-                    let hi = *next;
-                    *next += 1;
-                    lines.push(format!("${hi} = const {hi_v} : Int"));
-                    let mx = *next;
-                    *next += 1;
-                    lines.push(format!("${mx} = call max (${neg}, ${lo}) : Int"));
-                    let slot = *next;
-                    *next += 1;
-                    lines.push(format!("${slot} = call min (${mx}, ${hi}) : Int"));
-                    Some(slot)
+                    emit_sat_clamp(neg, lines, next)
                 }
                 // saturating_add/sub: clamp arith to i64 range (#1007; needs param
                 // range requires from check_rust for soundness on unbounded Int).
@@ -822,20 +827,7 @@ fn encode_syn_expr(
                     let sum = *next;
                     *next += 1;
                     lines.push(format!("${sum} = arith {op} ${a} ${b} : Int"));
-                    let lo = *next;
-                    *next += 1;
-                    let (lo_v, hi_v) = SAT_BOUNDS.get()?;
-                    lines.push(format!("${lo} = const {lo_v} : Int"));
-                    let hi = *next;
-                    *next += 1;
-                    lines.push(format!("${hi} = const {hi_v} : Int"));
-                    let mx = *next;
-                    *next += 1;
-                    lines.push(format!("${mx} = call max (${sum}, ${lo}) : Int"));
-                    let slot = *next;
-                    *next += 1;
-                    lines.push(format!("${slot} = call min (${mx}, ${hi}) : Int"));
-                    Some(slot)
+                    emit_sat_clamp(sum, lines, next)
                 }
                 _ => None,
             }
