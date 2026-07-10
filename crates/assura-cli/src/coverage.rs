@@ -66,6 +66,9 @@ pub(crate) fn run_coverage(
     // Phase 1: Discover all public Rust functions
     let rs_files = discover_rs_files(&src_dir);
     let mut all_fns: Vec<(String, String)> = Vec::new(); // (file, fn_name)
+    // Functions with inline `/// @requires` / `@ensures` (check-rust path).
+    let mut inline_annotated: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
 
     for rs_file in &rs_files {
         let rel_path = rs_file
@@ -83,6 +86,13 @@ pub(crate) fn run_coverage(
         for sig in sigs {
             if sig.is_pub {
                 all_fns.push((rel_path.clone(), sig.name));
+            }
+        }
+
+        // Count check-rust style doc annotations as coverage.
+        if let Ok(items) = assura_rust_analyzer::parse_rust_file(rs_file) {
+            for name in public_fns_with_inline_contracts(&items) {
+                inline_annotated.insert((rel_path.clone(), name));
             }
         }
     }
@@ -121,6 +131,12 @@ pub(crate) fn run_coverage(
                 .cloned()
                 .unwrap_or_else(|| "?".to_string());
             covered.push((file.clone(), fn_name.clone(), cf));
+        } else if inline_annotated.contains(&(file.clone(), fn_name.clone())) {
+            covered.push((
+                file.clone(),
+                fn_name.clone(),
+                "inline (/// @requires/@ensures)".to_string(),
+            ));
         } else {
             // Get param count for prioritization
             let param_count = rs_files
@@ -207,6 +223,27 @@ pub(crate) fn run_coverage(
         }
         process::exit(1);
     }
+}
+
+/// Names of public functions that carry inline `/// @requires` / `@ensures`
+/// (or other) contract annotations, for coverage cross-reference.
+pub(crate) fn public_fns_with_inline_contracts(
+    items: &[assura_rust_analyzer::AnnotatedItem],
+) -> Vec<String> {
+    let mut names = Vec::new();
+    for item in items {
+        if item.contract.clause_count() == 0 {
+            continue;
+        }
+        if let assura_rust_analyzer::AnnotatedItemKind::Function {
+            name, is_public, ..
+        } = &item.kind
+            && *is_public
+        {
+            names.push(name.clone());
+        }
+    }
+    names
 }
 
 /// Collect contract/bind names from all .assura files in a directory.
@@ -339,5 +376,40 @@ contract SafeDiv {
         collect_contract_names_from_dir(tmp.path(), &mut names, &mut files);
 
         assert!(names.contains("SafeDiv"), "should find SafeDiv contract");
+    }
+
+    #[test]
+    fn public_fns_with_inline_contracts_detects_doc_annotations() {
+        let source = r#"
+/// @requires x > 0
+/// @ensures result >= x
+pub fn annotated(x: i32) -> i32 {
+    x
+}
+
+/// no contract tags
+pub fn plain(x: i32) -> i32 {
+    x
+}
+
+/// @requires true
+fn private_annotated(x: i32) -> i32 {
+    x
+}
+"#;
+        let items = assura_rust_analyzer::parse_rust_source(source).unwrap();
+        let names = public_fns_with_inline_contracts(&items);
+        assert!(
+            names.contains(&"annotated".to_string()),
+            "public fn with @requires/@ensures should count as covered: {names:?}"
+        );
+        assert!(
+            !names.contains(&"plain".to_string()),
+            "public fn without contract tags must not count: {names:?}"
+        );
+        assert!(
+            !names.contains(&"private_annotated".to_string()),
+            "private annotated fn is outside coverage universe: {names:?}"
+        );
     }
 }
