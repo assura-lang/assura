@@ -594,6 +594,16 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = cmp lt ${a} ${z} : Bool"));
                     Some(slot)
                 }
+                ("is_zero", 0) => {
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let z = *next;
+                    *next += 1;
+                    lines.push(format!("${z} = const 0 : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = cmp eq ${a} ${z} : Bool"));
+                    Some(slot)
+                }
 
                 ("min" | "max", 1) => {
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
