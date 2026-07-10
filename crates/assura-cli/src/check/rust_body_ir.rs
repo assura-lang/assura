@@ -1,9 +1,50 @@
 //! #975: encode simple Rust function bodies as Assura Implementation IR.
 //!
 //! Supports identity and integer `+` / `-` on parameters and integer literals.
-//! Returns `None` when the body is multi-statement or uses unsupported forms.
+//! Body text is extracted with `syn` from the Rust source (co-publish-safe:
+//! does not depend on new assura-rust-analyzer fields).
 
-use assura_rust_analyzer::{AnnotatedItemKind, ParamInfo};
+use assura_rust_analyzer::ParamInfo;
+use quote::ToTokens;
+
+/// Extract a simple trailing return expression for `fn_name` from Rust source.
+pub(crate) fn extract_body_return(source: &str, fn_name: &str) -> Option<String> {
+    let file = syn::parse_file(source).ok()?;
+    for item in &file.items {
+        match item {
+            syn::Item::Fn(func) if func.sig.ident == fn_name => {
+                return body_return_from_block(&func.block);
+            }
+            syn::Item::Impl(imp) => {
+                for impl_item in &imp.items {
+                    if let syn::ImplItem::Fn(method) = impl_item
+                        && method.sig.ident == fn_name
+                    {
+                        return body_return_from_block(&method.block);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn body_return_from_block(block: &syn::Block) -> Option<String> {
+    match block.stmts.as_slice() {
+        [syn::Stmt::Expr(syn::Expr::Return(ret), _)] => ret.expr.as_ref().map(|e| expr_source(e)),
+        [syn::Stmt::Expr(expr, _)] => Some(expr_source(expr)),
+        _ => None,
+    }
+}
+
+fn expr_source(expr: &syn::Expr) -> String {
+    expr.to_token_stream()
+        .to_string()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
 
 /// Build IR text for a function if `body_return` is a simple supported shape.
 pub(crate) fn try_ir_from_rust_body(
@@ -15,7 +56,6 @@ pub(crate) fn try_ir_from_rust_body(
     let ret_assura = return_ty
         .map(assura_codegen::type_map::rust_type_to_assura)
         .unwrap_or_else(|| "Int".to_string());
-    // Only encode integer-like results for this slice.
     if !matches!(ret_assura.as_str(), "Int" | "Nat") {
         return None;
     }
@@ -57,18 +97,15 @@ pub(crate) fn try_ir_from_rust_body(
 }
 
 fn encode_expr_to_ir_lines(expr: &str, param_names: &[&str]) -> Option<Vec<String>> {
-    // Strip outer parens repeatedly
     let mut e = expr.trim().to_string();
     while e.starts_with('(') && e.ends_with(')') && e.len() > 2 {
         e = e[1..e.len() - 1].trim().to_string();
     }
 
-    // Identity: bare param name
     if let Some(idx) = param_names.iter().position(|n| *n == e) {
         return Some(vec![format!("$result = load ${idx} : Int")]);
     }
 
-    // Integer literal
     if e.parse::<i64>().is_ok() {
         return Some(vec![
             format!("$1 = const {e} : Int"),
@@ -76,13 +113,11 @@ fn encode_expr_to_ir_lines(expr: &str, param_names: &[&str]) -> Option<Vec<Strin
         ]);
     }
 
-    // Binary + or - (match fixture shape: const then arith then load result)
     for op in ["+", "-"] {
         if let Some((left, right)) = split_binary(&e, op) {
             let left = left.trim();
             let right = right.trim();
             let mut lines = Vec::new();
-            // Next free temp starts after last param index.
             let mut next = param_names.len();
             let lname = materialize_atom(left, param_names, &mut lines, &mut next)?;
             let rname = materialize_atom(right, param_names, &mut lines, &mut next)?;
@@ -98,7 +133,6 @@ fn encode_expr_to_ir_lines(expr: &str, param_names: &[&str]) -> Option<Vec<Strin
 }
 
 fn split_binary<'a>(expr: &'a str, op: &str) -> Option<(&'a str, &'a str)> {
-    // Find top-level operator (not inside parens)
     let mut depth = 0i32;
     let bytes = expr.as_bytes();
     let op_b = op.as_bytes()[0];
@@ -137,26 +171,16 @@ fn materialize_atom(
     None
 }
 
-/// Function fields used for body→IR synthesis.
-pub(crate) struct FunctionBodyFields<'a> {
-    pub params: &'a [ParamInfo],
-    pub return_type: Option<&'a str>,
-    pub body_return: Option<&'a str>,
-}
-
-/// Extract params / return / body_return from an annotated item when present.
-pub(crate) fn function_body_fields(kind: &AnnotatedItemKind) -> Option<FunctionBodyFields<'_>> {
+/// Params / return type from an annotated item Function.
+pub(crate) fn function_params_return(
+    kind: &assura_rust_analyzer::AnnotatedItemKind,
+) -> Option<(&[ParamInfo], Option<&str>)> {
     match kind {
-        AnnotatedItemKind::Function {
+        assura_rust_analyzer::AnnotatedItemKind::Function {
             params,
             return_type,
-            body_return,
             ..
-        } => Some(FunctionBodyFields {
-            params: params.as_slice(),
-            return_type: return_type.as_deref(),
-            body_return: body_return.as_deref(),
-        }),
+        } => Some((params.as_slice(), return_type.as_deref())),
         _ => None,
     }
 }
@@ -165,6 +189,18 @@ pub(crate) fn function_body_fields(kind: &AnnotatedItemKind) -> Option<FunctionB
 mod tests {
     use super::*;
     use assura_rust_analyzer::ParamInfo;
+
+    #[test]
+    fn extract_identity_and_add() {
+        let src = r#"
+/// @requires x > 0
+/// @ensures result == x + 1
+fn bad(x: i64) -> i64 { x }
+fn good(x: i64) -> i64 { x + 1 }
+"#;
+        assert_eq!(extract_body_return(src, "bad").as_deref(), Some("x"));
+        assert_eq!(extract_body_return(src, "good").as_deref(), Some("x + 1"));
+    }
 
     #[test]
     fn identity_body_ir() {
@@ -185,6 +221,7 @@ mod tests {
         let ir = try_ir_from_rust_body("Inc", &params, Some("i64"), "x + 1").expect("ir");
         assert!(ir.contains("arith add"), "{ir}");
         assert!(ir.contains("const 1"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "Inc").expect("parse");
     }
 
     #[test]
@@ -210,19 +247,5 @@ mod tests {
             ty: "i64".into(),
         }];
         assert!(try_ir_from_rust_body("F", &params, Some("i64"), "x * 2").is_none());
-    }
-
-    #[test]
-    fn add_one_ir_parses() {
-        let params = vec![ParamInfo {
-            name: "x".into(),
-            ty: "i64".into(),
-        }];
-        let ir = try_ir_from_rust_body("good", &params, Some("i64"), "x + 1").unwrap();
-        assert!(
-            ir.contains("$1 = const 1 : Int") && ir.contains("arith add $0 $1"),
-            "unexpected IR:\n{ir}"
-        );
-        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "good").expect("IR must parse");
     }
 }

@@ -195,30 +195,15 @@ pub fn verify_typed(
     filename: &str,
     config: &CompilerConfig,
 ) -> Vec<assura_smt::VerificationResult> {
-    verify_typed_with_extras(typed, filename, config, None)
-}
-
-/// Like [`verify_typed`], but inject in-memory IR bodies (e.g. check-rust
-/// encoding of simple Rust function bodies, #975). When `extras` is `Some`,
-/// disk sidecar / heuristic synthesis is skipped for this call.
-pub fn verify_typed_with_extras(
-    typed: &assura_types::TypedFile,
-    filename: &str,
-    config: &CompilerConfig,
-    extras: Option<&assura_smt::LoadedVerifyExtras>,
-) -> Vec<assura_smt::VerificationResult> {
     if config.verify.layer < 1 {
         return Vec::new();
     }
 
     // --- Layer 1: standard SMT verification ---
-    let mut verifier = assura_smt::Verifier::new(typed)
+    let mut results = assura_smt::Verifier::new(typed)
         .source(std::path::Path::new(filename))
-        .apply_options(config.verify.clone());
-    if let Some(ex) = extras {
-        verifier = verifier.with_extras(ex);
-    }
-    let mut results = verifier.verify();
+        .apply_options(config.verify.clone())
+        .verify();
 
     // --- Layer 2: quantified invariants, termination, roundtrips ---
     if config.verify.layer >= 2 {

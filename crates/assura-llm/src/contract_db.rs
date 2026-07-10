@@ -195,7 +195,6 @@ mod tests {
                 is_unsafe: false,
                 is_async: false,
                 is_public: true,
-                body_return: None,
             },
             line: 1,
             offset: 0,
