@@ -64,7 +64,12 @@ fn extract_testable(
     })
 }
 
-pub(crate) fn run_test_gen(filename: &str, output: Option<&str>, verbosity: Verbosity) {
+pub(crate) fn run_test_gen(
+    filename: &str,
+    output: Option<&str>,
+    verbosity: Verbosity,
+    output_mode: assura_config::OutputMode,
+) {
     let source = match fs::read_to_string(filename) {
         Ok(s) => s,
         Err(e) => {
@@ -151,14 +156,39 @@ pub(crate) fn run_test_gen(filename: &str, output: Option<&str>, verbosity: Verb
         out.push_str("\n\n");
     }
 
+    if output_mode == assura_config::OutputMode::Json && output.is_none() {
+        let report = serde_json::json!({
+            "source": filename,
+            "test_count": tests.len(),
+            "rust_source": out,
+            "tests": tests.iter().map(|t| serde_json::json!({
+                "body": t.body,
+            })).collect::<Vec<_>>(),
+        });
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        return;
+    }
+
     if let Some(path) = output {
         match fs::write(path, &out) {
             Ok(()) => {
                 if verbosity != Verbosity::Quiet {
-                    eprintln!(
-                        "Generated {} test(s) from {filename} -> {path}",
-                        tests.len()
-                    );
+                    if output_mode == assura_config::OutputMode::Json {
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "source": filename,
+                                "output": path,
+                                "test_count": tests.len(),
+                                "status": "ok",
+                            })
+                        );
+                    } else {
+                        eprintln!(
+                            "Generated {} test(s) from {filename} -> {path}",
+                            tests.len()
+                        );
+                    }
                 }
             }
             Err(e) => {
