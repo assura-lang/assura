@@ -2952,6 +2952,112 @@ fn mul(x: i64) -> i64 { x + 2 }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
 }
 
+/// Nested if/else-if encodes multi-block IR and can CE wrong branches.
+#[test]
+fn check_rust_encodes_nested_if_body() {
+    let tmp = unique_temp("assura_check_rust_body_nested_if");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn nest(x: i64) -> i64 {
+    if x > 10 { x } else { if x > 0 { x } else { 0 } }
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "nested if should pass: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+    assert!(v["verified"].as_u64().unwrap_or(0) >= 1, "{stdout}");
+
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result >= 0
+fn nest(x: i64) -> i64 {
+    if x > 10 { x } else { if x > 0 { x } else { -1 } }
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "wrong nested else should CE");
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).expect("json");
+    assert_eq!(v["body_not_modeled"], 0);
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
+}
+
+/// Bool comparison bodies encode; wrapping_add stays body_not_modeled with exit 1.
+#[test]
+fn check_rust_bool_body_and_bnm_unmodeled() {
+    let tmp = unique_temp("assura_check_rust_bool_bnm");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bool.rs"),
+        r#"
+/// @ensures result == true || result == false
+fn is_pos(x: i64) -> bool { x > 0 }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args([
+            "check-rust",
+            "--json",
+            tmp.join("bool.rs").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // Bool cmp encode is enough to avoid BNM; ensures may verify or be soft.
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(
+        v["body_not_modeled"], 0,
+        "bool comparison should encode body: {stdout}"
+    );
+
+    std::fs::write(
+        tmp.join("wrap.rs"),
+        r#"
+/// @ensures result >= x
+fn add1(x: i64) -> i64 { x.wrapping_add(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args([
+            "check-rust",
+            "--json",
+            tmp.join("wrap.rs").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "unmodeled wrapping_add must fail exit: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).expect("json");
+    assert_eq!(
+        v["body_not_modeled"], 1,
+        "wrapping_add must be body_not_modeled: {v}"
+    );
+}
+
 /// #975: wrong identity body vs ensures x+1 must CE (not silent verified / BNM).
 #[test]
 fn check_rust_encodes_identity_body_counterexample() {

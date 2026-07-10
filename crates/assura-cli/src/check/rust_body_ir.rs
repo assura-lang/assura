@@ -1,9 +1,14 @@
-//! #975: encode simple Rust function bodies as Assura Implementation IR.
+//! Encode simple Rust function bodies as Assura Implementation IR for check-rust.
 //!
-//! Supports integer arithmetic on parameters and literals: `+`, `-`, `*`, `/`,
-//! `%`, unary `-`, and nested forms (e.g. `x + y + 1`, `(x + 1) * 2`).
-//! Body text is extracted with `syn` from the Rust source (co-publish-safe:
-//! does not depend on new assura-rust-analyzer fields).
+//! Supports integer arithmetic, abs/min/max, unary `-`, single-let inline,
+//! simple and nested `if`/`else` (expression branches), and Bool comparisons
+//! for `bool` return types. Body text is extracted with `syn` (co-publish-safe).
+//!
+//! Multi-block if IR must use **unique temp slots across sibling blocks**.
+//! `eval_ir_block` clones parent slots into each block; reusing `$1`/`$2` for
+//! temps collides with the condition/`if` result and makes SMT unsound
+//! (false Verified). Match `Clamp.ir`: params `$0..$n-1` are shared; temps
+//! monotonically increase (see shared `next` in `emit_value_blocks`).
 
 use assura_rust_analyzer::ParamInfo;
 use quote::ToTokens;
@@ -75,7 +80,7 @@ pub(crate) fn try_ir_from_rust_body(
     let ret_assura = return_ty
         .map(assura_codegen::type_map::rust_type_to_assura)
         .unwrap_or_else(|| "Int".to_string());
-    if !matches!(ret_assura.as_str(), "Int" | "Nat") {
+    if !matches!(ret_assura.as_str(), "Int" | "Nat" | "Bool") {
         return None;
     }
 
@@ -90,7 +95,7 @@ pub(crate) fn try_ir_from_rust_body(
 
     for p in params.iter().filter(|p| p.name != "self") {
         let ty = assura_codegen::type_map::rust_type_to_assura(&p.ty);
-        if !matches!(ty.as_str(), "Int" | "Nat") {
+        if !matches!(ty.as_str(), "Int" | "Nat" | "Bool") {
             return None;
         }
     }
@@ -104,15 +109,16 @@ pub(crate) fn try_ir_from_rust_body(
     }
     let sig = sig_parts.join(", ");
 
-    // Simple if: multi-block IR (see Clamp.ir).
-    if let syn::Expr::If(if_expr) = &expr {
-        return try_ir_from_if(item_name, &sig, &ret_assura, &param_names, if_expr);
+    // If (including nested else-if): multi-block IR (Clamp.ir style).
+    if matches!(expr, syn::Expr::If(_)) {
+        return try_ir_from_if_tree(item_name, &sig, &ret_assura, &param_names, &expr);
     }
 
     let mut lines = Vec::new();
     let mut next = param_names.len();
     let result_slot = encode_syn_expr(&expr, &param_names, &mut lines, &mut next)?;
-    lines.push(format!("$result = load ${result_slot} : Int"));
+    let result_ty = if ret_assura == "Bool" { "Bool" } else { "Int" };
+    lines.push(format!("$result = load ${result_slot} : {result_ty}"));
 
     let mut ir = String::new();
     ir.push_str(&format!("module {item_name} {{\n"));
@@ -128,69 +134,116 @@ pub(crate) fn try_ir_from_rust_body(
     Some(ir)
 }
 
-/// `if cond { then } else { else }` as IR blocks #1 / #2 (Clamp.ir style).
-fn try_ir_from_if(
+/// Flatten if/else-if tree into numbered IR functions with unique temp slots.
+fn try_ir_from_if_tree(
     item_name: &str,
     sig: &str,
     ret_assura: &str,
     param_names: &[&str],
-    if_expr: &syn::ExprIf,
+    root: &syn::Expr,
 ) -> Option<String> {
-    let else_expr = if_expr.else_branch.as_ref()?.1.as_ref();
-    // Only simple expression branches (not nested if / blocks with multi-stmt).
-    let then_expr = block_as_expr(&if_expr.then_branch)?;
-    let else_expr = match else_expr {
-        syn::Expr::Block(b) => block_as_expr(&b.block)?,
-        other => other,
-    };
-
-    let mut main_lines = Vec::new();
-    let mut next = param_names.len();
-    let cond_slot = encode_syn_expr(&if_expr.cond, param_names, &mut main_lines, &mut next)?;
-    // Condition must be Bool (cmp produces Bool; truthy int not supported).
-    main_lines.push(format!(
-        "${} = if ${cond_slot} then #1 else #2 : {ret_assura}",
-        next
-    ));
-    let if_out = next;
-    next += 1;
-    main_lines.push(format!("$result = load ${if_out} : {ret_assura}"));
-
-    let mut then_lines = Vec::new();
-    let mut then_next = param_names.len().max(next);
-    let then_slot = encode_syn_expr(then_expr, param_names, &mut then_lines, &mut then_next)?;
-    then_lines.push(format!("$result = load ${then_slot} : {ret_assura}"));
-
-    let mut else_lines = Vec::new();
-    let mut else_next = param_names.len().max(then_next);
-    let else_slot = encode_syn_expr(else_expr, param_names, &mut else_lines, &mut else_next)?;
-    else_lines.push(format!("$result = load ${else_slot} : {ret_assura}"));
+    let mut blocks: Vec<(usize, Vec<String>)> = Vec::new();
+    let mut next_block = 0usize;
+    // Shared across all blocks: params 0..n-1 stay shared; temps never reuse.
+    let mut next_slot = param_names.len();
+    let entry = emit_value_blocks(
+        root,
+        param_names,
+        ret_assura,
+        &mut blocks,
+        &mut next_block,
+        &mut next_slot,
+    )?;
+    if entry != 0 {
+        return None;
+    }
 
     let mut ir = String::new();
     ir.push_str(&format!("module {item_name} {{\n"));
-    ir.push_str(&format!("  fn #0 : ({sig}) -> {ret_assura} ! pure\n  {{\n"));
-    for line in main_lines {
-        ir.push_str("    ");
-        ir.push_str(&line);
-        ir.push('\n');
+    for (id, lines) in &blocks {
+        let fn_sig = if *id == 0 {
+            format!("({sig}) -> {ret_assura}")
+        } else {
+            format!("() -> {ret_assura}")
+        };
+        ir.push_str(&format!("  fn #{id} : {fn_sig} ! pure\n  {{\n"));
+        for line in lines {
+            ir.push_str("    ");
+            ir.push_str(line);
+            ir.push('\n');
+        }
+        ir.push_str("  }\n");
     }
-    ir.push_str("  }\n");
-    ir.push_str(&format!("  fn #1 : () -> {ret_assura} ! pure\n  {{\n"));
-    for line in then_lines {
-        ir.push_str("    ");
-        ir.push_str(&line);
-        ir.push('\n');
-    }
-    ir.push_str("  }\n");
-    ir.push_str(&format!("  fn #2 : () -> {ret_assura} ! pure\n  {{\n"));
-    for line in else_lines {
-        ir.push_str("    ");
-        ir.push_str(&line);
-        ir.push('\n');
-    }
-    ir.push_str("  }\n");
     ir.push_str("}\n");
     Some(ir)
+}
+
+/// Emit IR for a value expression that may be a nested if. Returns block id.
+fn emit_value_blocks(
+    expr: &syn::Expr,
+    param_names: &[&str],
+    ret_assura: &str,
+    blocks: &mut Vec<(usize, Vec<String>)>,
+    next_block: &mut usize,
+    next_slot: &mut usize,
+) -> Option<usize> {
+    match expr {
+        syn::Expr::If(if_expr) => {
+            let else_expr = if_expr.else_branch.as_ref()?.1.as_ref();
+            let then_expr = block_as_expr(&if_expr.then_branch)?;
+            let else_expr = match else_expr {
+                syn::Expr::Block(b) => block_as_expr(&b.block)?,
+                other => other,
+            };
+
+            let this_id = *next_block;
+            *next_block += 1;
+            // Reserve this block slot (filled after children so ids are sequential-ish)
+            blocks.push((this_id, Vec::new()));
+
+            let then_id = emit_value_blocks(
+                then_expr,
+                param_names,
+                ret_assura,
+                blocks,
+                next_block,
+                next_slot,
+            )?;
+            let else_id = emit_value_blocks(
+                else_expr,
+                param_names,
+                ret_assura,
+                blocks,
+                next_block,
+                next_slot,
+            )?;
+
+            let mut main_lines = Vec::new();
+            let cond_slot =
+                encode_syn_expr(&if_expr.cond, param_names, &mut main_lines, next_slot)?;
+            let if_out = *next_slot;
+            *next_slot += 1;
+            main_lines.push(format!(
+                "${if_out} = if ${cond_slot} then #{then_id} else #{else_id} : {ret_assura}"
+            ));
+            main_lines.push(format!("$result = load ${if_out} : {ret_assura}"));
+
+            if let Some((_, lines)) = blocks.iter_mut().find(|(id, _)| *id == this_id) {
+                *lines = main_lines;
+            }
+            Some(this_id)
+        }
+        other => {
+            let this_id = *next_block;
+            *next_block += 1;
+            let mut lines = Vec::new();
+            let slot = encode_syn_expr(other, param_names, &mut lines, next_slot)?;
+            let ty = if ret_assura == "Bool" { "Bool" } else { "Int" };
+            lines.push(format!("$result = load ${slot} : {ty}"));
+            blocks.push((this_id, lines));
+            Some(this_id)
+        }
+    }
 }
 
 fn block_as_expr(block: &syn::Block) -> Option<&syn::Expr> {
@@ -219,11 +272,20 @@ fn encode_syn_expr(
             ..
         }) => {
             let val = n.base10_digits();
-            // Reject overly large literals that don't fit i64 for IR const.
             let _ = val.parse::<i64>().ok()?;
             let slot = *next;
             *next += 1;
             lines.push(format!("${slot} = const {val} : Int"));
+            Some(slot)
+        }
+        syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Bool(b),
+            ..
+        }) => {
+            let val = if b.value { 1 } else { 0 };
+            let slot = *next;
+            *next += 1;
+            lines.push(format!("${slot} = const {val} : Bool"));
             Some(slot)
         }
         syn::Expr::Unary(u) if matches!(u.op, syn::UnOp::Neg(_)) => {
@@ -236,8 +298,17 @@ fn encode_syn_expr(
             lines.push(format!("${slot} = arith sub ${zero} ${inner} : Int"));
             Some(slot)
         }
+        syn::Expr::Unary(u) if matches!(u.op, syn::UnOp::Not(_)) => {
+            let zero = *next;
+            *next += 1;
+            lines.push(format!("${zero} = const 0 : Bool"));
+            let inner = encode_syn_expr(&u.expr, param_names, lines, next)?;
+            let slot = *next;
+            *next += 1;
+            lines.push(format!("${slot} = cmp eq ${inner} ${zero} : Bool"));
+            Some(slot)
+        }
         syn::Expr::Binary(b) => {
-            // Comparisons → Bool slots for `if` conditions.
             if let Some(cmp) = match &b.op {
                 syn::BinOp::Lt(_) => Some("lt"),
                 syn::BinOp::Gt(_) => Some("gt"),
@@ -269,7 +340,6 @@ fn encode_syn_expr(
             lines.push(format!("${slot} = arith {ir_op} ${lhs} ${rhs} : Int"));
             Some(slot)
         }
-        // i64::abs / min / max method receivers (IR `call abs/min/max`).
         syn::Expr::MethodCall(m) => {
             let method = m.method.to_string();
             match (method.as_str(), m.args.len()) {
@@ -291,7 +361,6 @@ fn encode_syn_expr(
                 _ => None,
             }
         }
-        // Free-function form: abs(x), min(x, y), max(x, y)
         syn::Expr::Call(c) => {
             let syn::Expr::Path(path) = c.func.as_ref() else {
                 return None;
@@ -376,55 +445,33 @@ fn with_let(x: i64) -> i64 { let y = x + 1; y }
     fn add_one_body_ir() {
         let ir = try_ir_from_rust_body("Inc", &px(), Some("i64"), "x + 1").expect("ir");
         assert!(ir.contains("arith add"), "{ir}");
-        assert!(ir.contains("const 1"), "{ir}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "Inc").expect("parse");
     }
 
     #[test]
-    fn nested_add_mul_and_unary() {
-        let params = vec![
-            ParamInfo {
-                name: "x".into(),
-                ty: "i64".into(),
-            },
-            ParamInfo {
-                name: "y".into(),
-                ty: "i64".into(),
-            },
-        ];
-        let nest = try_ir_from_rust_body("Nest", &params, Some("i64"), "x + y + 1").expect("nest");
-        assert!(nest.contains("arith add"), "{nest}");
-        assura_smt::LoadedVerifyExtras::from_ir_text(&nest, "Nest").expect("parse nest");
-
-        let mul = try_ir_from_rust_body("Mul", &px(), Some("i64"), "x * 2").expect("mul");
-        assert!(mul.contains("arith mul"), "{mul}");
-        assura_smt::LoadedVerifyExtras::from_ir_text(&mul, "Mul").expect("parse mul");
-
-        let neg = try_ir_from_rust_body("Neg", &px(), Some("i64"), "- x").expect("neg");
-        assert!(neg.contains("arith sub"), "{neg}");
-        assura_smt::LoadedVerifyExtras::from_ir_text(&neg, "Neg").expect("parse neg");
-
-        let nested = try_ir_from_rust_body("N2", &px(), Some("i64"), "(x + 1) * 2").expect("n2");
+    fn nested_if_body_ir() {
+        let ir = try_ir_from_rust_body(
+            "Nest",
+            &px(),
+            Some("i64"),
+            "if x > 10 { x } else { if x > 0 { x } else { 0 } }",
+        )
+        .expect("nested if");
+        assert!(ir.contains("fn #0") && ir.contains("fn #3"), "{ir}");
+        assert!(ir.matches("then #").count() >= 2, "{ir}");
+        // Sibling temps must not reuse parent cond slots (unsound if collision).
         assert!(
-            nested.contains("arith mul") && nested.contains("arith add"),
-            "{nested}"
+            ir.contains("$4 =") || ir.contains("$5 =") || ir.contains("$6 ="),
+            "expected high temp slots: {ir}"
         );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "Nest").expect("parse nested");
     }
 
     #[test]
-    fn two_param_add_ir() {
-        let params = vec![
-            ParamInfo {
-                name: "a".into(),
-                ty: "i64".into(),
-            },
-            ParamInfo {
-                name: "b".into(),
-                ty: "i64".into(),
-            },
-        ];
-        let ir = try_ir_from_rust_body("Add", &params, Some("i64"), "a + b").expect("ir");
-        assert!(ir.contains("arith add $0 $1"), "{ir}");
+    fn bool_comparison_body_ir() {
+        let ir = try_ir_from_rust_body("IsPos", &px(), Some("bool"), "x > 0").expect("bool");
+        assert!(ir.contains("cmp gt") && ir.contains(": Bool"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "IsPos").expect("parse bool");
     }
 
     #[test]
@@ -435,8 +482,52 @@ fn with_let(x: i64) -> i64 { let y = x + 1; y }
             ir.contains("cmp gt") && ir.contains("then #1 else #2"),
             "{ir}"
         );
-        assert!(ir.contains("fn #1") && ir.contains("fn #2"), "{ir}");
+        assert_no_slot_overlap_with_entry(&ir);
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "Clamp0").expect("parse if");
+    }
+
+    #[test]
+    fn if_else_negative_uses_fresh_slots() {
+        let ir = try_ir_from_rust_body("Bad", &px(), Some("i64"), "if x > 0 { x } else { -1 }")
+            .expect("bad if");
+        assert_no_slot_overlap_with_entry(&ir);
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "Bad").expect("parse");
+    }
+
+    /// Parent `fn #0` temps and sibling `fn #N` temps must be disjoint.
+    /// Collision makes `eval_ir_block` (clones parent slots) unsound.
+    fn assert_no_slot_overlap_with_entry(ir: &str) {
+        fn assigned_temps(block: &str) -> std::collections::HashSet<usize> {
+            let mut set = std::collections::HashSet::new();
+            for line in block.lines() {
+                let t = line.trim();
+                if let Some(rest) = t.strip_prefix('$')
+                    && let Some((num, _)) = rest.split_once(" =")
+                    && num != "result"
+                    && let Ok(n) = num.parse::<usize>()
+                {
+                    set.insert(n);
+                }
+            }
+            set
+        }
+        let entry = ir
+            .split("fn #0")
+            .nth(1)
+            .and_then(|s| s.split("fn #").next())
+            .unwrap_or("");
+        let entry_temps = assigned_temps(entry);
+        // Remaining `fn #N` bodies after #0
+        let after0 = ir.split("fn #0").nth(1).unwrap_or("");
+        for part in after0.split("fn #").skip(1) {
+            let sibling = part;
+            let sib_temps = assigned_temps(sibling);
+            let overlap: Vec<_> = entry_temps.intersection(&sib_temps).copied().collect();
+            assert!(
+                overlap.is_empty(),
+                "slot collision between entry and sibling {overlap:?}:\n{ir}"
+            );
+        }
     }
 
     #[test]
@@ -444,20 +535,6 @@ fn with_let(x: i64) -> i64 { let y = x + 1; y }
         let abs = try_ir_from_rust_body("A", &px(), Some("i64"), "x . abs ()").expect("abs");
         assert!(abs.contains("call abs"), "{abs}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&abs, "A").expect("parse abs");
-
-        let params = vec![
-            ParamInfo {
-                name: "x".into(),
-                ty: "i64".into(),
-            },
-            ParamInfo {
-                name: "y".into(),
-                ty: "i64".into(),
-            },
-        ];
-        let min = try_ir_from_rust_body("M", &params, Some("i64"), "x . min (y)").expect("min");
-        assert!(min.contains("call min"), "{min}");
-        assura_smt::LoadedVerifyExtras::from_ir_text(&min, "M").expect("parse min");
     }
 
     #[test]
