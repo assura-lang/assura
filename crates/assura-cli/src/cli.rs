@@ -577,7 +577,7 @@ pub fn run() {
                 unsafe_only,
             });
         }
-        Commands::Repl => run_repl(),
+        Commands::Repl => run_repl(output_mode),
         Commands::Diff {
             old,
             new,

@@ -3,16 +3,19 @@ use super::*;
 // `assura repl` -- interactive contract playground
 // ---------------------------------------------------------------------------
 
-pub(crate) fn run_repl() {
+pub(crate) fn run_repl(output_mode: OutputMode) {
     use std::io::{self, BufRead, Write};
 
-    println!("Assura REPL v{}", env!("CARGO_PKG_VERSION"));
-    println!("Type a contract to parse and verify. Commands:");
-    println!("  :type <rust_type>     Show Assura type mapping");
-    println!("  :explain <code>       Explain an error code");
-    println!("  :load <file>          Load and verify a file");
-    println!("  :quit or Ctrl-D       Exit");
-    println!();
+    let json = output_mode == OutputMode::Json;
+    if !json {
+        println!("Assura REPL v{}", env!("CARGO_PKG_VERSION"));
+        println!("Type a contract to parse and verify. Commands:");
+        println!("  :type <rust_type>     Show Assura type mapping");
+        println!("  :explain <code>       Explain an error code");
+        println!("  :load <file>          Load and verify a file");
+        println!("  :quit or Ctrl-D       Exit");
+        println!();
+    }
 
     let stdin = io::stdin();
     let mut buffer = String::new();
@@ -20,22 +23,36 @@ pub(crate) fn run_repl() {
     let mut brace_depth: i32 = 0;
 
     loop {
-        if in_block {
-            eprint!("  ... ");
-        } else {
-            eprint!("assura> ");
+        if !json {
+            if in_block {
+                eprint!("  ... ");
+            } else {
+                eprint!("assura> ");
+            }
+            io::stderr().flush().ok();
         }
-        io::stderr().flush().ok();
 
         let mut line = String::new();
         match stdin.lock().read_line(&mut line) {
             Ok(0) => {
-                eprintln!();
+                if !json {
+                    eprintln!();
+                }
                 break;
             }
             Ok(_) => {}
             Err(e) => {
-                eprintln!("Error reading input: {e}");
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "ok": false,
+                            "error": format!("Error reading input: {e}"),
+                        })
+                    );
+                } else {
+                    eprintln!("Error reading input: {e}");
+                }
                 break;
             }
         }
@@ -51,32 +68,89 @@ pub(crate) fn run_repl() {
             }
             if let Some(rust_type) = trimmed.strip_prefix(":type ") {
                 let assura_type = assura_codegen::type_map::rust_type_to_assura(rust_type.trim());
-                println!("{rust_type} -> {assura_type}");
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "ok": true,
+                            "command": "type",
+                            "rust": rust_type.trim(),
+                            "assura": assura_type,
+                        })
+                    );
+                } else {
+                    println!("{rust_type} -> {assura_type}");
+                }
                 continue;
             }
             if trimmed == ":type" {
-                eprintln!("Usage: :type <rust_type>  (e.g., :type Vec<Option<i64>>)");
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "ok": false,
+                            "error": "usage",
+                            "usage": ":type <rust_type>",
+                        })
+                    );
+                } else {
+                    eprintln!("Usage: :type <rust_type>  (e.g., :type Vec<Option<i64>>)");
+                }
                 continue;
             }
             if let Some(code) = trimmed.strip_prefix(":explain ") {
-                repl_explain(code.trim());
+                repl_explain(code.trim(), json);
                 continue;
             }
             if trimmed == ":explain" {
-                eprintln!("Usage: :explain <code>  (e.g., :explain A03001)");
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "ok": false,
+                            "error": "usage",
+                            "usage": ":explain <code>",
+                        })
+                    );
+                } else {
+                    eprintln!("Usage: :explain <code>  (e.g., :explain A03001)");
+                }
                 continue;
             }
             if let Some(file) = trimmed.strip_prefix(":load ") {
-                repl_load(file.trim());
+                repl_load(file.trim(), json);
                 continue;
             }
             if trimmed == ":load" {
-                eprintln!("Usage: :load <file.assura>");
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "ok": false,
+                            "error": "usage",
+                            "usage": ":load <file.assura>",
+                        })
+                    );
+                } else {
+                    eprintln!("Usage: :load <file.assura>");
+                }
                 continue;
             }
             if trimmed.starts_with(':') {
-                eprintln!("Unknown command: {trimmed}");
-                eprintln!("Available: :type, :explain, :load, :quit");
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "ok": false,
+                            "error": "unknown_command",
+                            "command": trimmed,
+                            "available": [":type", ":explain", ":load", ":quit"],
+                        })
+                    );
+                } else {
+                    eprintln!("Unknown command: {trimmed}");
+                    eprintln!("Available: :type, :explain, :load, :quit");
+                }
                 continue;
             }
         }
@@ -96,37 +170,145 @@ pub(crate) fn run_repl() {
             brace_depth = 0;
             let input = buffer.trim().to_string();
             if !input.is_empty() {
-                repl_eval(&input);
+                repl_eval(&input, json);
             }
             buffer.clear();
         }
     }
 }
 
-pub(crate) fn repl_explain(code: &str) {
+pub(crate) fn repl_explain(code: &str, json: bool) {
     if let Some(info) = assura_diagnostics::explain(code) {
-        println!("{} ({})", info.code, info.name);
-        println!("  {}", info.description);
-        if !info.example.is_empty() {
-            println!("  Example: {}", info.example);
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "ok": true,
+                    "command": "explain",
+                    "code": info.code,
+                    "name": info.name,
+                    "description": info.description,
+                    "example": info.example,
+                    "fix": info.fix,
+                })
+            );
+        } else {
+            println!("{} ({})", info.code, info.name);
+            println!("  {}", info.description);
+            if !info.example.is_empty() {
+                println!("  Example: {}", info.example);
+            }
+            if !info.fix.is_empty() {
+                println!("  Fix: {}", info.fix);
+            }
         }
-        if !info.fix.is_empty() {
-            println!("  Fix: {}", info.fix);
-        }
+    } else if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": false,
+                "command": "explain",
+                "error": format!("Unknown error code: {code}"),
+                "code": code,
+            })
+        );
     } else {
         eprintln!("Unknown error code: {code}");
     }
 }
 
-pub(crate) fn repl_load(path: &str) {
+pub(crate) fn repl_load(path: &str, json: bool) {
     match fs::read_to_string(path) {
-        Ok(source) => repl_eval(&source),
-        Err(e) => eprintln!("Error loading {path}: {e}"),
+        Ok(source) => repl_eval(&source, json),
+        Err(e) => {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "ok": false,
+                        "command": "load",
+                        "file": path,
+                        "error": format!("{e}"),
+                    })
+                );
+            } else {
+                eprintln!("Error loading {path}: {e}");
+            }
+        }
     }
 }
 
-pub(crate) fn repl_eval(source: &str) {
+pub(crate) fn repl_eval(source: &str, json: bool) {
     let result = assura_pipeline::run(source);
+
+    if json {
+        let parse_errors: Vec<_> = result
+            .parse_errors
+            .iter()
+            .map(|d| serde_json::json!({"message": d.message}))
+            .collect();
+        if !parse_errors.is_empty() {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "ok": false,
+                    "phase": "parse",
+                    "errors": parse_errors,
+                })
+            );
+            return;
+        }
+        if result.declarations.is_empty() {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "ok": false,
+                    "error": "no_declarations",
+                    "message": "No declarations found.",
+                })
+            );
+            return;
+        }
+        let resolution_errors: Vec<_> = result
+            .resolution_errors
+            .iter()
+            .map(|d| serde_json::json!({"code": d.code, "message": d.message}))
+            .collect();
+        let type_errors: Vec<_> = result
+            .type_errors
+            .iter()
+            .map(|d| serde_json::json!({"code": d.code, "message": d.message}))
+            .collect();
+        let verification: Vec<_> = result
+            .verification
+            .iter()
+            .map(|entry| {
+                let mut v = serde_json::json!({
+                    "clause": entry.clause,
+                    "status": entry.status,
+                });
+                if let Some(model) = &entry.model {
+                    v["model"] = serde_json::json!(model);
+                }
+                if let Some(reason) = &entry.reason {
+                    v["reason"] = serde_json::json!(reason);
+                }
+                v
+            })
+            .collect();
+        let ok = resolution_errors.is_empty() && type_errors.is_empty();
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": ok,
+                "declarations": result.declarations,
+                "resolution_errors": resolution_errors,
+                "type_errors": type_errors,
+                "verification": verification,
+            })
+        );
+        return;
+    }
 
     for diag in &result.parse_errors {
         eprintln!("  Parse error: {}", diag.message);
@@ -191,24 +373,28 @@ contract SafeDiv {
     requires { b != 0 }
 }
 "#;
-        super::repl_eval(source);
+        super::repl_eval(source, false);
+        super::repl_eval(source, true);
     }
 
     #[test]
     fn repl_eval_empty_source_does_not_panic() {
         // Empty source should produce "No declarations found." on stderr, not panic.
-        super::repl_eval("");
+        super::repl_eval("", false);
+        super::repl_eval("", true);
     }
 
     #[test]
     fn repl_explain_known_code() {
         // A01001 is the "Unexpected character" error; explain should not panic.
-        super::repl_explain("A01001");
+        super::repl_explain("A01001", false);
+        super::repl_explain("A01001", true);
     }
 
     #[test]
     fn repl_explain_unknown_code() {
         // Unknown codes should print an error message, not panic.
-        super::repl_explain("Z99999");
+        super::repl_explain("Z99999", false);
+        super::repl_explain("Z99999", true);
     }
 }
