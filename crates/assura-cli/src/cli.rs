@@ -221,7 +221,7 @@ enum Commands {
 
     /// Format an .assura source file
     Fmt {
-        /// Source file to format
+        /// Source file or directory to format (use `-` to read from stdin, write to stdout)
         file: String,
 
         /// Check formatting without modifying the file

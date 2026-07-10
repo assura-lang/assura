@@ -4,6 +4,14 @@ use super::*;
 // ---------------------------------------------------------------------------
 
 pub(crate) fn run_fmt(filename: &str, check_only: bool) {
+    // Match `assura check -`: format stdin to stdout (or --check only).
+    if is_stdin_arg(filename) {
+        if !fmt_stdin(check_only) {
+            process::exit(1);
+        }
+        return;
+    }
+
     let path = Path::new(filename);
     if path.is_dir() {
         let mut files = Vec::new();
@@ -27,6 +35,39 @@ pub(crate) fn run_fmt(filename: &str, check_only: bool) {
 
     if !fmt_one(filename, check_only) {
         process::exit(1);
+    }
+}
+
+/// Format stdin. Writes formatted source to stdout unless `--check`.
+fn fmt_stdin(check_only: bool) -> bool {
+    let source = match read_source_arg("-") {
+        Ok((s, _)) => s,
+        Err(e) => {
+            eprintln!("Error: reading stdin: {e}");
+            process::exit(2);
+        }
+    };
+
+    let formatted = match assura_fmt::try_format_source(&source) {
+        Ok(f) => f,
+        Err(errors) => {
+            for e in &errors {
+                eprintln!("<stdin>: parse error: {}", e.message);
+            }
+            return false;
+        }
+    };
+
+    if check_only {
+        if formatted == source {
+            true
+        } else {
+            eprintln!("<stdin>: not formatted");
+            false
+        }
+    } else {
+        print!("{formatted}");
+        true
     }
 }
 
