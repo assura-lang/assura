@@ -431,7 +431,35 @@ fn parse_target(s: &str) -> Result<assura_codegen::CompileTarget, String> {
 // ---------------------------------------------------------------------------
 
 pub fn run() {
-    let cli = <Cli as clap::Parser>::parse();
+    // #977: when agents pass global --json, clap's missing-arg / invalid-value
+    // errors must not dump human text to stderr with empty stdout.
+    let cli = match <Cli as clap::Parser>::try_parse() {
+        Ok(c) => c,
+        Err(e) => {
+            use clap::error::ErrorKind;
+            // Help/version still use clap's normal stdout path.
+            if matches!(
+                e.kind(),
+                ErrorKind::DisplayHelp
+                    | ErrorKind::DisplayVersion
+                    | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+            ) {
+                e.exit();
+            }
+            let wants_json = std::env::args_os().any(|a| a == "--json");
+            if wants_json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "error": "cli_error",
+                    "kind": format!("{:?}", e.kind()),
+                    "message": e.to_string().trim().to_string(),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                process::exit(e.exit_code());
+            }
+            e.exit();
+        }
+    };
     let output_mode = cli.global.output_mode();
     let verbosity = cli.global.verbosity();
 
