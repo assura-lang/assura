@@ -68,7 +68,18 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
 
     if watch {
         if is_stdin_arg(filename) {
-            eprintln!("Error: --watch cannot be used with stdin (-)");
+            if output_mode == OutputMode::Json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "command": "check",
+                    "watch": true,
+                    "error": "watch_stdin_unsupported",
+                    "message": "--watch cannot be used with stdin (-)",
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: --watch cannot be used with stdin (-)");
+            }
             process::exit(2);
         }
         run_watch_loop(filename, output_mode, verbosity, layer);

@@ -2705,6 +2705,26 @@ fn check_watch_rejects_stdin() {
     );
 }
 
+#[test]
+fn check_watch_rejects_stdin_json() {
+    let out = Command::new(assura_bin())
+        .args(["check", "-", "--watch", "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura check - --watch --json");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "watch+stdin --json should exit 2: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("watch+stdin --json must be JSON");
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["error"], "watch_stdin_unsupported");
+}
+
 /// `check --watch --json` on a missing path must emit JSON, not bare stderr.
 #[test]
 fn check_watch_missing_path_json() {
