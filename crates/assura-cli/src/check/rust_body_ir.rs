@@ -156,6 +156,56 @@ fn encode_syn_expr(
             lines.push(format!("${slot} = arith {ir_op} ${lhs} ${rhs} : Int"));
             Some(slot)
         }
+        // i64::abs / min / max method receivers (IR `call abs/min/max`).
+        syn::Expr::MethodCall(m) => {
+            let method = m.method.to_string();
+            match (method.as_str(), m.args.len()) {
+                ("abs", 0) => {
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = call abs (${a}) : Int"));
+                    Some(slot)
+                }
+                ("min" | "max", 1) => {
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = call {method} (${a}, ${b}) : Int"));
+                    Some(slot)
+                }
+                _ => None,
+            }
+        }
+        // Free-function form: abs(x), min(x, y), max(x, y)
+        syn::Expr::Call(c) => {
+            let syn::Expr::Path(path) = c.func.as_ref() else {
+                return None;
+            };
+            if path.path.segments.len() != 1 {
+                return None;
+            }
+            let name = path.path.segments[0].ident.to_string();
+            match (name.as_str(), c.args.len()) {
+                ("abs", 1) => {
+                    let a = encode_syn_expr(&c.args[0], param_names, lines, next)?;
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = call abs (${a}) : Int"));
+                    Some(slot)
+                }
+                ("min" | "max", 2) => {
+                    let a = encode_syn_expr(&c.args[0], param_names, lines, next)?;
+                    let b = encode_syn_expr(&c.args[1], param_names, lines, next)?;
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = call {name} (${a}, ${b}) : Int"));
+                    Some(slot)
+                }
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
@@ -257,6 +307,27 @@ fn good(x: i64) -> i64 { x + 1 }
         ];
         let ir = try_ir_from_rust_body("Add", &params, Some("i64"), "a + b").expect("ir");
         assert!(ir.contains("arith add $0 $1"), "{ir}");
+    }
+
+    #[test]
+    fn abs_min_max_method_and_call() {
+        let abs = try_ir_from_rust_body("A", &px(), Some("i64"), "x . abs ()").expect("abs");
+        assert!(abs.contains("call abs"), "{abs}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&abs, "A").expect("parse abs");
+
+        let params = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "i64".into(),
+            },
+            ParamInfo {
+                name: "y".into(),
+                ty: "i64".into(),
+            },
+        ];
+        let min = try_ir_from_rust_body("M", &params, Some("i64"), "x . min (y)").expect("min");
+        assert!(min.contains("call min"), "{min}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&min, "M").expect("parse min");
     }
 
     #[test]
