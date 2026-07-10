@@ -26,6 +26,13 @@ pub(crate) fn run_check_rust(
 ) {
     use assura_rust_analyzer::{AnnotatedItem, AnnotatedItemKind};
 
+    if layer > 3 {
+        eprintln!(
+            "Error: invalid --layer {layer} (expected 0=structural, 1=SMT, 2=quantified/termination, 3=BMC)"
+        );
+        process::exit(2);
+    }
+
     let p = Path::new(path);
 
     // Collect all annotated items from file or directory

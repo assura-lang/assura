@@ -3,7 +3,46 @@
 
 use super::*;
 
+/// Validate a project name for `assura init`.
+///
+/// Rejects empty names (which would write into the current directory), path
+/// separators, `.` / `..`, and characters outside `[A-Za-z0-9_-]` with a
+/// leading letter or underscore (package-safe identifiers).
+pub(crate) fn validate_project_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("project name must not be empty".into());
+    }
+    if name == "." || name == ".." {
+        return Err(format!("invalid project name '{name}'"));
+    }
+    if name.contains('/') || name.contains('\\') {
+        return Err("project name must not contain path separators".into());
+    }
+    if name.contains("..") {
+        return Err("project name must not contain '..'".into());
+    }
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return Err("project name must not be empty".into());
+    };
+    if !first.is_ascii_alphabetic() && first != '_' {
+        return Err("project name must start with a letter or underscore (A-Z, a-z, _)".into());
+    }
+    if !chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err(
+            "project name may only contain letters, digits, underscores, and hyphens".into(),
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn run_init(project_name: &str) {
+    if let Err(msg) = validate_project_name(project_name) {
+        eprintln!("Error: {msg}");
+        eprintln!("Usage: assura init <project-name>");
+        process::exit(2);
+    }
+
     let project_dir = Path::new(project_name);
 
     if project_dir.exists() {
@@ -103,6 +142,40 @@ pub(crate) fn run_explain(code: &str) {
             }
             process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod init_name_tests {
+    use super::validate_project_name;
+
+    #[test]
+    fn accepts_simple_names() {
+        assert!(validate_project_name("myproj").is_ok());
+        assert!(validate_project_name("my-proj").is_ok());
+        assert!(validate_project_name("My_Proj2").is_ok());
+        assert!(validate_project_name("_private").is_ok());
+    }
+
+    #[test]
+    fn rejects_empty_and_dot() {
+        assert!(validate_project_name("").is_err());
+        assert!(validate_project_name(".").is_err());
+        assert!(validate_project_name("..").is_err());
+    }
+
+    #[test]
+    fn rejects_paths_and_spaces() {
+        assert!(validate_project_name("bad name").is_err());
+        assert!(validate_project_name("a/b").is_err());
+        assert!(validate_project_name("a\\b").is_err());
+        assert!(validate_project_name("foo/../bar").is_err());
+    }
+
+    #[test]
+    fn rejects_leading_digit_or_hyphen() {
+        assert!(validate_project_name("1proj").is_err());
+        assert!(validate_project_name("-proj").is_err());
     }
 }
 

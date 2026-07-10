@@ -28,6 +28,12 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
 
     // Verification layer: CLI flag > config file > default (1)
     // 255 is the sentinel for "not specified on CLI"
+    if cli_layer != 255 && cli_layer > 3 {
+        eprintln!(
+            "Error: invalid --layer {cli_layer} (expected 0=structural, 1=SMT, 2=quantified/termination, 3=BMC)"
+        );
+        process::exit(2);
+    }
     let layer: u8 = if cli_layer != 255 {
         cli_layer
     } else {
