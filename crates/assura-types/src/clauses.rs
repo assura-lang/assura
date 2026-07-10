@@ -124,45 +124,87 @@ pub(crate) fn collect_input_param_types(body: &SpExpr, out: &mut Vec<Type>) {
 /// Bind pattern variables into a type environment.
 ///
 /// For `Ident` patterns, the variable is bound to the scrutinee type.
-/// For `Constructor` patterns, nested fields get `Unknown` (we don't
-/// know field types without full ADT info). For `Tuple` patterns, elements
-/// get `Unknown`. Wildcards and literals don't bind variables.
+/// For `Constructor` patterns, nested fields use constructor param types
+/// when the variant is registered as `Fn { params, ret }`. For `Tuple`
+/// patterns, elements use tuple element types.
+///
+/// Returns `Err` when a constructor/tuple pattern has the wrong field
+/// count for a known type (A03001).
 pub(crate) fn bind_pattern_vars(
     pattern: &assura_parser::ast::Pattern,
     scrutinee_ty: &Type,
     env: &mut TypeEnv,
-) {
+    span: std::ops::Range<usize>,
+) -> Result<(), TypeError> {
     match pattern {
         assura_parser::ast::Pattern::Ident(name) => {
             // Bind the pattern variable to the scrutinee type
             env.insert(name.clone(), scrutinee_ty.clone());
+            Ok(())
         }
         assura_parser::ast::Pattern::Constructor { name, fields } => {
             // Look up the constructor in the environment.  Enum variant
             // constructors are registered as Fn { params, ret }, so we
             // can use the param types to type the sub-patterns.
             let param_types: Vec<Type> = match env.lookup(name) {
-                Some(Type::Fn { params, .. }) => params.clone(),
+                Some(Type::Fn { params, .. }) => {
+                    if fields.len() != params.len() {
+                        return Err(TypeError {
+                            code: "A03001".into(),
+                            message: format!(
+                                "constructor `{name}` expects {} field(s), found {}",
+                                params.len(),
+                                fields.len()
+                            ),
+                            span,
+                            secondary: None,
+                            suggestion: Some(format!(
+                                "Use a pattern with {} sub-pattern(s), e.g. `{name}({})`.",
+                                params.len(),
+                                (0..params.len())
+                                    .map(|i| format!("x{i}"))
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            )),
+                        });
+                    }
+                    params.clone()
+                }
                 _ => Vec::new(),
             };
             for (i, field) in fields.iter().enumerate() {
                 let field_ty = param_types.get(i).cloned().unwrap_or(Type::Unknown);
-                bind_pattern_vars(field, &field_ty, env);
+                bind_pattern_vars(field, &field_ty, env, span.clone())?;
             }
+            Ok(())
         }
         assura_parser::ast::Pattern::Tuple(pats) => {
             if let Type::Tuple(elem_tys) = scrutinee_ty {
+                if pats.len() != elem_tys.len() {
+                    return Err(TypeError {
+                        code: "A03001".into(),
+                        message: format!(
+                            "tuple pattern expects {} element(s), found {}",
+                            elem_tys.len(),
+                            pats.len()
+                        ),
+                        span,
+                        secondary: None,
+                        suggestion: Some("Match the tuple arity of the scrutinee type.".into()),
+                    });
+                }
                 for (i, pat) in pats.iter().enumerate() {
                     let elem_ty = elem_tys.get(i).cloned().unwrap_or(Type::Unknown);
-                    bind_pattern_vars(pat, &elem_ty, env);
+                    bind_pattern_vars(pat, &elem_ty, env, span.clone())?;
                 }
             } else {
                 for pat in pats {
-                    bind_pattern_vars(pat, &Type::Unknown, env);
+                    bind_pattern_vars(pat, &Type::Unknown, env, span.clone())?;
                 }
             }
+            Ok(())
         }
-        assura_parser::ast::Pattern::Wildcard | assura_parser::ast::Pattern::Literal(_) => {}
+        assura_parser::ast::Pattern::Wildcard | assura_parser::ast::Pattern::Literal(_) => Ok(()),
     }
 }
 
@@ -659,14 +701,14 @@ mod tests {
     #[test]
     fn bind_pattern_ident() {
         let mut env = TypeEnv::new();
-        bind_pattern_vars(&Pattern::Ident("x".into()), &Type::Int, &mut env);
+        bind_pattern_vars(&Pattern::Ident("x".into()), &Type::Int, &mut env, 0..0).expect("bind");
         assert_eq!(env.lookup("x"), Some(&Type::Int));
     }
 
     #[test]
     fn bind_pattern_wildcard_no_bind() {
         let mut env = TypeEnv::new();
-        bind_pattern_vars(&Pattern::Wildcard, &Type::Int, &mut env);
+        bind_pattern_vars(&Pattern::Wildcard, &Type::Int, &mut env, 0..0).expect("bind");
         assert!(env.lookup("_").is_none());
     }
 
@@ -675,7 +717,7 @@ mod tests {
         let mut env = TypeEnv::new();
         let pat = Pattern::Tuple(vec![Pattern::Ident("a".into()), Pattern::Ident("b".into())]);
         let ty = Type::Tuple(vec![Type::Int, Type::Bool]);
-        bind_pattern_vars(&pat, &ty, &mut env);
+        bind_pattern_vars(&pat, &ty, &mut env, 0..0).expect("bind");
         assert_eq!(env.lookup("a"), Some(&Type::Int));
         assert_eq!(env.lookup("b"), Some(&Type::Bool));
     }
@@ -694,8 +736,46 @@ mod tests {
             name: "Some".into(),
             fields: vec![Pattern::Ident("val".into())],
         };
-        bind_pattern_vars(&pat, &Type::Named("Option".into()), &mut env);
+        bind_pattern_vars(&pat, &Type::Named("Option".into()), &mut env, 0..0).expect("bind");
         assert_eq!(env.lookup("val"), Some(&Type::Int));
+    }
+
+    #[test]
+    fn bind_pattern_constructor_arity_mismatch() {
+        let mut env = TypeEnv::new();
+        env.insert(
+            "Pair".into(),
+            Type::Fn {
+                params: vec![Type::Int, Type::Bool],
+                ret: Box::new(Type::Named("E".into())),
+            },
+        );
+        let pat = Pattern::Constructor {
+            name: "Pair".into(),
+            fields: vec![Pattern::Ident("x".into())],
+        };
+        let err = bind_pattern_vars(&pat, &Type::Named("E".into()), &mut env, 0..1)
+            .expect_err("arity mismatch");
+        assert_eq!(err.code, "A03001");
+        assert!(
+            err.message.contains("expects 2") && err.message.contains("found 1"),
+            "got {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn bind_pattern_tuple_arity_mismatch() {
+        let mut env = TypeEnv::new();
+        let pat = Pattern::Tuple(vec![
+            Pattern::Ident("a".into()),
+            Pattern::Ident("b".into()),
+            Pattern::Ident("c".into()),
+        ]);
+        let ty = Type::Tuple(vec![Type::Int, Type::Bool]);
+        let err = bind_pattern_vars(&pat, &ty, &mut env, 0..1).expect_err("arity mismatch");
+        assert_eq!(err.code, "A03001");
+        assert!(err.message.contains("expects 2") && err.message.contains("found 3"));
     }
 
     #[test]

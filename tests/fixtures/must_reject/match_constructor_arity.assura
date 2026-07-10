@@ -1,0 +1,7 @@
+// MUST REJECT A03001
+enum E {
+  Pair(Int, Bool)
+}
+fn f(e: E) -> Int
+  ensures { true }
+  requires { match e { Pair(x) => true } }

@@ -2181,3 +2181,63 @@ contract C {
     let resolved = resolve_ok(src);
     type_check(resolved).expect("trailing comma after last field should be fine");
 }
+
+#[test]
+fn match_constructor_arity_too_few_a03001() {
+    let src = r#"
+enum E {
+  Pair(Int, Bool)
+}
+fn f(e: E) -> Int
+  ensures { true }
+  requires { match e { Pair(x) => true } }
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter().any(|e| {
+            e.code == "A03001" && e.message.contains("expects 2") && e.message.contains("found 1")
+        }),
+        "expected constructor arity A03001, got {errs:?}"
+    );
+}
+
+#[test]
+fn match_constructor_arity_too_many_a03001() {
+    let src = r#"
+enum E {
+  Box(List<Int>)
+}
+fn f(e: E) -> Int
+  ensures { true }
+  requires { match e { Box(xs, ys) => true } }
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter().any(|e| {
+            e.code == "A03001" && e.message.contains("expects 1") && e.message.contains("found 2")
+        }),
+        "expected constructor arity A03001 for multi-token field, got {errs:?}"
+    );
+}
+
+#[test]
+fn match_constructor_arity_ok() {
+    let src = r#"
+enum E {
+  Pair(Int, Bool),
+  Box(List<Int>)
+}
+fn f(e: E) -> Int
+  ensures { true }
+  requires {
+    match e {
+      Pair(x, y) => true,
+      Box(xs) => true
+    }
+  }
+"#;
+    let resolved = resolve_ok(src);
+    type_check(resolved).expect("correct arity patterns should type-check");
+}

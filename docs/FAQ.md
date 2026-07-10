@@ -176,7 +176,8 @@ expects type `Y`. Also used for **empty tuple types** such as `(,)`,
 and empty tuple params or returns on `fn` / `service` (use `()` for
 Unit, or `(T,)` for a 1-tuple). Pair tuples and generics work in enum
 payloads and params: `enum E { Box(List<Int>), Pair((Int, Bool)) }`,
-`fn f(t: (Int, Bool))`.
+`fn f(t: (Int, Bool))`. Match arms must use the right field count:
+`Pair(x, y)` is valid; `Pair(x)` is A03001.
 
 ```
 Error A03001: type mismatch

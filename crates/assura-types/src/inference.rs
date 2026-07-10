@@ -677,7 +677,8 @@ pub fn infer_expr_spanned(expr: &SpExpr, env: &TypeEnv, span: Span) -> Result<Ty
             for arm in arms {
                 // Create a new env with pattern bindings
                 let mut arm_env = env.clone();
-                bind_pattern_vars(&arm.pattern, &scrut_ty, &mut arm_env);
+                // Use arm body span for arity errors when pattern span is absent.
+                bind_pattern_vars(&arm.pattern, &scrut_ty, &mut arm_env, arm.body.span.clone())?;
                 let arm_ty = infer_expr_spanned(&arm.body, &arm_env, arm.body.span.clone())?;
                 if arm_ty.is_indeterminate() {
                     continue;

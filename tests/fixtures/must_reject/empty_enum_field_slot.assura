@@ -1,0 +1,6 @@
+// MUST REJECT A03001
+enum E {
+  Bad(, Int)
+}
+fn f(e: E) -> Int
+  ensures { true }
