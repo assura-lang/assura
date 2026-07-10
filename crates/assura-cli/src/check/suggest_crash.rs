@@ -154,6 +154,7 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
 
     let mut all_results: Vec<serde_json::Value> = Vec::new();
     let mut total_suggestions = 0usize;
+    let mut llm_errors: Vec<serde_json::Value> = Vec::new();
 
     // Track seen crashes for deduplication
     let mut seen_keys = std::collections::HashSet::new();
@@ -228,8 +229,15 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
                 }
             }
             Err(e) => {
-                // Always stderr; never pollute JSON on stdout.
-                eprintln!("  {}: LLM error: {e}", artifact.path.display(),);
+                let msg = e.to_string();
+                llm_errors.push(serde_json::json!({
+                    "artifact": artifact.path.display().to_string(),
+                    "error": msg,
+                }));
+                // Human diagnostics on stderr; JSON carries errors in the body.
+                if output_mode != OutputMode::Json {
+                    eprintln!("  {}: LLM error: {e}", artifact.path.display(),);
+                }
             }
         }
     }
@@ -241,13 +249,24 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
             "function": fn_name,
             "total_suggestions": total_suggestions,
             "crashes": all_results,
+            "errors": llm_errors,
+            "success": llm_errors.is_empty(),
         });
         println!("{}", serde_json::to_string_pretty(&summary).unwrap());
+        if !llm_errors.is_empty() {
+            process::exit(1);
+        }
     } else if verbosity != Verbosity::Quiet {
         println!(
             "\nsuggest-from-crash: {} artifact(s) analyzed, {} suggestion(s)",
             artifacts.len(),
             total_suggestions,
         );
+        if !llm_errors.is_empty() {
+            eprintln!("{} LLM error(s)", llm_errors.len());
+            process::exit(1);
+        }
+    } else if !llm_errors.is_empty() {
+        process::exit(1);
     }
 }
