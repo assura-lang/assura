@@ -679,10 +679,11 @@ fn encode_syn_expr(
             let syn::Expr::Path(path) = c.func.as_ref() else {
                 return None;
             };
-            if path.path.segments.len() != 1 {
+            // Free `abs`/`min`/`max` or associated `i64::max` / `i32::min`.
+            let name = path.path.segments.last()?.ident.to_string();
+            if path.path.segments.len() > 2 {
                 return None;
             }
-            let name = path.path.segments[0].ident.to_string();
             match (name.as_str(), c.args.len()) {
                 ("abs", 1) => {
                     let a = encode_syn_expr(&c.args[0], param_names, lines, next)?;
@@ -698,6 +699,10 @@ fn encode_syn_expr(
                     *next += 1;
                     lines.push(format!("${slot} = call {name} (${a}, ${b}) : Int"));
                     Some(slot)
+                }
+                ("from", 1) if path.path.segments.len() == 2 => {
+                    // i64::from(x) identity for integer-like
+                    encode_syn_expr(&c.args[0], param_names, lines, next)
                 }
                 _ => None,
             }
