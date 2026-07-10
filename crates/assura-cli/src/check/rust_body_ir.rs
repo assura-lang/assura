@@ -520,7 +520,7 @@ fn emit_sat_clamp(val: usize, lines: &mut Vec<String>, next: &mut usize) -> Opti
     Some(slot)
 }
 
-fn is_identity_peel_method(name: &str) -> bool {
+pub(crate) fn is_identity_peel_method(name: &str) -> bool {
     matches!(
         name,
         "clone"
@@ -1317,5 +1317,26 @@ fn f(x: i64) -> i64 { let y = &x; *y }
     fn deref_identity_body_ir() {
         let ir = try_ir_from_rust_body("D", &px(), Some("i64"), "x.deref()").expect("deref");
         assert!(ir.contains("$result = load $0"), "{ir}");
+    }
+
+    #[test]
+    fn is_identity_peel_method_list() {
+        for m in [
+            "clone",
+            "to_owned",
+            "into",
+            "copied",
+            "cloned",
+            "as_ref",
+            "as_mut",
+            "borrow",
+            "borrow_mut",
+            "deref",
+            "deref_mut",
+        ] {
+            assert!(super::is_identity_peel_method(m), "{m}");
+        }
+        assert!(!super::is_identity_peel_method("abs"));
+        assert!(!super::is_identity_peel_method("signum"));
     }
 }
