@@ -155,8 +155,8 @@ assura infer src/main.rs
 assura check-rust src/
 # Body proof paths (in order):
 #   1) co-located {Name}.ir
-#   2) encoded Rust body (int arith, abs/min/max, nested)
-# Otherwise ensures are body_not_modeled (not silent verified).
+#   2) encoded Rust body (int/bool, if/else, abs/min/max, let-inline)
+# Otherwise ensures are body_not_modeled (not silent verified/skipped).
 assura check-rust src/ --json
 
 # Suggest contracts for unannotated functions

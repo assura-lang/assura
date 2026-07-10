@@ -457,7 +457,7 @@ pub(crate) fn run_check_rust(
             "errors": total_errors,
             "body_not_modeled": total_body_not_modeled,
             "results": all_results,
-            "policy": "check-rust proves annotations against co-located .ir or encoded Rust bodies (int arith, abs/min/max); other bodies stay body_not_modeled",
+            "policy": "check-rust proves annotations against co-located .ir or encoded Rust bodies (int/bool arith, if/else, abs/min/max); ensures without a body model are body_not_modeled (including skipped SMT)",
         });
         println!("{}", serde_json::to_string_pretty(&summary).unwrap());
         if total_errors > 0 || total_body_not_modeled > 0 {
@@ -907,10 +907,13 @@ pub(crate) fn clause_to_json(
     })
 }
 
-/// Whether check-rust should downgrade SMT "verified" to `body_not_modeled`.
+/// Whether check-rust should report `body_not_modeled` instead of a soft pass.
 ///
-/// See #951: without co-located IR, ensures may be proven only against
-/// synthesized IR shapes, not the annotated Rust function body.
+/// See #951: without co-located IR or an encoded Rust body, ensures must not
+/// look like proof. That includes:
+/// - SMT "verified"/"partial" from heuristic IR shapes (false confidence)
+/// - SMT "skipped"/"checked" when ensures exist but the body was not modeled
+///   (e.g. unconstrained `result` Unknown, nested if not encoded)
 pub(crate) fn should_mark_body_not_modeled(
     has_ensures: bool,
     has_body_ir: bool,
@@ -918,11 +921,15 @@ pub(crate) fn should_mark_body_not_modeled(
     item_verified: usize,
     item_errors: usize,
 ) -> bool {
-    has_ensures
-        && !has_body_ir
-        && item_verified > 0
-        && item_errors == 0
-        && matches!(item_status, "verified" | "partial")
+    if !has_ensures || has_body_ir || item_errors > 0 {
+        return false;
+    }
+    // False-verified path: synthesis claimed proof without a body model.
+    if item_verified > 0 && matches!(item_status, "verified" | "partial") {
+        return true;
+    }
+    // Soft-skip path: ensures present, body unmodeled, no CE — still not proven.
+    matches!(item_status, "skipped" | "checked")
 }
 
 #[cfg(test)]
@@ -936,8 +943,15 @@ mod body_policy_tests {
     }
 
     #[test]
+    fn marks_skipped_ensures_without_body_model() {
+        assert!(should_mark_body_not_modeled(true, false, "skipped", 0, 0));
+        assert!(should_mark_body_not_modeled(true, false, "checked", 0, 0));
+    }
+
+    #[test]
     fn keeps_verified_when_colocated_ir_present() {
         assert!(!should_mark_body_not_modeled(true, true, "verified", 1, 0));
+        assert!(!should_mark_body_not_modeled(true, true, "skipped", 0, 0));
     }
 
     #[test]
@@ -946,6 +960,6 @@ mod body_policy_tests {
             false, false, "verified", 1, 0
         ));
         assert!(!should_mark_body_not_modeled(true, false, "error", 0, 1));
-        assert!(!should_mark_body_not_modeled(true, false, "skipped", 0, 0));
+        assert!(!should_mark_body_not_modeled(false, false, "skipped", 0, 0));
     }
 }
