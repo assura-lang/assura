@@ -716,7 +716,7 @@ fn encode_syn_expr(
                 }
                 (
                     "clone" | "to_owned" | "into" | "copied" | "cloned" | "as_ref" | "as_mut"
-                    | "borrow" | "borrow_mut",
+                    | "borrow" | "borrow_mut" | "deref" | "deref_mut",
                     0,
                 ) => encode_syn_expr(&m.receiver, param_names, lines, next),
                 ("not", 0) => {
@@ -1295,6 +1295,12 @@ fn f(x: i64) -> i64 { let y = &x; *y }
     #[test]
     fn borrow_identity_body_ir() {
         let ir = try_ir_from_rust_body("B", &px(), Some("i64"), "x.borrow()").expect("borrow");
+        assert!(ir.contains("$result = load $0"), "{ir}");
+    }
+
+    #[test]
+    fn deref_identity_body_ir() {
+        let ir = try_ir_from_rust_body("D", &px(), Some("i64"), "x.deref()").expect("deref");
         assert!(ir.contains("$result = load $0"), "{ir}");
     }
 }
