@@ -271,6 +271,10 @@ enum Commands {
     Lsp,
 
     /// Generate shell completion scripts
+    ///
+    /// Human mode writes the shell script to stdout (for `source <(…)`).
+    /// With global `--json`, emits `{"command","shell","script"}` instead
+    /// so agents that pass `--json` everywhere get parseable output.
     Completions {
         /// Shell to generate completions for
         shell: Shell,
