@@ -1,8 +1,9 @@
 //! Encode simple Rust function bodies as Assura Implementation IR for check-rust.
 //!
-//! Supports int/bool arith, abs/min/max/clamp/saturating, is_positive/negative/zero, unary `-`, multi-let, if/match (incl. guards),
-//! simple and nested `if`/`else` (expression branches), simple `match` with
-//! int/bool/wildcard arms (no guards/bindings), and Bool comparisons for
+//! Supports int/bool arith, abs/min/max/clamp/saturating, is_positive/negative/zero,
+//! `is_multiple_of`, logical `&&`/`||`, unary `-`/`!`, `into`/`as` identity,
+//! multi-let, if/match (incl. guards), simple and nested `if`/`else` (expression
+//! branches), simple `match` with int/bool/wildcard arms, and Bool comparisons for
 //! `bool` return types. Body text is extracted with `syn` (co-publish-safe).
 //!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
@@ -565,6 +566,29 @@ fn encode_syn_expr(
                 lines.push(format!("${slot} = cmp {cmp} ${lhs} ${rhs} : Bool"));
                 return Some(slot);
             }
+            // Bool 0/1: a && b → mul; a || b → (a+b) != 0 (matches ir_generate)
+            if matches!(b.op, syn::BinOp::And(_)) {
+                let lhs = encode_syn_expr(&b.left, param_names, lines, next)?;
+                let rhs = encode_syn_expr(&b.right, param_names, lines, next)?;
+                let slot = *next;
+                *next += 1;
+                lines.push(format!("${slot} = arith mul ${lhs} ${rhs} : Bool"));
+                return Some(slot);
+            }
+            if matches!(b.op, syn::BinOp::Or(_)) {
+                let lhs = encode_syn_expr(&b.left, param_names, lines, next)?;
+                let rhs = encode_syn_expr(&b.right, param_names, lines, next)?;
+                let sum = *next;
+                *next += 1;
+                lines.push(format!("${sum} = arith add ${lhs} ${rhs} : Bool"));
+                let zero = *next;
+                *next += 1;
+                lines.push(format!("${zero} = const 0 : Bool"));
+                let slot = *next;
+                *next += 1;
+                lines.push(format!("${slot} = cmp ne ${sum} ${zero} : Bool"));
+                return Some(slot);
+            }
             let ir_op = match &b.op {
                 syn::BinOp::Add(_) => "add",
                 syn::BinOp::Sub(_) => "sub",
@@ -620,7 +644,24 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = cmp eq ${a} ${z} : Bool"));
                     Some(slot)
                 }
-                ("clone" | "to_owned", 0) => encode_syn_expr(&m.receiver, param_names, lines, next),
+                ("clone" | "to_owned" | "into", 0) => {
+                    encode_syn_expr(&m.receiver, param_names, lines, next)
+                }
+
+                ("is_multiple_of", 1) => {
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
+                    let rem = *next;
+                    *next += 1;
+                    lines.push(format!("${rem} = arith mod ${a} ${b} : Int"));
+                    let z = *next;
+                    *next += 1;
+                    lines.push(format!("${z} = const 0 : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = cmp eq ${rem} ${z} : Bool"));
+                    Some(slot)
+                }
 
                 ("min" | "max", 1) => {
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -674,6 +715,16 @@ fn encode_syn_expr(
                 }
                 _ => None,
             }
+        }
+        // `x as i64` / `x as bool`: identity when Assura maps both ends to Int/Nat/Bool.
+        // Truncating casts (i64 as i32) stay unencoded (would need bounds/mod).
+        syn::Expr::Cast(c) => {
+            let ty_tokens = c.ty.to_token_stream().to_string().replace(' ', "");
+            let assura = assura_codegen::type_map::rust_type_to_assura(&ty_tokens);
+            if !matches!(assura.as_str(), "Int" | "Nat" | "Bool") {
+                return None;
+            }
+            encode_syn_expr(&c.expr, param_names, lines, next)
         }
         syn::Expr::Call(c) => {
             let syn::Expr::Path(path) = c.func.as_ref() else {
@@ -943,5 +994,56 @@ fn f(x: i64) -> i64 {
         assert!(
             try_ir_from_rust_body("B", &px(), Some("i64"), "match x { n => n, _ => 0 }").is_none()
         );
+    }
+
+    fn pab() -> Vec<ParamInfo> {
+        vec![
+            ParamInfo {
+                name: "a".into(),
+                ty: "bool".into(),
+            },
+            ParamInfo {
+                name: "b".into(),
+                ty: "bool".into(),
+            },
+        ]
+    }
+
+    #[test]
+    fn logical_and_or_body_ir() {
+        let and = try_ir_from_rust_body("And", &pab(), Some("bool"), "a && b").expect("and");
+        assert!(and.contains("arith mul"), "{and}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&and, "And").expect("parse and");
+        let or = try_ir_from_rust_body("Or", &pab(), Some("bool"), "a || b").expect("or");
+        assert!(or.contains("arith add") && or.contains("cmp ne"), "{or}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&or, "Or").expect("parse or");
+    }
+
+    #[test]
+    fn into_and_as_identity_body_ir() {
+        let into = try_ir_from_rust_body("I", &px(), Some("i64"), "x.into()").expect("into");
+        assert!(into.contains("$result = load $0"), "{into}");
+        let cast = try_ir_from_rust_body("C", &px(), Some("i64"), "x as i64").expect("as");
+        assert!(cast.contains("$result = load $0"), "{cast}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&into, "I").expect("parse into");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&cast, "C").expect("parse cast");
+    }
+
+    #[test]
+    fn is_multiple_of_body_ir() {
+        let pxy = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "i64".into(),
+            },
+            ParamInfo {
+                name: "y".into(),
+                ty: "i64".into(),
+            },
+        ];
+        let ir =
+            try_ir_from_rust_body("M", &pxy, Some("bool"), "x.is_multiple_of(y)").expect("imo");
+        assert!(ir.contains("arith mod") && ir.contains("cmp eq"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "M").expect("parse");
     }
 }
