@@ -203,6 +203,7 @@ assura check-rust src/lib.rs               # /// @requires / @ensures on Rust
 
 # Build: verify + generate Rust
 assura build file.assura                   # default output: generated/ beside source
+assura build file.assura --json            # pure JSON status for agents
 assura build file.assura --write-ir        # heuristic IR sidecars + inject bodies
 assura build file.assura --output out/     # CWD-relative unless bare "generated"
 assura build file.assura --target wasm
