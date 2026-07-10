@@ -163,7 +163,19 @@ pub(crate) fn run_ir(
             }
         }
     } else if verify {
-        eprintln!("Error: --verify requires --contract <file>");
+        if output_mode == OutputMode::Json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "status": "error",
+                    "message": "--verify requires --contract <file>",
+                    "success": false,
+                }))
+                .unwrap()
+            );
+        } else {
+            eprintln!("Error: --verify requires --contract <file>");
+        }
         process::exit(2);
     }
 
