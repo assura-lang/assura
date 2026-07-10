@@ -2848,3 +2848,29 @@ fn diff_rejects_invalid_format() {
     );
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn explain_json_and_doctor_json() {
+    let out = Command::new(assura_bin())
+        .args(["explain", "A03001", "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("explain");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.trim_start().starts_with('{'), "json: {stdout}");
+    assert!(stdout.contains("\"code\"") && stdout.contains("A03001"));
+
+    let doc = Command::new(assura_bin())
+        .args(["doctor", "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("doctor");
+    // may fail if z3 missing in env; still expect JSON
+    let dstdout = String::from_utf8_lossy(&doc.stdout);
+    assert!(
+        dstdout.trim_start().starts_with('{'),
+        "doctor --json should emit JSON: {dstdout}"
+    );
+    assert!(dstdout.contains("\"checks\"") || dstdout.contains("assura"));
+}
