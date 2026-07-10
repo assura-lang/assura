@@ -92,29 +92,43 @@ pub(crate) fn run_check_rust(
             // Build a synthetic .assura contract from the annotations
             let mut contract_source = format!("contract {item_name} {{\n");
 
+            // Strip trailing `//` comments from doc annotation bodies so
+            // `/// @ensures result == x // identity` stays valid Assura.
+            let clause_body =
+                |raw: &str| -> String { raw.split("//").next().unwrap_or(raw).trim().to_string() };
+
             // Add requires clauses
             for clause in &item.contract.requires {
-                contract_source.push_str(&format!("  requires {{ {} }}\n", clause.body));
+                contract_source
+                    .push_str(&format!("  requires {{ {} }}\n", clause_body(&clause.body)));
                 total_clauses += 1;
             }
             // Add ensures clauses
             for clause in &item.contract.ensures {
-                contract_source.push_str(&format!("  ensures {{ {} }}\n", clause.body));
+                contract_source
+                    .push_str(&format!("  ensures {{ {} }}\n", clause_body(&clause.body)));
                 total_clauses += 1;
             }
             // Add invariant clauses
             for clause in &item.contract.invariants {
-                contract_source.push_str(&format!("  invariant {{ {} }}\n", clause.body));
+                contract_source.push_str(&format!(
+                    "  invariant {{ {} }}\n",
+                    clause_body(&clause.body)
+                ));
                 total_clauses += 1;
             }
             // Add effects clauses
             for clause in &item.contract.effects {
-                contract_source.push_str(&format!("  effects {{ {} }}\n", clause.body));
+                contract_source
+                    .push_str(&format!("  effects {{ {} }}\n", clause_body(&clause.body)));
                 total_clauses += 1;
             }
             // Add decreases clauses
             for clause in &item.contract.decreases {
-                contract_source.push_str(&format!("  decreases {{ {} }}\n", clause.body));
+                contract_source.push_str(&format!(
+                    "  decreases {{ {} }}\n",
+                    clause_body(&clause.body)
+                ));
                 total_clauses += 1;
             }
 
@@ -134,8 +148,11 @@ pub(crate) fn run_check_rust(
                         format!("{}: {assura_ty}", p.name)
                     })
                     .collect();
+                // Parameters must be `input(...)` so resolve registers them in
+                // scope. `requires(x: Int)` is a boolean clause, not a param list
+                // (dogfood: result == x never verified; A02001 undefined `x`).
                 if !param_strs.is_empty() {
-                    contract_source.push_str(&format!("  requires({})\n", param_strs.join(", ")));
+                    contract_source.push_str(&format!("  input({})\n", param_strs.join(", ")));
                 }
                 if let Some(ret) = return_type {
                     let assura_ret = assura_codegen::type_map::rust_type_to_assura(ret);
