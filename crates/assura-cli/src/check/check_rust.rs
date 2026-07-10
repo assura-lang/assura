@@ -294,8 +294,6 @@ pub(crate) fn run_check_rust(
                         }
                     }
                 }
-                let _keep_tmpdir = body_ir_tmpdir;
-
                 let expect_body_not_modeled = has_ensures && !has_body_ir;
 
                 let report_verbosity = if expect_body_not_modeled
@@ -354,6 +352,11 @@ pub(crate) fn run_check_rust(
                     item_status = "partial";
                 } else {
                     item_status = "verified";
+                }
+
+                // Drop temp sidecars after verify (co-publish-safe disk IR path).
+                if let Some(dir) = body_ir_tmpdir {
+                    let _ = fs::remove_dir_all(dir);
                 }
 
                 if should_mark_body_not_modeled(
