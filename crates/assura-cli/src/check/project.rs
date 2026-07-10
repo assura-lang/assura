@@ -40,10 +40,6 @@ pub(crate) fn run_check_project(
                             // Map to catalog codes (A02000 is not a valid code).
                             let code = if msg.to_ascii_lowercase().contains("circular") {
                                 "A02005"
-                            } else if msg.to_ascii_lowercase().contains("not found")
-                                || msg.to_ascii_lowercase().contains("cannot resolve")
-                            {
-                                "A02010"
                             } else {
                                 "A02010"
                             };
