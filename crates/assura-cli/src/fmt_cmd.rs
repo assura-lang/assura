@@ -18,7 +18,17 @@ pub(crate) fn run_fmt(filename: &str, check_only: bool, output_mode: assura_conf
         let mut files = Vec::new();
         collect_assura_files(path, &mut files);
         if files.is_empty() {
-            eprintln!("Error: no .assura files found under {filename}");
+            if json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "error": "no_assura_files",
+                    "path": filename,
+                    "message": format!("no .assura files found under {filename}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: no .assura files found under {filename}");
+            }
             process::exit(2);
         }
         let mut failed = false;
@@ -28,21 +38,30 @@ pub(crate) fn run_fmt(filename: &str, check_only: bool, output_mode: assura_conf
             // Quiet per-file reporting when emitting aggregate JSON (avoids
             // human "not formatted" lines on stderr alongside the JSON doc).
             let ok = fmt_one(path_str.as_ref(), check_only, json, /*aggregate*/ json);
-            if json && check_only {
-                results.push(serde_json::json!({
-                    "file": path_str,
-                    "formatted": ok,
-                }));
+            if json {
+                if check_only {
+                    results.push(serde_json::json!({
+                        "file": path_str,
+                        "formatted": ok,
+                    }));
+                } else {
+                    results.push(serde_json::json!({
+                        "file": path_str,
+                        "ok": ok,
+                        "wrote": ok,
+                    }));
+                }
             }
             if !ok {
                 failed = true;
             }
         }
-        if json && check_only {
+        if json {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
                     "ok": !failed,
+                    "check": check_only,
                     "files": results,
                 }))
                 .unwrap()
@@ -64,7 +83,16 @@ fn fmt_stdin(check_only: bool, json: bool) -> bool {
     let source = match read_source_arg("-") {
         Ok((s, _)) => s,
         Err(e) => {
-            eprintln!("Error: reading stdin: {e}");
+            if json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "file": "<stdin>",
+                    "error": format!("reading stdin: {e}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: reading stdin: {e}");
+            }
             process::exit(2);
         }
     };
@@ -72,8 +100,18 @@ fn fmt_stdin(check_only: bool, json: bool) -> bool {
     let formatted = match assura_fmt::try_format_source(&source) {
         Ok(f) => f,
         Err(errors) => {
-            for e in &errors {
-                eprintln!("<stdin>: parse error: {}", e.message);
+            if json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "file": "<stdin>",
+                    "error": "parse_error",
+                    "messages": errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>(),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                for e in &errors {
+                    eprintln!("<stdin>: parse error: {}", e.message);
+                }
             }
             return false;
         }
@@ -85,6 +123,7 @@ fn fmt_stdin(check_only: bool, json: bool) -> bool {
             println!(
                 "{}",
                 serde_json::json!({
+                    "ok": ok,
                     "file": "<stdin>",
                     "formatted": ok,
                 })
@@ -94,7 +133,7 @@ fn fmt_stdin(check_only: bool, json: bool) -> bool {
         }
         ok
     } else if json {
-        // Still emit source so pipes work; wrap only when check.
+        // Pipe-friendly: emit formatted source (not a status wrapper).
         print!("{formatted}");
         true
     } else {
@@ -111,7 +150,17 @@ fn fmt_one(filename: &str, check_only: bool, json: bool, aggregate: bool) -> boo
     let source = match fs::read_to_string(filename) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Error: {filename}: {e}");
+            if json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "file": filename,
+                    "error": format!("{e}"),
+                    "message": format!("{filename}: {e}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: {filename}: {e}");
+            }
             process::exit(2);
         }
     };
@@ -119,8 +168,20 @@ fn fmt_one(filename: &str, check_only: bool, json: bool, aggregate: bool) -> boo
     let formatted = match assura_fmt::try_format_source(&source) {
         Ok(f) => f,
         Err(errors) => {
-            for e in &errors {
-                eprintln!("{filename}: parse error: {}", e.message);
+            if aggregate {
+                // Caller reports failure in aggregate JSON.
+            } else if json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "file": filename,
+                    "error": "parse_error",
+                    "messages": errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>(),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                for e in &errors {
+                    eprintln!("{filename}: parse error: {}", e.message);
+                }
             }
             return false;
         }
@@ -134,6 +195,7 @@ fn fmt_one(filename: &str, check_only: bool, json: bool, aggregate: bool) -> boo
             println!(
                 "{}",
                 serde_json::json!({
+                    "ok": ok,
                     "file": filename,
                     "formatted": ok,
                 })
@@ -143,9 +205,30 @@ fn fmt_one(filename: &str, check_only: bool, json: bool, aggregate: bool) -> boo
         }
         ok
     } else {
+        let changed = formatted != source;
         if let Err(e) = fs::write(filename, &formatted) {
-            eprintln!("Error: cannot write {filename}: {e}");
+            if json && !aggregate {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "file": filename,
+                    "error": format!("cannot write {filename}: {e}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else if !json {
+                eprintln!("Error: cannot write {filename}: {e}");
+            }
             process::exit(2);
+        }
+        if !aggregate && json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "ok": true,
+                    "file": filename,
+                    "wrote": true,
+                    "changed": changed,
+                })
+            );
         }
         true
     }

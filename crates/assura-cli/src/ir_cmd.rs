@@ -13,7 +13,18 @@ pub(crate) fn run_ir(
     verify_only: bool,
 ) {
     let ir_source = fs::read_to_string(ir_file).unwrap_or_else(|e| {
-        eprintln!("Error: {ir_file}: {e}");
+        if output_mode == OutputMode::Json {
+            let report = serde_json::json!({
+                "ok": false,
+                "status": "error",
+                "file": ir_file,
+                "error": format!("{e}"),
+                "message": format!("{ir_file}: {e}"),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: {ir_file}: {e}");
+        }
         process::exit(2);
     });
 
@@ -49,7 +60,19 @@ pub(crate) fn run_ir(
     // Optionally validate against a contract file
     if let Some(contract_path) = contract_file {
         let contract_source = fs::read_to_string(contract_path).unwrap_or_else(|e| {
-            eprintln!("Error: {contract_path}: {e}");
+            if output_mode == OutputMode::Json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "status": "error",
+                    "file": ir_file,
+                    "contract": contract_path,
+                    "error": format!("{e}"),
+                    "message": format!("{contract_path}: {e}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: {contract_path}: {e}");
+            }
             process::exit(2);
         });
 
@@ -57,7 +80,19 @@ pub(crate) fn run_ir(
         let source_file = match parse_result.file {
             Some(f) => f,
             None => {
-                eprintln!("Error: failed to parse contract file {contract_path}");
+                if output_mode == OutputMode::Json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "status": "error",
+                        "file": ir_file,
+                        "contract": contract_path,
+                        "error": "contract_parse_failed",
+                        "message": format!("failed to parse contract file {contract_path}"),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("Error: failed to parse contract file {contract_path}");
+                }
                 process::exit(1);
             }
         };
@@ -190,21 +225,55 @@ pub(crate) fn run_ir(
         let out = Path::new(out_path);
         if let Some(parent) = out.parent() {
             fs::create_dir_all(parent).unwrap_or_else(|e| {
-                eprintln!("Error: cannot create directory {}: {e}", parent.display());
+                if output_mode == OutputMode::Json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "status": "error",
+                        "file": ir_file,
+                        "output": out_path,
+                        "error": format!("cannot create directory {}: {e}", parent.display()),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("Error: cannot create directory {}: {e}", parent.display());
+                }
                 process::exit(1);
             });
         }
         fs::write(out, &rust_code).unwrap_or_else(|e| {
-            eprintln!("Error: cannot write {out_path}: {e}");
+            if output_mode == OutputMode::Json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "status": "error",
+                    "file": ir_file,
+                    "output": out_path,
+                    "error": format!("cannot write {out_path}: {e}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: cannot write {out_path}: {e}");
+            }
             process::exit(1);
         });
-        if verbosity != Verbosity::Quiet {
+        if output_mode == OutputMode::Json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "ok": true,
+                    "status": "ok",
+                    "file": ir_file,
+                    "module": module.name,
+                    "output": out_path,
+                })
+            );
+        } else if verbosity != Verbosity::Quiet {
             eprintln!("OK  {ir_file} -> {out_path}");
         }
     } else if output_mode == OutputMode::Json {
         println!(
             "{}",
             serde_json::json!({
+                "ok": true,
                 "status": "ok",
                 "module": module.name,
                 "rust": rust_code,
