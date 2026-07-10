@@ -9,6 +9,7 @@ pub(crate) fn run_coverage(
     format: &str,
     min_coverage: Option<f64>,
 ) {
+    validate_human_json_format(format, "coverage");
     let root = Path::new(path);
     let src_dir = root.join("src");
 

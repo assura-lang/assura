@@ -24,6 +24,7 @@ pub(crate) fn run_audit(opts: AuditOptions<'_>) {
         timeout_ms: _timeout_ms,
         unsafe_only,
     } = opts;
+    validate_human_json_format(format, "audit");
     // Phase 1: Discover Rust source files
     let root = Path::new(path);
     let cargo_toml = root.join("Cargo.toml");
