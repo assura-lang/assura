@@ -270,7 +270,22 @@ SourceFile {
                 ContractDecl {
                     name: "InflateExtraFieldContract",
                     type_params: [],
-                    clauses: [],
+                    clauses: [
+                        Clause {
+                            kind: Output,
+                            body: Spanned {
+                                node: Raw(
+                                    [
+                                        "result",
+                                        ":",
+                                        "Nat",
+                                    ],
+                                ),
+                                span: 0..0,
+                            },
+                            effect_variables: [],
+                        },
+                    ],
                     fn_params: [
                         Param {
                             name: "head",
