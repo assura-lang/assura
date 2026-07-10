@@ -267,31 +267,58 @@ mod init_name_tests {
 
     #[test]
     fn accepts_simple_names() {
-        assert!(validate_project_name("myproj").is_ok());
-        assert!(validate_project_name("my-proj").is_ok());
-        assert!(validate_project_name("My_Proj2").is_ok());
-        assert!(validate_project_name("_private").is_ok());
+        validate_project_name("myproj").expect("myproj");
+        validate_project_name("my-proj").expect("my-proj");
+        validate_project_name("My_Proj2").expect("My_Proj2");
+        validate_project_name("_private").expect("_private");
     }
 
     #[test]
     fn rejects_empty_and_dot() {
-        assert!(validate_project_name("").is_err());
-        assert!(validate_project_name(".").is_err());
-        assert!(validate_project_name("..").is_err());
+        assert!(
+            validate_project_name("").is_err(),
+            "empty name should be rejected"
+        );
+        assert!(
+            validate_project_name(".").is_err(),
+            "dot alone should be rejected"
+        );
+        assert!(
+            validate_project_name("..").is_err(),
+            "dotdot should be rejected"
+        );
     }
 
     #[test]
     fn rejects_paths_and_spaces() {
-        assert!(validate_project_name("bad name").is_err());
-        assert!(validate_project_name("a/b").is_err());
-        assert!(validate_project_name("a\\b").is_err());
-        assert!(validate_project_name("foo/../bar").is_err());
+        assert!(
+            validate_project_name("bad name").is_err(),
+            "spaces should be rejected"
+        );
+        assert!(
+            validate_project_name("a/b").is_err(),
+            "slash path should be rejected"
+        );
+        assert!(
+            validate_project_name("a\\b").is_err(),
+            "backslash path should be rejected"
+        );
+        assert!(
+            validate_project_name("foo/../bar").is_err(),
+            "traversal path should be rejected"
+        );
     }
 
     #[test]
     fn rejects_leading_digit_or_hyphen() {
-        assert!(validate_project_name("1proj").is_err());
-        assert!(validate_project_name("-proj").is_err());
+        assert!(
+            validate_project_name("1proj").is_err(),
+            "leading digit should be rejected"
+        );
+        assert!(
+            validate_project_name("-proj").is_err(),
+            "leading hyphen should be rejected"
+        );
     }
 }
 

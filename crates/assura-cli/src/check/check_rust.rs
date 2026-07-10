@@ -239,7 +239,26 @@ pub(crate) fn run_check_rust(
                 && let Some(ref typed) = output.typed
                 && let Some(ref file_ast) = output.file
             {
-                // Run SMT verification
+                // #951: co-located `{Name}.ir` is the only body model we accept
+                // as proof for check-rust. Detect before verify so human mode
+                // does not print "ensures ... verified" / "check passed" and
+                // then contradict itself with body_not_modeled.
+                let has_ensures = !item.contract.ensures.is_empty();
+                let colocated = assura_smt::LoadedVerifyExtras::load(file_path.as_path(), typed);
+                let has_body_ir = colocated.loaded_names().iter().any(|n| n == &item_name);
+                let expect_body_not_modeled = has_ensures && !has_body_ir;
+
+                // Run SMT verification. When we already know the item will be
+                // body_not_modeled, suppress verify_and_report's human summary
+                // (Quiet still renders real errors / counterexamples).
+                let report_verbosity = if expect_body_not_modeled
+                    && output_mode == OutputMode::Human
+                    && verbosity != Verbosity::Quiet
+                {
+                    Verbosity::Quiet
+                } else {
+                    verbosity
+                };
                 let source_for_verify = contract_source.clone();
                 let mut diags = Vec::new();
                 let mut has_err = false;
@@ -251,7 +270,7 @@ pub(crate) fn run_check_rust(
                     diagnostics: &mut diags,
                     has_errors: &mut has_err,
                     output_mode,
-                    verbosity,
+                    verbosity: report_verbosity,
                     verify_options: assura_config::VerifyOptions {
                         layer,
                         solver: solver_choice,
@@ -291,14 +310,6 @@ pub(crate) fn run_check_rust(
                     item_status = "verified";
                 }
 
-                // #951: heuristic IR synthesis can "verify" ensures without the
-                // Rust body. Co-located `{Name}.ir` is the only body model we
-                // accept as proof for check-rust. Without it, never claim
-                // `verified` when the annotation has ensures (result may be free
-                // or synthesized).
-                let has_ensures = !item.contract.ensures.is_empty();
-                let colocated = assura_smt::LoadedVerifyExtras::load(file_path.as_path(), typed);
-                let has_body_ir = colocated.loaded_names().iter().any(|n| n == &item_name);
                 if should_mark_body_not_modeled(
                     has_ensures,
                     has_body_ir,

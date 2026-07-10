@@ -153,11 +153,17 @@ assura infer src/main.rs
 
 # Verify inline contract annotations in Rust source files
 assura check-rust src/
-# Without co-located {Name}.ir, ensures are reported body_not_modeled (not silent verified)
+# Without co-located {Name}.ir, ensures are reported body_not_modeled
+# (not silent verified). Human mode also exits non-zero and does not print
+# "check passed" for those items.
 assura check-rust src/ --json
 
 # Suggest contracts for unannotated functions
 assura check-rust src/ --suggest
+
+# Shell completions (raw script, or JSON with --json for agents)
+assura completions zsh
+assura completions bash --json   # {"command","shell","script"}
 ```
 
 > **Tip:** If running from source without installing, prefix commands with `cargo run --`, e.g. `cargo run -- check demos/libwebp-huffman.assura`.

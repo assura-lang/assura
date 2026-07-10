@@ -232,7 +232,8 @@ assura fmt file.assura
 assura explain A03001
 assura test-gen file.assura -o tests.rs
 assura doctor
-assura completions zsh
+assura completions zsh                     # shell script on stdout
+assura completions bash --json             # JSON: {{command,shell,script}}
 assura lsp
 assura mcp                                 # MCP server for agent tools
 assura agent-instructions --json           # this reference

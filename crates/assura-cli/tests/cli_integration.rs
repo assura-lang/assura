@@ -838,6 +838,37 @@ fn completions_fish_exits_zero() {
     );
 }
 
+/// Issue #974: `completions --json` must emit JSON, not a bare shell script.
+#[test]
+fn completions_bash_json_is_parseable() {
+    let out = Command::new(assura_bin())
+        .args(["completions", "bash", "--json"])
+        .output()
+        .expect("failed to run assura completions bash --json");
+    assert!(
+        out.status.success(),
+        "completions bash --json should exit 0: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("completions --json stdout must be JSON");
+    assert_eq!(v["command"], "completions");
+    assert_eq!(v["shell"], "bash");
+    let script = v["script"].as_str().expect("script field must be a string");
+    assert!(
+        script.contains("_assura") || script.contains("assura"),
+        "script should contain completion body: {}",
+        &script[..script.len().min(120)]
+    );
+    // Must not look like a bare bash function at the start of stdout
+    assert!(
+        stdout.trim_start().starts_with('{'),
+        "JSON mode must start with object, got: {}",
+        &stdout[..stdout.len().min(80)]
+    );
+}
+
 // =======================================================================
 // Issue #96: explain command integration tests
 // =======================================================================
@@ -1473,6 +1504,49 @@ fn regular(x: i32) -> i32 {
     assert!(
         stdout.contains("no inline contract annotations found"),
         "should report no annotations, got: {stdout}"
+    );
+}
+
+/// Ensures without co-located IR must not print "check passed" / "ensures …
+/// verified" before body_not_modeled (MPI End User / Observability).
+#[test]
+fn check_rust_body_not_modeled_human_is_honest() {
+    let tmp = unique_temp("assura_check_rust_bnm");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @requires x > 0
+/// @ensures result == x + 1
+fn bad(x: i64) -> i64 { x }
+"#,
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check-rust", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        !out.status.success(),
+        "body_not_modeled should be non-zero exit, got stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        combined.contains("body_not_modeled"),
+        "expected body_not_modeled status, got: {combined}"
+    );
+    assert!(
+        !combined.contains("check passed"),
+        "must not claim check passed when body is not modeled: {combined}"
+    );
+    // Grouped SMT table uses "ensures ... verified"; must stay silent for BNM.
+    assert!(
+        !combined.contains("... verified"),
+        "must not print SMT 'ensures ... verified' before body_not_modeled: {combined}"
     );
 }
 
