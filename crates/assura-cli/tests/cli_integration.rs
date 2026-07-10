@@ -2779,6 +2779,61 @@ fn check_watch_rejects_stdin_json() {
     assert_eq!(v["error"], "watch_stdin_unsupported");
 }
 
+/// Nested / mul body encoding: correct body verifies; wrong body CEs.
+#[test]
+fn check_rust_encodes_nested_and_mul_bodies() {
+    let tmp = unique_temp("assura_check_rust_body_nested");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == x + y + 1
+fn nest(x: i64, y: i64) -> i64 { x + y + 1 }
+
+/// @ensures result == x * 2
+fn mul(x: i64) -> i64 { x * 2 }
+
+/// @ensures result == -x
+fn neg(x: i64) -> i64 { -x }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(
+        v["body_not_modeled"], 0,
+        "all three bodies should encode: {stdout}"
+    );
+    assert!(out.status.success(), "correct bodies should pass: {stdout}");
+    assert!(
+        v["verified"].as_u64().unwrap_or(0) >= 3,
+        "expected >=3 verified clauses: {stdout}"
+    );
+
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x * 2
+fn mul(x: i64) -> i64 { x + 2 }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "wrong mul body should fail");
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).expect("json");
+    assert_eq!(v["body_not_modeled"], 0);
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
+}
+
 /// #975: wrong identity body vs ensures x+1 must CE (not silent verified / BNM).
 #[test]
 fn check_rust_encodes_identity_body_counterexample() {
