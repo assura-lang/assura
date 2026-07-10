@@ -3631,6 +3631,57 @@ fn pos(x: i64) -> bool { x.gt(&0) }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// i64::default / i64::MAX encode as const bodies.
+#[test]
+fn check_rust_encodes_default_minmax() {
+    let tmp = unique_temp("assura_check_rust_default_minmax");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 0
+fn z(x: i64) -> i64 { i64::default() }
+
+/// @ensures result == 9223372036854775807
+fn mx(x: i64) -> i64 { i64::MAX }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "default/minmax should pass: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// x.pow(2) encodes as mul and verifies square ensures.
+#[test]
+fn check_rust_encodes_pow() {
+    let tmp = unique_temp("assura_check_rust_pow");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == x * x
+fn sq(x: i64) -> i64 { x.pow(2) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "pow should pass: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Nested if/else-if encodes multi-block IR and can CE wrong branches.
 #[test]
 fn check_rust_encodes_nested_if_body() {
