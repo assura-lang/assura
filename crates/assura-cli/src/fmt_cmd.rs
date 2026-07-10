@@ -25,8 +25,9 @@ pub(crate) fn run_fmt(filename: &str, check_only: bool, output_mode: assura_conf
         let mut results: Vec<serde_json::Value> = Vec::new();
         for file in &files {
             let path_str = file.to_string_lossy();
-            // Suppress per-file JSON; emit one aggregate report below.
-            let ok = fmt_one(path_str.as_ref(), check_only, false);
+            // Quiet per-file reporting when emitting aggregate JSON (avoids
+            // human "not formatted" lines on stderr alongside the JSON doc).
+            let ok = fmt_one(path_str.as_ref(), check_only, json, /*aggregate*/ json);
             if json && check_only {
                 results.push(serde_json::json!({
                     "file": path_str,
@@ -53,7 +54,7 @@ pub(crate) fn run_fmt(filename: &str, check_only: bool, output_mode: assura_conf
         return;
     }
 
-    if !fmt_one(filename, check_only, json) {
+    if !fmt_one(filename, check_only, json, /*aggregate*/ false) {
         process::exit(1);
     }
 }
@@ -103,7 +104,10 @@ fn fmt_stdin(check_only: bool, json: bool) -> bool {
 }
 
 /// Format one file. Returns `false` if `--check` failed or parse failed.
-fn fmt_one(filename: &str, check_only: bool, json: bool) -> bool {
+///
+/// When `aggregate` is true (directory + `--json`), do not print per-file
+/// JSON or human "not formatted" lines; the caller emits one report.
+fn fmt_one(filename: &str, check_only: bool, json: bool, aggregate: bool) -> bool {
     let source = match fs::read_to_string(filename) {
         Ok(s) => s,
         Err(e) => {
@@ -124,10 +128,9 @@ fn fmt_one(filename: &str, check_only: bool, json: bool) -> bool {
 
     if check_only {
         let ok = formatted == source;
-        if json {
-            // Directory path aggregates results; single file prints here.
-            // Callers that collect results pass json=true and may skip single print
-            // for dirs (handled in run_fmt). For a single file, print now.
+        if aggregate {
+            // Caller builds the aggregate JSON document.
+        } else if json {
             println!(
                 "{}",
                 serde_json::json!({
