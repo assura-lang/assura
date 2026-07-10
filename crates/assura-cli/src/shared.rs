@@ -1,3 +1,4 @@
+use std::io::{self, Read};
 use std::path::Path;
 
 use assura_config::{CompilerConfig, ProjectConfig};
@@ -7,6 +8,25 @@ pub(crate) fn load_project_config(
     start_path: &Path,
 ) -> Option<(ProjectConfig, std::path::PathBuf)> {
     assura_config::load_project_config(start_path, assura_resolve::find_project_root)
+}
+
+/// Read source from a path, or from stdin when `path` is `"-"`.
+///
+/// Display name for diagnostics is `"<stdin>"` when reading from stdin.
+pub(crate) fn read_source_arg(path: &str) -> io::Result<(String, String)> {
+    if path == "-" {
+        let mut buf = String::new();
+        io::stdin().read_to_string(&mut buf)?;
+        Ok((buf, "<stdin>".to_string()))
+    } else {
+        let source = std::fs::read_to_string(path)?;
+        Ok((source, path.to_string()))
+    }
+}
+
+/// True when the path argument means standard input (`-`).
+pub(crate) fn is_stdin_arg(path: &str) -> bool {
+    path == "-"
 }
 
 /// Type alias: CLI code uses this name to destructure `CompilationOutput`.

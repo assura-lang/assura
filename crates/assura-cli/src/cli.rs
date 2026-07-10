@@ -64,7 +64,7 @@ impl GlobalOpts {
 enum Commands {
     /// Full pipeline: parse, resolve, type-check, verify
     Check {
-        /// Source file to check
+        /// Source file to check (use `-` to read from stdin)
         file: String,
 
         /// Verification layer (0=structural, 1=SMT, 2=quantified/termination, 3=BMC)
