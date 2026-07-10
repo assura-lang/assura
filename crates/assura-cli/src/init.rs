@@ -92,17 +92,21 @@ type = "minimal"        # minimal, parser, database, etc.
         process::exit(1);
     });
 
-    // Write starter contract
-    let contract_content = r#"// SafeDivision: ensures division by zero is impossible
+    // Write starter contract + co-located IR so ensures on `result` verify.
+    // Previously ensures copied requires (vacuous); see #920.
+    let contract_content = r#"// SafeDivision: division by zero is impossible, and result == a / b.
 //
-// The requires clause guarantees callers must pass a non-zero divisor.
-// The ensures clause states the result is always defined (not an error).
+// requires: callers must pass a non-zero divisor.
+// ensures: the co-located SafeDivision.ir body binds `result` so Z3 can
+// prove the postcondition (not a free output variable).
+//
+// Try: assura check contracts/lib.assura
 contract SafeDivision {
     input(a: Int, b: Int)
     output(result: Int)
 
     requires { b != 0 }
-    ensures  { b != 0 }
+    ensures  { result == a / b }
 }
 "#;
     let contract_path = contracts_dir.join("lib.assura");
@@ -111,10 +115,24 @@ contract SafeDivision {
         process::exit(1);
     });
 
+    let ir_content = r#"module SafeDivision {
+  fn #0 : ($0: Int, $1: Int) -> Int ! pure
+  {
+    $result = arith div $0 $1 : Int
+  }
+}
+"#;
+    let ir_path = contracts_dir.join("SafeDivision.ir");
+    fs::write(&ir_path, ir_content).unwrap_or_else(|e| {
+        eprintln!("Error: cannot write {}: {e}", ir_path.display());
+        process::exit(1);
+    });
+
     // Report what was created
     println!("Created new Assura project '{project_name}':");
     println!("  {}", toml_path.display());
     println!("  {}", contract_path.display());
+    println!("  {}", ir_path.display());
 }
 
 pub(crate) fn run_explain(code: &str) {

@@ -2107,6 +2107,14 @@ fn init_creates_project_structure() {
         lib_content.contains("SafeDivision"),
         "lib.assura should contain SafeDivision: {lib_content}"
     );
+    assert!(
+        lib_content.contains("result == a / b"),
+        "template ensures should mention result (not vacuous requires copy): {lib_content}"
+    );
+    assert!(
+        project.join("contracts/SafeDivision.ir").exists(),
+        "co-located SafeDivision.ir should exist for result ensures"
+    );
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
