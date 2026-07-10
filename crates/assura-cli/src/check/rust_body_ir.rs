@@ -790,6 +790,7 @@ fn multi_let(x: i64) -> i64 { let a = x + 1; let b = a + 1; b }
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "C").expect("parse");
     }
 
+    #[test]
     fn abs_min_max_method_and_call() {
         let abs = try_ir_from_rust_body("A", &px(), Some("i64"), "x . abs ()").expect("abs");
         assert!(abs.contains("call abs"), "{abs}");
