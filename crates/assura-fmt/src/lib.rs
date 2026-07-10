@@ -28,7 +28,84 @@ pub fn try_format_source(source: &str) -> Result<String, Vec<assura_parser::Pars
         return Err(errors);
     }
 
-    Ok(format_cst_tokens(&root))
+    let mut formatted = format_cst_tokens(&root);
+    // Minified one-liners have no newline whitespace for the indent path.
+    // Expand braces, then re-run CST indent so the result is idempotent (#919).
+    if is_effectively_single_line(&formatted) {
+        let expanded = expand_minified_braces(&formatted);
+        let (root2, errs2) = assura_parser::parse_cst(&expanded);
+        if errs2.is_empty() {
+            formatted = format_cst_tokens(&root2);
+        } else {
+            formatted = expanded;
+        }
+    }
+    Ok(formatted)
+}
+
+fn is_effectively_single_line(s: &str) -> bool {
+    let body = s.trim_end_matches('\n');
+    !body.is_empty() && !body.contains('\n')
+}
+
+/// Insert newlines after `{` and before `}` for single-line minified sources.
+fn expand_minified_braces(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 2);
+    let mut depth: i32 = 0;
+    let chars: Vec<char> = s.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        match c {
+            '{' => {
+                out.push('{');
+                depth += 1;
+                // Peek non-space next
+                let mut j = i + 1;
+                while j < chars.len() && chars[j].is_whitespace() && chars[j] != '\n' {
+                    j += 1;
+                }
+                if j < chars.len() && chars[j] != '}' {
+                    out.push('\n');
+                    for _ in 0..depth {
+                        out.push_str("    ");
+                    }
+                }
+            }
+            '}' => {
+                depth = (depth - 1).max(0);
+                // Trim trailing spaces on this line before closing
+                while out.ends_with(' ') {
+                    out.pop();
+                }
+                if !out.ends_with('\n') && !out.ends_with('{') {
+                    out.push('\n');
+                    for _ in 0..depth {
+                        out.push_str("    ");
+                    }
+                }
+                out.push('}');
+                // `}ensures` → put next clause on its own indented line
+                let mut j = i + 1;
+                while j < chars.len() && chars[j].is_whitespace() && chars[j] != '\n' {
+                    j += 1;
+                }
+                if j < chars.len() && (chars[j].is_ascii_alphabetic() || chars[j] == '_') {
+                    out.push('\n');
+                    for _ in 0..depth {
+                        out.push_str("    ");
+                    }
+                }
+            }
+            _ => out.push(c),
+        }
+        i += 1;
+    }
+    // Ensure trailing newline
+    let trimmed = out.trim_end_matches('\n');
+    let mut result = trimmed.to_string();
+    result.push('\n');
+    result
 }
 
 /// Deprecated: use [`format_source`] instead. This wrapper parses the
