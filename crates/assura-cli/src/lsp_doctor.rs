@@ -19,101 +19,161 @@ pub(crate) fn run_lsp() {
 // `assura doctor` -- check installation health
 // ---------------------------------------------------------------------------
 
-pub(crate) fn run_doctor() {
+pub(crate) fn run_doctor(output_mode: OutputMode) {
+    let mut checks: Vec<serde_json::Value> = Vec::new();
     let mut all_ok = true;
 
-    // assura version
     let version = env!("CARGO_PKG_VERSION");
-    println!("Assura Doctor");
-    println!("  assura:       v{version}");
 
     // rustc
-    match process::Command::new("rustc").arg("--version").output() {
-        Ok(out) if out.status.success() => {
-            let ver = String::from_utf8_lossy(&out.stdout);
-            let ver = ver.trim().strip_prefix("rustc ").unwrap_or(ver.trim());
-            println!("  rustc:        {ver} ... OK");
-        }
-        _ => {
-            println!("  rustc:        not found ... MISSING");
-            println!("                Install: https://rustup.rs/");
-            all_ok = false;
-        }
-    }
+    let (rustc_status, rustc_detail) =
+        match process::Command::new("rustc").arg("--version").output() {
+            Ok(out) if out.status.success() => {
+                let ver = String::from_utf8_lossy(&out.stdout);
+                let ver = ver.trim().strip_prefix("rustc ").unwrap_or(ver.trim());
+                ("ok", ver.to_string())
+            }
+            _ => {
+                all_ok = false;
+                ("missing", "not found".into())
+            }
+        };
+    checks.push(serde_json::json!({
+        "name": "rustc", "status": rustc_status, "detail": rustc_detail,
+        "required": true,
+    }));
 
     // cargo
-    match process::Command::new("cargo").arg("--version").output() {
-        Ok(out) if out.status.success() => {
-            let ver = String::from_utf8_lossy(&out.stdout);
-            let ver = ver.trim().strip_prefix("cargo ").unwrap_or(ver.trim());
-            println!("  cargo:        {ver} ... OK");
-        }
-        _ => {
-            println!("  cargo:        not found ... MISSING");
-            all_ok = false;
-        }
-    }
+    let (cargo_status, cargo_detail) =
+        match process::Command::new("cargo").arg("--version").output() {
+            Ok(out) if out.status.success() => {
+                let ver = String::from_utf8_lossy(&out.stdout);
+                let ver = ver.trim().strip_prefix("cargo ").unwrap_or(ver.trim());
+                ("ok", ver.to_string())
+            }
+            _ => {
+                all_ok = false;
+                ("missing", "not found".into())
+            }
+        };
+    checks.push(serde_json::json!({
+        "name": "cargo", "status": cargo_status, "detail": cargo_detail,
+        "required": true,
+    }));
 
     // z3
-    match process::Command::new("z3").arg("--version").output() {
+    let (z3_status, z3_detail) = match process::Command::new("z3").arg("--version").output() {
         Ok(out) if out.status.success() => {
             let ver = String::from_utf8_lossy(&out.stdout);
             let ver = ver.trim();
-            // z3 --version outputs "Z3 version 4.13.0 - ..."
             let short = ver
                 .strip_prefix("Z3 version ")
                 .and_then(|s| s.split_whitespace().next())
                 .unwrap_or(ver);
-            println!("  z3:           {short} ... OK");
+            ("ok", short.to_string())
         }
         _ => {
-            println!("  z3:           not found ... MISSING (required for verification)");
-            println!("                Install: brew install z3  (macOS)");
-            println!("                         sudo apt-get install -y libz3-dev  (Ubuntu)");
             all_ok = false;
+            ("missing", "not found".into())
         }
-    }
+    };
+    checks.push(serde_json::json!({
+        "name": "z3", "status": z3_status, "detail": z3_detail,
+        "required": true,
+    }));
 
     // cvc5 (optional)
-    match process::Command::new("cvc5").arg("--version").output() {
+    let (cvc5_status, cvc5_detail) = match process::Command::new("cvc5").arg("--version").output() {
         Ok(out) if out.status.success() => {
             let ver = String::from_utf8_lossy(&out.stdout);
             let ver = ver.trim();
             let short = ver.lines().next().unwrap_or(ver);
-            println!("  cvc5:         {short} ... OK");
+            ("ok", short.to_string())
         }
-        _ => {
-            println!("  cvc5:         not found ... OPTIONAL (enables portfolio mode)");
-            println!("                Install: bash scripts/setup-cvc5.sh");
-        }
-    }
+        _ => ("optional", "not found".into()),
+    };
+    checks.push(serde_json::json!({
+        "name": "cvc5", "status": cvc5_status, "detail": cvc5_detail,
+        "required": false,
+    }));
 
     // wasm target (optional)
-    match process::Command::new("rustup")
+    let (wasm_status, wasm_detail): (&str, String) = match process::Command::new("rustup")
         .args(["target", "list", "--installed"])
         .output()
     {
         Ok(out) if out.status.success() => {
             let installed = String::from_utf8_lossy(&out.stdout);
             if installed.contains("wasm32") {
-                println!("  wasm target:  installed ... OK");
+                ("ok", "installed".into())
             } else {
-                println!("  wasm target:  not installed ... OPTIONAL");
+                ("optional", "not installed".into())
+            }
+        }
+        _ => ("optional", "unknown (rustup not found)".into()),
+    };
+    checks.push(serde_json::json!({
+        "name": "wasm_target", "status": wasm_status, "detail": wasm_detail,
+        "required": false,
+    }));
+
+    if output_mode == OutputMode::Json {
+        let json = serde_json::json!({
+            "assura": version,
+            "ok": all_ok,
+            "checks": checks,
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json).unwrap_or_default()
+        );
+    } else {
+        println!("Assura Doctor");
+        println!("  assura:       v{version}");
+        for c in &checks {
+            let name = c["name"].as_str().unwrap_or("?");
+            let status = c["status"].as_str().unwrap_or("?");
+            let detail = c["detail"].as_str().unwrap_or("");
+            let (label, pad) = match name {
+                "rustc" => ("rustc:", 14usize),
+                "cargo" => ("cargo:", 14),
+                "z3" => ("z3:", 14),
+                "cvc5" => ("cvc5:", 14),
+                "wasm_target" => ("wasm target:", 14),
+                other => (other, 14),
+            };
+            let status_label = match status {
+                "ok" => "OK",
+                "missing" => "MISSING",
+                _ => "OPTIONAL",
+            };
+            // Match historical layout: "  rustc:        1.97.0 ... OK"
+            println!("  {label:<pad$} {detail} ... {status_label}");
+            if status == "missing" && name == "rustc" {
+                println!("                Install: https://rustup.rs/");
+            }
+            if status == "missing" && name == "z3" {
+                println!("                Install: brew install z3  (macOS)");
+                println!("                         sudo apt-get install -y libz3-dev  (Ubuntu)");
+            }
+            if name == "cvc5" && status != "ok" {
+                println!("                Install: bash scripts/setup-cvc5.sh");
+            }
+            if name == "wasm_target" && detail.contains("not installed") {
                 println!("                Install: rustup target add wasm32-wasip1");
             }
         }
-        _ => {
-            println!("  wasm target:  unknown (rustup not found) ... OPTIONAL");
+        println!();
+        if all_ok {
+            println!("All required dependencies are installed.");
+        } else {
+            println!(
+                "Some required dependencies are missing. Install them and re-run `assura doctor`."
+            );
         }
     }
 
-    println!();
-    if all_ok {
-        println!("All required dependencies are installed.");
-    } else {
-        println!(
-            "Some required dependencies are missing. Install them and re-run `assura doctor`."
-        );
+    if !all_ok {
         process::exit(1);
     }
 }

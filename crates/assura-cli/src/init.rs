@@ -135,28 +135,58 @@ contract SafeDivision {
     println!("  {}", ir_path.display());
 }
 
-pub(crate) fn run_explain(code: &str) {
+pub(crate) fn run_explain(code: &str, output_mode: OutputMode) {
     match assura_diagnostics::explain(code) {
         Some(info) => {
-            println!("{}: {}", info.code, info.name);
-            println!();
-            println!("{}", info.description);
-            println!();
-            println!("Example:");
-            println!();
-            println!("{}", info.example);
-            println!();
-            println!("How to fix:");
-            println!();
-            println!("{}", info.fix);
+            if output_mode == OutputMode::Json {
+                let json = serde_json::json!({
+                    "code": info.code,
+                    "name": info.name,
+                    "description": info.description,
+                    "example": info.example,
+                    "fix": info.fix,
+                });
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json).unwrap_or_default()
+                );
+            } else {
+                println!("{}: {}", info.code, info.name);
+                println!();
+                println!("{}", info.description);
+                println!();
+                println!("Example:");
+                println!();
+                println!("{}", info.example);
+                println!();
+                println!("How to fix:");
+                println!();
+                println!("{}", info.fix);
+            }
         }
         None => {
-            eprintln!("Unknown error code: {code}");
-            eprintln!();
-            eprintln!("Known error codes:");
-            let catalog = assura_diagnostics::error_catalog();
-            for info in &catalog {
-                eprintln!("  {} - {}", info.code, info.name);
+            if output_mode == OutputMode::Json {
+                let catalog = assura_diagnostics::error_catalog();
+                let codes: Vec<_> = catalog
+                    .iter()
+                    .map(|i| serde_json::json!({"code": i.code, "name": i.name}))
+                    .collect();
+                let json = serde_json::json!({
+                    "error": format!("Unknown error code: {code}"),
+                    "known_codes": codes,
+                });
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json).unwrap_or_default()
+                );
+            } else {
+                eprintln!("Unknown error code: {code}");
+                eprintln!();
+                eprintln!("Known error codes:");
+                let catalog = assura_diagnostics::error_catalog();
+                for info in &catalog {
+                    eprintln!("  {} - {}", info.code, info.name);
+                }
             }
             process::exit(1);
         }
