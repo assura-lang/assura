@@ -2,7 +2,7 @@
 //!
 //! Supports int/bool arith, abs/min/max/clamp/saturating/saturating_neg, abs_diff,
 //! is_positive/negative/zero, `is_multiple_of`, PartialOrd methods, logical `&&`/`||`,
-//! unary `-`/`!`/`*`/`&`, `into`/`as`/`clone`/`copied` identity, multi-let, if/match
+//! unary `-`/`!`/`*`/`&`, `into`/`as`/`clone`/`copied` identity, multi-let (incl. ref/cast folds), if/match
 //! (incl. guards), simple and nested `if`/`else`, simple `match` with int/bool/wildcard
 //! arms, and Bool comparisons. Body text is extracted with `syn` (co-publish-safe).
 //!
@@ -112,6 +112,14 @@ fn substitute_ident_expr(expr: syn::Expr, name: &str, replacement: &syn::Expr) -
         syn::Expr::Unary(mut u) => {
             *u.expr = substitute_ident_expr(*u.expr, name, replacement);
             syn::Expr::Unary(u)
+        }
+        syn::Expr::Reference(mut r) => {
+            *r.expr = substitute_ident_expr(*r.expr, name, replacement);
+            syn::Expr::Reference(r)
+        }
+        syn::Expr::Cast(mut c) => {
+            *c.expr = substitute_ident_expr(*c.expr, name, replacement);
+            syn::Expr::Cast(c)
         }
         syn::Expr::Binary(mut b) => {
             *b.left = substitute_ident_expr(*b.left, name, replacement);
@@ -1253,5 +1261,15 @@ fn f(x: i64) -> i64 {
         let n = try_ir_from_rust_body("N", &pab, Some("bool"), "a.not()").expect("not");
         assert!(n.contains("cmp eq"), "{n}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&n, "N").expect("parse");
+    }
+
+    #[test]
+    fn multi_let_ref_and_cast_fold() {
+        let src = r#"
+fn f(x: i64) -> i64 { let y = &x; *y }
+"#;
+        let body = extract_body_return(src, "f").expect("extract");
+        let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("ir");
+        assert!(ir.contains("$result = load $0"), "{ir}");
     }
 }
