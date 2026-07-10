@@ -68,7 +68,18 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
 
     if watch {
         if is_stdin_arg(filename) {
-            eprintln!("Error: --watch cannot be used with stdin (-)");
+            if output_mode == OutputMode::Json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "command": "check",
+                    "watch": true,
+                    "error": "watch_stdin_unsupported",
+                    "message": "--watch cannot be used with stdin (-)",
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: --watch cannot be used with stdin (-)");
+            }
             process::exit(2);
         }
         run_watch_loop(filename, output_mode, verbosity, layer);
@@ -174,10 +185,21 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
         && let Some(ref typed) = typed
     {
         let dir = Path::new(smt_dir);
-        fs::create_dir_all(dir).unwrap_or_else(|e| {
-            eprintln!("Error: cannot create {smt_dir}: {e}");
+        if let Err(e) = fs::create_dir_all(dir) {
+            if output_mode == OutputMode::Json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "command": "check",
+                    "error": "dump_smt_mkdir_failed",
+                    "path": smt_dir,
+                    "message": format!("cannot create {smt_dir}: {e}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: cannot create {smt_dir}: {e}");
+            }
             process::exit(2);
-        });
+        }
         let queries = assura_smt::dump_smt_queries(typed);
         for (i, q) in queries.iter().enumerate() {
             let name = format!("{}_{}.smt2", q.context, q.kind);
@@ -193,9 +215,21 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
                     name
                 },
             );
-            fs::write(&path, &q.script).unwrap_or_else(|e| {
-                eprintln!("Error writing {}: {e}", path.display());
-            });
+            if let Err(e) = fs::write(&path, &q.script) {
+                if output_mode == OutputMode::Json {
+                    let report = serde_json::json!({
+                        "ok": false,
+                        "command": "check",
+                        "error": "dump_smt_write_failed",
+                        "path": path.display().to_string(),
+                        "message": format!("Error writing {}: {e}", path.display()),
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("Error writing {}: {e}", path.display());
+                }
+                process::exit(2);
+            }
         }
         if output_mode == OutputMode::Human {
             eprintln!("Wrote {} SMT-LIB2 file(s) to {smt_dir}/", queries.len());

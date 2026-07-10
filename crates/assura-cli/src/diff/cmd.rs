@@ -28,14 +28,19 @@ pub(crate) fn format_clause_body(clause: &assura_parser::ast::Clause) -> String 
     assura_parser::display::expr_to_string(&clause.body)
 }
 
-fn validate_diff_format(format: &str) {
-    crate::validate_human_json_format(format, "diff");
+fn validate_diff_format(format: &str, as_json: bool) {
+    crate::validate_human_json_format(format, "diff", as_json);
 }
 
 /// Structural diff result. When `emit` is false, JSON is not printed (used so
 /// `--verify --json` can emit a single combined document).
-pub(crate) fn run_diff(old_path: &str, new_path: &str, format: &str) -> (bool, serde_json::Value) {
-    validate_diff_format(format);
+pub(crate) fn run_diff(
+    old_path: &str,
+    new_path: &str,
+    format: &str,
+    as_json: bool,
+) -> (bool, serde_json::Value) {
+    validate_diff_format(format, as_json);
     let is_json = format == "json";
     let old_src = match fs::read_to_string(old_path) {
         Ok(s) => s,
@@ -212,8 +217,9 @@ pub(crate) fn run_diff_verify(
     new_path: &str,
     format: &str,
     structural: Option<serde_json::Value>,
+    as_json: bool,
 ) {
-    validate_diff_format(format);
+    validate_diff_format(format, as_json);
     let is_json = format == "json";
     let old_src = match fs::read_to_string(old_path) {
         Ok(s) => s,

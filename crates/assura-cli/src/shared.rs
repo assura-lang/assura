@@ -30,11 +30,27 @@ pub(crate) fn is_stdin_arg(path: &str) -> bool {
 }
 
 /// Validate `--format` for subcommands that only support human/json.
-pub(crate) fn validate_human_json_format(format: &str, cmd: &str) {
+///
+/// When `as_json` is true (global `--json` or explicit `--format json`),
+/// invalid values emit a JSON error object on stdout so agents stay pure.
+pub(crate) fn validate_human_json_format(format: &str, cmd: &str, as_json: bool) {
     match format {
         "human" | "json" => {}
         other => {
-            eprintln!("Error: invalid --format '{other}' for {cmd} (expected human or json)");
+            if as_json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "command": cmd,
+                    "error": "invalid_format",
+                    "format": other,
+                    "message": format!(
+                        "invalid --format '{other}' for {cmd} (expected human or json)"
+                    ),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: invalid --format '{other}' for {cmd} (expected human or json)");
+            }
             std::process::exit(2);
         }
     }

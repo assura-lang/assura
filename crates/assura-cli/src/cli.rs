@@ -588,8 +588,11 @@ pub fn run() {
             format,
             min_coverage,
         } => {
+            // Keep global --json for invalid --format so agents get JSON errors
+            // even when --format xml wins over the default human resolve path.
+            let as_json = output_mode == OutputMode::Json || format == "json";
             let format = resolve_format_with_global_json(output_mode, format);
-            run_coverage(&path, &contracts_dir, &format, min_coverage);
+            run_coverage(&path, &contracts_dir, &format, min_coverage, as_json);
         }
         Commands::Audit {
             path,
@@ -600,6 +603,7 @@ pub fn run() {
             timeout,
             unsafe_only,
         } => {
+            let as_json = output_mode == OutputMode::Json || format == "json";
             let format = resolve_format_with_global_json(output_mode, format);
             run_audit(AuditOptions {
                 path: &path,
@@ -609,6 +613,7 @@ pub fn run() {
                 max_functions,
                 timeout_ms: timeout,
                 unsafe_only,
+                as_json,
             });
         }
         Commands::Repl => run_repl(output_mode),
@@ -618,15 +623,16 @@ pub fn run() {
             format,
             verify,
         } => {
+            let as_json = output_mode == OutputMode::Json || format == "json";
             let format = resolve_format_with_global_json(output_mode, format);
-            let (has_diff, structural_json) = run_diff(&old, &new, &format);
+            let (has_diff, structural_json) = run_diff(&old, &new, &format, as_json);
             if verify {
                 // JSON: single document (structural + evolution). Do not print
                 // structural JSON alone first (that produced two JSON objects).
                 if format == "json" {
-                    run_diff_verify(&old, &new, &format, Some(structural_json));
+                    run_diff_verify(&old, &new, &format, Some(structural_json), as_json);
                 } else {
-                    run_diff_verify(&old, &new, &format, None);
+                    run_diff_verify(&old, &new, &format, None, as_json);
                 }
                 // When --verify is used, exit code depends on evolution
                 // verification (run_diff_verify exits non-zero on failure).

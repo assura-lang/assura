@@ -94,8 +94,21 @@ pub(crate) fn run_watch_loop(
 ) -> ! {
     use notify::{Event, EventKind, RecursiveMode, Watcher};
 
+    let json = output_mode == OutputMode::Json;
     let path = Path::new(filename).canonicalize().unwrap_or_else(|e| {
-        eprintln!("Error: cannot resolve path {filename}: {e}");
+        if json {
+            let report = serde_json::json!({
+                "ok": false,
+                "command": "check",
+                "watch": true,
+                "file": filename,
+                "error": "cannot_resolve_path",
+                "message": format!("cannot resolve path {filename}: {e}"),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: cannot resolve path {filename}: {e}");
+        }
         process::exit(2);
     });
 
@@ -103,9 +116,11 @@ pub(crate) fn run_watch_loop(
     let mut incremental = assura_smt::IncrementalCompiler::new();
     let mut last_hash = String::new();
 
-    // Initial check
-    eprintln!("[watch] Checking {filename}...");
-    eprintln!();
+    // Initial check (human banners only; --json must stay pure stdout)
+    if !json {
+        eprintln!("[watch] Checking {filename}...");
+        eprintln!();
+    }
     if let Ok(source) = fs::read_to_string(filename) {
         last_hash = content_hash(&source);
         incremental.register_module(filename.to_string(), last_hash.clone());
@@ -113,8 +128,10 @@ pub(crate) fn run_watch_loop(
     // In watch mode, we continue regardless of errors (intentionally ignoring result)
     let _had_errors = check_file_once(filename, output_mode, verbosity, layer);
     incremental.mark_checked(filename, 1);
-    eprintln!();
-    eprintln!("[watch] Watching {filename} for changes. Press Ctrl+C to stop.");
+    if !json {
+        eprintln!();
+        eprintln!("[watch] Watching {filename} for changes. Press Ctrl+C to stop.");
+    }
 
     let (tx, rx) = mpsc::channel();
 
@@ -127,7 +144,19 @@ pub(crate) fn run_watch_loop(
         }
     })
     .unwrap_or_else(|e| {
-        eprintln!("Error: failed to create file watcher: {e}");
+        if json {
+            let report = serde_json::json!({
+                "ok": false,
+                "command": "check",
+                "watch": true,
+                "file": filename,
+                "error": "watcher_create_failed",
+                "message": format!("failed to create file watcher: {e}"),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: failed to create file watcher: {e}");
+        }
         process::exit(2);
     });
 
@@ -136,7 +165,19 @@ pub(crate) fn run_watch_loop(
     watcher
         .watch(watch_dir, RecursiveMode::NonRecursive)
         .unwrap_or_else(|e| {
-            eprintln!("Error: failed to watch {}: {e}", watch_dir.display());
+            if json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "command": "check",
+                    "watch": true,
+                    "file": filename,
+                    "error": "watch_failed",
+                    "message": format!("failed to watch {}: {e}", watch_dir.display()),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: failed to watch {}: {e}", watch_dir.display());
+            }
             process::exit(2);
         });
 
@@ -154,7 +195,7 @@ pub(crate) fn run_watch_loop(
             .unwrap_or_default();
 
         if new_hash == last_hash && !new_hash.is_empty() {
-            if verbosity == Verbosity::Verbose {
+            if !json && verbosity == Verbosity::Verbose {
                 eprintln!("[watch] File saved but content unchanged, skipping re-check.");
             }
             continue;
@@ -164,7 +205,7 @@ pub(crate) fn run_watch_loop(
         last_hash = new_hash;
         incremental.mark_changed(filename);
 
-        if verbosity == Verbosity::Verbose {
+        if !json && verbosity == Verbosity::Verbose {
             let dirty = incremental.dirty_modules();
             eprintln!(
                 "[watch] {} dirty module(s): {}",
@@ -173,14 +214,18 @@ pub(crate) fn run_watch_loop(
             );
         }
 
-        // Clear screen and re-check
-        eprint!("\x1B[2J\x1B[H");
-        eprintln!("[watch] File changed, re-checking {filename}...");
-        eprintln!();
+        // Clear screen and re-check (human only; --json stays pure NDJSON-ish events)
+        if !json {
+            eprint!("\x1B[2J\x1B[H");
+            eprintln!("[watch] File changed, re-checking {filename}...");
+            eprintln!();
+        }
         let _had_errors = check_file_once(filename, output_mode, verbosity, layer);
         incremental.mark_checked(filename, iteration);
         iteration += 1;
-        eprintln!();
-        eprintln!("[watch] Watching for changes. Press Ctrl+C to stop.");
+        if !json {
+            eprintln!();
+            eprintln!("[watch] Watching for changes. Press Ctrl+C to stop.");
+        }
     }
 }
