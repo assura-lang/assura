@@ -9,6 +9,7 @@ pub(crate) fn run_infer(
     output_path: Option<&str>,
     dry_run: bool,
     focus: Option<&str>,
+    output_mode: assura_config::OutputMode,
 ) {
     let source = fs::read_to_string(filename).unwrap_or_else(|e| {
         eprintln!("Error: {filename}: {e}");
@@ -22,7 +23,14 @@ pub(crate) fn run_infer(
 
     // Try heuristic-based inference using syn parser (for .rs files)
     if filename.ends_with(".rs") {
-        run_infer_heuristic(filename, &source, &focus_patterns, dry_run, output_path);
+        run_infer_heuristic(
+            filename,
+            &source,
+            &focus_patterns,
+            dry_run,
+            output_path,
+            output_mode,
+        );
         return;
     }
 
@@ -107,6 +115,7 @@ pub(crate) fn run_infer_heuristic(
     focus: &[&str],
     dry_run: bool,
     output_path: Option<&str>,
+    output_mode: assura_config::OutputMode,
 ) {
     let mut suggestions = Vec::new();
 
@@ -166,9 +175,21 @@ pub(crate) fn run_infer_heuristic(
                 return;
             }
         }
-        println!("No contract suggestions for {filename}");
-        if !focus.is_empty() {
-            println!("  (filtered by: {})", focus.join(", "));
+        if output_mode == assura_config::OutputMode::Json {
+            let report = serde_json::json!({
+                "file": filename,
+                "suggestion_count": 0,
+                "function_count": 0,
+                "suggestions": [],
+                "message": format!("No contract suggestions for {filename}"),
+                "focus": focus,
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            println!("No contract suggestions for {filename}");
+            if !focus.is_empty() {
+                println!("  (filtered by: {})", focus.join(", "));
+            }
         }
         return;
     }
@@ -254,6 +275,26 @@ pub(crate) fn run_infer_heuristic(
         ));
     }
 
+    let ann_count: usize = suggestions.iter().map(|s| s.annotations.len()).sum();
+
+    if output_mode == assura_config::OutputMode::Json && (dry_run || output_path.is_none()) {
+        let report = serde_json::json!({
+            "file": filename,
+            "suggestion_count": ann_count,
+            "function_count": suggestions.len(),
+            "suggestions": suggestions.iter().map(|s| serde_json::json!({
+                "function": s.fn_name,
+                "line": s.line,
+                "pattern": s.pattern,
+                "params": s.params,
+                "annotations": s.annotations,
+            })).collect::<Vec<_>>(),
+            "text": output,
+        });
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        return;
+    }
+
     if dry_run || output_path.is_none() {
         print!("{output}");
     }
@@ -264,17 +305,28 @@ pub(crate) fn run_infer_heuristic(
             eprintln!("Error writing {path}: {e}");
             process::exit(2);
         });
-        eprintln!("Wrote {} contract skeleton(s) to {path}", suggestions.len());
+        if output_mode == assura_config::OutputMode::Json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "file": filename,
+                    "output": path,
+                    "function_count": suggestions.len(),
+                    "suggestion_count": ann_count,
+                    "status": "ok",
+                })
+            );
+        } else {
+            eprintln!("Wrote {} contract skeleton(s) to {path}", suggestions.len());
+        }
     }
 
-    println!(
-        "\n{} suggestion(s) found across {} function(s)",
-        suggestions
-            .iter()
-            .map(|s| s.annotations.len())
-            .sum::<usize>(),
-        suggestions.len()
-    );
+    if output_mode != assura_config::OutputMode::Json {
+        println!(
+            "\n{ann_count} suggestion(s) found across {} function(s)",
+            suggestions.len()
+        );
+    }
 }
 
 fn sanitize_contract_name(name: &str) -> String {
