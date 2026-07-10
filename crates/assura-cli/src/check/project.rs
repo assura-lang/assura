@@ -65,17 +65,19 @@ pub(crate) fn run_check_project(
     let mut module_results: Vec<serde_json::Value> = Vec::new();
     let mut all_diags: Vec<assura_diagnostics::Diagnostic> = Vec::new();
 
+    // Module map keys are declared `module a.b` names (or filesystem-derived
+    // dotted paths), not on-disk paths. Scan source files once for SHOWCASE.
+    let showcase_modules = if showcase_only {
+        collect_showcase_module_names(&project_root)
+    } else {
+        std::collections::HashSet::new()
+    };
+
     // Type-check each resolved file with cross-module type information
     let modules_map = resolved_files.clone();
     for (module_path, resolved) in resolved_files {
-        if showcase_only {
-            // Prefer co-located source path; fall back to module path string.
-            let path = Path::new(&module_path);
-            let src = std::fs::read_to_string(path).unwrap_or_default();
-            let head: String = src.lines().take(8).collect::<Vec<_>>().join("\n");
-            if !head.contains("SHOWCASE") {
-                continue;
-            }
+        if showcase_only && !showcase_modules.contains(&module_path) {
+            continue;
         }
         total_modules += 1;
         match assura_types::TypeChecker::new()
@@ -156,5 +158,103 @@ pub(crate) fn run_check_project(
 
     if total_errors > 0 {
         process::exit(1);
+    }
+}
+
+/// Walk `.assura` files under `project_root` and return module keys whose
+/// first few lines contain `SHOWCASE` (must-pass demos).
+///
+/// Keys match resolve's discovery: declared `module a.b` path, else the
+/// filesystem-derived dotted path.
+fn collect_showcase_module_names(project_root: &Path) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    let mut files = Vec::new();
+    collect_assura_files_under(project_root, &mut files);
+    for file_path in files {
+        let Ok(src) = std::fs::read_to_string(&file_path) else {
+            continue;
+        };
+        let head: String = src.lines().take(8).collect::<Vec<_>>().join("\n");
+        if !head.contains("SHOWCASE") {
+            continue;
+        }
+        let fs_path = file_path
+            .strip_prefix(project_root)
+            .unwrap_or(&file_path)
+            .with_extension("")
+            .to_string_lossy()
+            .replace(['/', '\\'], ".");
+        let key = match assura_parser::parse(&src) {
+            (Some(ast), _) => ast
+                .module
+                .as_ref()
+                .map(|m| m.path.join("."))
+                .unwrap_or(fs_path),
+            (None, _) => fs_path,
+        };
+        names.insert(key);
+    }
+    names
+}
+
+fn collect_assura_files_under(dir: &Path, files: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            // Skip generated/target noise if present under a project tree.
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && (name == "target" || name == "generated" || name == ".git")
+            {
+                continue;
+            }
+            collect_assura_files_under(&path, files);
+        } else if path.extension().and_then(|e| e.to_str()) == Some("assura") {
+            files.push(path);
+        }
+    }
+}
+
+#[cfg(test)]
+mod showcase_path_tests {
+    use super::collect_showcase_module_names;
+    use std::fs;
+
+    #[test]
+    fn collect_showcase_uses_declared_module_name() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("hb.assura"),
+            "// SHOWCASE\nmodule tls.heartbeat;\ncontract C { requires { true } ensures { true } }\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("other.assura"),
+            "module other;\ncontract D { requires { true } ensures { true } }\n",
+        )
+        .unwrap();
+        let names = collect_showcase_module_names(dir.path());
+        assert!(
+            names.contains("tls.heartbeat"),
+            "expected declared module name, got {names:?}"
+        );
+        assert!(!names.contains("other"));
+    }
+
+    #[test]
+    fn collect_showcase_falls_back_to_file_path() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("echo.assura"),
+            "// SHOWCASE\ncontract E { requires { true } ensures { true } }\n",
+        )
+        .unwrap();
+        let names = collect_showcase_module_names(dir.path());
+        assert!(
+            names.contains("echo"),
+            "expected filesystem module key, got {names:?}"
+        );
     }
 }

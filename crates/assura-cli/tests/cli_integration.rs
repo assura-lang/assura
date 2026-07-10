@@ -2558,3 +2558,42 @@ fn check_watch_rejects_stdin() {
         "error should mention watch/stdin: {stderr}"
     );
 }
+
+#[test]
+fn check_showcase_only_filters_by_header() {
+    let tmp = unique_temp("assura_showcase_only");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("showcase.assura"),
+        "// SHOWCASE (must-pass)\ncontract A { input(x: Int) requires { x >= 0 } ensures { x >= 0 } }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.join("other.assura"),
+        "contract B { input(x: Int) requires { x >= 0 } ensures { x >= 0 } }\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check", tmp.to_str().unwrap(), "--showcase-only"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run showcase-only check");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        out.status.success(),
+        "showcase-only should succeed: {combined}"
+    );
+    assert!(
+        combined.contains("1 module") || combined.contains("modules\": 1"),
+        "should check only the SHOWCASE file: {combined}"
+    );
+    assert!(
+        !combined.contains("other") || combined.contains("showcase"),
+        "should include showcase module: {combined}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
