@@ -2759,7 +2759,7 @@ fn project_check_fails_on_missing_import() {
 }
 
 #[test]
-fn single_file_missing_import_is_a02006_not_unused() {
+fn single_file_missing_import_is_a02010_not_unused() {
     let tmp = unique_temp("assura_missing_import_single");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
@@ -2776,7 +2776,7 @@ fn single_file_missing_import_is_a02006_not_unused() {
         .output()
         .expect("check single");
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("A02006"), "expected A02006, got {stdout}");
+    assert!(stdout.contains("A02010"), "expected A02010, got {stdout}");
     assert!(
         !stdout.contains("A02007"),
         "must not mislabel as unused import: {stdout}"

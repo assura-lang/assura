@@ -624,7 +624,7 @@ import b;
 
 #[test]
 fn import_mixed_resolved_and_unresolved() {
-    // One import resolves, another does not. Non-empty module map => A02006 error.
+    // One import resolves, another does not. Non-empty module map => A02010 error.
     let target_src = r#"
 module known.mod;
 
@@ -648,8 +648,8 @@ import unknown.mod;
     let errs = result.unwrap_err();
     assert!(
         errs.iter()
-            .any(|e| e.code == "A02006" && e.message.contains("unknown.mod")),
-        "expected A02006 for unknown.mod, got {errs:?}"
+            .any(|e| e.code == "A02010" && e.message.contains("unknown.mod")),
+        "expected A02010 for unknown.mod, got {errs:?}"
     );
 }
 
@@ -1126,7 +1126,7 @@ import std.collections;
 
 #[test]
 fn unused_import_reported_as_warning() {
-    // Single-file resolve: unknown import is A02006 (cannot resolve), not
+    // Single-file resolve: unknown import is A02010 (cannot resolve), not
     // the misleading A02007 unused import.
     let src = r#"
 import std.math;
@@ -1140,8 +1140,8 @@ requires { x > 0 }
         resolved
             .warnings
             .iter()
-            .any(|w| w.code == "A02006" && w.message.contains("std.math")),
-        "expected A02006 cannot-resolve warning for std.math, got {:?}",
+            .any(|w| w.code == "A02010" && w.message.contains("std.math")),
+        "expected A02010 cannot-resolve warning for std.math, got {:?}",
         resolved.warnings
     );
     assert!(
@@ -1769,7 +1769,7 @@ fn multi_file_missing_import() {
     )
     .unwrap();
 
-    // Missing imports hard-fail with A02006 when a project module map is present.
+    // Missing imports hard-fail with A02010 when a project module map is present.
     let result = discover_and_resolve_project(&dir);
     match result {
         Ok((resolved, issues)) => {

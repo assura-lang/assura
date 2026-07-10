@@ -371,6 +371,17 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             example: r#"  import std.Math;  // A02008: 'Math' starts with uppercase"#,
             fix: "Use lowercase module names: `import std.math;`",
         },
+        // -- A02010: Cannot resolve import module --
+        ErrorInfo {
+            code: "A02010",
+            name: "Cannot resolve import",
+            description: "An import names a module that is not present in the project \
+                          module map. In project mode this is an error. In single-file \
+                          mode it is a warning because external modules may not be loaded.",
+            example: r#"  import missing_mod;  // A02010: module not found"#,
+            fix: "Fix the module path, add the missing .assura file under the project \
+                 root, or run `assura check <project-dir>` for multi-file projects.",
+        },
         // -- A03010: Division by zero --
         ErrorInfo {
             code: "A03010",

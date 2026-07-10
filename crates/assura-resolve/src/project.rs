@@ -500,7 +500,7 @@ pub fn discover_and_resolve_project_with_deps(
     load_dep_modules_for_project(&local_snapshot, deps, &mut all_modules, &mut errors);
 
     // Resolve each module with access to the full module map (including self
-    // so a one-module project still hard-errors on missing imports via A02006).
+    // so a one-module project still hard-errors on missing imports via A02010).
     let mut resolved = HashMap::new();
     for (module_path, source) in &all_modules {
         let mut visited = HashSet::new();
