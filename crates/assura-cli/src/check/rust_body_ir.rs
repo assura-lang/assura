@@ -604,6 +604,7 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = cmp eq ${a} ${z} : Bool"));
                     Some(slot)
                 }
+                ("clone" | "to_owned", 0) => encode_syn_expr(&m.receiver, param_names, lines, next),
 
                 ("min" | "max", 1) => {
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
