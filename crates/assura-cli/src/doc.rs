@@ -280,7 +280,8 @@ fn write_enum_doc(doc: &mut String, enum_def: &EnumDef) {
             if variant.fields.is_empty() {
                 let _ = writeln!(doc, "- `{}`", variant.name);
             } else {
-                let _ = writeln!(doc, "- `{}({})`", variant.name, variant.fields.join(", "));
+                let types: Vec<String> = variant.fields.iter().map(|toks| toks.join("")).collect();
+                let _ = writeln!(doc, "- `{}({})`", variant.name, types.join(", "));
             }
         }
         let _ = writeln!(doc);

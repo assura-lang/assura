@@ -1,0 +1,9 @@
+// MUST REJECT A03001
+enum E {
+  Bad((,)),
+  Ok(Int)
+}
+contract C {
+  input(e: E)
+  ensures { true }
+}

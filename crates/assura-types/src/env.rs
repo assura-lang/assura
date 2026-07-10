@@ -170,7 +170,7 @@ pub(crate) fn build_type_env(
                         let field_types: Vec<Type> = variant
                             .fields
                             .iter()
-                            .map(|f| parse_type_tokens(std::slice::from_ref(f)))
+                            .map(|f| parse_type_tokens(f))
                             .collect();
                         env.insert(
                             variant.name.clone(),

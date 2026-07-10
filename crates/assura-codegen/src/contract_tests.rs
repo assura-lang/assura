@@ -55,11 +55,11 @@ fn enum_def_variant_with_fields() {
         variants: vec![
             EnumVariant {
                 name: "Circle".into(),
-                fields: vec!["Float".into()],
+                fields: vec![vec!["Float".into()]],
             },
             EnumVariant {
                 name: "Rect".into(),
-                fields: vec!["Float".into(), "Float".into()],
+                fields: vec![vec!["Float".into()], vec!["Float".into()]],
             },
         ],
     };
@@ -79,7 +79,7 @@ fn enum_def_generic_no_display() {
         variants: vec![
             EnumVariant {
                 name: "Some".into(),
-                fields: vec!["T".into()],
+                fields: vec![vec!["T".into()]],
             },
             EnumVariant {
                 name: "None".into(),

@@ -347,10 +347,70 @@ fn lower_enum_variant_fields_exclude_commas() {
     if let Decl::EnumDef(ed) = &sf.decls[0].node {
         // Rect(Int, Int) should have exactly 2 fields, no commas
         assert_eq!(ed.variants[0].name, "Rect");
-        assert_eq!(ed.variants[0].fields, vec!["Int", "Int"]);
+        assert_eq!(
+            ed.variants[0].fields,
+            vec![vec!["Int".to_string()], vec!["Int".to_string()]]
+        );
         // Circle(Float) should have exactly 1 field
         assert_eq!(ed.variants[1].name, "Circle");
-        assert_eq!(ed.variants[1].fields, vec!["Float"]);
+        assert_eq!(ed.variants[1].fields, vec![vec!["Float".to_string()]]);
+    } else {
+        panic!("expected EnumDef");
+    }
+}
+
+#[test]
+fn lower_enum_variant_tuple_and_generic_fields() {
+    // Multi-token payload types must stay as one field each (#914).
+    let src = "enum E { Pair((Int, Bool)), Box(List<Int>), Both(List<Int>, (Int,)) }";
+    let (sf, errors) = parse_and_lower(src);
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    if let Decl::EnumDef(ed) = &sf.decls[0].node {
+        assert_eq!(ed.variants[0].name, "Pair");
+        assert_eq!(ed.variants[0].fields.len(), 1);
+        assert_eq!(
+            ed.variants[0].fields[0],
+            vec!["(", "Int", ",", "Bool", ")"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(ed.variants[1].name, "Box");
+        assert_eq!(
+            ed.variants[1].fields[0],
+            vec!["List", "<", "Int", ">"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(ed.variants[2].name, "Both");
+        assert_eq!(ed.variants[2].fields.len(), 2);
+        assert_eq!(
+            ed.variants[2].fields[1],
+            vec!["(", "Int", ",", ")"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        );
+    } else {
+        panic!("expected EnumDef");
+    }
+}
+
+#[test]
+fn lower_enum_variant_empty_tuple_field_keeps_marker_tokens() {
+    let src = "enum E { Bad((,)) }";
+    let (sf, errors) = parse_and_lower(src);
+    assert!(errors.is_empty(), "errors: {errors:?}");
+    if let Decl::EnumDef(ed) = &sf.decls[0].node {
+        assert_eq!(ed.variants[0].fields.len(), 1);
+        assert_eq!(
+            ed.variants[0].fields[0],
+            vec!["(", ",", ")"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        );
     } else {
         panic!("expected EnumDef");
     }

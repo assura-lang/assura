@@ -197,45 +197,92 @@ pub(super) fn lower_enum_def(n: &SyntaxNode) -> EnumDef {
 
 fn lower_enum_variant(n: &SyntaxNode) -> EnumVariant {
     let name = super::first_ident(n);
-    // Fields: tokens inside parens (if any)
-    let fields = collect_paren_tokens(n);
+    // Payload types inside parens (if any), one token sequence per field.
+    let fields = collect_paren_field_types(n);
     EnumVariant { name, fields }
 }
 
-fn collect_paren_tokens(n: &SyntaxNode) -> Vec<String> {
+/// Collect enum variant payload field types from `(T1, T2, …)`.
+///
+/// Splits only on top-level commas (depth 0 for `()`, `<>`, `[]`, `{}`) so
+/// multi-token types like `(Int, Bool)`, `List<Int>`, and `Map<K, V>` stay
+/// as a single field. Empty tuple `(,)` is one field with tokens
+/// `["(", ",", ")"]` (invalid-empty marker after parse).
+fn collect_paren_field_types(n: &SyntaxNode) -> Vec<Vec<String>> {
     let mut inside = false;
-    let mut depth = 0i32;
-    let mut tokens = Vec::new();
+    let mut paren = 0i32;
+    let mut angle = 0i32;
+    let mut bracket = 0i32;
+    let mut brace = 0i32;
+    let mut fields: Vec<Vec<String>> = Vec::new();
+    let mut current: Vec<String> = Vec::new();
 
     for el in n.children_with_tokens() {
-        if let Some(tok) = el.as_token() {
-            match tok.kind() {
-                SyntaxKind::L_PAREN => {
-                    if inside {
-                        depth += 1;
-                        tokens.push("(".to_string());
-                    } else {
-                        inside = true;
-                    }
+        let Some(tok) = el.as_token() else {
+            continue;
+        };
+        if cst::is_trivia(tok.kind()) {
+            continue;
+        }
+        match tok.kind() {
+            SyntaxKind::L_PAREN => {
+                if !inside {
+                    inside = true;
+                } else {
+                    paren += 1;
+                    current.push("(".to_string());
                 }
-                SyntaxKind::R_PAREN => {
-                    if depth > 0 {
-                        depth -= 1;
-                        tokens.push(")".to_string());
-                    } else {
-                        break; // closing
-                    }
-                }
-                k if cst::is_trivia(k) => {}
-                SyntaxKind::COMMA if inside && depth == 0 => {
-                    // Skip top-level commas (field separators)
-                }
-                _ if inside => {
-                    tokens.push(tok.text().to_string());
-                }
-                _ => {}
             }
+            SyntaxKind::R_PAREN => {
+                if !inside {
+                    continue;
+                }
+                if paren > 0 {
+                    paren -= 1;
+                    current.push(")".to_string());
+                } else {
+                    // Outer closer: finish last field.
+                    if !current.is_empty() {
+                        fields.push(std::mem::take(&mut current));
+                    }
+                    break;
+                }
+            }
+            SyntaxKind::L_ANGLE if inside => {
+                angle += 1;
+                current.push(tok.text().to_string());
+            }
+            SyntaxKind::R_ANGLE if inside => {
+                angle = angle.saturating_sub(1);
+                current.push(tok.text().to_string());
+            }
+            SyntaxKind::L_BRACKET if inside => {
+                bracket += 1;
+                current.push(tok.text().to_string());
+            }
+            SyntaxKind::R_BRACKET if inside => {
+                bracket = bracket.saturating_sub(1);
+                current.push(tok.text().to_string());
+            }
+            SyntaxKind::L_BRACE if inside => {
+                brace += 1;
+                current.push(tok.text().to_string());
+            }
+            SyntaxKind::R_BRACE if inside => {
+                brace = brace.saturating_sub(1);
+                current.push(tok.text().to_string());
+            }
+            SyntaxKind::COMMA
+                if inside && paren == 0 && angle == 0 && bracket == 0 && brace == 0 =>
+            {
+                // Top-level field separator (including empty slots).
+                fields.push(std::mem::take(&mut current));
+            }
+            _ if inside => {
+                current.push(tok.text().to_string());
+            }
+            _ => {}
         }
     }
-    tokens
+    fields
 }

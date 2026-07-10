@@ -59,7 +59,7 @@ pub(crate) fn collect_referenced_names(source: &SourceFile) -> HashSet<String> {
                     ServiceItem::EnumDef(e) => {
                         for v in &e.variants {
                             for f in &v.fields {
-                                self.names.insert(f.clone());
+                                collect_type_token_names(f, self.names);
                             }
                         }
                     }
@@ -77,7 +77,7 @@ pub(crate) fn collect_referenced_names(source: &SourceFile) -> HashSet<String> {
         fn visit_enum_def(&mut self, e: &EnumDef) {
             for v in &e.variants {
                 for f in &v.fields {
-                    self.names.insert(f.clone());
+                    collect_type_token_names(f, self.names);
                 }
             }
         }

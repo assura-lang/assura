@@ -2106,3 +2106,42 @@ contract C {
         "expected A03001 for refined empty tuple base, got {errs:?}"
     );
 }
+
+#[test]
+fn empty_tuple_enum_variant_field_rejected_a03001() {
+    // #914: multi-token enum fields; empty tuple payload must not type-check.
+    let src = r#"
+enum E {
+  Bad((,)),
+  Ok(Int)
+}
+contract C {
+  input(e: E)
+  ensures { true }
+}
+"#;
+    let resolved = resolve_ok(src);
+    let errs = type_check(resolved).unwrap_err();
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A03001" && e.message.contains("empty tuple")),
+        "expected A03001 for enum empty tuple field, got {errs:?}"
+    );
+}
+
+#[test]
+fn enum_variant_list_and_tuple_payloads_typecheck() {
+    let src = r#"
+enum E {
+  Box(List<Int>),
+  Pair((Int, Bool)),
+  Both(List<Int>, (Int,))
+}
+contract C {
+  input(e: E)
+  ensures { true }
+}
+"#;
+    let resolved = resolve_ok(src);
+    type_check(resolved).expect("multi-token enum payloads should type-check");
+}

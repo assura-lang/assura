@@ -487,8 +487,27 @@ pub(crate) fn check_clause_bodies(
                     TypeBody::Empty => {}
                 }
             }
-            // Enum variant fields are name tokens only; Prophecy/Codec have no type anns here
-            Decl::EnumDef(_) | Decl::Prophecy(_) | Decl::CodecRegistry(_) => {}
+            Decl::EnumDef(e) => {
+                // Payload field types: `enum E { V((,)), W(List<(,)>) }`
+                use assura_parser::ast::try_parse_type_tokens;
+                for variant in &e.variants {
+                    for (i, field_tokens) in variant.fields.iter().enumerate() {
+                        if field_tokens.is_empty() {
+                            continue;
+                        }
+                        if let Some(te) = try_parse_type_tokens(field_tokens) {
+                            check_invalid_empty_tuple_type_expr(
+                                &te,
+                                &format!("enum variant `{}.{}` field {}", e.name, variant.name, i),
+                                span,
+                                &mut errors,
+                            );
+                        }
+                    }
+                }
+            }
+            // Prophecy/Codec have no payload type anns here
+            Decl::Prophecy(_) | Decl::CodecRegistry(_) => {}
         }
     }
 

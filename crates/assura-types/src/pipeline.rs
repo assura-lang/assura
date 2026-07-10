@@ -579,7 +579,7 @@ fn inject_imported_types(
                     let field_types: Vec<Type> = variant
                         .fields
                         .iter()
-                        .map(|f| parse_type_tokens(std::slice::from_ref(f)))
+                        .map(|f| parse_type_tokens(f))
                         .collect();
                     self.env.insert(
                         variant.name.clone(),
