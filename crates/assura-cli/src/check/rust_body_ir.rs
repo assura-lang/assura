@@ -1246,12 +1246,10 @@ fn f(x: i64) -> i64 {
     fn as_ref_not_body_ir() {
         let ir = try_ir_from_rust_body("R", &px(), Some("i64"), "x.as_ref()").expect("as_ref");
         assert!(ir.contains("$result = load $0"), "{ir}");
-        let pab = vec![
-            ParamInfo {
-                name: "a".into(),
-                ty: "bool".into(),
-            },
-        ];
+        let pab = vec![ParamInfo {
+            name: "a".into(),
+            ty: "bool".into(),
+        }];
         let n = try_ir_from_rust_body("N", &pab, Some("bool"), "a.not()").expect("not");
         assert!(n.contains("cmp eq"), "{n}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&n, "N").expect("parse");
