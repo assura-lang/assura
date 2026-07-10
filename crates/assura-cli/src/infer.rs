@@ -12,7 +12,18 @@ pub(crate) fn run_infer(
     output_mode: assura_config::OutputMode,
 ) {
     let source = fs::read_to_string(filename).unwrap_or_else(|e| {
-        eprintln!("Error: {filename}: {e}");
+        if output_mode == assura_config::OutputMode::Json {
+            let report = serde_json::json!({
+                "ok": false,
+                "success": false,
+                "file": filename,
+                "error": format!("{e}"),
+                "message": format!("{filename}: {e}"),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: {filename}: {e}");
+        }
         process::exit(2);
     });
 
@@ -134,10 +145,35 @@ pub(crate) fn run_infer(
 
     if let Some(path) = output_path {
         fs::write(path, &out_buf).unwrap_or_else(|e| {
-            eprintln!("Error: cannot write {path}: {e}");
+            if output_mode == assura_config::OutputMode::Json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "success": false,
+                    "file": filename,
+                    "output": path,
+                    "error": format!("cannot write {path}: {e}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: cannot write {path}: {e}");
+            }
             process::exit(2);
         });
-        eprintln!("Wrote {} contract(s) to {path}", filtered.len());
+        if output_mode == assura_config::OutputMode::Json {
+            let report = serde_json::json!({
+                "ok": true,
+                "success": true,
+                "file": filename,
+                "output": path,
+                "function_count": filtered.len(),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Wrote {} contract(s) to {path}", filtered.len());
+        }
+    } else if output_mode == assura_config::OutputMode::Json {
+        // Source is the product for non-.rs legacy path when writing to stdout.
+        print!("{out_buf}");
     } else {
         print!("{out_buf}");
     }
@@ -229,7 +265,18 @@ pub(crate) fn run_infer_heuristic(
             }
             if let Some(path) = output_path {
                 fs::write(path, &out_buf).unwrap_or_else(|e| {
-                    eprintln!("Error writing {path}: {e}");
+                    if output_mode == assura_config::OutputMode::Json {
+                        let report = serde_json::json!({
+                            "ok": false,
+                            "success": false,
+                            "file": filename,
+                            "output": path,
+                            "error": format!("cannot write {path}: {e}"),
+                        });
+                        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                    } else {
+                        eprintln!("Error writing {path}: {e}");
+                    }
                     process::exit(2);
                 });
                 if output_mode == assura_config::OutputMode::Json {
@@ -384,7 +431,18 @@ pub(crate) fn run_infer_heuristic(
         && !dry_run
     {
         fs::write(path, &output).unwrap_or_else(|e| {
-            eprintln!("Error writing {path}: {e}");
+            if output_mode == assura_config::OutputMode::Json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "success": false,
+                    "file": filename,
+                    "output": path,
+                    "error": format!("cannot write {path}: {e}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error writing {path}: {e}");
+            }
             process::exit(2);
         });
         if output_mode == assura_config::OutputMode::Json {

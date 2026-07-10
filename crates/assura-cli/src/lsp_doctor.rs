@@ -19,7 +19,7 @@ pub(crate) fn run_lsp() {
 // `assura doctor` -- check installation health
 // ---------------------------------------------------------------------------
 
-pub(crate) fn run_doctor(output_mode: OutputMode) {
+pub(crate) fn run_doctor(output_mode: OutputMode, verbosity: Verbosity) {
     let mut checks: Vec<serde_json::Value> = Vec::new();
     let mut all_ok = true;
 
@@ -127,7 +127,7 @@ pub(crate) fn run_doctor(output_mode: OutputMode) {
             "{}",
             serde_json::to_string_pretty(&json).unwrap_or_default()
         );
-    } else {
+    } else if verbosity != Verbosity::Quiet {
         println!("Assura Doctor");
         println!("  assura:       v{version}");
         for c in &checks {
@@ -170,6 +170,17 @@ pub(crate) fn run_doctor(output_mode: OutputMode) {
             println!(
                 "Some required dependencies are missing. Install them and re-run `assura doctor`."
             );
+        }
+    } else if !all_ok {
+        // Quiet human: only surface failure (required deps missing).
+        eprintln!("assura doctor: required dependencies missing");
+        for c in &checks {
+            let status = c["status"].as_str().unwrap_or("?");
+            let required = c["required"].as_bool().unwrap_or(false);
+            if required && status == "missing" {
+                let name = c["name"].as_str().unwrap_or("?");
+                eprintln!("  missing: {name}");
+            }
         }
     }
 

@@ -225,7 +225,8 @@ assura diff old.assura new.assura --verify --json
 assura repl
 
 # Other
-assura init my-project
+assura init my-project                     # scaffold assura.toml + starter contract
+assura init my-project --json              # pure JSON status for agents
 assura fmt file.assura
 assura explain A03001
 assura test-gen file.assura -o tests.rs

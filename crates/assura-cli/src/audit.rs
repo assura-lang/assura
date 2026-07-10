@@ -25,19 +25,41 @@ pub(crate) fn run_audit(opts: AuditOptions<'_>) {
         unsafe_only,
     } = opts;
     validate_human_json_format(format, "audit");
+    let is_json = format == "json";
     // Phase 1: Discover Rust source files
     let root = Path::new(path);
     let cargo_toml = root.join("Cargo.toml");
     if !cargo_toml.exists() {
-        eprintln!("Error: no Cargo.toml found at {}", root.display());
-        eprintln!("Run `assura audit` from a Cargo workspace root.");
+        if is_json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": "no_cargo_toml",
+                "path": root.display().to_string(),
+                "message": format!("no Cargo.toml found at {}", root.display()),
+                "hint": "Run `assura audit` from a Cargo workspace root.",
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: no Cargo.toml found at {}", root.display());
+            eprintln!("Run `assura audit` from a Cargo workspace root.");
+        }
         process::exit(2);
     }
 
     // Discover src directories: support workspaces and single crates
     let src_dirs = discover_workspace_src_dirs(root);
     if src_dirs.is_empty() {
-        eprintln!("Error: no src/ directories found at {}", root.display());
+        if is_json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": "no_src_directories",
+                "path": root.display().to_string(),
+                "message": format!("no src/ directories found at {}", root.display()),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: no src/ directories found at {}", root.display());
+        }
         process::exit(2);
     }
 
@@ -49,7 +71,17 @@ pub(crate) fn run_audit(opts: AuditOptions<'_>) {
     rs_files.dedup();
 
     if rs_files.is_empty() {
-        eprintln!("No .rs files found in scanned directories");
+        if is_json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": "no_rs_files",
+                "path": root.display().to_string(),
+                "message": "No .rs files found in scanned directories",
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("No .rs files found in scanned directories");
+        }
         process::exit(1);
     }
 
@@ -91,11 +123,20 @@ pub(crate) fn run_audit(opts: AuditOptions<'_>) {
     }
 
     if all_sigs.is_empty() {
-        eprintln!("No matching public functions found.");
+        if is_json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": "no_matching_functions",
+                "path": root.display().to_string(),
+                "message": "No matching public functions found.",
+                "files_scanned": rs_files.len(),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("No matching public functions found.");
+        }
         process::exit(1);
     }
-
-    let is_json = format == "json";
 
     if !is_json {
         eprintln!(

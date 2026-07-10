@@ -522,7 +522,7 @@ pub fn run() {
             write_ir,
             bin,
         }),
-        Commands::Init { name } => run_init(&name),
+        Commands::Init { name } => run_init(&name, output_mode),
         Commands::Explain { code } => run_explain(&code, output_mode),
         Commands::Fmt { file, check } => run_fmt(&file, check, output_mode),
         Commands::Infer {
@@ -543,7 +543,7 @@ pub fn run() {
             run_test_gen(&file, output.as_deref(), verbosity, output_mode)
         }
         Commands::AgentInstructions => run_agent_instructions(output_mode),
-        Commands::Doctor => run_doctor(output_mode),
+        Commands::Doctor => run_doctor(output_mode, verbosity),
         Commands::Lsp => run_lsp(),
         Commands::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "assura", &mut std::io::stdout());
