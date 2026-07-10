@@ -61,7 +61,8 @@ impl TestGenerator {
         // call site, so bind `result` when an ensures is `result == <expr>`
         // (e.g. init SafeDivision: result == a / b). Without this, generated
         // tests fail to compile with unresolved `result`.
-        let (result_bind, postconditions) = Self::result_bind_and_posts(&contract.ensures);
+        let (result_bind, postconditions) =
+            Self::result_bind_and_posts(&contract.ensures, &contract.params);
         let fn_name = Self::rust_test_ident("prop", &contract.name);
         let body = format!(
             "proptest! {{\n    #[test]\n    fn {fn_name}({}) {{\n        {preconditions}{result_bind}prop_assert!({postconditions});\n    }}\n}}",
@@ -74,26 +75,50 @@ impl TestGenerator {
         }
     }
 
-    /// `prop_SafeDiv` → `prop_safe_div` (rustc non_snake_case lint).
+    /// `prop_SafeDiv` → `prop_safe_div`; `prop` + `bump` → `prop_bump`;
+    /// `prop` + `TG` → `prop_tg` (rustc non_snake_case lint).
     fn rust_test_ident(prefix: &str, contract_name: &str) -> String {
-        let mut out = String::from(prefix);
-        for (i, ch) in contract_name.chars().enumerate() {
-            if ch.is_uppercase() {
-                if i > 0 || !out.is_empty() {
-                    out.push('_');
+        let chars: Vec<char> = contract_name.chars().collect();
+        let mut body = String::new();
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i].is_uppercase() {
+                let start = i;
+                i += 1;
+                while i < chars.len() && chars[i].is_uppercase() {
+                    i += 1;
                 }
-                out.extend(ch.to_lowercase());
+                // XMLParser-style: keep last capital for the next word.
+                let end = if i > start + 1 && i < chars.len() && chars[i].is_lowercase() {
+                    i - 1
+                } else {
+                    i
+                };
+                if !body.is_empty() {
+                    body.push('_');
+                }
+                for c in &chars[start..end] {
+                    body.extend(c.to_lowercase());
+                }
+                i = end;
             } else {
-                out.push(ch);
+                body.push(chars[i]);
+                i += 1;
             }
         }
-        out
+        if body.is_empty() {
+            prefix.to_string()
+        } else if prefix.is_empty() {
+            body
+        } else {
+            format!("{prefix}_{body}")
+        }
     }
 
-    /// If any ensures is `result == <expr>`, emit `let result = <expr>;` and
-    /// keep all ensures for assertion (the equality is then a tautology unless
-    // the right-hand side uses free vars — still better than undeclared result).
-    fn result_bind_and_posts(ensures: &[String]) -> (String, String) {
+    /// If any ensures is `result == <expr>`, emit `let result = <expr>;`.
+    /// If ensures mention `result` without a bindable equality, emit a typed
+    /// placeholder so generated tests compile (skeleton for a SUT call).
+    fn result_bind_and_posts(ensures: &[String], params: &[(String, Type)]) -> (String, String) {
         let mut bind = String::new();
         for e in ensures {
             let trimmed = e.trim();
@@ -109,7 +134,33 @@ impl TestGenerator {
                 }
             }
         }
+        let mentions_result = ensures.iter().any(|e| {
+            e.split(|c: char| !c.is_alphanumeric() && c != '_')
+                .any(|tok| tok == "result")
+        });
+        if bind.is_empty() && mentions_result {
+            let placeholder = params
+                .first()
+                .map(|(n, _)| n.as_str())
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| Self::default_result_placeholder(params));
+            bind = format!(
+                "// TODO: replace with a call to the implementation under test\n        let result = {placeholder};\n        "
+            );
+        }
         (bind, ensures.join(" && "))
+    }
+
+    fn default_result_placeholder(params: &[(String, Type)]) -> String {
+        if let Some((_, ty)) = params.first() {
+            return match ty {
+                Type::Bool => "false".into(),
+                Type::String => "String::new()".into(),
+                Type::Float | Type::F64 | Type::F32 => "0.0".into(),
+                _ => "0".into(),
+            };
+        }
+        "0".into()
     }
 
     pub fn generate_boundary_tests(&self, contract: &TestableContract) -> Vec<GeneratedTest> {
@@ -282,5 +333,42 @@ mod tests {
             "i64::ANY is not valid proptest: {}",
             test.body
         );
+    }
+
+    #[test]
+    fn rust_test_ident_handles_acronyms_and_lowercase() {
+        assert_eq!(
+            TestGenerator::rust_test_ident("prop", "SafeDiv"),
+            "prop_safe_div"
+        );
+        assert_eq!(TestGenerator::rust_test_ident("prop", "TG"), "prop_tg");
+        assert_eq!(TestGenerator::rust_test_ident("prop", "bump"), "prop_bump");
+        assert_eq!(
+            TestGenerator::rust_test_ident("smoke", "BoundsCheck"),
+            "smoke_bounds_check"
+        );
+    }
+
+    #[test]
+    fn property_test_binds_result_when_not_equality() {
+        let mut tg = TestGenerator::new();
+        tg.add_contract(TestableContract {
+            name: "Bump".into(),
+            params: vec![("a".into(), Type::Nat)],
+            requires: vec!["(a >= 0)".into()],
+            ensures: vec!["(result >= a)".into()],
+        });
+        let test = tg.generate_property_test(&tg.contracts[0]);
+        assert!(
+            test.body.contains("let result = "),
+            "must bind result: {}",
+            test.body
+        );
+        assert!(
+            test.body.contains("a: u64"),
+            "Nat param should be u64: {}",
+            test.body
+        );
+        assert_eq!(test.name, "prop_bump");
     }
 }

@@ -585,13 +585,27 @@ pub fn run() {
             verify,
         } => {
             let format = resolve_format_with_global_json(output_mode, format);
-            let has_diff = run_diff(&old, &new, &format);
+            let (has_diff, structural_json) = run_diff(&old, &new, &format);
             if verify {
-                run_diff_verify(&old, &new, &format);
+                // JSON: single document (structural + evolution). Do not print
+                // structural JSON alone first (that produced two JSON objects).
+                if format == "json" {
+                    run_diff_verify(&old, &new, &format, Some(structural_json));
+                } else {
+                    run_diff_verify(&old, &new, &format, None);
+                }
                 // When --verify is used, exit code depends on evolution
                 // verification (run_diff_verify exits non-zero on failure).
-            } else if has_diff {
-                process::exit(1);
+            } else {
+                if format == "json" {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&structural_json).unwrap()
+                    );
+                }
+                if has_diff {
+                    process::exit(1);
+                }
             }
         }
         Commands::IrPrompt {

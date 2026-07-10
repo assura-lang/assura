@@ -3,8 +3,60 @@ use super::*;
 // `assura test-gen <file.assura>` -- generate tests from contracts
 // ---------------------------------------------------------------------------
 
+/// Map a structured AST type expression to a type-checker `Type` for proptest.
+fn type_from_type_expr(te: &assura_parser::ast::TypeExpr) -> assura_types::Type {
+    use assura_parser::ast::TypeExpr;
+    match te {
+        TypeExpr::Unit => assura_types::Type::Unit,
+        TypeExpr::Named(name) => match name.as_str() {
+            "Int" | "I64" => assura_types::Type::Int,
+            "Nat" | "U64" => assura_types::Type::Nat,
+            "Bool" => assura_types::Type::Bool,
+            "String" => assura_types::Type::String,
+            "Float" | "F64" => assura_types::Type::Float,
+            "F32" => assura_types::Type::F32,
+            "U8" => assura_types::Type::U8,
+            "U16" => assura_types::Type::U16,
+            "U32" => assura_types::Type::U32,
+            "I8" => assura_types::Type::I8,
+            "I16" => assura_types::Type::I16,
+            "I32" => assura_types::Type::I32,
+            other => assura_types::Type::Named(other.to_string()),
+        },
+        TypeExpr::Tuple(elems) if elems.is_empty() => assura_types::Type::Unit,
+        TypeExpr::Tuple(elems) => {
+            assura_types::Type::Tuple(elems.iter().map(type_from_type_expr).collect())
+        }
+        TypeExpr::Generic(name, args) => {
+            let mapped: Vec<_> = args.iter().map(type_from_type_expr).collect();
+            match name.as_str() {
+                "List" | "Vec" => assura_types::Type::List(Box::new(
+                    mapped
+                        .into_iter()
+                        .next()
+                        .unwrap_or(assura_types::Type::Unknown),
+                )),
+                _ => assura_types::Type::Named(name.clone()),
+            }
+        }
+        TypeExpr::Fn { .. } | TypeExpr::Refined { .. } => assura_types::Type::Unknown,
+    }
+}
+
+fn resolve_param_type(
+    name: &str,
+    parsed_ty: Option<&assura_parser::ast::TypeExpr>,
+    type_env: Option<&assura_types::TypeEnv>,
+) -> assura_types::Type {
+    type_env
+        .and_then(|env| env.lookup(name))
+        .cloned()
+        .or_else(|| parsed_ty.map(type_from_type_expr))
+        .unwrap_or(assura_types::Type::Unknown)
+}
+
 /// Extract a `TestableContract` from any declaration that has clauses.
-/// Works for `Decl::Contract`, `Decl::FnDef`, `Decl::Extern`, `Decl::Bind`, etc.
+/// Works for `Decl::Contract` (incl. inline `fn` params), `FnDef`, `Extern`, `Bind`.
 fn extract_testable(
     name: Option<&str>,
     fn_params: &[assura_parser::ast::Param],
@@ -17,12 +69,9 @@ fn extract_testable(
     let mut requires = Vec::new();
     let mut ensures = Vec::new();
 
-    // First, collect params from the function's explicit param list (for Decl::FnDef)
+    // Decl::params() covers FnDef/Extern/Bind and Contract.fn_params (inline fn).
     for p in fn_params {
-        let ty = type_env
-            .and_then(|env| env.lookup(&p.name))
-            .cloned()
-            .unwrap_or(assura_types::Type::Unknown);
+        let ty = resolve_param_type(&p.name, p.ty.as_ref(), type_env);
         params.push((p.name.clone(), ty));
     }
 
@@ -34,10 +83,7 @@ fn extract_testable(
                 for p in parsed {
                     // Avoid duplicating params already added from fn_params
                     if !params.iter().any(|(n, _)| n == &p.name) {
-                        let ty = type_env
-                            .and_then(|env| env.lookup(&p.name))
-                            .cloned()
-                            .unwrap_or(assura_types::Type::Unknown);
+                        let ty = resolve_param_type(&p.name, p.ty.as_ref(), type_env);
                         params.push((p.name, ty));
                     }
                 }
@@ -96,44 +142,13 @@ pub(crate) fn run_test_gen(
     let mut test_gen = assura_types::TestGenerator::new();
 
     // Extract testable contracts from ALL declaration types, not just Decl::Contract.
-    // Uses Decl::name() and Decl::clauses() accessors (recommended by AGENTS.md).
+    // Decl::params() includes Contract.fn_params from inline `fn` definitions.
     for spanned in &file.decls {
         let decl = &spanned.node;
-
-        // Get params from FnDef's explicit param list, or from input clauses
-        let fn_params = match decl {
-            Decl::FnDef(f) => &f.params,
-            _ => &[] as &[assura_parser::ast::Param],
-        };
-
-        if let Some(contract) = extract_testable(decl.name(), fn_params, decl.clauses(), type_env) {
+        if let Some(contract) =
+            extract_testable(decl.name(), decl.params(), decl.clauses(), type_env)
+        {
             test_gen.add_contract(contract);
-        }
-
-        // For contracts with nested fn definitions (ClauseKind::Other("fn")):
-        // extract params from the fn clause body so the contract is testable
-        if let Decl::Contract(c) = decl {
-            for clause in &c.clauses {
-                if matches!(&clause.kind, ClauseKind::Other(s) if s == "fn") {
-                    let nested_params = assura_parser::ast::extract_clause_params(&clause.body);
-                    let mut params = Vec::new();
-                    for p in nested_params {
-                        let ty = type_env
-                            .and_then(|env| env.lookup(&p.name))
-                            .cloned()
-                            .unwrap_or(assura_types::Type::Unknown);
-                        params.push((p.name, ty));
-                    }
-                    if !params.is_empty() {
-                        test_gen.add_contract(assura_types::TestableContract {
-                            name: c.name.clone(),
-                            params,
-                            requires: vec![],
-                            ensures: vec![],
-                        });
-                    }
-                }
-            }
         }
     }
 
@@ -307,12 +322,8 @@ fn check_bounds(size: Nat)
         let mut tg = assura_types::TestGenerator::new();
         for spanned in &file.decls {
             let decl = &spanned.node;
-            let fn_params = match decl {
-                assura_parser::ast::Decl::FnDef(f) => &f.params[..],
-                _ => &[],
-            };
             if let Some(contract) =
-                super::extract_testable(decl.name(), fn_params, decl.clauses(), None)
+                super::extract_testable(decl.name(), decl.params(), decl.clauses(), None)
             {
                 tg.add_contract(contract);
             }
@@ -323,5 +334,32 @@ fn check_bounds(size: Nat)
             !tests.is_empty(),
             "standalone fn with requires/ensures should produce tests"
         );
+    }
+
+    #[test]
+    fn extract_testable_uses_contract_inline_fn_params() {
+        let source = r#"
+contract TG {
+  requires { a >= 0 }
+  ensures { result >= a }
+  fn bump(a: Nat) -> Nat
+}
+"#;
+        let (file, errs) = assura_parser::parse(source);
+        assert!(errs.is_empty(), "{errs:?}");
+        let file = file.expect("parse");
+        let decl = &file.decls[0].node;
+        let tc = super::extract_testable(decl.name(), decl.params(), decl.clauses(), None)
+            .expect("contract with inline fn should be testable");
+        assert_eq!(tc.name, "TG");
+        assert_eq!(tc.params.len(), 1, "params: {:?}", tc.params);
+        assert_eq!(tc.params[0].0, "a");
+        assert!(
+            matches!(tc.params[0].1, assura_types::Type::Nat),
+            "expected Nat from inline fn annotation, got {:?}",
+            tc.params[0].1
+        );
+        assert!(!tc.requires.is_empty());
+        assert!(!tc.ensures.is_empty());
     }
 }
