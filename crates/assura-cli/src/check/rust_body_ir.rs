@@ -757,7 +757,8 @@ fn multi_let(x: i64) -> i64 { let a = x + 1; let b = a + 1; b }
 
     #[test]
     fn clamp_method_body_ir() {
-        let ir = try_ir_from_rust_body("C", &px(), Some("i64"), "x . clamp (0 , 10)").expect("clamp");
+        let ir =
+            try_ir_from_rust_body("C", &px(), Some("i64"), "x . clamp (0 , 10)").expect("clamp");
         assert!(ir.contains("call max") && ir.contains("call min"), "{ir}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "C").expect("parse");
     }
