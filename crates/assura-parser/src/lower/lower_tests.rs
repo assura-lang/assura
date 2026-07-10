@@ -105,6 +105,14 @@ fn lower_contract_with_inline_fn_params() {
         );
         assert_eq!(c.fn_params[0].name, "x");
         assert_eq!(c.fn_params[1].name, "y");
+        // Inline fn return type becomes synthetic output(result: Int).
+        assert!(
+            c.clauses
+                .iter()
+                .any(|cl| matches!(cl.kind, ClauseKind::Output)),
+            "expected synthetic Output from fn return type, clauses: {:?}",
+            c.clauses.iter().map(|c| &c.kind).collect::<Vec<_>>()
+        );
     } else {
         panic!("expected Contract");
     }

@@ -1004,4 +1004,19 @@ mod tests {
         assert!(errors.is_empty(), "errors: {errors:?}");
         assert_eq!(first_child_kind(&root), SyntaxKind::BIN_EXPR);
     }
+
+    #[test]
+    fn parse_implies_arrow_alias() {
+        let (root, errors) = parse_expr_to_tree("a => b");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::BIN_EXPR);
+    }
+
+    #[test]
+    fn implies_looser_than_comparison() {
+        // n == 0 ==> result >= 1  must parse as (n == 0) ==> (result >= 1)
+        let (root, errors) = parse_expr_to_tree("n == 0 ==> result >= 1");
+        assert!(errors.is_empty(), "errors: {errors:?}");
+        assert_eq!(first_child_kind(&root), SyntaxKind::BIN_EXPR);
+    }
 }

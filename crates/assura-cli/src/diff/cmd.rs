@@ -32,7 +32,9 @@ fn validate_diff_format(format: &str) {
     crate::validate_human_json_format(format, "diff");
 }
 
-pub(crate) fn run_diff(old_path: &str, new_path: &str, format: &str) -> bool {
+/// Structural diff result. When `emit` is false, JSON is not printed (used so
+/// `--verify --json` can emit a single combined document).
+pub(crate) fn run_diff(old_path: &str, new_path: &str, format: &str) -> (bool, serde_json::Value) {
     validate_diff_format(format);
     let old_src = match fs::read_to_string(old_path) {
         Ok(s) => s,
@@ -126,18 +128,20 @@ pub(crate) fn run_diff(old_path: &str, new_path: &str, format: &str) -> bool {
         }
     }
 
+    let json = serde_json::json!({
+        "identical": !has_diff,
+        "changes": changes.iter().map(|c| serde_json::json!({
+            "name": c.name,
+            "kind": c.kind,
+            "added_clauses": c.added_clauses,
+            "removed_clauses": c.removed_clauses,
+            "unchanged_clauses": c.unchanged_clauses,
+        })).collect::<Vec<_>>(),
+    });
+
     if format == "json" {
-        let json = serde_json::json!({
-            "identical": !has_diff,
-            "changes": changes.iter().map(|c| serde_json::json!({
-                "name": c.name,
-                "kind": c.kind,
-                "added_clauses": c.added_clauses,
-                "removed_clauses": c.removed_clauses,
-                "unchanged_clauses": c.unchanged_clauses,
-            })).collect::<Vec<_>>(),
-        });
-        println!("{}", serde_json::to_string_pretty(&json).unwrap());
+        // Caller may suppress print when combining with --verify.
+        // Default path prints here only when used alone; cli.rs decides.
     } else {
         if !has_diff {
             println!("No structural differences.");
@@ -161,7 +165,16 @@ pub(crate) fn run_diff(old_path: &str, new_path: &str, format: &str) -> bool {
         }
     }
 
-    has_diff
+    (has_diff, json)
+}
+
+/// Structured evolution result for JSON (no Debug dumps).
+fn evolution_check_json(r: &assura_smt::VerificationResult) -> serde_json::Value {
+    r.to_json_value()
+}
+
+fn evolution_is_ok(r: &assura_smt::VerificationResult) -> bool {
+    matches!(r, assura_smt::VerificationResult::Verified { .. })
 }
 
 /// Run SMT-based evolution verification on two contract files.
@@ -169,7 +182,16 @@ pub(crate) fn run_diff(old_path: &str, new_path: &str, format: &str) -> bool {
 /// Parses both files and checks backward compatibility:
 /// - Precondition weakening: old_requires => new_requires
 /// - Postcondition strengthening: new_ensures => old_ensures
-pub(crate) fn run_diff_verify(old_path: &str, new_path: &str, format: &str) {
+///
+/// When `structural` is `Some`, JSON mode emits a **single** document that
+/// includes both the structural diff and evolution results (avoids two JSON
+/// objects on stdout that break `json.loads`).
+pub(crate) fn run_diff_verify(
+    old_path: &str,
+    new_path: &str,
+    format: &str,
+    structural: Option<serde_json::Value>,
+) {
     validate_diff_format(format);
     let old_src = match fs::read_to_string(old_path) {
         Ok(s) => s,
@@ -205,14 +227,21 @@ pub(crate) fn run_diff_verify(old_path: &str, new_path: &str, format: &str) {
 
     if results.is_empty() {
         if format == "json" {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&serde_json::json!({
-                    "evolution": [],
-                    "compatible": true,
-                }))
-                .unwrap()
-            );
+            let mut doc = serde_json::json!({
+                "evolution": [],
+                "compatible": true,
+            });
+            if let Some(s) = structural {
+                doc["identical"] = s
+                    .get("identical")
+                    .cloned()
+                    .unwrap_or(serde_json::json!(true));
+                doc["changes"] = s
+                    .get("changes")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!([]));
+            }
+            println!("{}", serde_json::to_string_pretty(&doc).unwrap());
         } else {
             println!("No matching contracts to verify evolution.");
         }
@@ -224,33 +253,34 @@ pub(crate) fn run_diff_verify(old_path: &str, new_path: &str, format: &str) {
         let json_results: Vec<serde_json::Value> = results
             .iter()
             .map(|r| {
-                let pre_ok = matches!(
-                    r.precondition_weakening,
-                    assura_smt::VerificationResult::Verified { .. }
-                );
-                let post_ok = matches!(
-                    r.postcondition_strengthening,
-                    assura_smt::VerificationResult::Verified { .. }
-                );
+                let pre_ok = evolution_is_ok(&r.precondition_weakening);
+                let post_ok = evolution_is_ok(&r.postcondition_strengthening);
                 if !pre_ok || !post_ok {
                     all_pass = false;
                 }
                 serde_json::json!({
                     "contract": r.contract_name,
-                    "precondition_weakening": format!("{:?}", r.precondition_weakening),
-                    "postcondition_strengthening": format!("{:?}", r.postcondition_strengthening),
+                    "precondition_weakening": evolution_check_json(&r.precondition_weakening),
+                    "postcondition_strengthening": evolution_check_json(&r.postcondition_strengthening),
                     "compatible": pre_ok && post_ok,
                 })
             })
             .collect();
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "evolution": json_results,
-                "compatible": all_pass,
-            }))
-            .unwrap()
-        );
+        let mut doc = serde_json::json!({
+            "evolution": json_results,
+            "compatible": all_pass,
+        });
+        if let Some(s) = structural {
+            doc["identical"] = s
+                .get("identical")
+                .cloned()
+                .unwrap_or(serde_json::json!(false));
+            doc["changes"] = s
+                .get("changes")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!([]));
+        }
+        println!("{}", serde_json::to_string_pretty(&doc).unwrap());
     } else {
         println!("\nContract evolution verification:");
         for r in &results {

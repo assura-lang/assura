@@ -615,14 +615,24 @@ pub(crate) fn resolve_output_dir<'a>(cli_output: &'a str, config_output: &'a str
     }
 }
 
-/// When the output path is relative, resolve it relative to the input file's
-/// parent directory. This ensures `assura build /tmp/project/lib.assura` writes
-/// to `/tmp/project/generated/` instead of `./generated/`.
+/// When using the default relative output name (`generated`), resolve it next
+/// to the input file so `assura build /tmp/project/lib.assura` writes to
+/// `/tmp/project/generated/` instead of `./generated/`.
 ///
-/// Returns `None` if the output path is absolute or the input file has no parent.
+/// Explicit relative paths (e.g. `--output myproj/gen`) stay CWD-relative so
+/// `assura build myproj/contracts/lib.assura --output myproj/gen` does not
+/// nest as `myproj/contracts/myproj/gen`.
+///
+/// Returns `None` if the path should not be rewritten (absolute, multi-component
+/// relative, or input has no parent).
 fn resolve_output_dir_for_file(out_dir_str: &str, filename: &str) -> Option<std::path::PathBuf> {
     let out_path = Path::new(out_dir_str);
     if out_path.is_absolute() {
+        return None;
+    }
+    // Only rewrite the bare default (or other single-segment) output names.
+    // Paths with separators are explicit CWD-relative destinations.
+    if out_path.components().count() != 1 {
         return None;
     }
     let input_parent = Path::new(filename).parent()?;
@@ -1479,6 +1489,35 @@ mod tests {
     fn build_resolve_output_dir_cli_empty_string_overrides() {
         // Even an empty CLI flag overrides (it differs from "generated").
         assert_eq!(resolve_output_dir("", "from_config"), "");
+    }
+
+    // ---------------------------------------------------------------
+    // resolve_output_dir_for_file
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn default_generated_resolves_next_to_source() {
+        let p = resolve_output_dir_for_file("generated", "myproj/contracts/lib.assura");
+        assert_eq!(
+            p.as_ref().map(|p| p.to_string_lossy().into_owned()),
+            Some("myproj/contracts/generated".into())
+        );
+    }
+
+    #[test]
+    fn explicit_multi_segment_output_stays_cwd_relative() {
+        // Must not nest: myproj/contracts/myproj/gen
+        let p = resolve_output_dir_for_file("myproj/gen", "myproj/contracts/lib.assura");
+        assert!(
+            p.is_none(),
+            "explicit relative multi-segment --output should not join source parent"
+        );
+    }
+
+    #[test]
+    fn absolute_output_unchanged() {
+        let p = resolve_output_dir_for_file("/tmp/out", "myproj/contracts/lib.assura");
+        assert!(p.is_none());
     }
 
     // ---------------------------------------------------------------

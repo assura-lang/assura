@@ -92,29 +92,43 @@ pub(crate) fn run_check_rust(
             // Build a synthetic .assura contract from the annotations
             let mut contract_source = format!("contract {item_name} {{\n");
 
+            // Strip trailing `//` comments from doc annotation bodies so
+            // `/// @ensures result == x // identity` stays valid Assura.
+            let clause_body =
+                |raw: &str| -> String { raw.split("//").next().unwrap_or(raw).trim().to_string() };
+
             // Add requires clauses
             for clause in &item.contract.requires {
-                contract_source.push_str(&format!("  requires {{ {} }}\n", clause.body));
+                contract_source
+                    .push_str(&format!("  requires {{ {} }}\n", clause_body(&clause.body)));
                 total_clauses += 1;
             }
             // Add ensures clauses
             for clause in &item.contract.ensures {
-                contract_source.push_str(&format!("  ensures {{ {} }}\n", clause.body));
+                contract_source
+                    .push_str(&format!("  ensures {{ {} }}\n", clause_body(&clause.body)));
                 total_clauses += 1;
             }
             // Add invariant clauses
             for clause in &item.contract.invariants {
-                contract_source.push_str(&format!("  invariant {{ {} }}\n", clause.body));
+                contract_source.push_str(&format!(
+                    "  invariant {{ {} }}\n",
+                    clause_body(&clause.body)
+                ));
                 total_clauses += 1;
             }
             // Add effects clauses
             for clause in &item.contract.effects {
-                contract_source.push_str(&format!("  effects {{ {} }}\n", clause.body));
+                contract_source
+                    .push_str(&format!("  effects {{ {} }}\n", clause_body(&clause.body)));
                 total_clauses += 1;
             }
             // Add decreases clauses
             for clause in &item.contract.decreases {
-                contract_source.push_str(&format!("  decreases {{ {} }}\n", clause.body));
+                contract_source.push_str(&format!(
+                    "  decreases {{ {} }}\n",
+                    clause_body(&clause.body)
+                ));
                 total_clauses += 1;
             }
 
@@ -134,8 +148,11 @@ pub(crate) fn run_check_rust(
                         format!("{}: {assura_ty}", p.name)
                     })
                     .collect();
+                // Parameters must be `input(...)` so resolve registers them in
+                // scope. `requires(x: Int)` is a boolean clause, not a param list
+                // (dogfood: result == x never verified; A02001 undefined `x`).
                 if !param_strs.is_empty() {
-                    contract_source.push_str(&format!("  requires({})\n", param_strs.join(", ")));
+                    contract_source.push_str(&format!("  input({})\n", param_strs.join(", ")));
                 }
                 if let Some(ret) = return_type {
                     let assura_ret = assura_codegen::type_map::rust_type_to_assura(ret);
@@ -152,6 +169,10 @@ pub(crate) fn run_check_rust(
 
             // Check for parse/type errors in the synthetic contract
             let parse_ok = !output.has_errors;
+            let mut item_status = if parse_ok { "ok" } else { "error" };
+            let mut item_verified = 0usize;
+            let mut item_skipped = 0usize;
+            let mut item_errors = 0usize;
 
             if parse_ok
                 && layer >= 1
@@ -162,7 +183,7 @@ pub(crate) fn run_check_rust(
                 let source_for_verify = contract_source.clone();
                 let mut diags = Vec::new();
                 let mut has_err = false;
-                verify_and_report(VerifyContext {
+                let vresults = verify_and_report(VerifyContext {
                     filename: &file_display.to_string(),
                     source: &source_for_verify,
                     typed: &Some(typed.clone()),
@@ -179,14 +200,45 @@ pub(crate) fn run_check_rust(
                     show_cores: false,
                     strict: false,
                 });
-                if has_err {
-                    total_errors += diags.len();
-                } else {
-                    total_verified += item.contract.clause_count();
+                for r in &vresults {
+                    match r {
+                        assura_smt::VerificationResult::Verified { .. } => item_verified += 1,
+                        assura_smt::VerificationResult::Counterexample { .. }
+                        | assura_smt::VerificationResult::Timeout { .. } => {
+                            item_errors += 1;
+                        }
+                        assura_smt::VerificationResult::Unknown { reason, .. } => {
+                            if assura_smt::is_known_smt_limitation(reason) {
+                                item_skipped += 1;
+                            } else {
+                                item_errors += 1;
+                            }
+                        }
+                    }
                 }
+                // Annotation-only clauses with no SMT job still appear as "checked"
+                // at layer 0 semantics when verify produced nothing for them.
+                if vresults.is_empty() && !has_err {
+                    item_status = "checked";
+                } else if item_errors > 0 || has_err {
+                    item_status = "error";
+                    item_errors = item_errors.max(diags.len().max(1));
+                } else if item_skipped > 0 && item_verified == 0 {
+                    item_status = "skipped";
+                } else if item_skipped > 0 {
+                    item_status = "partial";
+                } else {
+                    item_status = "verified";
+                }
+                total_verified += item_verified;
+                total_errors += item_errors;
             } else if parse_ok {
                 // Layer 0: structural checking only (already done by pipeline)
-                total_verified += item.contract.clause_count();
+                item_status = "checked";
+                item_verified = 0;
+            } else {
+                total_errors += 1;
+                item_errors = 1;
             }
 
             if output_mode == OutputMode::Json {
@@ -227,11 +279,14 @@ pub(crate) fn run_check_rust(
                     "kind": item_kind_str,
                     "line": item.line,
                     "clauses": clauses,
-                    "status": if total_errors > 0 { "error" } else { "ok" },
+                    "status": item_status,
+                    "verified": item_verified,
+                    "skipped": item_skipped,
+                    "errors": item_errors,
                 }));
             } else if verbosity != Verbosity::Quiet {
                 println!(
-                    "  {item_kind_str} `{item_name}` (line {}): {} clause(s)",
+                    "  {item_kind_str} `{item_name}` (line {}): {} clause(s) [{item_status}]",
                     item.line,
                     item.contract.clause_count()
                 );
@@ -258,19 +313,25 @@ pub(crate) fn run_check_rust(
     } else if verbosity != Verbosity::Quiet {
         println!();
         println!(
-            "check-rust: {} file(s), {} annotated item(s), {} clause(s)",
+            "check-rust: {} file(s), {} annotated item(s), {} clause(s), {} verified, {} error(s)",
             file_items.len(),
             file_items
                 .iter()
                 .map(|(_, items)| items.len())
                 .sum::<usize>(),
-            total_clauses
+            total_clauses,
+            total_verified,
+            total_errors
         );
         if total_errors > 0 {
             eprintln!("{total_errors} verification error(s)");
             process::exit(1);
+        } else if total_verified == 0 {
+            println!(
+                "No clauses SMT-verified (annotations parsed; add IR or synthesizable ensures for proof)"
+            );
         } else {
-            println!("All clauses checked successfully");
+            println!("All hard verification checks passed ({total_verified} verified)");
         }
     } else if total_errors > 0 {
         process::exit(1);

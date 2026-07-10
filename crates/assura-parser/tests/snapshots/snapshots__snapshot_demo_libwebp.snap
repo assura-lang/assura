@@ -435,7 +435,30 @@ SourceFile {
                 ContractDecl {
                     name: "BuildHuffmanTableContract",
                     type_params: [],
-                    clauses: [],
+                    clauses: [
+                        Clause {
+                            kind: Output,
+                            body: Spanned {
+                                node: Raw(
+                                    [
+                                        "result",
+                                        ":",
+                                        "{",
+                                        "written",
+                                        ":",
+                                        "Nat",
+                                        "|",
+                                        "written",
+                                        "<=",
+                                        "TableSize",
+                                        "}",
+                                    ],
+                                ),
+                                span: 0..0,
+                            },
+                            effect_variables: [],
+                        },
+                    ],
                     fn_params: [
                         Param {
                             name: "table",

@@ -301,10 +301,25 @@ pub fn resolve_with_modules(
                             decl.span.clone(),
                         );
                     }
-                    // Register input and output clause parameters in the contract scope
+                    // Register input/output clause params and inline `fn` params.
+                    // The same name via both `input(x: …)` and `fn f(x: …)` is
+                    // one parameter, not A02003 (common contract form).
+                    let mut seen_params: HashSet<String> = HashSet::new();
                     for clause in &c.clauses {
                         if clause.kind == ClauseKind::Input || clause.kind == ClauseKind::Output {
                             for param_name in extract_input_param_names(&clause.body) {
+                                if !seen_params.insert(param_name.clone()) {
+                                    // True duplicate inside clauses (e.g. input(x) twice).
+                                    try_insert(
+                                        &mut table,
+                                        &mut errors,
+                                        contract_scope,
+                                        &param_name,
+                                        SymbolKind::Parameter,
+                                        decl.span.clone(),
+                                    );
+                                    continue;
+                                }
                                 try_insert(
                                     &mut table,
                                     &mut errors,
@@ -316,8 +331,11 @@ pub fn resolve_with_modules(
                             }
                         }
                     }
-                    // Register parameters from inline fn definitions
                     for p in &c.fn_params {
+                        if !seen_params.insert(p.name.clone()) {
+                            // Already registered via input/output — OK.
+                            continue;
+                        }
                         try_insert(
                             &mut table,
                             &mut errors,

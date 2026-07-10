@@ -451,7 +451,9 @@ pub enum Token {
     Question,
     #[token("->")]
     Arrow,
+    /// Logical implication. Accept both `=>` and SMT-style `==>`.
     #[token("=>")]
+    #[token("==>")]
     FatArrow,
     #[token("#")]
     Hash,
