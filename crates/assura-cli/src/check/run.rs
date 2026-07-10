@@ -414,6 +414,43 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
                     },
                 });
             }
+            if stats {
+                let verified = verification_results
+                    .iter()
+                    .filter(|r| matches!(r, assura_smt::VerificationResult::Verified { .. }))
+                    .count();
+                let counterexamples = verification_results
+                    .iter()
+                    .filter(|r| matches!(r, assura_smt::VerificationResult::Counterexample { .. }))
+                    .count();
+                let timeouts = verification_results
+                    .iter()
+                    .filter(|r| matches!(r, assura_smt::VerificationResult::Timeout { .. }))
+                    .count();
+                let unknowns = verification_results
+                    .iter()
+                    .filter(|r| matches!(r, assura_smt::VerificationResult::Unknown { .. }))
+                    .count();
+                let total_ms = timing.parse_ms
+                    + timing.resolve_ms.unwrap_or(0.0)
+                    + timing.typecheck_ms.unwrap_or(0.0)
+                    + verify_ms;
+                output["stats"] = serde_json::json!({
+                    "clauses": verification_results.len(),
+                    "verified": verified,
+                    "counterexamples": counterexamples,
+                    "timeouts": timeouts,
+                    "unknowns": unknowns,
+                    "timing_ms": {
+                        "parse": timing.parse_ms,
+                        "resolve": timing.resolve_ms,
+                        "typecheck": timing.typecheck_ms,
+                        "verify": verify_ms,
+                        "total": total_ms,
+                    },
+                    "tokens": timing.token_count,
+                });
+            }
             println!("{}", serde_json::to_string_pretty(&output).unwrap());
         }
     }
