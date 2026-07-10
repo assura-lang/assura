@@ -38,20 +38,56 @@ pub(crate) fn run_infer(
     let signatures = extract_rust_fn_signatures(&source);
 
     if signatures.is_empty() {
-        eprintln!("No public function signatures found in {filename}");
+        if output_mode == assura_config::OutputMode::Json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "file": filename,
+                    "function_count": 0,
+                    "suggestion_count": 0,
+                    "suggestions": [],
+                    "message": format!("No public function signatures found in {filename}"),
+                    "success": false,
+                }))
+                .unwrap()
+            );
+        } else {
+            eprintln!("No public function signatures found in {filename}");
+        }
         process::exit(1);
     }
 
     let filtered: Vec<&RustFnSig> = if let Some(name) = function_filter {
         let matches: Vec<_> = signatures.iter().filter(|s| s.name == name).collect();
         if matches.is_empty() {
-            eprintln!("Function '{name}' not found in {filename}");
-            let names: Vec<_> = signatures
-                .iter()
-                .filter(|s| s.is_pub)
-                .map(|s| s.name.as_str())
-                .collect();
-            eprintln!("Available public functions: {}", names.join(", "));
+            if output_mode == assura_config::OutputMode::Json {
+                let names: Vec<_> = signatures
+                    .iter()
+                    .filter(|s| s.is_pub)
+                    .map(|s| s.name.as_str())
+                    .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "file": filename,
+                        "function_count": 0,
+                        "suggestion_count": 0,
+                        "suggestions": [],
+                        "message": format!("Function '{name}' not found in {filename}"),
+                        "available": names,
+                        "success": false,
+                    }))
+                    .unwrap()
+                );
+            } else {
+                eprintln!("Function '{name}' not found in {filename}");
+                let names: Vec<_> = signatures
+                    .iter()
+                    .filter(|s| s.is_pub)
+                    .map(|s| s.name.as_str())
+                    .collect();
+                eprintln!("Available public functions: {}", names.join(", "));
+            }
             process::exit(1);
         }
         matches
@@ -61,7 +97,22 @@ pub(crate) fn run_infer(
     };
 
     if filtered.is_empty() {
-        eprintln!("No public function signatures found in {filename}");
+        if output_mode == assura_config::OutputMode::Json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "file": filename,
+                    "function_count": 0,
+                    "suggestion_count": 0,
+                    "suggestions": [],
+                    "message": format!("No public function signatures found in {filename}"),
+                    "success": false,
+                }))
+                .unwrap()
+            );
+        } else {
+            eprintln!("No public function signatures found in {filename}");
+        }
         process::exit(1);
     }
 
@@ -123,7 +174,22 @@ pub(crate) fn run_infer_heuristic(
     let file = match syn::parse_file(source) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("Error parsing {filename}: {e}");
+            if output_mode == assura_config::OutputMode::Json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "file": filename,
+                        "function_count": 0,
+                        "suggestion_count": 0,
+                        "suggestions": [],
+                        "message": format!("Error parsing {filename}: {e}"),
+                        "success": false,
+                    }))
+                    .unwrap()
+                );
+            } else {
+                eprintln!("Error parsing {filename}: {e}");
+            }
             process::exit(1);
         }
     };
@@ -147,42 +213,58 @@ pub(crate) fn run_infer_heuristic(
     }
 
     if suggestions.is_empty() {
+        let signatures = extract_rust_fn_signatures(source);
+        let public: Vec<_> = signatures.iter().filter(|s| s.is_pub).collect();
         // With -o, still emit checkable bind skeletons for public functions so
         // `assura infer src/lib.rs -o contracts.assura` works on clean code
         // (no unwrap/div/index risk patterns). Without -o, keep the old message.
-        if output_path.is_some() && !dry_run && focus.is_empty() {
-            let signatures = extract_rust_fn_signatures(source);
-            let public: Vec<_> = signatures.iter().filter(|s| s.is_pub).collect();
-            if !public.is_empty() {
-                let module_path = derive_rust_module_path(filename);
-                let mut out_buf = String::new();
-                out_buf.push_str(&format!(
-                    "// Generated by: assura infer {filename}\n// No risk-pattern hits; skeleton binds for all public functions.\n// Review and refine these contracts before use.\n\n"
-                ));
-                for sig in &public {
-                    generate_bind_skeleton(&module_path, sig, &mut out_buf);
-                }
-                if let Some(path) = output_path {
-                    fs::write(path, &out_buf).unwrap_or_else(|e| {
-                        eprintln!("Error writing {path}: {e}");
-                        process::exit(2);
-                    });
+        if output_path.is_some() && !dry_run && focus.is_empty() && !public.is_empty() {
+            let module_path = derive_rust_module_path(filename);
+            let mut out_buf = String::new();
+            out_buf.push_str(&format!(
+                "// Generated by: assura infer {filename}\n// No risk-pattern hits; skeleton binds for all public functions.\n// Review and refine these contracts before use.\n\n"
+            ));
+            for sig in &public {
+                generate_bind_skeleton(&module_path, sig, &mut out_buf);
+            }
+            if let Some(path) = output_path {
+                fs::write(path, &out_buf).unwrap_or_else(|e| {
+                    eprintln!("Error writing {path}: {e}");
+                    process::exit(2);
+                });
+                if output_mode == assura_config::OutputMode::Json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "file": filename,
+                            "output": path,
+                            "function_count": public.len(),
+                            "suggestion_count": 0,
+                            "status": "ok",
+                            "message": "no risk-pattern hits; wrote skeleton binds",
+                            "functions": public.iter().map(|s| &s.name).collect::<Vec<_>>(),
+                        }))
+                        .unwrap()
+                    );
+                } else {
                     eprintln!(
                         "Wrote {} skeleton contract(s) to {path} (no risk-pattern hits)",
                         public.len()
                     );
                 }
-                return;
             }
+            return;
         }
         if output_mode == assura_config::OutputMode::Json {
             let report = serde_json::json!({
                 "file": filename,
                 "suggestion_count": 0,
-                "function_count": 0,
+                "function_count": public.len(),
+                "functions": public.iter().map(|s| &s.name).collect::<Vec<_>>(),
                 "suggestions": [],
                 "message": format!("No contract suggestions for {filename}"),
                 "focus": focus,
+                "success": true,
             });
             println!("{}", serde_json::to_string_pretty(&report).unwrap());
         } else {
