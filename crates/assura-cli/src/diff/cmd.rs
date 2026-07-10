@@ -29,13 +29,7 @@ pub(crate) fn format_clause_body(clause: &assura_parser::ast::Clause) -> String 
 }
 
 fn validate_diff_format(format: &str) {
-    match format {
-        "human" | "json" => {}
-        other => {
-            eprintln!("Error: invalid --format '{other}' (expected human or json)");
-            process::exit(2);
-        }
-    }
+    crate::validate_human_json_format(format, "diff");
 }
 
 pub(crate) fn run_diff(old_path: &str, new_path: &str, format: &str) -> bool {

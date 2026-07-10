@@ -29,6 +29,17 @@ pub(crate) fn is_stdin_arg(path: &str) -> bool {
     path == "-"
 }
 
+/// Validate `--format` for subcommands that only support human/json.
+pub(crate) fn validate_human_json_format(format: &str, cmd: &str) {
+    match format {
+        "human" | "json" => {}
+        other => {
+            eprintln!("Error: invalid --format '{other}' for {cmd} (expected human or json)");
+            std::process::exit(2);
+        }
+    }
+}
+
 /// Type alias: CLI code uses this name to destructure `CompilationOutput`.
 pub(crate) type CompilationResult = assura_pipeline::CompilationOutput;
 
