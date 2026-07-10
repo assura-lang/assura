@@ -251,10 +251,14 @@ mod tests {
         });
 
         let tests = tg.generate_all();
-        let has_name = tests.iter().any(|t| t.name.contains("BoundsCheck"));
+        // Names are snake_cased for rustc (BoundsCheck → bounds_check).
+        let has_name = tests
+            .iter()
+            .any(|t| t.name.contains("bounds_check") || t.name.contains("BoundsCheck"));
         assert!(
             has_name,
-            "at least one test name should reference the contract name"
+            "at least one test name should reference the contract name, got: {:?}",
+            tests.iter().map(|t| &t.name).collect::<Vec<_>>()
         );
     }
 

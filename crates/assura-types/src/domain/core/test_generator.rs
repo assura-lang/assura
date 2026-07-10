@@ -62,16 +62,32 @@ impl TestGenerator {
         // (e.g. init SafeDivision: result == a / b). Without this, generated
         // tests fail to compile with unresolved `result`.
         let (result_bind, postconditions) = Self::result_bind_and_posts(&contract.ensures);
+        let fn_name = Self::rust_test_ident("prop", &contract.name);
         let body = format!(
-            "proptest! {{\n    #[test]\n    fn prop_{}({}) {{\n        {preconditions}{result_bind}prop_assert!({postconditions});\n    }}\n}}",
-            contract.name,
+            "proptest! {{\n    #[test]\n    fn {fn_name}({}) {{\n        {preconditions}{result_bind}prop_assert!({postconditions});\n    }}\n}}",
             param_list.join(", ")
         );
         GeneratedTest {
-            name: format!("prop_{}", contract.name),
+            name: fn_name,
             body,
             kind: TestKind::Property,
         }
+    }
+
+    /// `prop_SafeDiv` → `prop_safe_div` (rustc non_snake_case lint).
+    fn rust_test_ident(prefix: &str, contract_name: &str) -> String {
+        let mut out = String::from(prefix);
+        for (i, ch) in contract_name.chars().enumerate() {
+            if ch.is_uppercase() {
+                if i > 0 || !out.is_empty() {
+                    out.push('_');
+                }
+                out.extend(ch.to_lowercase());
+            } else {
+                out.push(ch);
+            }
+        }
+        out
     }
 
     /// If any ensures is `result == <expr>`, emit `let result = <expr>;` and
@@ -101,9 +117,15 @@ impl TestGenerator {
         for (name, ty) in &contract.params {
             let boundaries = Self::boundary_values(ty);
             for (i, val) in boundaries.iter().enumerate() {
+                let fn_name =
+                    Self::rust_test_ident(&format!("boundary_{name}_{i}"), &contract.name);
+                // Boundary stubs only bind values for humans to fill in; silence
+                // unused_variables until they call the SUT.
                 tests.push(GeneratedTest {
-                    name: format!("boundary_{}_{}_{}", contract.name, name, i),
-                    body: format!("#[test]\nfn boundary_{}_{}_{i}() {{\n    let {name} = {val};\n    // boundary test for {name}\n}}", contract.name, name),
+                    name: fn_name.clone(),
+                    body: format!(
+                        "#[test]\n#[allow(unused_variables)]\nfn {fn_name}() {{\n    let {name} = {val};\n    // boundary test for {name}\n}}"
+                    ),
                     kind: TestKind::Boundary,
                 });
             }
@@ -112,12 +134,10 @@ impl TestGenerator {
     }
 
     pub fn generate_smoke_test(&self, contract: &TestableContract) -> GeneratedTest {
-        let body = format!(
-            "#[test]\nfn smoke_{}() {{\n    // smoke test: basic valid inputs\n}}",
-            contract.name
-        );
+        let fn_name = Self::rust_test_ident("smoke", &contract.name);
+        let body = format!("#[test]\nfn {fn_name}() {{\n    // smoke test: basic valid inputs\n}}");
         GeneratedTest {
-            name: format!("smoke_{}", contract.name),
+            name: fn_name,
             body,
             kind: TestKind::Smoke,
         }
@@ -133,21 +153,25 @@ impl TestGenerator {
         tests
     }
 
+    /// Type name for proptest's type-based strategy form: `fn prop(x: i64, y: bool)`.
+    ///
+    /// Must be a real Rust type implementing `Arbitrary`, not invented
+    /// associated constants like `i64::ANY` (those fail to compile).
     fn type_to_proptest_strategy(ty: &Type) -> &'static str {
         match ty {
-            Type::Int | Type::I64 => "i64::ANY",
-            Type::Nat | Type::U64 => "u64::ANY",
-            Type::U8 => "u8::ANY",
-            Type::U16 => "u16::ANY",
-            Type::U32 => "u32::ANY",
-            Type::I8 => "i8::ANY",
-            Type::I16 => "i16::ANY",
-            Type::I32 => "i32::ANY",
-            Type::Float | Type::F64 => "f64::ANY",
-            Type::F32 => "f32::ANY",
-            Type::Bool => "bool::ANY",
-            Type::String => "\".*\"",
-            _ => "any::<()>()",
+            Type::Int | Type::I64 => "i64",
+            Type::Nat | Type::U64 => "u64",
+            Type::U8 => "u8",
+            Type::U16 => "u16",
+            Type::U32 => "u32",
+            Type::I8 => "i8",
+            Type::I16 => "i16",
+            Type::I32 => "i32",
+            Type::Float | Type::F64 => "f64",
+            Type::F32 => "f32",
+            Type::Bool => "bool",
+            Type::String => "String",
+            _ => "()",
         }
     }
 
@@ -246,6 +270,16 @@ mod tests {
         assert!(
             !test.body.contains("prop_assert!((result") || test.body.contains("let result"),
             "result must be declared before assert: {}",
+            test.body
+        );
+        assert!(
+            test.body.contains("a: i64") && test.body.contains("b: i64"),
+            "proptest strategies must be real Rust types, not ::ANY: {}",
+            test.body
+        );
+        assert!(
+            !test.body.contains("::ANY"),
+            "i64::ANY is not valid proptest: {}",
             test.body
         );
     }

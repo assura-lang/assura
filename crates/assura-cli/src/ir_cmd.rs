@@ -21,9 +21,18 @@ pub(crate) fn run_ir(
     let module = match assura_smt::parse_ir_module(&ir_source) {
         Ok(m) => m,
         Err(errors) => {
-            eprintln!("IR parse errors in {ir_file}:");
-            for e in &errors {
-                eprintln!("  {e}");
+            if output_mode == OutputMode::Json {
+                let report = serde_json::json!({
+                    "status": "error",
+                    "file": ir_file,
+                    "ir_errors": errors.iter().map(|e| e.to_string()).collect::<Vec<_>>(),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("IR parse errors in {ir_file}:");
+                for e in &errors {
+                    eprintln!("  {e}");
+                }
             }
             process::exit(1);
         }
@@ -65,19 +74,29 @@ pub(crate) fn run_ir(
         if let Some(contract) = contract_decl {
             let validation = assura_smt::validate_ir_against_contract(&module, contract);
             if !validation.valid {
-                eprintln!("IR validation errors:");
-                for e in &validation.errors {
-                    eprintln!("  {e}");
+                if output_mode == OutputMode::Json {
+                    let report = serde_json::json!({
+                        "status": "error",
+                        "file": ir_file,
+                        "contract": contract.name,
+                        "ir_errors": validation.errors,
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("IR validation errors:");
+                    for e in &validation.errors {
+                        eprintln!("  {e}");
+                    }
                 }
                 process::exit(1);
             }
-            if verbosity != Verbosity::Quiet {
+            if verbosity != Verbosity::Quiet && output_mode != OutputMode::Json {
                 eprintln!(
                     "OK  IR module `{}` validates against contract `{}`",
                     module.name, contract.name
                 );
             }
-        } else {
+        } else if output_mode != OutputMode::Json {
             eprintln!("Warning: no contract found in {contract_path}, skipping validation");
         }
 
@@ -119,6 +138,26 @@ pub(crate) fn run_ir(
                 process::exit(1);
             }
 
+            // --json verify: do not also dump Rust codegen onto stdout
+            // (breaks machine consumers that parse a single JSON document).
+            if output_mode == OutputMode::Json {
+                if let Some(out_path) = output {
+                    let rust_code = assura_smt::ir_to_rust(&module);
+                    let out = Path::new(out_path);
+                    if let Some(parent) = out.parent() {
+                        fs::create_dir_all(parent).unwrap_or_else(|e| {
+                            eprintln!("Error: cannot create directory {}: {e}", parent.display());
+                            process::exit(1);
+                        });
+                    }
+                    fs::write(out, &rust_code).unwrap_or_else(|e| {
+                        eprintln!("Error: cannot write {out_path}: {e}");
+                        process::exit(1);
+                    });
+                }
+                return;
+            }
+
             if verify_only {
                 return;
             }
@@ -150,6 +189,15 @@ pub(crate) fn run_ir(
         if verbosity != Verbosity::Quiet {
             eprintln!("OK  {ir_file} -> {out_path}");
         }
+    } else if output_mode == OutputMode::Json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "status": "ok",
+                "module": module.name,
+                "rust": rust_code,
+            })
+        );
     } else {
         print!("{rust_code}");
     }
