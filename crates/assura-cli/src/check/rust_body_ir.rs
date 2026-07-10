@@ -96,10 +96,6 @@ pub(crate) fn try_ir_from_rust_body(
     }
 
     let expr: syn::Expr = syn::parse_str(body_return).ok()?;
-    let mut lines = Vec::new();
-    let mut next = param_names.len();
-    let result_slot = encode_syn_expr(&expr, &param_names, &mut lines, &mut next)?;
-    lines.push(format!("$result = load ${result_slot} : Int"));
 
     let mut sig_parts = Vec::new();
     for (i, p) in params.iter().filter(|p| p.name != "self").enumerate() {
@@ -107,6 +103,16 @@ pub(crate) fn try_ir_from_rust_body(
         sig_parts.push(format!("${i}: {ty}"));
     }
     let sig = sig_parts.join(", ");
+
+    // Simple if: multi-block IR (see Clamp.ir).
+    if let syn::Expr::If(if_expr) = &expr {
+        return try_ir_from_if(item_name, &sig, &ret_assura, &param_names, if_expr);
+    }
+
+    let mut lines = Vec::new();
+    let mut next = param_names.len();
+    let result_slot = encode_syn_expr(&expr, &param_names, &mut lines, &mut next)?;
+    lines.push(format!("$result = load ${result_slot} : Int"));
 
     let mut ir = String::new();
     ir.push_str(&format!("module {item_name} {{\n"));
@@ -120,6 +126,78 @@ pub(crate) fn try_ir_from_rust_body(
     ir.push_str("  }\n");
     ir.push_str("}\n");
     Some(ir)
+}
+
+/// `if cond { then } else { else }` as IR blocks #1 / #2 (Clamp.ir style).
+fn try_ir_from_if(
+    item_name: &str,
+    sig: &str,
+    ret_assura: &str,
+    param_names: &[&str],
+    if_expr: &syn::ExprIf,
+) -> Option<String> {
+    let else_expr = if_expr.else_branch.as_ref()?.1.as_ref();
+    // Only simple expression branches (not nested if / blocks with multi-stmt).
+    let then_expr = block_as_expr(&if_expr.then_branch)?;
+    let else_expr = match else_expr {
+        syn::Expr::Block(b) => block_as_expr(&b.block)?,
+        other => other,
+    };
+
+    let mut main_lines = Vec::new();
+    let mut next = param_names.len();
+    let cond_slot = encode_syn_expr(&if_expr.cond, param_names, &mut main_lines, &mut next)?;
+    // Condition must be Bool (cmp produces Bool; truthy int not supported).
+    main_lines.push(format!(
+        "${} = if ${cond_slot} then #1 else #2 : {ret_assura}",
+        next
+    ));
+    let if_out = next;
+    next += 1;
+    main_lines.push(format!("$result = load ${if_out} : {ret_assura}"));
+
+    let mut then_lines = Vec::new();
+    let mut then_next = param_names.len().max(next);
+    let then_slot = encode_syn_expr(then_expr, param_names, &mut then_lines, &mut then_next)?;
+    then_lines.push(format!("$result = load ${then_slot} : {ret_assura}"));
+
+    let mut else_lines = Vec::new();
+    let mut else_next = param_names.len().max(then_next);
+    let else_slot = encode_syn_expr(else_expr, param_names, &mut else_lines, &mut else_next)?;
+    else_lines.push(format!("$result = load ${else_slot} : {ret_assura}"));
+
+    let mut ir = String::new();
+    ir.push_str(&format!("module {item_name} {{\n"));
+    ir.push_str(&format!("  fn #0 : ({sig}) -> {ret_assura} ! pure\n  {{\n"));
+    for line in main_lines {
+        ir.push_str("    ");
+        ir.push_str(&line);
+        ir.push('\n');
+    }
+    ir.push_str("  }\n");
+    ir.push_str(&format!("  fn #1 : () -> {ret_assura} ! pure\n  {{\n"));
+    for line in then_lines {
+        ir.push_str("    ");
+        ir.push_str(&line);
+        ir.push('\n');
+    }
+    ir.push_str("  }\n");
+    ir.push_str(&format!("  fn #2 : () -> {ret_assura} ! pure\n  {{\n"));
+    for line in else_lines {
+        ir.push_str("    ");
+        ir.push_str(&line);
+        ir.push('\n');
+    }
+    ir.push_str("  }\n");
+    ir.push_str("}\n");
+    Some(ir)
+}
+
+fn block_as_expr(block: &syn::Block) -> Option<&syn::Expr> {
+    match block.stmts.as_slice() {
+        [syn::Stmt::Expr(e, _)] => Some(e),
+        _ => None,
+    }
 }
 
 /// Encode `expr` into IR lines; returns the slot holding the value.
@@ -159,6 +237,23 @@ fn encode_syn_expr(
             Some(slot)
         }
         syn::Expr::Binary(b) => {
+            // Comparisons → Bool slots for `if` conditions.
+            if let Some(cmp) = match &b.op {
+                syn::BinOp::Lt(_) => Some("lt"),
+                syn::BinOp::Gt(_) => Some("gt"),
+                syn::BinOp::Le(_) => Some("le"),
+                syn::BinOp::Ge(_) => Some("ge"),
+                syn::BinOp::Eq(_) => Some("eq"),
+                syn::BinOp::Ne(_) => Some("ne"),
+                _ => None,
+            } {
+                let lhs = encode_syn_expr(&b.left, param_names, lines, next)?;
+                let rhs = encode_syn_expr(&b.right, param_names, lines, next)?;
+                let slot = *next;
+                *next += 1;
+                lines.push(format!("${slot} = cmp {cmp} ${lhs} ${rhs} : Bool"));
+                return Some(slot);
+            }
             let ir_op = match &b.op {
                 syn::BinOp::Add(_) => "add",
                 syn::BinOp::Sub(_) => "sub",
@@ -330,6 +425,18 @@ fn with_let(x: i64) -> i64 { let y = x + 1; y }
         ];
         let ir = try_ir_from_rust_body("Add", &params, Some("i64"), "a + b").expect("ir");
         assert!(ir.contains("arith add $0 $1"), "{ir}");
+    }
+
+    #[test]
+    fn simple_if_body_ir() {
+        let ir = try_ir_from_rust_body("Clamp0", &px(), Some("i64"), "if x > 0 { x } else { 0 }")
+            .expect("if ir");
+        assert!(
+            ir.contains("cmp gt") && ir.contains("then #1 else #2"),
+            "{ir}"
+        );
+        assert!(ir.contains("fn #1") && ir.contains("fn #2"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "Clamp0").expect("parse if");
     }
 
     #[test]
