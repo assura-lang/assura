@@ -69,6 +69,9 @@ pub(crate) fn run_coverage(
     // Functions with inline `/// @requires` / `@ensures` (check-rust path).
     let mut inline_annotated: std::collections::HashSet<(String, String)> =
         std::collections::HashSet::new();
+    // Codegen modules: file path -> Assura contract names from `/// Contract:`.
+    let mut codegen_contracts_by_file: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
 
     for rs_file in &rs_files {
         let rel_path = rs_file
@@ -87,6 +90,11 @@ pub(crate) fn run_coverage(
             if sig.is_pub {
                 all_fns.push((rel_path.clone(), sig.name));
             }
+        }
+
+        let codegen_names = codegen_contract_names(&source);
+        if !codegen_names.is_empty() {
+            codegen_contracts_by_file.insert(rel_path.clone(), codegen_names);
         }
 
         // Count check-rust style doc annotations as coverage.
@@ -131,6 +139,34 @@ pub(crate) fn run_coverage(
                 .cloned()
                 .unwrap_or_else(|| "?".to_string());
             covered.push((file.clone(), fn_name.clone(), cf));
+        } else if fn_name == "check"
+            && let Some(names) = codegen_contracts_by_file.get(file)
+        {
+            // Generated `pub fn check` under `/// Contract: SafeDivision` (#961).
+            let mut matched = None;
+            for n in names {
+                if contract_names.contains(n.as_str()) {
+                    matched = Some(
+                        contract_files
+                            .get(n.as_str())
+                            .cloned()
+                            .unwrap_or_else(|| format!("codegen ({n})")),
+                    );
+                    break;
+                }
+            }
+            if let Some(cf) = matched {
+                covered.push((file.clone(), fn_name.clone(), cf));
+            } else if !names.is_empty() {
+                // Codegen body present even if .assura was not under contracts_dir.
+                covered.push((
+                    file.clone(),
+                    fn_name.clone(),
+                    format!("codegen ({})", names.join(", ")),
+                ));
+            } else {
+                uncovered.push((file.clone(), fn_name.clone(), 0));
+            }
         } else if inline_annotated.contains(&(file.clone(), fn_name.clone())) {
             covered.push((
                 file.clone(),
@@ -223,6 +259,21 @@ pub(crate) fn run_coverage(
         }
         process::exit(1);
     }
+}
+
+/// Assura contract names embedded by codegen (`/// Contract: SafeDivision`).
+fn codegen_contract_names(source: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for line in source.lines() {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("/// Contract:") {
+            let name = rest.trim();
+            if !name.is_empty() {
+                names.push(name.to_string());
+            }
+        }
+    }
+    names
 }
 
 /// Names of public functions that carry inline `/// @requires` / `@ensures`
