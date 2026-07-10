@@ -538,7 +538,9 @@ pub fn run() {
             dry_run,
             focus.as_deref(),
         ),
-        Commands::TestGen { file, output } => run_test_gen(&file, output.as_deref(), verbosity),
+        Commands::TestGen { file, output } => {
+            run_test_gen(&file, output.as_deref(), verbosity, output_mode)
+        }
         Commands::AgentInstructions => run_agent_instructions(output_mode),
         Commands::Doctor => run_doctor(output_mode),
         Commands::Lsp => run_lsp(),
@@ -596,7 +598,14 @@ pub fn run() {
             decl,
             list,
             pattern,
-        } => ir_prompt_cmd::run_ir_prompt(&file, decl.as_deref(), list, &pattern, verbosity),
+        } => ir_prompt_cmd::run_ir_prompt(
+            &file,
+            decl.as_deref(),
+            list,
+            &pattern,
+            verbosity,
+            output_mode,
+        ),
         Commands::Ir {
             file,
             contract,

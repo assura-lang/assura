@@ -102,7 +102,15 @@ pub(crate) fn run_doc(
             }
         }
         None => {
-            print!("{all_docs}");
+            if output_mode == OutputMode::Json {
+                let report = serde_json::json!({
+                    "markdown": all_docs,
+                    "files": files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                print!("{all_docs}");
+            }
         }
     }
 }

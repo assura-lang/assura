@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use assura_config::CompilerConfig;
+use assura_config::{CompilerConfig, OutputMode};
 use assura_pipeline::compile;
 use assura_smt::{IrPromptPattern, render_ir_prompt};
 
@@ -13,6 +13,7 @@ pub(crate) fn run_ir_prompt(
     list: bool,
     pattern: &str,
     verbosity: Verbosity,
+    output_mode: OutputMode,
 ) {
     let source = fs::read_to_string(file).unwrap_or_else(|e| {
         eprintln!("Error: {file}: {e}");
@@ -40,8 +41,16 @@ pub(crate) fn run_ir_prompt(
             eprintln!("Error: no verifiable declarations in {file}");
             process::exit(1);
         }
-        for name in names {
-            println!("{name}");
+        if output_mode == OutputMode::Json {
+            let report = serde_json::json!({
+                "file": file,
+                "declarations": names,
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            for name in names {
+                println!("{name}");
+            }
         }
         return;
     }
@@ -72,6 +81,25 @@ pub(crate) fn run_ir_prompt(
             eprintln!("Error: no verifiable declarations in {file}");
         }
         process::exit(1);
+    }
+
+    if output_mode == OutputMode::Json {
+        let prompts: Vec<serde_json::Value> = jobs
+            .iter()
+            .map(|ctx| {
+                serde_json::json!({
+                    "decl": ctx.decl_name,
+                    "pattern": pattern.as_str(),
+                    "prompt": render_ir_prompt(ctx, pattern),
+                })
+            })
+            .collect();
+        let report = serde_json::json!({
+            "file": file,
+            "prompts": prompts,
+        });
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        return;
     }
 
     for (i, ctx) in jobs.iter().enumerate() {
