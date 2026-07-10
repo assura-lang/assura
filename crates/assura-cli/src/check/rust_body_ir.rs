@@ -597,13 +597,14 @@ fn encode_syn_expr(
                 }
                 // saturating_add/sub: clamp arith to i64 range (#1007; needs param
                 // range requires from check_rust for soundness on unbounded Int).
-                ("saturating_add" | "saturating_sub", 1) => {
+                ("saturating_add" | "saturating_sub" | "saturating_mul", 1) => {
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
-                    let op = if method == "saturating_add" {
-                        "add"
-                    } else {
-                        "sub"
+                    let op = match method.as_str() {
+                        "saturating_add" => "add",
+                        "saturating_sub" => "sub",
+                        "saturating_mul" => "mul",
+                        _ => return None,
                     };
                     let sum = *next;
                     *next += 1;
