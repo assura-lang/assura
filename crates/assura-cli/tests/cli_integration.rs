@@ -838,6 +838,39 @@ fn completions_fish_exits_zero() {
     );
 }
 
+/// Issue #974: `completions --json` must emit JSON, not a bare shell script.
+#[test]
+fn completions_bash_json_is_parseable() {
+    let out = Command::new(assura_bin())
+        .args(["completions", "bash", "--json"])
+        .output()
+        .expect("failed to run assura completions bash --json");
+    assert!(
+        out.status.success(),
+        "completions bash --json should exit 0: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("completions --json stdout must be JSON");
+    assert_eq!(v["command"], "completions");
+    assert_eq!(v["shell"], "bash");
+    let script = v["script"]
+        .as_str()
+        .expect("script field must be a string");
+    assert!(
+        script.contains("_assura") || script.contains("assura"),
+        "script should contain completion body: {}",
+        &script[..script.len().min(120)]
+    );
+    // Must not look like a bare bash function at the start of stdout
+    assert!(
+        stdout.trim_start().starts_with('{'),
+        "JSON mode must start with object, got: {}",
+        &stdout[..stdout.len().min(80)]
+    );
+}
+
 // =======================================================================
 // Issue #96: explain command integration tests
 // =======================================================================

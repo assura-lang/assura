@@ -546,7 +546,34 @@ pub fn run() {
         Commands::Doctor => run_doctor(output_mode, verbosity),
         Commands::Lsp => run_lsp(),
         Commands::Completions { shell } => {
-            clap_complete::generate(shell, &mut Cli::command(), "assura", &mut std::io::stdout());
+            // Human mode: raw shell script on stdout (for `source <(assura completions bash)`).
+            // --json: wrap the script so agents that pass --json everywhere get parseable output.
+            if output_mode == OutputMode::Json {
+                let mut script = Vec::new();
+                clap_complete::generate(shell, &mut Cli::command(), "assura", &mut script);
+                let script = String::from_utf8_lossy(&script).into_owned();
+                let shell_name = match shell {
+                    Shell::Bash => "bash",
+                    Shell::Zsh => "zsh",
+                    Shell::Fish => "fish",
+                    Shell::PowerShell => "powershell",
+                    Shell::Elvish => "elvish",
+                    _ => "unknown",
+                };
+                let report = serde_json::json!({
+                    "command": "completions",
+                    "shell": shell_name,
+                    "script": script,
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".into()));
+            } else {
+                clap_complete::generate(
+                    shell,
+                    &mut Cli::command(),
+                    "assura",
+                    &mut std::io::stdout(),
+                );
+            }
         }
         Commands::Coverage {
             path,
