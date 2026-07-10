@@ -440,6 +440,22 @@ fn no_trailing_whitespace() {
     }
 }
 
+#[test]
+fn minified_one_liner_is_expanded() {
+    // #919: previously fmt left single-line contracts unchanged.
+    let src = "contract Z{input(x:Int)requires{x>=0}ensures{x>=0}}\n";
+    let out = fmt(src);
+    assert!(
+        out.contains('\n'),
+        "minified source should gain newlines: {out:?}"
+    );
+    assert!(
+        out.lines().count() > 1,
+        "expected multi-line output: {out:?}"
+    );
+    assert_idempotent(src);
+}
+
 // ---------------------------------------------------------------------------
 // 7. Re-parseability
 // ---------------------------------------------------------------------------
