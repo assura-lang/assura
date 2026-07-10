@@ -239,18 +239,65 @@ pub(crate) fn run_check_rust(
                 && let Some(ref typed) = output.typed
                 && let Some(ref file_ast) = output.file
             {
-                // #951: co-located `{Name}.ir` is the only body model we accept
-                // as proof for check-rust. Detect before verify so human mode
-                // does not print "ensures ... verified" / "check passed" and
-                // then contradict itself with body_not_modeled.
+                // Body model for check-rust (#951 / #975):
+                // 1. Co-located `{Name}.ir` beside the Rust file
+                // 2. Else simple Rust body → temp `{Name}.ir` next to a temp
+                //    contract (co-publish safe: uses disk load, no new APIs)
+                // Without either, ensures must not claim verified.
                 let has_ensures = !item.contract.ensures.is_empty();
                 let colocated = assura_smt::LoadedVerifyExtras::load(file_path.as_path(), typed);
-                let has_body_ir = colocated.loaded_names().iter().any(|n| n == &item_name);
+                let mut has_body_ir = colocated.loaded_names().iter().any(|n| n == &item_name);
+
+                // Keep temp dir alive for the verify call.
+                let mut body_ir_tmpdir = None;
+                let mut verify_filename = file_display.to_string();
+                let mut verify_source = contract_source.clone();
+                let mut verify_typed = typed.clone();
+                let mut verify_file = file_ast.clone();
+
+                if !has_body_ir
+                    && let Some((params, ret)) =
+                        super::rust_body_ir::function_params_return(&item.kind)
+                    && let Ok(rust_src) = fs::read_to_string(file_path)
+                    && let Some(body) =
+                        super::rust_body_ir::extract_body_return(&rust_src, &item_name)
+                    && let Some(ir_text) =
+                        super::rust_body_ir::try_ir_from_rust_body(&item_name, params, ret, &body)
+                {
+                    let dir = std::env::temp_dir().join(format!(
+                        "assura-body-ir-{}-{}",
+                        std::process::id(),
+                        item_name
+                    ));
+                    let _ = fs::remove_dir_all(&dir);
+                    if fs::create_dir_all(&dir).is_ok() {
+                        let assura_path = dir.join(format!("{item_name}.assura"));
+                        let ir_path = dir.join(format!("{item_name}.ir"));
+                        if fs::write(&assura_path, &contract_source).is_ok()
+                            && fs::write(&ir_path, &ir_text).is_ok()
+                        {
+                            let recompiled = assura_pipeline::compile(
+                                &contract_source,
+                                &assura_path.display().to_string(),
+                                &assura_config::CompilerConfig::default(),
+                            );
+                            if !recompiled.has_errors
+                                && let (Some(t), Some(f)) = (recompiled.typed, recompiled.file)
+                            {
+                                has_body_ir = true;
+                                verify_filename = assura_path.display().to_string();
+                                verify_source = contract_source.clone();
+                                verify_typed = t;
+                                verify_file = f;
+                                body_ir_tmpdir = Some(dir);
+                            }
+                        }
+                    }
+                }
+                let _keep_tmpdir = body_ir_tmpdir;
+
                 let expect_body_not_modeled = has_ensures && !has_body_ir;
 
-                // Run SMT verification. When we already know the item will be
-                // body_not_modeled, suppress verify_and_report's human summary
-                // (Quiet still renders real errors / counterexamples).
                 let report_verbosity = if expect_body_not_modeled
                     && output_mode == OutputMode::Human
                     && verbosity != Verbosity::Quiet
@@ -259,14 +306,13 @@ pub(crate) fn run_check_rust(
                 } else {
                     verbosity
                 };
-                let source_for_verify = contract_source.clone();
                 let mut diags = Vec::new();
                 let mut has_err = false;
                 let vresults = verify_and_report(VerifyContext {
-                    filename: &file_display.to_string(),
-                    source: &source_for_verify,
-                    typed: &Some(typed.clone()),
-                    file: &Some(file_ast.clone()),
+                    filename: &verify_filename,
+                    source: &verify_source,
+                    typed: &Some(verify_typed),
+                    file: &Some(verify_file),
                     diagnostics: &mut diags,
                     has_errors: &mut has_err,
                     output_mode,
@@ -319,8 +365,8 @@ pub(crate) fn run_check_rust(
                 ) {
                     if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
                         eprintln!(
-                            "  note: `{item_name}` has no co-located IR; ensures were not \
-                             proven against the Rust body (status body_not_modeled)"
+                            "  note: `{item_name}` has no co-located IR or encodable body; \
+                             ensures were not proven against the Rust body (status body_not_modeled)"
                         );
                     }
                     item_skipped += item_verified;
@@ -408,7 +454,7 @@ pub(crate) fn run_check_rust(
             "errors": total_errors,
             "body_not_modeled": total_body_not_modeled,
             "results": all_results,
-            "policy": "check-rust proves annotations (+ co-located .ir); Rust bodies are not encoded without IR",
+            "policy": "check-rust proves annotations against co-located .ir or simple encoded Rust bodies (identity, +/-); other bodies stay body_not_modeled",
         });
         println!("{}", serde_json::to_string_pretty(&summary).unwrap());
         if total_errors > 0 || total_body_not_modeled > 0 {

@@ -153,9 +153,10 @@ assura infer src/main.rs
 
 # Verify inline contract annotations in Rust source files
 assura check-rust src/
-# Without co-located {Name}.ir, ensures are reported body_not_modeled
-# (not silent verified). Human mode also exits non-zero and does not print
-# "check passed" for those items.
+# Body proof paths (in order):
+#   1) co-located {Name}.ir
+#   2) simple encoded Rust body (identity, + / - on params/literals)
+# Otherwise ensures are body_not_modeled (not silent verified).
 assura check-rust src/ --json
 
 # Suggest contracts for unannotated functions
