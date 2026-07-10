@@ -12,6 +12,13 @@
 //! monotonically increase (see shared `next` in `emit_value_blocks`).
 
 use assura_rust_analyzer::ParamInfo;
+use std::cell::Cell;
+
+thread_local! {
+    /// Saturating op bounds for the current encode (set from return type).
+    static SAT_BOUNDS: Cell<Option<(i64, i64)>> = const { Cell::new(None) };
+}
+
 use quote::ToTokens;
 
 /// Extract a simple trailing return expression for `fn_name` from Rust source.
@@ -155,6 +162,14 @@ pub(crate) fn try_ir_from_rust_body(
     if !matches!(ret_assura.as_str(), "Int" | "Nat" | "Bool") {
         return None;
     }
+    let sat = match return_ty.map(str::trim) {
+        Some("i8") => Some((i8::MIN as i64, i8::MAX as i64)),
+        Some("i16") => Some((i16::MIN as i64, i16::MAX as i64)),
+        Some("i32") => Some((i32::MIN as i64, i32::MAX as i64)),
+        Some("i64") | Some("isize") => Some((i64::MIN, i64::MAX)),
+        _ => None,
+    };
+    SAT_BOUNDS.set(sat);
 
     let param_names: Vec<&str> = params
         .iter()
@@ -590,10 +605,11 @@ fn encode_syn_expr(
                     lines.push(format!("${sum} = arith {op} ${a} ${b} : Int"));
                     let lo = *next;
                     *next += 1;
-                    lines.push(format!("${lo} = const -9223372036854775808 : Int"));
+                    let (lo_v, hi_v) = SAT_BOUNDS.get()?;
+                    lines.push(format!("${lo} = const {lo_v} : Int"));
                     let hi = *next;
                     *next += 1;
-                    lines.push(format!("${hi} = const 9223372036854775807 : Int"));
+                    lines.push(format!("${hi} = const {hi_v} : Int"));
                     let mx = *next;
                     *next += 1;
                     lines.push(format!("${mx} = call max (${sum}, ${lo}) : Int"));
@@ -654,6 +670,12 @@ pub(crate) fn function_params_return(
 mod tests {
     use super::*;
     use assura_rust_analyzer::ParamInfo;
+    use std::cell::Cell;
+
+    thread_local! {
+        /// Saturating op bounds for the current encode (set from return type).
+        static SAT_BOUNDS: Cell<Option<(i64, i64)>> = const { Cell::new(None) };
+    }
 
     fn px() -> Vec<ParamInfo> {
         vec![ParamInfo {
