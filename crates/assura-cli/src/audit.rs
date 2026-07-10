@@ -272,9 +272,14 @@ pub(crate) fn run_audit(opts: AuditOptions<'_>) {
         }
     }
 
-    if skipped_errors > 0 && !is_json {
+    if skipped_errors > 0 {
+        // Include type-error skips in error_count for JSON too (human already
+        // did). Without this, --json reported errors:0 while human said
+        // "Skipped N contracts with type errors" (dogfood R87).
         error_count = skipped_errors;
-        eprintln!("Skipped {} contracts with type errors", skipped_errors);
+        if !is_json {
+            eprintln!("Skipped {} contracts with type errors", skipped_errors);
+        }
     }
 
     // Phase 5: Output results
@@ -285,6 +290,7 @@ pub(crate) fn run_audit(opts: AuditOptions<'_>) {
             "verified": verified_count,
             "findings": findings.len(),
             "errors": error_count,
+            "skipped_type_errors": skipped_errors,
             "results": findings.iter().map(|f| serde_json::json!({
                 "function": f.function,
                 "clause": f.clause,
