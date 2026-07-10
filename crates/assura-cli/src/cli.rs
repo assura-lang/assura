@@ -522,7 +522,7 @@ pub fn run() {
             write_ir,
             bin,
         }),
-        Commands::Init { name } => run_init(&name),
+        Commands::Init { name } => run_init(&name, output_mode),
         Commands::Explain { code } => run_explain(&code, output_mode),
         Commands::Fmt { file, check } => run_fmt(&file, check, output_mode),
         Commands::Infer {

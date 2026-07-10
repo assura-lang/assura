@@ -36,24 +36,52 @@ pub(crate) fn validate_project_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn run_init(project_name: &str) {
+pub(crate) fn run_init(project_name: &str, output_mode: OutputMode) {
+    let json = output_mode == OutputMode::Json;
     if let Err(msg) = validate_project_name(project_name) {
-        eprintln!("Error: {msg}");
-        eprintln!("Usage: assura init <project-name>");
+        if json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": msg,
+                "usage": "assura init <project-name>",
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: {msg}");
+            eprintln!("Usage: assura init <project-name>");
+        }
         process::exit(2);
     }
 
     let project_dir = Path::new(project_name);
 
     if project_dir.exists() {
-        eprintln!("Error: directory '{project_name}' already exists");
+        if json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": format!("directory '{project_name}' already exists"),
+                "project": project_name,
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: directory '{project_name}' already exists");
+        }
         process::exit(1);
     }
 
     // Create project directory and contracts subdirectory
     let contracts_dir = project_dir.join("contracts");
     fs::create_dir_all(&contracts_dir).unwrap_or_else(|e| {
-        eprintln!("Error: cannot create directory: {e}");
+        if json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": format!("cannot create directory: {e}"),
+                "project": project_name,
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: cannot create directory: {e}");
+        }
         process::exit(1);
     });
 
@@ -88,7 +116,16 @@ type = "minimal"        # minimal, parser, database, etc.
     );
     let toml_path = project_dir.join("assura.toml");
     fs::write(&toml_path, &toml_content).unwrap_or_else(|e| {
-        eprintln!("Error: cannot write {}: {e}", toml_path.display());
+        if json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": format!("cannot write {}: {e}", toml_path.display()),
+                "project": project_name,
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: cannot write {}: {e}", toml_path.display());
+        }
         process::exit(1);
     });
 
@@ -111,7 +148,16 @@ contract SafeDivision {
 "#;
     let contract_path = contracts_dir.join("lib.assura");
     fs::write(&contract_path, contract_content).unwrap_or_else(|e| {
-        eprintln!("Error: cannot write {}: {e}", contract_path.display());
+        if json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": format!("cannot write {}: {e}", contract_path.display()),
+                "project": project_name,
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: cannot write {}: {e}", contract_path.display());
+        }
         process::exit(1);
     });
 
@@ -124,15 +170,37 @@ contract SafeDivision {
 "#;
     let ir_path = contracts_dir.join("SafeDivision.ir");
     fs::write(&ir_path, ir_content).unwrap_or_else(|e| {
-        eprintln!("Error: cannot write {}: {e}", ir_path.display());
+        if json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": format!("cannot write {}: {e}", ir_path.display()),
+                "project": project_name,
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: cannot write {}: {e}", ir_path.display());
+        }
         process::exit(1);
     });
 
     // Report what was created
-    println!("Created new Assura project '{project_name}':");
-    println!("  {}", toml_path.display());
-    println!("  {}", contract_path.display());
-    println!("  {}", ir_path.display());
+    if json {
+        let report = serde_json::json!({
+            "ok": true,
+            "project": project_name,
+            "files": [
+                toml_path.display().to_string(),
+                contract_path.display().to_string(),
+                ir_path.display().to_string(),
+            ],
+        });
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    } else {
+        println!("Created new Assura project '{project_name}':");
+        println!("  {}", toml_path.display());
+        println!("  {}", contract_path.display());
+        println!("  {}", ir_path.display());
+    }
 }
 
 pub(crate) fn run_explain(code: &str, output_mode: OutputMode) {
