@@ -15,22 +15,57 @@ pub(crate) fn run_ir_prompt(
     verbosity: Verbosity,
     output_mode: OutputMode,
 ) {
+    let json = output_mode == OutputMode::Json;
     let source = fs::read_to_string(file).unwrap_or_else(|e| {
-        eprintln!("Error: {file}: {e}");
+        if json {
+            let report = serde_json::json!({
+                "ok": false,
+                "file": file,
+                "error": format!("{e}"),
+                "message": format!("{file}: {e}"),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: {file}: {e}");
+        }
         process::exit(2);
     });
 
     let pattern = pattern.parse::<IrPromptPattern>().unwrap_or_else(|()| {
-        eprintln!(
-            "Error: unknown pattern '{pattern}' \
-             (expected auto, identity, arithmetic, length-copy, call-chain, bounds-check, field-access)"
-        );
+        if json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": "unknown_pattern",
+                "pattern": pattern,
+                "message": format!(
+                    "unknown pattern '{pattern}' (expected auto, identity, arithmetic, length-copy, call-chain, bounds-check, field-access)"
+                ),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!(
+                "Error: unknown pattern '{pattern}' \
+                 (expected auto, identity, arithmetic, length-copy, call-chain, bounds-check, field-access)"
+            );
+        }
         process::exit(2);
     });
 
-    let typed = match compile_typed(&source, file) {
+    let typed = match compile_typed(&source, file, json) {
         Ok(t) => t,
-        Err(()) => process::exit(1),
+        Err(diagnostics) => {
+            if json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "file": file,
+                    "error": "compile_failed",
+                    "message": format!("failed to type-check {file}"),
+                    "diagnostics": diagnostics,
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            }
+            process::exit(1);
+        }
     };
 
     let contexts = assura_smt::ir_prompt_contexts_for_typed(&typed, Some(Path::new(file)));
@@ -38,11 +73,22 @@ pub(crate) fn run_ir_prompt(
     if list {
         let names = list_ir_prompt_decls(file);
         if names.is_empty() {
-            eprintln!("Error: no verifiable declarations in {file}");
+            if json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "file": file,
+                    "error": "no_declarations",
+                    "message": format!("no verifiable declarations in {file}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("Error: no verifiable declarations in {file}");
+            }
             process::exit(1);
         }
-        if output_mode == OutputMode::Json {
+        if json {
             let report = serde_json::json!({
+                "ok": true,
                 "file": file,
                 "declarations": names,
             });
@@ -66,16 +112,48 @@ pub(crate) fn run_ir_prompt(
         Vec::new()
     } else {
         let names: Vec<_> = contexts.iter().map(|c| c.decl_name.as_str()).collect();
-        eprintln!(
-            "Error: {file} has {} verifiable declarations; use --decl <name> or --list\n  {}",
-            names.len(),
-            names.join(", ")
-        );
+        if json {
+            let report = serde_json::json!({
+                "ok": false,
+                "file": file,
+                "error": "ambiguous_declaration",
+                "message": format!(
+                    "{file} has {} verifiable declarations; use --decl <name> or --list",
+                    names.len()
+                ),
+                "declarations": names,
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!(
+                "Error: {file} has {} verifiable declarations; use --decl <name> or --list\n  {}",
+                names.len(),
+                names.join(", ")
+            );
+        }
         process::exit(1);
     };
 
     if jobs.is_empty() {
-        if let Some(name) = decl {
+        if json {
+            let report = if let Some(name) = decl {
+                serde_json::json!({
+                    "ok": false,
+                    "file": file,
+                    "error": "decl_not_found",
+                    "decl": name,
+                    "message": format!("no verification job named '{name}' in {file}"),
+                })
+            } else {
+                serde_json::json!({
+                    "ok": false,
+                    "file": file,
+                    "error": "no_declarations",
+                    "message": format!("no verifiable declarations in {file}"),
+                })
+            };
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else if let Some(name) = decl {
             eprintln!("Error: no verification job named '{name}' in {file}");
         } else {
             eprintln!("Error: no verifiable declarations in {file}");
@@ -131,19 +209,27 @@ pub(crate) fn list_ir_prompt_decls(file: &str) -> Vec<String> {
         .collect()
 }
 
-fn compile_typed(source: &str, file: &str) -> Result<assura_types::TypedFile, ()> {
+fn compile_typed(
+    source: &str,
+    file: &str,
+    json: bool,
+) -> Result<assura_types::TypedFile, Vec<assura_diagnostics::Diagnostic>> {
     let output = compile(source, file, &CompilerConfig::default());
     if output.has_errors {
-        for d in &output.diagnostics {
-            eprintln!("{d}");
+        if !json {
+            for d in &output.diagnostics {
+                eprintln!("{d}");
+            }
         }
-        return Err(());
+        return Err(output.diagnostics);
     }
     match output.typed {
         Some(typed) => Ok(typed),
         None => {
-            eprintln!("Error: type check produced no result for {file}");
-            Err(())
+            if !json {
+                eprintln!("Error: type check produced no result for {file}");
+            }
+            Err(Vec::new())
         }
     }
 }
