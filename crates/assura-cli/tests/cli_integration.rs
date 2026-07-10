@@ -3755,8 +3755,7 @@ fn f(x: i64) -> i32 { x as i32 }
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
     // Should not claim verified body model; BNM or type issues
     assert!(
-        v["body_not_modeled"].as_u64().unwrap_or(0) >= 1
-            || !out.status.success(),
+        v["body_not_modeled"].as_u64().unwrap_or(0) >= 1 || !out.status.success(),
         "narrowing cast must not soft-pass as verified body: {stdout}"
     );
     // specifically no false success with body_not_modeled=0 and verified>0 without model

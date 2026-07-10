@@ -1272,4 +1272,21 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("ir");
         assert!(ir.contains("$result = load $0"), "{ir}");
     }
+
+    #[test]
+    fn true_false_path_body_ir() {
+        let pab = vec![ParamInfo {
+            name: "a".into(),
+            ty: "bool".into(),
+        }];
+        let ir = try_ir_from_rust_body("T", &pab, Some("bool"), "true").expect("true");
+        assert!(ir.contains("const 1"), "{ir}");
+        let ir2 = try_ir_from_rust_body("F", &pab, Some("bool"), "a && false").expect("andf");
+        assert!(ir2.contains("const 0"), "{ir2}");
+    }
+
+    #[test]
+    fn narrowing_cast_returns_none() {
+        assert!(try_ir_from_rust_body("N", &px(), Some("i32"), "x as i32").is_none());
+    }
 }
