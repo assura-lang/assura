@@ -21,7 +21,7 @@
 //! case-sum for bits≤32. Variable BitAnd/Or/Xor: const mask (unsigned/signed
 //! ≤32; signed via bit-pattern map) or both-variable unsigned ≤32. Variable
 //! bitwise `!x` for fixed-width ints ≤32 (`(2^w-1)-u`). Variable is_power_of_two
-//! for fixed-width ints via pot enum (≤63 exponents; identity peels keep bounds).
+//! via pot enum (≤63 exponents; identity peels + nested arith inherit path bounds).
 //! Literal `/0`, `%0`, `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
 //! rem_euclid/div_euclid with positive const (signed Euclidean).
 //!
@@ -754,6 +754,26 @@ fn path_param_bounds(expr: &syn::Expr) -> Option<(i64, i64)> {
         _ => return None,
     };
     PARAM_BOUNDS.with(|c| c.borrow().get(&name).copied())
+}
+
+/// Integer bounds for pot/bit-width: path param, or first path found under
+/// arith/unary so `(x + 1).is_power_of_two()` inherits `x`'s width (#1034 nested).
+fn expr_int_bounds(expr: &syn::Expr) -> Option<(i64, i64)> {
+    if let Some(b) = path_param_bounds(expr) {
+        return Some(b);
+    }
+    match expr {
+        syn::Expr::Paren(p) => expr_int_bounds(&p.expr),
+        syn::Expr::Group(g) => expr_int_bounds(&g.expr),
+        syn::Expr::Reference(r) => expr_int_bounds(&r.expr),
+        syn::Expr::Unary(u) => expr_int_bounds(&u.expr),
+        syn::Expr::Binary(b) => expr_int_bounds(&b.left).or_else(|| expr_int_bounds(&b.right)),
+        syn::Expr::MethodCall(m) if m.args.is_empty() => expr_int_bounds(&m.receiver),
+        syn::Expr::MethodCall(m) if m.args.len() == 1 => {
+            expr_int_bounds(&m.receiver).or_else(|| expr_int_bounds(&m.args[0]))
+        }
+        _ => None,
+    }
 }
 
 /// Literal integer with known bit width from a typed suffix (`8u32` → (8, 32)).
@@ -1687,8 +1707,8 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = cmp eq ${a} ${z} : Bool"));
                     Some(slot)
                 }
-                // Const lit peep, or variable path with param bounds via pot enum
-                // (partial #1034; avoids needing bitwise AND in IR).
+                // Const lit peep, or pot enum over path/nested expr bounds (#1034).
+                // Nested: `(x+1).is_power_of_two()` uses expr_int_bounds(x).
                 ("is_power_of_two", 0) => {
                     if let Some(v) = lit_int_i64(&m.receiver) {
                         let pot = v > 0 && (v as u64).is_power_of_two();
@@ -1700,7 +1720,7 @@ fn encode_syn_expr(
                         ));
                         return Some(slot);
                     }
-                    let (lo, hi) = path_param_bounds(&m.receiver)?;
+                    let (lo, hi) = expr_int_bounds(&m.receiver)?;
                     let n_exp = pot_exponents(lo, hi)?;
                     // Cap IR size: i64 uses 63 OR-chain steps (~300 lines); fine for SMT.
                     if n_exp > 63 {
@@ -2705,7 +2725,11 @@ fn encode_syn_expr(
                 // without a 2^(2w-1) offset that may not fit in i64.
                 // i64 modulus is 2^64: emit as (2^32)*(2^32) (const 2^64 is not i64).
                 ("wrapping_add" | "wrapping_sub" | "wrapping_mul", 1) => {
-                    let (lo, hi) = SAT_BOUNDS.get()?;
+                    // Prefer return-type bounds; fall back to receiver width for nested
+                    // uses like `x.wrapping_add(1).is_power_of_two()` (bool return).
+                    let (lo, hi) = SAT_BOUNDS
+                        .get()
+                        .or_else(|| path_param_bounds(&m.receiver))?;
                     let (_bits, modulus_i64, signed) = wrap_width(lo, hi)?;
                     let use_synthetic_2_64 = modulus_i64.is_none();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -3801,6 +3825,27 @@ fn f(x: i64) -> i64 { let y = &x; *y }
             u32ir.contains("const 2147483648") || u32ir.contains("const 1 : Int"),
             "{u32ir}"
         );
+    }
+
+    #[test]
+    fn nested_is_power_of_two_encodes() {
+        // #1034: nested arith inherits path-param pot width
+        let ir = try_ir_from_rust_body("N", &pu8(), Some("bool"), "(x + 1).is_power_of_two()")
+            .expect("nested pot");
+        assert!(ir.contains("arith add") && ir.contains("cmp eq"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "N").expect("parse");
+        let mul = try_ir_from_rust_body("M", &pu8(), Some("bool"), "(x * 2).is_power_of_two()")
+            .expect("mul pot");
+        assert!(mul.contains("arith mul"), "{mul}");
+        // wrapping_add falls back to receiver width when return is bool
+        let w = try_ir_from_rust_body(
+            "W",
+            &pu8(),
+            Some("bool"),
+            "x.wrapping_add(1).is_power_of_two()",
+        )
+        .expect("wrap pot");
+        assert!(w.contains("arith") && w.contains("cmp eq"), "{w}");
     }
 
     #[test]
