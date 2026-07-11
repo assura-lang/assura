@@ -791,9 +791,9 @@ fn encode_syn_expr(
                     Some(slot)
                 }
                 ("is_negative", 0) => {
-                    // abs(...).is_negative() is always false
+                    // abs/saturating_abs(...).is_negative() is always false
                     if let syn::Expr::MethodCall(inner) = m.receiver.as_ref()
-                        && inner.method == "abs"
+                        && matches!(inner.method.to_string().as_str(), "abs" | "saturating_abs")
                         && inner.args.is_empty()
                     {
                         let slot = *next;
@@ -1500,6 +1500,10 @@ fn f(x: i64) -> i64 {
         let never =
             try_ir_from_rust_body("N", &px(), Some("bool"), "x.abs().is_negative()").expect("neg");
         assert!(never.contains("const 0 : Bool"), "{never}");
+        let sat =
+            try_ir_from_rust_body("S", &px(), Some("bool"), "x.saturating_abs().is_negative()")
+                .expect("satneg");
+        assert!(sat.contains("const 0 : Bool"), "{sat}");
     }
 
     #[test]
