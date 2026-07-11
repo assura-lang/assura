@@ -5510,6 +5510,31 @@ fn m(x: i64) -> bool { x.is_multiple_of(0) }
     assert!(!out.status.success());
 }
 
+/// Wrong pot ensures with clone peel must CE (bounds peel live).
+#[test]
+fn check_rust_pot_clone_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_pot_clone_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == true
+fn p(x: u8) -> bool { x.clone().is_power_of_two() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Nested non-path is_power_of_two stays body_not_modeled (no param bounds).
 #[test]
 fn check_rust_is_power_of_two_nested_bnm() {
