@@ -16,9 +16,9 @@
 //! (i64 modulus is synthetic `(2^32)*(2^32)`). Signed rotate via bit-pattern map.
 //! Signed wrapping_shr via floor div by 2^k. Top-level signed `wrapping_neg`
 //! (multi-block if); nested signed via modular (0-x) mod 2^w + reinterpret.
-//! Variable wrapping_shl/shr case-sum for bits≤64 (i64 uses synthetic modulus;
-//! 2^63 factor is 2^32*2^31). Variable is_power_of_two for fixed-width ints via
-//! pot enum (≤63 exponents; identity peels keep bounds).
+//! Variable wrapping_shl/shr case-sum for bits≤64 (i64 and u64/usize use
+//! synthetic 2^64 modulus; 2^63 factor is 2^32*2^31). Variable is_power_of_two
+//! for fixed-width ints via pot enum (≤63 exponents; identity peels keep bounds).
 //! Literal `/0`, `%0`, `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
 //! rem_euclid/div_euclid with positive const (signed Euclidean).
 //!
@@ -562,6 +562,12 @@ fn lit_int_i64(expr: &syn::Expr) -> Option<i64> {
     }
 }
 
+/// Full-width unsigned 64-bit (`u64`/`usize`): max does not fit in i64.
+/// Sentinel: `(0, -1)` → modulus `2^64` via synthetic `(2^32)*(2^32)`.
+fn is_u64_width_bounds(lo: i64, hi: i64) -> bool {
+    lo == 0 && hi == -1
+}
+
 /// Integer range for a Rust primitive type name, or `None` if unsupported.
 fn rust_int_bounds(ty: &str) -> Option<(i64, i64)> {
     match ty {
@@ -572,10 +578,30 @@ fn rust_int_bounds(ty: &str) -> Option<(i64, i64)> {
         "u8" => Some((0, u8::MAX as i64)),
         "u16" => Some((0, u16::MAX as i64)),
         "u32" => Some((0, u32::MAX as i64)),
-        // u64 max exceeds i64; skip for now
-        "u64" | "usize" => None,
+        // u64 max exceeds i64; use sentinel for synthetic 2^64 (#1160)
+        "u64" | "usize" => Some((0, -1)),
         _ => None,
     }
+}
+
+/// Resolve wrap/shift width: `(bits, Some(modulus)|None for synthetic 2^64, signed)`.
+fn wrap_width(lo: i64, hi: i64) -> Option<(u32, Option<i64>, bool)> {
+    if is_u64_width_bounds(lo, hi) {
+        return Some((64, None, false));
+    }
+    let signed = lo != 0;
+    if signed && lo == i64::MIN && hi == i64::MAX {
+        return Some((64, None, true));
+    }
+    let modulus = if signed {
+        hi.checked_sub(lo).and_then(|d| d.checked_add(1))?
+    } else {
+        hi.checked_add(1)?
+    };
+    if modulus <= 0 || !(modulus as u64).is_power_of_two() {
+        return None;
+    }
+    Some(((modulus as u64).trailing_zeros(), Some(modulus), signed))
 }
 
 /// Emit IR for `2^e` as an Int slot (`e` in 0..=63).
@@ -606,6 +632,10 @@ fn emit_pow2_factor(e: u32, lines: &mut Vec<String>, next: &mut usize) -> Option
 /// Positive power-of-two exponents for a param with known integer bounds.
 /// Unsigned: 0..bits (1..2^(bits-1)). Signed: 0..(bits-1) (1..2^(bits-2)).
 fn pot_exponents(lo: i64, hi: i64) -> Option<u32> {
+    if is_u64_width_bounds(lo, hi) {
+        // pot case-sum over 64 exponents is huge; leave is_power_of_two BNM for u64
+        return None;
+    }
     if lo == 0 {
         // unsigned: hi+1 must be power of two
         let m = (hi as u64).checked_add(1)?;
@@ -924,6 +954,10 @@ fn expr_same_simple_path(a: &syn::Expr, b: &syn::Expr) -> bool {
 /// Clamp `val` slot into SAT_BOUNDS using max/min; returns result slot.
 fn emit_sat_clamp(val: usize, lines: &mut Vec<String>, next: &mut usize) -> Option<usize> {
     let (lo_v, hi_v) = SAT_BOUNDS.get()?;
+    if is_u64_width_bounds(lo_v, hi_v) {
+        // Cannot emit u64::MAX as a single i64 const.
+        return None;
+    }
     let lo = *next;
     *next += 1;
     lines.push(format!("${lo} = const {lo_v} : Int"));
@@ -1953,34 +1987,15 @@ fn encode_syn_expr(
                 {
                     encode_syn_expr(&m.receiver, param_names, lines, next)
                 }
-                // wrapping_shl/shr by const or variable amount (#1010/#1145/#1151).
+                // wrapping_shl/shr by const or variable amount (#1010/#1145/#1151/#1160).
                 // Unsigned: shl (x * 2^k) mod 2^w; shr floor x / 2^k.
                 // Signed: wrapping_shl via mul+double-mod+reinterpret; wrapping_shr
                 // via floor div by 2^k. Variable k: case-sum over k%bits for bits<=64.
+                // u64/usize use synthetic 2^64 (bounds sentinel (0,-1)).
                 ("wrapping_shl" | "wrapping_shr", 1) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
-                    let signed = lo != 0;
-                    let modulus_i64 = if signed {
-                        hi.checked_sub(lo).and_then(|d| d.checked_add(1))
-                    } else {
-                        hi.checked_add(1)
-                    };
-                    let use_synthetic_2_64 = match modulus_i64 {
-                        Some(m) if m > 0 && (m as u64).is_power_of_two() => false,
-                        None if signed && lo == i64::MIN && hi == i64::MAX => true,
-                        _ => return None,
-                    };
-                    let bits = if use_synthetic_2_64 {
-                        64u32
-                    } else {
-                        let modulus = modulus_i64?;
-                        let modulus_u = modulus as u64;
-                        let bits = modulus_u.trailing_zeros();
-                        if bits == 0 || !modulus_u.is_power_of_two() {
-                            return None;
-                        }
-                        bits
-                    };
+                    let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
+                    let use_synthetic_2_64 = modulus_i64.is_none();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     // Const shift amount (fast path)
                     if let Some(k) = lit_int_i64(&m.args[0]) {
@@ -2144,32 +2159,12 @@ fn encode_syn_expr(
                 // Signed: map to unsigned bit pattern, rotate, reinterpret.
                 ("rotate_left" | "rotate_right", 1) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
-                    let signed = lo != 0;
-                    let modulus_i64 = if signed {
-                        hi.checked_sub(lo).and_then(|d| d.checked_add(1))
-                    } else {
-                        hi.checked_add(1)
-                    };
-                    let use_synthetic_2_64 = match modulus_i64 {
-                        Some(m) if m > 0 && (m as u64).is_power_of_two() => false,
-                        None if signed && lo == i64::MIN && hi == i64::MAX => true,
-                        _ => return None,
-                    };
+                    let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
+                    let use_synthetic_2_64 = modulus_i64.is_none();
                     let k = lit_int_i64(&m.args[0])?;
                     if k < 0 {
                         return None;
                     }
-                    let bits = if use_synthetic_2_64 {
-                        64u32
-                    } else {
-                        let modulus = modulus_i64?;
-                        let modulus_u = modulus as u64;
-                        let bits = modulus_u.trailing_zeros();
-                        if bits == 0 || !modulus_u.is_power_of_two() {
-                            return None;
-                        }
-                        bits
-                    };
                     let k_eff = (k as u64) % (bits as u64);
                     if k_eff == 0 {
                         return encode_syn_expr(&m.receiver, param_names, lines, next);
@@ -2260,19 +2255,8 @@ fn encode_syn_expr(
                 // i64 modulus is 2^64: emit as (2^32)*(2^32) (const 2^64 is not i64).
                 ("wrapping_add" | "wrapping_sub" | "wrapping_mul", 1) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
-                    let signed = lo != 0;
-                    // modulus = 2^w as i64 when it fits; else full 64-bit signed only
-                    let modulus_i64 = if signed {
-                        hi.checked_sub(lo).and_then(|d| d.checked_add(1))
-                    } else {
-                        hi.checked_add(1)
-                    };
-                    let use_synthetic_2_64 = match modulus_i64 {
-                        Some(m) if m > 0 && (m as u64).is_power_of_two() => false,
-                        // i64/isize: hi-lo+1 overflows i64 (2^64)
-                        None if signed && lo == i64::MIN && hi == i64::MAX => true,
-                        _ => return None,
-                    };
+                    let (_bits, modulus_i64, signed) = wrap_width(lo, hi)?;
+                    let use_synthetic_2_64 = modulus_i64.is_none();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
                     let raw = *next;
@@ -2332,17 +2316,8 @@ fn encode_syn_expr(
                 // Nested signed works in single-block IR (no top-level expand required).
                 ("wrapping_neg", 0) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
-                    let signed = lo != 0;
-                    let modulus_i64 = if signed {
-                        hi.checked_sub(lo).and_then(|d| d.checked_add(1))
-                    } else {
-                        hi.checked_add(1)
-                    };
-                    let use_synthetic_2_64 = match modulus_i64 {
-                        Some(m) if m > 0 && (m as u64).is_power_of_two() => false,
-                        None if signed && lo == i64::MIN && hi == i64::MAX => true,
-                        _ => return None,
-                    };
+                    let (_bits, modulus_i64, signed) = wrap_width(lo, hi)?;
+                    let use_synthetic_2_64 = modulus_i64.is_none();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let zero = *next;
                     *next += 1;
@@ -3530,6 +3505,49 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let c63 =
             try_ir_from_rust_body("C", &px(), Some("i64"), "x.wrapping_shl(63)").expect("shl63");
         assert!(c63.contains("const 2147483648"), "{c63}");
+    }
+
+    #[test]
+    fn variable_u64_wrapping_shl_encodes() {
+        let p = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "u64".into(),
+            },
+            ParamInfo {
+                name: "n".into(),
+                ty: "u32".into(),
+            },
+        ];
+        let ir = try_ir_from_rust_body("S", &p, Some("u64"), "x.wrapping_shl(n)").expect("u64");
+        assert!(
+            ir.contains("cmp eq") && ir.contains("const 4294967296") && !ir.contains("cmp gt"),
+            "unsigned synthetic, no signed reinterpret: {ir}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
+        let shr = try_ir_from_rust_body("R", &p, Some("u64"), "x.wrapping_shr(n)").expect("shr");
+        assert!(shr.contains("arith div") && shr.contains("cmp eq"), "{shr}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&shr, "R").expect("parse");
+        let c1 =
+            try_ir_from_rust_body("C", &p[..1], Some("u64"), "x.wrapping_shl(1)").expect("const1");
+        assert!(
+            c1.contains("arith mul") && c1.contains("const 4294967296"),
+            "{c1}"
+        );
+        // usize same bounds path
+        let pu = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "usize".into(),
+            },
+            ParamInfo {
+                name: "n".into(),
+                ty: "u32".into(),
+            },
+        ];
+        let us =
+            try_ir_from_rust_body("U", &pu, Some("usize"), "x.wrapping_shl(n)").expect("usize");
+        assert!(us.contains("const 4294967296"), "{us}");
     }
 
     #[test]
