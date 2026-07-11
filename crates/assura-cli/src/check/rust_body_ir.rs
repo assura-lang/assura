@@ -756,6 +756,16 @@ fn path_param_bounds(expr: &syn::Expr) -> Option<(i64, i64)> {
     PARAM_BOUNDS.with(|c| c.borrow().get(&name).copied())
 }
 
+/// Width bounds for wrapping/rotate methods: return type first, else receiver.
+/// Nested chains like `x.wrapping_shl(1).is_power_of_two()` have bool return
+/// (no SAT_BOUNDS) but still need the receiver's fixed width.
+fn wrap_bounds_for(receiver: &syn::Expr) -> Option<(i64, i64)> {
+    SAT_BOUNDS
+        .get()
+        .or_else(|| path_param_bounds(receiver))
+        .or_else(|| expr_int_bounds(receiver))
+}
+
 /// Integer bounds for pot/bit-width: path param, or first path found under
 /// arith/unary so `(x + 1).is_power_of_two()` inherits `x`'s width (#1034 nested).
 fn expr_int_bounds(expr: &syn::Expr) -> Option<(i64, i64)> {
@@ -2438,7 +2448,7 @@ fn encode_syn_expr(
                 // via floor div by 2^k. Variable k: case-sum over k%bits for bits<=64.
                 // u64/usize use synthetic 2^64 (bounds sentinel (0,-1)).
                 ("wrapping_shl" | "wrapping_shr", 1) => {
-                    let (lo, hi) = SAT_BOUNDS.get()?;
+                    let (lo, hi) = wrap_bounds_for(&m.receiver)?;
                     let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
                     let use_synthetic_2_64 = modulus_i64.is_none();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -2604,7 +2614,7 @@ fn encode_syn_expr(
                 // Signed: map to unsigned bit pattern, rotate, reinterpret.
                 // Variable: case-sum over k%bits for bits<=32 (IR size).
                 ("rotate_left" | "rotate_right", 1) => {
-                    let (lo, hi) = SAT_BOUNDS.get()?;
+                    let (lo, hi) = wrap_bounds_for(&m.receiver)?;
                     let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
                     let use_synthetic_2_64 = modulus_i64.is_none();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -2727,9 +2737,7 @@ fn encode_syn_expr(
                 ("wrapping_add" | "wrapping_sub" | "wrapping_mul", 1) => {
                     // Prefer return-type bounds; fall back to receiver width for nested
                     // uses like `x.wrapping_add(1).is_power_of_two()` (bool return).
-                    let (lo, hi) = SAT_BOUNDS
-                        .get()
-                        .or_else(|| path_param_bounds(&m.receiver))?;
+                    let (lo, hi) = wrap_bounds_for(&m.receiver)?;
                     let (_bits, modulus_i64, signed) = wrap_width(lo, hi)?;
                     let use_synthetic_2_64 = modulus_i64.is_none();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -2790,7 +2798,7 @@ fn encode_syn_expr(
                 // wrapping_neg: (0 - x) mod 2^w; signed reinterprets into [lo, hi].
                 // Nested signed works in single-block IR (no top-level expand required).
                 ("wrapping_neg", 0) => {
-                    let (lo, hi) = SAT_BOUNDS.get()?;
+                    let (lo, hi) = wrap_bounds_for(&m.receiver)?;
                     let (_bits, modulus_i64, signed) = wrap_width(lo, hi)?;
                     let use_synthetic_2_64 = modulus_i64.is_none();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -3837,7 +3845,7 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let mul = try_ir_from_rust_body("M", &pu8(), Some("bool"), "(x * 2).is_power_of_two()")
             .expect("mul pot");
         assert!(mul.contains("arith mul"), "{mul}");
-        // wrapping_add falls back to receiver width when return is bool
+        // wrapping_* / rotate fall back to receiver width when return is bool
         let w = try_ir_from_rust_body(
             "W",
             &pu8(),
@@ -3846,6 +3854,22 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         )
         .expect("wrap pot");
         assert!(w.contains("arith") && w.contains("cmp eq"), "{w}");
+        let shl = try_ir_from_rust_body(
+            "Sh",
+            &pu8(),
+            Some("bool"),
+            "x.wrapping_shl(1).is_power_of_two()",
+        )
+        .expect("shl pot");
+        assert!(shl.contains("arith") && shl.contains("cmp eq"), "{shl}");
+        let rot = try_ir_from_rust_body(
+            "Ro",
+            &pu8(),
+            Some("bool"),
+            "x.rotate_left(1).is_power_of_two()",
+        )
+        .expect("rot pot");
+        assert!(rot.contains("arith") && rot.contains("cmp eq"), "{rot}");
     }
 
     #[test]
