@@ -768,10 +768,9 @@ fn encode_syn_expr(
                         lit: syn::Lit::Int(n),
                         ..
                     }) = &m.args[0]
+                        && n.base10_digits() == "0"
                     {
-                        if n.base10_digits() == "0" {
-                            return None;
-                        }
+                        return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
