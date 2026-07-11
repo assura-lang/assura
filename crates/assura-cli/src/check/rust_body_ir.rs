@@ -823,6 +823,19 @@ fn encode_syn_expr(
                     if is_lit_int_zero(&m.args[0]) {
                         return None;
                     }
+                    // is_multiple_of(1) is always true for integers.
+                    if matches!(
+                        &m.args[0],
+                        syn::Expr::Lit(syn::ExprLit {
+                            lit: syn::Lit::Int(n),
+                            ..
+                        }) if n.base10_digits() == "1"
+                    ) {
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const 1 : Bool"));
+                        return Some(slot);
+                    }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
                     let rem = *next;
@@ -1327,6 +1340,9 @@ fn f(x: i64) -> i64 {
         let ok =
             try_ir_from_rust_body("T", &px(), Some("bool"), "x.is_multiple_of(2)").expect("by2");
         assert!(ok.contains("const 2") || ok.contains("arith mod"), "{ok}");
+        let by1 =
+            try_ir_from_rust_body("O", &px(), Some("bool"), "x.is_multiple_of(1)").expect("by1");
+        assert!(by1.contains("const 1 : Bool"), "{by1}");
     }
 
     #[test]
