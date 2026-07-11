@@ -143,7 +143,10 @@ cargo test -p <crate> --locked --lib
 
 `assura check-rust` proves `/// @ensures` against either a co-located
 `{Name}.ir` sidecar or a **encoded** Rust body (int/bool arith, if/else,
-match literals and identity guards, multi-let folds, abs/min/max/clamp/saturating/abs_diff, &&/||, is_multiple_of, into/as, PartialOrd/borrow/deref/pow/default). Bodies
+match literals and identity guards, multi-let folds,
+abs/min/max/clamp/signum/saturating/abs_diff, &&/||, is_multiple_of, into/as,
+PartialOrd/borrow/deref/pow/default). `signum` is nestable in arith (clamp to
+[-1, 1]). Known gaps: `wrapping_*` (#1010), `is_power_of_two` (#1034). Bodies
 that cannot be modeled report `body_not_modeled` and exit **1** (including
 SMT skipped/checked soft passes). Do not treat empty/skipped SMT as proof.
 

@@ -3515,6 +3515,38 @@ fn s(x: i64) -> i64 { x.signum() + 1 }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// signum chains: abs, sum receiver, product with x (#1032 follow-through).
+#[test]
+fn check_rust_encodes_signum_chains() {
+    let tmp = unique_temp("assura_check_rust_signum_chains");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+/// @ensures result <= 1
+fn a(x: i64) -> i64 { x.signum().abs() }
+
+/// @ensures result >= -1
+/// @ensures result <= 1
+fn t(x: i64, y: i64) -> i64 { (x + y).signum() }
+
+/// @ensures result == x || result == -x || result == 0
+fn m(x: i64) -> i64 { x.signum() * x }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Associated i64::max / i64::from encode.
 #[test]
 fn check_rust_encodes_assoc_max_from() {
