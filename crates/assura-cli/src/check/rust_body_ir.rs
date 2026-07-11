@@ -533,6 +533,28 @@ fn is_lit_int_zero(expr: &syn::Expr) -> bool {
     }
 }
 
+/// True for literal `1` or `-1` (after paren/group peels).
+fn is_lit_int_abs_one(expr: &syn::Expr) -> bool {
+    match expr {
+        syn::Expr::Paren(p) => is_lit_int_abs_one(&p.expr),
+        syn::Expr::Group(g) => is_lit_int_abs_one(&g.expr),
+        syn::Expr::Unary(u) if matches!(u.op, syn::UnOp::Neg(_)) => {
+            matches!(
+                u.expr.as_ref(),
+                syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Int(n),
+                    ..
+                }) if n.base10_digits() == "1"
+            )
+        }
+        syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Int(n),
+            ..
+        }) => n.base10_digits() == "1",
+        _ => false,
+    }
+}
+
 /// Same single-segment path after paren/group peels (`x` vs `x`, not `x` vs `y`).
 fn expr_same_simple_path(a: &syn::Expr, b: &syn::Expr) -> bool {
     fn path_name(expr: &syn::Expr) -> Option<String> {
@@ -823,14 +845,8 @@ fn encode_syn_expr(
                     if is_lit_int_zero(&m.args[0]) {
                         return None;
                     }
-                    // is_multiple_of(1) is always true for integers.
-                    if matches!(
-                        &m.args[0],
-                        syn::Expr::Lit(syn::ExprLit {
-                            lit: syn::Lit::Int(n),
-                            ..
-                        }) if n.base10_digits() == "1"
-                    ) {
+                    // is_multiple_of(±1) is always true for integers.
+                    if is_lit_int_abs_one(&m.args[0]) {
                         let slot = *next;
                         *next += 1;
                         lines.push(format!("${slot} = const 1 : Bool"));
@@ -1343,6 +1359,9 @@ fn f(x: i64) -> i64 {
         let by1 =
             try_ir_from_rust_body("O", &px(), Some("bool"), "x.is_multiple_of(1)").expect("by1");
         assert!(by1.contains("const 1 : Bool"), "{by1}");
+        let by_neg1 =
+            try_ir_from_rust_body("N", &px(), Some("bool"), "x.is_multiple_of(-1)").expect("byn1");
+        assert!(by_neg1.contains("const 1 : Bool"), "{by_neg1}");
     }
 
     #[test]
