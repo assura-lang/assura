@@ -1288,6 +1288,24 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = call {method} (${a}, ${b}) : Int"));
                     Some(slot)
                 }
+                // midpoint: floor((a+b)/2); Int SMT is unbounded so no overflow.
+                ("midpoint", 1) => {
+                    if expr_same_simple_path(&m.receiver, &m.args[0]) {
+                        return encode_syn_expr(&m.receiver, param_names, lines, next);
+                    }
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
+                    let sum = *next;
+                    *next += 1;
+                    lines.push(format!("${sum} = arith add ${a} ${b} : Int"));
+                    let two = *next;
+                    *next += 1;
+                    lines.push(format!("${two} = const 2 : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = arith div ${sum} ${two} : Int"));
+                    Some(slot)
+                }
                 // x.clamp(lo, hi) ≡ min(max(x, lo), hi)
                 ("clamp", 2) => {
                     // clamp(x, b, b) ≡ b for any x
@@ -1979,6 +1997,26 @@ fn f(x: i64) -> i64 {
         assert!(try_ir_from_rust_body("N", &px(), Some("i32"), "x as i32").is_none());
         assura_smt::LoadedVerifyExtras::from_ir_text(&into, "I").expect("parse into");
         assura_smt::LoadedVerifyExtras::from_ir_text(&cast, "C").expect("parse cast");
+    }
+
+    #[test]
+    fn midpoint_encodes() {
+        let pxy = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "i64".into(),
+            },
+            ParamInfo {
+                name: "y".into(),
+                ty: "i64".into(),
+            },
+        ];
+        let ir = try_ir_from_rust_body("M", &pxy, Some("i64"), "x.midpoint(y)").expect("mid");
+        assert!(ir.contains("arith add") && ir.contains("arith div"), "{ir}");
+        assert!(ir.contains("const 2"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "M").expect("parse");
+        let same = try_ir_from_rust_body("S", &px(), Some("i64"), "x.midpoint(x)").expect("same");
+        assert!(same.contains("load $0"), "{same}");
     }
 
     #[test]
