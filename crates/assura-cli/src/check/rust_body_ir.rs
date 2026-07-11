@@ -1296,8 +1296,9 @@ fn encode_syn_expr(
                 {
                     encode_syn_expr(&m.receiver, param_names, lines, next)
                 }
-                // Unsigned wrapping_shl by const k: (x * 2^(k%bits)) mod 2^w (#1010 partial).
-                ("wrapping_shl", 1) => {
+                // Unsigned wrapping_shl/shr by const k (#1010 partial).
+                // shl: (x * 2^(k%bits)) mod 2^w; shr: x / 2^(k%bits) (floor, unsigned).
+                ("wrapping_shl" | "wrapping_shr", 1) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
                     if lo != 0 {
                         return None; // signed needs BV
@@ -1325,19 +1326,27 @@ fn encode_syn_expr(
                     let f = *next;
                     *next += 1;
                     lines.push(format!("${f} = const {factor} : Int"));
-                    let raw = *next;
-                    *next += 1;
-                    lines.push(format!("${raw} = arith mul ${a} ${f} : Int"));
-                    let mslot = *next;
-                    *next += 1;
-                    lines.push(format!("${mslot} = const {modulus} : Int"));
-                    let shifted = *next;
-                    *next += 1;
-                    lines.push(format!("${shifted} = arith add ${raw} ${mslot} : Int"));
-                    let slot = *next;
-                    *next += 1;
-                    lines.push(format!("${slot} = arith mod ${shifted} ${mslot} : Int"));
-                    Some(slot)
+                    if method == "wrapping_shl" {
+                        let raw = *next;
+                        *next += 1;
+                        lines.push(format!("${raw} = arith mul ${a} ${f} : Int"));
+                        let mslot = *next;
+                        *next += 1;
+                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        let shifted = *next;
+                        *next += 1;
+                        lines.push(format!("${shifted} = arith add ${raw} ${mslot} : Int"));
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = arith mod ${shifted} ${mslot} : Int"));
+                        Some(slot)
+                    } else {
+                        // floor div for non-negative unsigned values
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = arith div ${a} ${f} : Int"));
+                        Some(slot)
+                    }
                 }
                 // Unsigned wrapping_* via mod 2^w when SAT_BOUNDS starts at 0 (#1010 partial).
                 ("wrapping_add" | "wrapping_sub" | "wrapping_mul", 1) => {
@@ -2183,6 +2192,9 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let id = try_ir_from_rust_body("I", &pu8, Some("u8"), "x.wrapping_shl(8)").expect("shl8");
         assert!(id.contains("load $0"), "{id}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
+        let shr =
+            try_ir_from_rust_body("R", &pu8, Some("u8"), "x.wrapping_shr(1)").expect("shr1");
+        assert!(shr.contains("arith div") && shr.contains("const 2"), "{shr}");
     }
 
     #[test]
