@@ -1421,14 +1421,11 @@ fn encode_syn_expr(
                 }
                 // wrapping_* via mod 2^w (#1010 partial).
                 // Unsigned (lo==0): result in [0, 2^w).
-                // Signed add/sub: same unsigned mod, then reinterpret as two's complement.
-                // Signed mul stays BNM (product range needs larger offset / BV).
+                // Signed: same unsigned mod, then reinterpret as two's complement.
+                // Signed mul only i8/i16 (offset 2^(w-1)*2^w fits i64 const).
                 ("wrapping_add" | "wrapping_sub" | "wrapping_mul", 1) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
                     let signed = lo != 0;
-                    if signed && method == "wrapping_mul" {
-                        return None;
-                    }
                     // modulus = 2^w: unsigned hi+1; signed (hi - lo + 1)
                     let modulus = if signed {
                         hi.checked_sub(lo)?.checked_add(1)?
@@ -1437,6 +1434,15 @@ fn encode_syn_expr(
                     };
                     // i64 modulus overflows i64 as positive 2^64 — skip
                     if modulus <= 0 {
+                        return None;
+                    }
+                    let modulus_u = modulus as u64;
+                    if !modulus_u.is_power_of_two() {
+                        return None;
+                    }
+                    let bits = modulus_u.trailing_zeros();
+                    // signed mul needs offset modulus*(2^(bits-1)); keep const in i64
+                    if signed && method == "wrapping_mul" && bits > 16 {
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -1450,13 +1456,29 @@ fn encode_syn_expr(
                         _ => return None,
                     };
                     lines.push(format!("${raw} = arith {op} ${a} ${b} : Int"));
-                    // Bring into [0, modulus) for possibly-negative results
                     let mslot = *next;
                     *next += 1;
                     lines.push(format!("${mslot} = const {modulus} : Int"));
-                    let shifted = *next;
-                    *next += 1;
-                    lines.push(format!("${shifted} = arith add ${raw} ${mslot} : Int"));
+                    // Offset so raw+offset ≥ 0 before mod. add/sub: +modulus enough;
+                    // mul signed: +modulus*(2^(bits-1)).
+                    let shifted = if signed && method == "wrapping_mul" {
+                        let half = 1i64 << (bits - 1);
+                        let off = *next;
+                        *next += 1;
+                        lines.push(format!("${off} = const {half} : Int"));
+                        let big = *next;
+                        *next += 1;
+                        lines.push(format!("${big} = arith mul ${mslot} ${off} : Int"));
+                        let s = *next;
+                        *next += 1;
+                        lines.push(format!("${s} = arith add ${raw} ${big} : Int"));
+                        s
+                    } else {
+                        let s = *next;
+                        *next += 1;
+                        lines.push(format!("${s} = arith add ${raw} ${mslot} : Int"));
+                        s
+                    };
                     let u = *next;
                     *next += 1;
                     lines.push(format!("${u} = arith mod ${shifted} ${mslot} : Int"));
@@ -2150,8 +2172,18 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         assert!(ir.contains("arith mod") && ir.contains("const 256"), "{ir}");
         assert!(ir.contains("cmp gt"), "signed reinterpret: {ir}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "W").expect("parse");
-        // signed mul still BNM
-        assert!(try_ir_from_rust_body("M", &pi8, Some("i8"), "x.wrapping_mul(2)").is_none());
+        let mul =
+            try_ir_from_rust_body("M", &pi8, Some("i8"), "x.wrapping_mul(2)").expect("i8 mul");
+        assert!(
+            mul.contains("arith mul") && mul.contains("arith mod"),
+            "{mul}"
+        );
+        // i32 signed mul still BNM (offset too large for i64 const path)
+        let pi32 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "i32".into(),
+        }];
+        assert!(try_ir_from_rust_body("M32", &pi32, Some("i32"), "x.wrapping_mul(2)").is_none());
     }
 
     #[test]

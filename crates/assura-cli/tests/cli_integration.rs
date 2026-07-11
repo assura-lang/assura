@@ -4400,6 +4400,10 @@ fn w(x: i8) -> i8 { x.wrapping_add(1) }
 /// @ensures result >= -128
 /// @ensures result <= 127
 fn s(x: i8) -> i8 { x.wrapping_sub(1) }
+
+/// @ensures result >= -128
+/// @ensures result <= 127
+fn m(x: i8) -> i8 { x.wrapping_mul(2) }
 "#,
     )
     .unwrap();
