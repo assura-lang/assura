@@ -4702,7 +4702,6 @@ fn nmo(x: u8) -> u8 { 10u8.next_multiple_of(4) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
-
 /// midpoint encodes as floor((a+b)/2).
 #[test]
 fn check_rust_encodes_midpoint() {
