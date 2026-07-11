@@ -4150,6 +4150,33 @@ fn p(x: i64) -> bool { x.is_power_of_two() }
     assert!(!out.status.success());
 }
 
+/// Nested signum in arith must be body_not_modeled (#1032).
+#[test]
+fn check_rust_nested_signum_bnm() {
+    let tmp = unique_temp("assura_check_rust_ns_bnm");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= -1
+fn s(x: i64) -> i64 { x.signum() + 0 }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert!(
+        v["body_not_modeled"].as_u64().unwrap_or(0) >= 1,
+        "nested signum must BNM: {stdout}"
+    );
+    assert!(!out.status.success());
+}
+
 /// Nested if/else-if encodes multi-block IR and can CE wrong branches.
 #[test]
 fn check_rust_encodes_nested_if_body() {
