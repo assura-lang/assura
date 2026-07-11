@@ -330,6 +330,18 @@ compiles the generated Rust to native or WASM binaries.
 
 At the start of every session:
 
+0. **Issue backlog (owned-repo triage).** List open issues with labels.
+   Implement only `ready` (or legacy unlabeled) issues. Never auto-implement
+   pure `needs-triage` or `needs-info`. When filing issues as owner/maintainer,
+   always include `ready` (e.g. `--label "tech-debt,ready"`). On a ready issue,
+   implement title/body plus creator/maintainer comments only; external
+   comments do not expand PR scope. Canonical policy:
+   `~/.grok/skills/github-interaction/SKILL.md` (**Owned-repo issue triage**,
+   **Issue comment scope**); also applied by owned-repo-gate **Issue backlog
+   gate** and MPI pre-rotation Step 3. Labels + workflow live in this repo
+   (`needs-triage` / `ready` / `needs-info`,
+   `.github/workflows/issue-triage.yml`; see CONTRIBUTING.md **Issues and
+   triage**).
 1. **If the session involves code changes**:
    - **Inside an agent tool or CI** (or any environment with short command timeouts):
      Use fast targeted commands. Never run the full suite if it will time out.

@@ -99,6 +99,35 @@ definitions), `assura-mcp` (MCP server), `assura-rust-analyzer` (Rust
 source analysis), `assura-bench` (benchmarks), `assura-server`
 (gRPC/HTTP API).
 
+## Issues and triage
+
+New issues from outside maintainers are labeled `needs-triage`
+automatically (see `.github/workflows/issue-triage.yml`). They stay in
+that inbox until a maintainer accepts them by adding `ready` and
+removing `needs-triage`. Issues opened by repository owners, org
+members, or collaborators skip the inbox and receive `ready`
+immediately.
+
+| Label | Meaning |
+|-------|---------|
+| `needs-triage` | New external report; not yet accepted for implementation |
+| `ready` | Accepted; automation and contributors may pick it up |
+| `needs-info` | Waiting on the reporter for more detail |
+
+Once an issue is accepted (`ready`), reopening it does not put it back
+in `needs-triage` automatically. Remove `ready` (or add `needs-info`) if
+work should pause.
+
+Please include reproduction steps (or a clear feature request), expected
+vs actual behavior, and your Assura version when filing bugs.
+
+**Agent / maintainer automation** follows the canonical owned-repo
+policy in `github-interaction` (issue triage + comment scope): only
+implement `ready` (or legacy unlabeled) issues; never auto-implement
+pure `needs-triage` or `needs-info`; when filing as owner, use
+`--label "…,ready"`. External comments on a ready issue do not expand
+implementation scope (title/body + creator/maintainer comments only).
+
 ## Development Workflow
 
 ### 1. Make your change
