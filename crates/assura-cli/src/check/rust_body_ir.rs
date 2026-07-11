@@ -6,11 +6,12 @@
 //! `not`), `default` and integer MIN/MAX, small `pow`, multi-let (incl. ref/cast folds),
 //! if/match (incl. guards), and Bool comparisons. Body text via `syn` (co-publish-safe).
 //!
-//! Peeps (always-true identities): wrapping `+0`/`-0`/`*1`/`*0`/`sub(x,x)`;
-//! `is_multiple_of(±1)`; same-path `abs_diff`/`min`/`max`/`clamp(_,y,y)`;
-//! `abs`/`saturating_abs().is_negative()` → false. Top-level `wrapping_neg`
-//! (multi-block if). General wrapping needs BV (#1010). BNM: is_power_of_two
-//! (#1034); literal `/0`, `%0`, `is_multiple_of(0)`. `signum` nestable clamp (#1032).
+//! Peeps: wrapping `+0`/`-0`/`*1`/`*0`/`sub(x,x)`; `is_multiple_of(±1)`;
+//! same-path `abs_diff`/`min`/`max`/`clamp(_,y,y)`; `abs`/`saturating_abs`
+//! `.is_negative()` → false; const `is_power_of_two` (partial #1034). Top-level
+//! `wrapping_neg` (multi-block if). General wrapping/BV (#1010) and variable
+//! is_power_of_two remain BNM. Literal `/0`, `%0`, `is_multiple_of(0)` BNM.
+//! `signum` nestable clamp (#1032).
 //!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
 //! `eval_ir_block` clones parent slots into each block; reusing `$1`/`$2` for
@@ -534,6 +535,23 @@ fn is_lit_int_zero(expr: &syn::Expr) -> bool {
     }
 }
 
+/// Integer value of a literal (optionally negated), after paren/group peels.
+fn lit_int_i64(expr: &syn::Expr) -> Option<i64> {
+    match expr {
+        syn::Expr::Paren(p) => lit_int_i64(&p.expr),
+        syn::Expr::Group(g) => lit_int_i64(&g.expr),
+        syn::Expr::Unary(u) if matches!(u.op, syn::UnOp::Neg(_)) => {
+            let v = lit_int_i64(&u.expr)?;
+            v.checked_neg()
+        }
+        syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Int(n),
+            ..
+        }) => n.base10_parse().ok(),
+        _ => None,
+    }
+}
+
 /// True for literal `1` or `-1` (after paren/group peels).
 fn is_lit_int_abs_one(expr: &syn::Expr) -> bool {
     match expr {
@@ -841,6 +859,18 @@ fn encode_syn_expr(
                     let slot = *next;
                     *next += 1;
                     lines.push(format!("${slot} = cmp eq ${a} ${z} : Bool"));
+                    Some(slot)
+                }
+                // Const receivers only (partial #1034); general needs bitops.
+                ("is_power_of_two", 0) => {
+                    let v = lit_int_i64(&m.receiver)?;
+                    let pot = v > 0 && (v as u64).is_power_of_two();
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!(
+                        "${slot} = const {} : Bool",
+                        if pot { 1 } else { 0 }
+                    ));
                     Some(slot)
                 }
                 ("default", 0) => {
@@ -1693,8 +1723,17 @@ fn f(x: i64) -> i64 { let y = &x; *y }
 
     #[test]
     fn is_power_of_two_stays_unencoded() {
-        // #1034: needs bitops
+        // #1034: general needs bitops; const receivers peep
         assert!(try_ir_from_rust_body("P", &px(), Some("bool"), "x.is_power_of_two()").is_none());
+        let t = try_ir_from_rust_body("T", &px(), Some("bool"), "8i64.is_power_of_two()")
+            .expect("8 pot");
+        assert!(t.contains("const 1 : Bool"), "{t}");
+        let f = try_ir_from_rust_body("F", &px(), Some("bool"), "3i64.is_power_of_two()")
+            .expect("3 not");
+        assert!(f.contains("const 0 : Bool"), "{f}");
+        let z = try_ir_from_rust_body("Z", &px(), Some("bool"), "0i64.is_power_of_two()")
+            .expect("0 not");
+        assert!(z.contains("const 0 : Bool"), "{z}");
     }
 
     #[test]
