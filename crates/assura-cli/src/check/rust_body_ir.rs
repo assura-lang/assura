@@ -1163,6 +1163,33 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = const {pot} : Int"));
                     Some(slot)
                 }
+                // Typed wrapping_next_power_of_two (overflow wraps to 0).
+                // Manual: stable API; unstable wrapping_next_power_of_two not used.
+                ("wrapping_next_power_of_two", 0) => {
+                    let (v, bits) = lit_int_i64_bits(&m.receiver)?;
+                    if v < 0 {
+                        return None;
+                    }
+                    let vu = v as u64;
+                    let pot = if vu == 0 {
+                        1u64
+                    } else {
+                        let n = vu.next_power_of_two();
+                        // If next power does not fit in `bits`, wrap to 0.
+                        if bits < 64 && n >= (1u64 << bits) {
+                            0
+                        } else if bits == 64 && n < vu {
+                            // u64 overflow wraps to 0
+                            0
+                        } else {
+                            n
+                        }
+                    };
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const {pot} : Int"));
+                    Some(slot)
+                }
                 // Non-neg lit integer square root.
                 ("isqrt", 0) => {
                     let v = lit_int_i64(&m.receiver)?;
@@ -2581,6 +2608,15 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let z1 = try_ir_from_rust_body("Z1", &px(), Some("u32"), "0u32.next_power_of_two()")
             .expect("0np");
         assert!(z1.contains("const 1 : Int"), "{z1}");
+        // 200u8 wraps (256 would overflow u8)
+        let wnp = try_ir_from_rust_body(
+            "Wnp",
+            &px(),
+            Some("u8"),
+            "200u8.wrapping_next_power_of_two()",
+        )
+        .expect("wnp");
+        assert!(wnp.contains("const 0 : Int"), "{wnp}");
         let sq = try_ir_from_rust_body("Sq", &px(), Some("u32"), "10u32.isqrt()").expect("isqrt");
         assert!(sq.contains("const 3 : Int"), "{sq}");
         assert!(try_ir_from_rust_body("Neg", &px(), Some("i64"), "(-1i64).isqrt()").is_none());
