@@ -1217,6 +1217,23 @@ fn f(x: i64) -> i64 {
     }
 
     #[test]
+    fn saturating_add_body_ir() {
+        let pxy = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "i64".into(),
+            },
+            ParamInfo {
+                name: "y".into(),
+                ty: "i64".into(),
+            },
+        ];
+        let ir = try_ir_from_rust_body("S", &pxy, Some("i64"), "x.saturating_add(y)").expect("sat");
+        assert!(ir.contains("arith add") && ir.contains("call max"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
+    }
+
+    #[test]
     fn copied_cloned_identity_body_ir() {
         let ir = try_ir_from_rust_body("C", &px(), Some("i64"), "x.copied()").expect("copied");
         assert!(ir.contains("$result = load $0"), "{ir}");
