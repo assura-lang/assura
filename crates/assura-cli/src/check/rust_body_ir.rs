@@ -1436,21 +1436,74 @@ fn encode_syn_expr(
                     encode_unsigned_reverse_bits(a, bits, lines, next)
                 }
                 ("swap_bytes", 0) => {
-                    let (v, bits) = lit_int_i64_bits(&m.receiver)?;
-                    if v < 0 {
+                    if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
+                        if v < 0 {
+                            return None;
+                        }
+                        let sw = match bits {
+                            8 => v, // no-op
+                            16 => (v as u16).swap_bytes() as i64,
+                            32 => (v as u32).swap_bytes() as i64,
+                            64 => (v as u64).swap_bytes() as i64,
+                            _ => return None,
+                        };
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const {sw} : Int"));
+                        return Some(slot);
+                    }
+                    // Unsigned path params: reverse byte order (≤32 bits).
+                    let (lo, hi) = path_param_bounds(&m.receiver)?;
+                    if lo != 0 {
                         return None;
                     }
-                    let sw = match bits {
-                        8 => v, // no-op
-                        16 => (v as u16).swap_bytes() as i64,
-                        32 => (v as u32).swap_bytes() as i64,
-                        64 => (v as u64).swap_bytes() as i64,
-                        _ => return None,
-                    };
-                    let slot = *next;
+                    let modulus = hi.checked_add(1)?;
+                    let modulus_u = modulus as u64;
+                    if !modulus_u.is_power_of_two() {
+                        return None;
+                    }
+                    let bits = modulus_u.trailing_zeros();
+                    if bits == 0 || bits > 32 || !bits.is_multiple_of(8) {
+                        return None;
+                    }
+                    let nbytes = bits / 8;
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    if nbytes == 1 {
+                        return Some(a); // u8 identity
+                    }
+                    let b256 = *next;
                     *next += 1;
-                    lines.push(format!("${slot} = const {sw} : Int"));
-                    Some(slot)
+                    lines.push(format!("${b256} = const 256 : Int"));
+                    let zero = *next;
+                    *next += 1;
+                    lines.push(format!("${zero} = const 0 : Int"));
+                    let mut acc = zero;
+                    for i in 0..nbytes {
+                        // byte_i = (a / 256^i) % 256
+                        let mut div = a;
+                        for _ in 0..i {
+                            let d = *next;
+                            *next += 1;
+                            lines.push(format!("${d} = arith div ${div} ${b256} : Int"));
+                            div = d;
+                        }
+                        let byte = *next;
+                        *next += 1;
+                        lines.push(format!("${byte} = arith mod ${div} ${b256} : Int"));
+                        // place at 256^(nbytes-1-i)
+                        let mut placed = byte;
+                        for _ in 0..(nbytes - 1 - i) {
+                            let m = *next;
+                            *next += 1;
+                            lines.push(format!("${m} = arith mul ${placed} ${b256} : Int"));
+                            placed = m;
+                        }
+                        let sum = *next;
+                        *next += 1;
+                        lines.push(format!("${sum} = arith add ${acc} ${placed} : Int"));
+                        acc = sum;
+                    }
+                    Some(acc)
                 }
                 // Positive lit only (ilog2(0) panics in Rust).
                 ("ilog2", 0) => {
@@ -3114,6 +3167,23 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let ir = try_ir_from_rust_body("R", &pu8, Some("u8"), "x.reverse_bits()").expect("rev");
         assert!(ir.contains("arith mul") && ir.contains("arith mod"), "{ir}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "R").expect("parse");
+    }
+
+    #[test]
+    fn variable_u16_swap_bytes_encodes() {
+        let pu16 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "u16".into(),
+        }];
+        let ir = try_ir_from_rust_body("S", &pu16, Some("u16"), "x.swap_bytes()").expect("sw");
+        assert!(ir.contains("const 256") && ir.contains("arith mod"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
+        let pu8 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "u8".into(),
+        }];
+        let id = try_ir_from_rust_body("I", &pu8, Some("u8"), "x.swap_bytes()").expect("u8 id");
+        assert!(id.contains("load $0"), "{id}");
     }
 
     #[test]

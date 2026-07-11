@@ -5596,6 +5596,35 @@ fn r(x: u8) -> u8 { x.reverse_bits() }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Unsigned path-param swap_bytes encodes via byte reverse.
+#[test]
+fn check_rust_encodes_u16_swap_bytes() {
+    let tmp = unique_temp("assura_check_rust_sw");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+/// @ensures result <= 65535
+fn s(x: u16) -> u16 { x.swap_bytes() }
+
+/// @ensures result >= 0
+/// @ensures result <= 255
+fn u(x: u8) -> u8 { x.swap_bytes() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Wrong reverse_bits ensures must CE.
 #[test]
 fn check_rust_u8_reverse_bits_wrong_ce() {
