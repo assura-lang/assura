@@ -7,6 +7,30 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+/// Const bitwise NOT for typed lit.
+#[test]
+fn check_rust_encodes_const_bitnot() {
+    let tmp = unique_temp("assura_check_rust_bitnot");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 250
+fn n(x: u8) -> u8 { !5u8 }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Path to the `assura` binary, guaranteed to exist by Cargo.
 fn assura_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_assura"))
