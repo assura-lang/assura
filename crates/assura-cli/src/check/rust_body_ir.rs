@@ -1286,6 +1286,43 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = arith div ${a} ${b} : Int"));
                     Some(slot)
                 }
+                // next_multiple_of for non-neg + positive const: div_ceil(a,m)*m.
+                ("next_multiple_of", 1) => {
+                    let m_val = lit_int_i64(&m.args[0])?;
+                    if m_val <= 0 {
+                        return None;
+                    }
+                    let nonneg = if let Some(v) = lit_int_i64(&m.receiver) {
+                        v >= 0
+                    } else if let Some((lo, _)) = path_param_bounds(&m.receiver) {
+                        lo >= 0
+                    } else {
+                        false
+                    };
+                    if !nonneg {
+                        return None;
+                    }
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let mv = *next;
+                    *next += 1;
+                    lines.push(format!("${mv} = const {m_val} : Int"));
+                    let one = *next;
+                    *next += 1;
+                    lines.push(format!("${one} = const 1 : Int"));
+                    let mm1 = *next;
+                    *next += 1;
+                    lines.push(format!("${mm1} = arith sub ${mv} ${one} : Int"));
+                    let sum = *next;
+                    *next += 1;
+                    lines.push(format!("${sum} = arith add ${a} ${mm1} : Int"));
+                    let q = *next;
+                    *next += 1;
+                    lines.push(format!("${q} = arith div ${sum} ${mv} : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = arith mul ${q} ${mv} : Int"));
+                    Some(slot)
+                }
                 ("pow", 1) => {
                     let syn::Expr::Lit(syn::ExprLit {
                         lit: syn::Lit::Int(n),
@@ -2060,6 +2097,13 @@ fn f(x: i64) -> i64 {
         let de =
             try_ir_from_rust_body("De", &pu8, Some("u8"), "x.div_euclid(3)").expect("div_euclid");
         assert!(de.contains("arith div") && de.contains("const 3"), "{de}");
+        let nmo =
+            try_ir_from_rust_body("N", &pu8, Some("u8"), "x.next_multiple_of(4)").expect("nmo");
+        assert!(
+            nmo.contains("arith mul") && nmo.contains("arith div"),
+            "{nmo}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&nmo, "N").expect("parse");
     }
 
     #[test]

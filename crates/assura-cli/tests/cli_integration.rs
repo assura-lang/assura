@@ -4630,6 +4630,9 @@ fn r(x: u8) -> u8 { x.rem_euclid(3) }
 /// @ensures result >= 0
 /// @ensures result <= 255
 fn de(x: u8) -> u8 { x.div_euclid(3) }
+
+/// @ensures result == 12
+fn nmo(x: u8) -> u8 { 10u8.next_multiple_of(4) }
 "#,
     )
     .unwrap();
