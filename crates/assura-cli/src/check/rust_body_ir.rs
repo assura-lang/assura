@@ -12,7 +12,8 @@
 //! `count_ones` / `trailing_zeros` / typed `leading_zeros` (partial #1034).
 //! Unsigned wrapping_* via mod 2^w (#1010 partial). Signed wrapping_add needs BV.
 //! Top-level signed `wrapping_neg` (multi-block if). Variable is_power_of_two
-//! and signed wrap remain BNM. Literal `/0`, `%0`, `is_multiple_of(0)` BNM.
+//! for u8/u16/u32/i8/i16/i32 via pot enum (≤32); i64 pot and signed wrap BNM.
+//! Literal `/0`, `%0`, `is_multiple_of(0)` BNM.
 //! `signum` nestable clamp (#1032).
 //!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
@@ -22,11 +23,14 @@
 //! monotonically increase (see shared `next` in `emit_value_blocks`).
 
 use assura_rust_analyzer::ParamInfo;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 
 thread_local! {
     /// Saturating op bounds for the current encode (set from return type).
     static SAT_BOUNDS: Cell<Option<(i64, i64)>> = const { Cell::new(None) };
+    /// Param name → integer bounds (for methods that need width, e.g. is_power_of_two).
+    static PARAM_BOUNDS: RefCell<HashMap<String, (i64, i64)>> = RefCell::new(HashMap::new());
 }
 
 use quote::ToTokens;
@@ -180,19 +184,16 @@ pub(crate) fn try_ir_from_rust_body(
     if !matches!(ret_assura.as_str(), "Int" | "Nat" | "Bool") {
         return None;
     }
-    let sat = match return_ty.map(str::trim) {
-        Some("i8") => Some((i8::MIN as i64, i8::MAX as i64)),
-        Some("i16") => Some((i16::MIN as i64, i16::MAX as i64)),
-        Some("i32") => Some((i32::MIN as i64, i32::MAX as i64)),
-        Some("i64") | Some("isize") => Some((i64::MIN, i64::MAX)),
-        Some("u8") => Some((0, u8::MAX as i64)),
-        Some("u16") => Some((0, u16::MAX as i64)),
-        Some("u32") => Some((0, u32::MAX as i64)),
-        // u64 max exceeds i64; clamp encode uses i64 consts — skip for now
-        Some("u64") | Some("usize") => None,
-        _ => None,
-    };
+    let sat = rust_int_bounds(return_ty.map(str::trim).unwrap_or(""));
     SAT_BOUNDS.set(sat);
+
+    let mut pbounds: HashMap<String, (i64, i64)> = HashMap::new();
+    for p in params.iter().filter(|p| p.name != "self") {
+        if let Some(b) = rust_int_bounds(p.ty.trim()) {
+            pbounds.insert(p.name.clone(), b);
+        }
+    }
+    PARAM_BOUNDS.with(|c| *c.borrow_mut() = pbounds);
 
     let param_names: Vec<&str> = params
         .iter()
@@ -554,6 +555,56 @@ fn lit_int_i64(expr: &syn::Expr) -> Option<i64> {
     }
 }
 
+/// Integer range for a Rust primitive type name, or `None` if unsupported.
+fn rust_int_bounds(ty: &str) -> Option<(i64, i64)> {
+    match ty {
+        "i8" => Some((i8::MIN as i64, i8::MAX as i64)),
+        "i16" => Some((i16::MIN as i64, i16::MAX as i64)),
+        "i32" => Some((i32::MIN as i64, i32::MAX as i64)),
+        "i64" | "isize" => Some((i64::MIN, i64::MAX)),
+        "u8" => Some((0, u8::MAX as i64)),
+        "u16" => Some((0, u16::MAX as i64)),
+        "u32" => Some((0, u32::MAX as i64)),
+        // u64 max exceeds i64; skip for now
+        "u64" | "usize" => None,
+        _ => None,
+    }
+}
+
+/// Positive power-of-two exponents for a param with known integer bounds.
+/// Unsigned: 0..bits (1..2^(bits-1)). Signed: 0..(bits-1) (1..2^(bits-2)).
+fn pot_exponents(lo: i64, hi: i64) -> Option<u32> {
+    if lo == 0 {
+        // unsigned: hi+1 must be power of two
+        let m = (hi as u64).checked_add(1)?;
+        if !m.is_power_of_two() {
+            return None;
+        }
+        Some(m.trailing_zeros())
+    } else if lo < 0 && hi > 0 {
+        // signed two's complement: hi == 2^(n-1)-1
+        let half = (hi as u64).checked_add(1)?;
+        if !half.is_power_of_two() {
+            return None;
+        }
+        // positive pots: 1 << e for e in 0..(bits-1)
+        Some(half.trailing_zeros())
+    } else {
+        None
+    }
+}
+
+/// Bounds for a simple path param (`x`), if registered.
+fn path_param_bounds(expr: &syn::Expr) -> Option<(i64, i64)> {
+    let name = match expr {
+        syn::Expr::Paren(p) => return path_param_bounds(&p.expr),
+        syn::Expr::Group(g) => return path_param_bounds(&g.expr),
+        syn::Expr::Path(p) if p.path.segments.len() == 1 => p.path.segments[0].ident.to_string(),
+        _ => return None,
+    };
+    PARAM_BOUNDS.with(|c| c.borrow().get(&name).copied())
+}
+
 /// Literal integer with known bit width from a typed suffix (`8u32` → (8, 32)).
 /// Bare unsuffixed lits return `None` (leading_zeros needs a width).
 fn lit_int_i64_bits(expr: &syn::Expr) -> Option<(i64, u32)> {
@@ -891,17 +942,52 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = cmp eq ${a} ${z} : Bool"));
                     Some(slot)
                 }
-                // Const receivers only (partial #1034); general needs bitops.
+                // Const lit peep, or variable path with param bounds via pot enum
+                // (partial #1034; avoids needing bitwise AND in IR).
                 ("is_power_of_two", 0) => {
-                    let v = lit_int_i64(&m.receiver)?;
-                    let pot = v > 0 && (v as u64).is_power_of_two();
-                    let slot = *next;
-                    *next += 1;
-                    lines.push(format!(
-                        "${slot} = const {} : Bool",
-                        if pot { 1 } else { 0 }
-                    ));
-                    Some(slot)
+                    if let Some(v) = lit_int_i64(&m.receiver) {
+                        let pot = v > 0 && (v as u64).is_power_of_two();
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!(
+                            "${slot} = const {} : Bool",
+                            if pot { 1 } else { 0 }
+                        ));
+                        return Some(slot);
+                    }
+                    let (lo, hi) = path_param_bounds(&m.receiver)?;
+                    let n_exp = pot_exponents(lo, hi)?;
+                    // Cap IR size: i64 would emit ~63 OR chain steps (~300 lines).
+                    if n_exp > 32 {
+                        return None;
+                    }
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let mut acc: Option<usize> = None;
+                    for e in 0..n_exp {
+                        let pot = 1i64 << e;
+                        let c = *next;
+                        *next += 1;
+                        lines.push(format!("${c} = const {pot} : Int"));
+                        let eq = *next;
+                        *next += 1;
+                        lines.push(format!("${eq} = cmp eq ${a} ${c} : Bool"));
+                        acc = Some(match acc {
+                            None => eq,
+                            Some(prev) => {
+                                let sum = *next;
+                                *next += 1;
+                                lines.push(format!("${sum} = arith add ${prev} ${eq} : Bool"));
+                                let zero = *next;
+                                *next += 1;
+                                lines.push(format!("${zero} = const 0 : Bool"));
+                                let or_s = *next;
+                                *next += 1;
+                                lines.push(format!("${or_s} = cmp ne ${sum} ${zero} : Bool"));
+                                or_s
+                            }
+                        });
+                    }
+                    acc
                 }
                 // Non-negative lit only (two's-complement needs bit width).
                 ("count_ones", 0) => {
@@ -1294,17 +1380,25 @@ pub(crate) fn function_params_return(
 mod tests {
     use super::*;
     use assura_rust_analyzer::ParamInfo;
-    use std::cell::Cell;
-
-    thread_local! {
-        /// Saturating op bounds for the current encode (set from return type).
-        static SAT_BOUNDS: Cell<Option<(i64, i64)>> = const { Cell::new(None) };
-    }
 
     fn px() -> Vec<ParamInfo> {
         vec![ParamInfo {
             name: "x".into(),
             ty: "i64".into(),
+        }]
+    }
+
+    fn pu8() -> Vec<ParamInfo> {
+        vec![ParamInfo {
+            name: "x".into(),
+            ty: "u8".into(),
+        }]
+    }
+
+    fn pu32() -> Vec<ParamInfo> {
+        vec![ParamInfo {
+            name: "x".into(),
+            ty: "u32".into(),
         }]
     }
 
@@ -1879,7 +1973,7 @@ fn f(x: i64) -> i64 { let y = &x; *y }
 
     #[test]
     fn is_power_of_two_stays_unencoded() {
-        // #1034: general needs bitops; const receivers peep
+        // i64 variable: >32 pot exponents → BNM; const lit still peeps
         assert!(try_ir_from_rust_body("P", &px(), Some("bool"), "x.is_power_of_two()").is_none());
         let t = try_ir_from_rust_body("T", &px(), Some("bool"), "8i64.is_power_of_two()")
             .expect("8 pot");
@@ -1890,6 +1984,25 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let z = try_ir_from_rust_body("Z", &px(), Some("bool"), "0i64.is_power_of_two()")
             .expect("0 not");
         assert!(z.contains("const 0 : Bool"), "{z}");
+    }
+
+    #[test]
+    fn variable_u8_is_power_of_two_encodes() {
+        // #1034: u8/u32 path params enumerate 1,2,4,... via OR chain
+        let ir = try_ir_from_rust_body("P", &pu8(), Some("bool"), "x.is_power_of_two()")
+            .expect("u8 pot");
+        assert!(ir.contains("cmp eq"), "{ir}");
+        assert!(
+            ir.contains("const 1 : Int") && ir.contains("const 128 : Int"),
+            "{ir}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "P").expect("parse");
+        let u32ir = try_ir_from_rust_body("Q", &pu32(), Some("bool"), "x.is_power_of_two()")
+            .expect("u32 pot");
+        assert!(
+            u32ir.contains("const 2147483648") || u32ir.contains("const 1 : Int"),
+            "{u32ir}"
+        );
     }
 
     #[test]
