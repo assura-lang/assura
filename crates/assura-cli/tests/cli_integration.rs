@@ -4640,6 +4640,34 @@ fn m(x: i32) -> i32 { x.wrapping_mul(2) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Wrong i64 wrapping_mul ensures must CE (synthetic 2^64 modulus live).
+#[test]
+fn check_rust_i64_wrapping_mul_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_i64_mul_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x * 2
+fn m(x: i64) -> i64 { x.wrapping_mul(2) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !out.status.success(),
+        "must CE on i64 overflow mul: {stdout}"
+    );
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// u16/u32 wrapping_add encode via mod 2^w (#1010 partial).
 #[test]
 fn check_rust_encodes_u16_u32_wrapping_add() {
@@ -5206,6 +5234,7 @@ fn p(x: i64) -> bool { (x + 1).is_power_of_two() }
 }
 
 /// u8/u32/i64 is_power_of_two encodes via pot enum (partial #1034).
+/// Identity peels keep path-param bounds (clone/into).
 #[test]
 fn check_rust_encodes_u8_is_power_of_two() {
     let tmp = unique_temp("assura_check_rust_pot_u8");
@@ -5222,6 +5251,12 @@ fn q(x: u32) -> bool { x.is_power_of_two() }
 
 /// @ensures result == true || result == false
 fn r(x: i64) -> bool { x.is_power_of_two() }
+
+/// @ensures result == true || result == false
+fn c(x: i64) -> bool { x.clone().is_power_of_two() }
+
+/// @ensures result == true || result == false
+fn i(x: i64) -> bool { x.into().is_power_of_two() }
 "#,
     )
     .unwrap();
