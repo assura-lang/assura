@@ -18,10 +18,14 @@
 //! (multi-block if); nested signed via modular (0-x) mod 2^w + reinterpret.
 //! Variable wrapping_shl/shr case-sum for bits≤64 (i64 and u64/usize use
 //! synthetic 2^64 modulus; 2^63 factor is 2^32*2^31). Variable rotate_left/right
-//! case-sum for bits≤32. Variable BitAnd/Or/Xor: const mask (unsigned/signed
-//! ≤32; signed via bit-pattern map) or both-variable unsigned ≤32. Variable
-//! bitwise `!x` for fixed-width ints ≤32 (`(2^w-1)-u`). Variable is_power_of_two
-//! via pot enum (≤63 exponents; identity peels + nested arith inherit path bounds).
+//! case-sum for bits≤64 (same budget as wrapping_shl/shr). Variable BitAnd/Or/Xor:
+//! const mask (unsigned/signed ≤32; signed via bit-pattern map) or both-variable
+//! signed/unsigned ≤32. Variable bitwise `!x` for fixed-width ints ≤32
+//! (`(2^w-1)-u`). Residual BNM for width>32: const-mask bitops and `!x` on
+//! i64/u64 (IR cost; variable rotate now covers the >32 case-sum path). Variable
+//! is_power_of_two via pot enum (≤64 exponents incl. u64/usize via synthetic
+//! 2^63; identity peels + nested arith inherit path bounds). Variable
+//! `ilog2`/`ilog10` for unsigned path params ≤32 (x=0 yields 0, not panic).
 //! Literal `/0`, `%0`, `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
 //! rem_euclid/div_euclid with positive const (signed Euclidean).
 //!
@@ -708,11 +712,12 @@ fn emit_pow2_factor(e: u32, lines: &mut Vec<String>, next: &mut usize) -> Option
 }
 
 /// Positive power-of-two exponents for a param with known integer bounds.
-/// Unsigned: 0..bits (1..2^(bits-1)). Signed: 0..(bits-1) (1..2^(bits-2)).
+/// Unsigned: 0..bits (pots 1..2^(bits-1)). Signed: 0..(bits-1) (1..2^(bits-2)).
+/// u64/usize: 64 (pots 1..2^63; 2^63 via synthetic product).
 fn pot_exponents(lo: i64, hi: i64) -> Option<u32> {
     if is_u64_width_bounds(lo, hi) {
-        // pot case-sum over 64 exponents is huge; leave is_power_of_two BNM for u64
-        return None;
+        // 64 pot ORs; 2^63 uses emit_pow2_factor (#1173)
+        return Some(64);
     }
     if lo == 0 {
         // unsigned: hi+1 must be power of two
@@ -1076,6 +1081,113 @@ fn encode_unsigned_bitop_var_var(
     *next += 1;
     lines.push(format!("${u} = arith mod ${t2} ${mslot} : Int"));
     Some(u)
+}
+
+/// `ilog2` for unsigned `a` with width `bits`: highest set bit index.
+/// `sum_i i * bit_i * prod_{j>i}(1-bit_j)`. When `a==0`, result is 0 (Rust panics;
+/// documented honesty: not a panic model; range ensures still CE if they require
+/// a nonzero log for all inputs).
+fn encode_unsigned_ilog2(
+    a: usize,
+    bits: u32,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> Option<usize> {
+    if bits == 0 || bits > 32 {
+        return None;
+    }
+    let two = *next;
+    *next += 1;
+    lines.push(format!("${two} = const 2 : Int"));
+    let one = *next;
+    *next += 1;
+    lines.push(format!("${one} = const 1 : Int"));
+    let zero = *next;
+    *next += 1;
+    lines.push(format!("${zero} = const 0 : Int"));
+    // higher bits still zero (start from MSB side)
+    let mut higher_zero = one;
+    let mut acc = zero;
+    for i in (0..bits).rev() {
+        let factor = 1i64 << i;
+        let f = *next;
+        *next += 1;
+        lines.push(format!("${f} = const {factor} : Int"));
+        let shifted = *next;
+        *next += 1;
+        lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
+        let bit = *next;
+        *next += 1;
+        lines.push(format!("${bit} = arith mod ${shifted} ${two} : Int"));
+        // term = i * bit * higher_zero
+        let i_c = *next;
+        *next += 1;
+        lines.push(format!("${i_c} = const {i} : Int"));
+        let ib = *next;
+        *next += 1;
+        lines.push(format!("${ib} = arith mul ${i_c} ${bit} : Int"));
+        let term = *next;
+        *next += 1;
+        lines.push(format!("${term} = arith mul ${ib} ${higher_zero} : Int"));
+        let new_acc = *next;
+        *next += 1;
+        lines.push(format!("${new_acc} = arith add ${acc} ${term} : Int"));
+        acc = new_acc;
+        // higher_zero *= (1 - bit)
+        let one_m = *next;
+        *next += 1;
+        lines.push(format!("${one_m} = arith sub ${one} ${bit} : Int"));
+        let new_hz = *next;
+        *next += 1;
+        lines.push(format!(
+            "${new_hz} = arith mul ${higher_zero} ${one_m} : Int"
+        ));
+        higher_zero = new_hz;
+    }
+    Some(acc)
+}
+
+/// `ilog10` for unsigned `a` with max value `hi` (path-param bound).
+/// `sum_{k=1..floor(log10(hi))} (a >= 10^k)`. When `a==0`, result is 0.
+fn encode_unsigned_ilog10(
+    a: usize,
+    hi: i64,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> Option<usize> {
+    if hi <= 0 {
+        return None;
+    }
+    let max_k = (hi as u64).ilog10();
+    if max_k == 0 {
+        // hi < 10: always 0
+        let slot = *next;
+        *next += 1;
+        lines.push(format!("${slot} = const 0 : Int"));
+        return Some(slot);
+    }
+    let zero = *next;
+    *next += 1;
+    lines.push(format!("${zero} = const 0 : Int"));
+    let mut acc = zero;
+    let mut thr: u64 = 1;
+    for _k in 1..=max_k {
+        thr = thr.checked_mul(10)?;
+        if thr > i64::MAX as u64 {
+            return None;
+        }
+        let t = *next;
+        *next += 1;
+        lines.push(format!("${t} = const {thr} : Int"));
+        let ge = *next;
+        *next += 1;
+        lines.push(format!("${ge} = cmp ge ${a} ${t} : Bool"));
+        let sum = *next;
+        *next += 1;
+        lines.push(format!("${sum} = arith add ${acc} ${ge} : Int"));
+        acc = sum;
+    }
+    Some(acc)
 }
 
 /// Popcount bit-sum for an unsigned value already in slot `a` with width `bits`.
@@ -1548,22 +1660,35 @@ fn encode_syn_expr(
                         return Some(emit_from_unsigned_bits(u_out, mslot, hi, lines, next));
                     }
                 } else if lit_int_i64(&b.left).is_none() && lit_int_i64(&b.right).is_none() {
-                    // Both variable: unsigned only, same width from either side or SAT.
-                    let bits = path_param_bounds(&b.left)
+                    // Both variable: unsigned or signed (bit-pattern map) for bits ≤32.
+                    let info = path_param_bounds(&b.left)
                         .or_else(|| path_param_bounds(&b.right))
                         .or_else(|| SAT_BOUNDS.get())
                         .and_then(|(lo, hi)| {
                             let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
-                            if signed || bits == 0 || bits > 32 || modulus_i64.is_none() {
-                                None
-                            } else {
-                                Some(bits)
+                            if bits == 0 || bits > 32 {
+                                return None;
                             }
+                            let modulus = modulus_i64?;
+                            Some((bits, modulus, signed, hi))
                         });
-                    if let Some(bits) = bits {
+                    if let Some((bits, modulus, signed, hi)) = info {
                         let lhs = encode_syn_expr(&b.left, param_names, lines, next)?;
                         let rhs = encode_syn_expr(&b.right, param_names, lines, next)?;
-                        return encode_unsigned_bitop_var_var(lhs, rhs, kind, bits, lines, next);
+                        if !signed {
+                            return encode_unsigned_bitop_var_var(
+                                lhs, rhs, kind, bits, lines, next,
+                            );
+                        }
+                        // Signed: map both to unsigned bit patterns, bitop, reinterpret.
+                        let mslot = *next;
+                        *next += 1;
+                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        let u_l = emit_to_unsigned_bits(lhs, mslot, lines, next);
+                        let u_r = emit_to_unsigned_bits(rhs, mslot, lines, next);
+                        let u_out =
+                            encode_unsigned_bitop_var_var(u_l, u_r, kind, bits, lines, next)?;
+                        return Some(emit_from_unsigned_bits(u_out, mslot, hi, lines, next));
                     }
                 }
             }
@@ -1732,17 +1857,15 @@ fn encode_syn_expr(
                     }
                     let (lo, hi) = expr_int_bounds(&m.receiver)?;
                     let n_exp = pot_exponents(lo, hi)?;
-                    // Cap IR size: i64 uses 63 OR-chain steps (~300 lines); fine for SMT.
-                    if n_exp > 63 {
+                    // Cap IR size: u64 uses 64 OR-chain steps (2^63 via emit_pow2_factor).
+                    if n_exp > 64 {
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let mut acc: Option<usize> = None;
                     for e in 0..n_exp {
-                        let pot = 1i64 << e;
-                        let c = *next;
-                        *next += 1;
-                        lines.push(format!("${c} = const {pot} : Int"));
+                        // e==63 needs synthetic 2^63 (1i64<<63 is negative)
+                        let c = emit_pow2_factor(e, lines, next)?;
                         let eq = *next;
                         *next += 1;
                         lines.push(format!("${eq} = cmp eq ${a} ${c} : Bool"));
@@ -2023,29 +2146,54 @@ fn encode_syn_expr(
                     }
                     Some(acc)
                 }
-                // Positive lit only (ilog2(0) panics in Rust).
+                // Const peep (ilog2(0) panics → BNM). Variable: unsigned path ≤32.
                 ("ilog2", 0) => {
-                    let v = lit_int_i64(&m.receiver)?;
-                    if v <= 0 {
+                    if let Some(v) = lit_int_i64(&m.receiver) {
+                        if v <= 0 {
+                            return None;
+                        }
+                        let log = (v as u64).ilog2();
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const {log} : Int"));
+                        return Some(slot);
+                    }
+                    let (lo, hi) = path_param_bounds(&m.receiver)?;
+                    if lo != 0 {
+                        return None; // signed / non-unsigned
+                    }
+                    if is_u64_width_bounds(lo, hi) {
+                        return None; // u64: 64-bit product too large for now
+                    }
+                    let modulus_u = (hi as u64).checked_add(1)?;
+                    if !modulus_u.is_power_of_two() {
                         return None;
                     }
-                    let log = (v as u64).ilog2();
-                    let slot = *next;
-                    *next += 1;
-                    lines.push(format!("${slot} = const {log} : Int"));
-                    Some(slot)
+                    let bits = modulus_u.trailing_zeros();
+                    if bits == 0 || bits > 32 {
+                        return None;
+                    }
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    encode_unsigned_ilog2(a, bits, lines, next)
                 }
-                // Positive lit only.
+                // Const peep; variable unsigned path ≤32 via threshold sum.
                 ("ilog10", 0) => {
-                    let v = lit_int_i64(&m.receiver)?;
-                    if v <= 0 {
+                    if let Some(v) = lit_int_i64(&m.receiver) {
+                        if v <= 0 {
+                            return None;
+                        }
+                        let log = (v as u64).ilog10();
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const {log} : Int"));
+                        return Some(slot);
+                    }
+                    let (lo, hi) = path_param_bounds(&m.receiver)?;
+                    if lo != 0 || is_u64_width_bounds(lo, hi) || hi <= 0 {
                         return None;
                     }
-                    let log = (v as u64).ilog10();
-                    let slot = *next;
-                    *next += 1;
-                    lines.push(format!("${slot} = const {log} : Int"));
-                    Some(slot)
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    encode_unsigned_ilog10(a, hi, lines, next)
                 }
                 // Non-neg lit; 0.next_power_of_two() == 1. Oversized stays BNM.
                 ("next_power_of_two", 0) => {
@@ -2612,7 +2760,7 @@ fn encode_syn_expr(
                 // rotate_left/right by const or variable k.
                 // Unsigned: rotl ≡ (x*2^k + x/2^(bits-k)) mod 2^w.
                 // Signed: map to unsigned bit pattern, rotate, reinterpret.
-                // Variable: case-sum over k%bits for bits<=32 (IR size).
+                // Variable: case-sum over k%bits for bits<=64 (same budget as shifts).
                 ("rotate_left" | "rotate_right", 1) => {
                     let (lo, hi) = wrap_bounds_for(&m.receiver)?;
                     let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
@@ -2668,8 +2816,8 @@ fn encode_syn_expr(
                         return emit_rotl_bits(u_in, k_left, &wrap, lines, next);
                     }
 
-                    // Variable: case-sum over k%bits (bits<=32 only).
-                    if bits > 32 {
+                    // Variable: case-sum over k%bits (bits<=64, matching wrapping_shl/shr).
+                    if bits == 0 || bits > 64 {
                         return None;
                     }
                     let k_slot = encode_syn_expr(&m.args[0], param_names, lines, next)?;
@@ -3337,7 +3485,7 @@ fn f(x: i64) -> i64 {
         let vv = try_ir_from_rust_body("V", &pxy, Some("u8"), "x & y").expect("x&y");
         assert!(vv.contains("arith mul") && vv.contains("arith mod"), "{vv}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&vv, "V").expect("parse x&y");
-        // both-variable signed stays BNM (no joint signed map yet)
+        // both-variable signed encodes via bit-pattern map (#1171)
         let pxyi = vec![
             ParamInfo {
                 name: "x".into(),
@@ -3348,7 +3496,21 @@ fn f(x: i64) -> i64 {
                 ty: "i8".into(),
             },
         ];
-        assert!(try_ir_from_rust_body("Si", &pxyi, Some("i8"), "x & y").is_none());
+        let si = try_ir_from_rust_body("Si", &pxyi, Some("i8"), "x & y").expect("i8 x&y");
+        assert!(si.contains("cmp gt") && si.contains("arith mul"), "{si}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&si, "Si").expect("parse i8");
+        // i64 both-var still BNM (bits>32)
+        let p64 = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "i64".into(),
+            },
+            ParamInfo {
+                name: "y".into(),
+                ty: "i64".into(),
+            },
+        ];
+        assert!(try_ir_from_rust_body("I", &p64, Some("i64"), "x & y").is_none());
     }
 
     #[test]
@@ -3368,6 +3530,22 @@ fn f(x: i64) -> i64 {
         let xor = try_ir_from_rust_body("X", &pxy, Some("u8"), "x ^ y").expect("xor");
         assert!(xor.contains("arith mul"), "{xor}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&xor, "X").expect("parse");
+        // signed both-var or/xor
+        let pxyi = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "i8".into(),
+            },
+            ParamInfo {
+                name: "y".into(),
+                ty: "i8".into(),
+            },
+        ];
+        let sor = try_ir_from_rust_body("So", &pxyi, Some("i8"), "x | y").expect("i8 or");
+        assert!(sor.contains("cmp gt"), "{sor}");
+        let sxor = try_ir_from_rust_body("Sx", &pxyi, Some("i8"), "x ^ y").expect("i8 xor");
+        assert!(sxor.contains("arith mul"), "{sxor}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&sxor, "Sx").expect("parse");
     }
 
     #[test]
@@ -3833,6 +4011,18 @@ fn f(x: i64) -> i64 { let y = &x; *y }
             u32ir.contains("const 2147483648") || u32ir.contains("const 1 : Int"),
             "{u32ir}"
         );
+        // u64 path: 64-pot enum with synthetic 2^63 (#1173)
+        let pu64 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "u64".into(),
+        }];
+        let u64ir = try_ir_from_rust_body("U", &pu64, Some("bool"), "x.is_power_of_two()")
+            .expect("u64 pot");
+        assert!(
+            u64ir.contains("cmp eq") && u64ir.contains("arith mul"),
+            "{u64ir}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&u64ir, "U").expect("parse u64 pot");
     }
 
     #[test]
@@ -3983,6 +4173,19 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let ig = try_ir_from_rust_body("I", &px(), Some("u32"), "8u32.ilog2()").expect("ilog");
         assert!(ig.contains("const 3 : Int"), "{ig}");
         assert!(try_ir_from_rust_body("Z", &px(), Some("u32"), "0u32.ilog2()").is_none());
+        // Variable unsigned path-param ilog2 (#1174)
+        let vilog =
+            try_ir_from_rust_body("V", &pu8(), Some("u32"), "x.ilog2()").expect("var ilog2");
+        assert!(
+            vilog.contains("arith mod") && vilog.contains("arith mul"),
+            "{vilog}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&vilog, "V").expect("parse");
+        let vilog10 =
+            try_ir_from_rust_body("L", &pu8(), Some("u32"), "x.ilog10()").expect("var ilog10");
+        assert!(vilog10.contains("cmp ge"), "{vilog10}");
+        // signed stays BNM
+        assert!(try_ir_from_rust_body("S", &px(), Some("u32"), "x.ilog2()").is_none());
         let np = try_ir_from_rust_body("Np", &px(), Some("u32"), "3u32.next_power_of_two()")
             .expect("np");
         assert!(np.contains("const 4 : Int"), "{np}");
@@ -4040,7 +4243,7 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         assert!(rr.contains("cmp eq"), "{rr}");
         let c = try_ir_from_rust_body("C", &p[..1], Some("u8"), "x.rotate_left(1)").expect("c1");
         assert!(c.contains("arith mul") && c.contains("arith div"), "{c}");
-        // i64 variable rotate stays BNM (bits>32 case-sum limit)
+        // i64 variable rotate encodes via 64-case-sum (#1172)
         let pi = vec![
             ParamInfo {
                 name: "x".into(),
@@ -4051,7 +4254,13 @@ fn f(x: i64) -> i64 { let y = &x; *y }
                 ty: "u32".into(),
             },
         ];
-        assert!(try_ir_from_rust_body("I", &pi, Some("i64"), "x.rotate_left(n)").is_none());
+        let i64r =
+            try_ir_from_rust_body("I", &pi, Some("i64"), "x.rotate_left(n)").expect("i64 rot");
+        assert!(
+            i64r.contains("cmp eq") && i64r.contains("arith mul"),
+            "{i64r}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&i64r, "I").expect("parse i64 rot");
     }
 
     #[test]
