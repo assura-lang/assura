@@ -4229,6 +4229,30 @@ fn m(x: i64) -> i64 { i64::MIN }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
 }
 
+/// saturating_neg encodes (body model present).
+#[test]
+fn check_rust_encodes_saturating_neg() {
+    let tmp = unique_temp("assura_check_rust_sat_neg");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 0 || result != 0
+fn n(x: i64) -> i64 { x.saturating_neg() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Nested if/else-if encodes multi-block IR and can CE wrong branches.
 #[test]
 fn check_rust_encodes_nested_if_body() {
