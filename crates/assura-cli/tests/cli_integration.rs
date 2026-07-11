@@ -4242,6 +4242,9 @@ fn m(x: i64) -> i64 { x.wrapping_mul(1) }
 
 /// @ensures result == 0
 fn z(x: i64) -> i64 { x.wrapping_mul(0) }
+
+/// @ensures result == 0
+fn s(x: i64) -> i64 { x.wrapping_sub(x) }
 "#,
     )
     .unwrap();

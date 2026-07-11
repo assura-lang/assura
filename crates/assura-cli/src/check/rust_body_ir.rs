@@ -6,10 +6,10 @@
 //! `not`), `default` and integer MIN/MAX, small `pow`, multi-let (incl. ref/cast folds),
 //! if/match (incl. guards), and Bool comparisons. Body text via `syn` (co-publish-safe).
 //!
-//! Not yet encoded (stay body_not_modeled): wrapping_add/sub/mul (#1010), is_power_of_two
-//! (#1034). Top-level `wrapping_neg` expands to multi-block if (MIN → MIN).
-//! `signum` is encoded as clamp to [-1, 1] (nestable in arith; #1032).
-//! Literal `/0`, `%0`, and `is_multiple_of(0)` also stay unencoded (Rust panic paths).
+//! Wrapping: top-level `wrapping_neg` (multi-block if); identity peeps
+//! (`+0`/`-0`/`*1`/`*0`/`sub(x,x)`). General wrapping_add/sub/mul need BV (#1010).
+//! Also BNM: is_power_of_two (#1034); literal `/0`, `%0`, `is_multiple_of(0)`.
+//! `signum` is clamp to [-1, 1] (nestable; #1032).
 //!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
 //! `eval_ir_block` clones parent slots into each block; reusing `$1`/`$2` for
