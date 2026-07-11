@@ -1713,41 +1713,48 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = arith div ${a} ${b} : Int"));
                     Some(slot)
                 }
-                // next_multiple_of for non-neg + positive const: div_ceil(a,m)*m.
+                // next_multiple_of with positive const m: a - rem + m*[rem!=0]
+                // where rem = rem_euclid(a,m). Works for signed a.
                 ("next_multiple_of", 1) => {
                     let m_val = lit_int_i64(&m.args[0])?;
                     if m_val <= 0 {
-                        return None;
-                    }
-                    let nonneg = if let Some(v) = lit_int_i64(&m.receiver) {
-                        v >= 0
-                    } else if let Some((lo, _)) = path_param_bounds(&m.receiver) {
-                        lo >= 0
-                    } else {
-                        false
-                    };
-                    if !nonneg {
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let mv = *next;
                     *next += 1;
                     lines.push(format!("${mv} = const {m_val} : Int"));
+                    // rem = ((a mod m) + m) mod m
+                    let t1 = *next;
+                    *next += 1;
+                    lines.push(format!("${t1} = arith mod ${a} ${mv} : Int"));
+                    let t2 = *next;
+                    *next += 1;
+                    lines.push(format!("${t2} = arith add ${t1} ${mv} : Int"));
+                    let rem = *next;
+                    *next += 1;
+                    lines.push(format!("${rem} = arith mod ${t2} ${mv} : Int"));
+                    let zero = *next;
+                    *next += 1;
+                    lines.push(format!("${zero} = const 0 : Int"));
+                    let is_zero = *next;
+                    *next += 1;
+                    lines.push(format!("${is_zero} = cmp eq ${rem} ${zero} : Bool"));
                     let one = *next;
                     *next += 1;
                     lines.push(format!("${one} = const 1 : Int"));
-                    let mm1 = *next;
+                    let not_zero = *next;
                     *next += 1;
-                    lines.push(format!("${mm1} = arith sub ${mv} ${one} : Int"));
-                    let sum = *next;
+                    lines.push(format!("${not_zero} = arith sub ${one} ${is_zero} : Int"));
+                    let m_if = *next;
                     *next += 1;
-                    lines.push(format!("${sum} = arith add ${a} ${mm1} : Int"));
-                    let q = *next;
+                    lines.push(format!("${m_if} = arith mul ${mv} ${not_zero} : Int"));
+                    let a_m_rem = *next;
                     *next += 1;
-                    lines.push(format!("${q} = arith div ${sum} ${mv} : Int"));
+                    lines.push(format!("${a_m_rem} = arith sub ${a} ${rem} : Int"));
                     let slot = *next;
                     *next += 1;
-                    lines.push(format!("${slot} = arith mul ${q} ${mv} : Int"));
+                    lines.push(format!("${slot} = arith add ${a_m_rem} ${m_if} : Int"));
                     Some(slot)
                 }
                 ("pow", 1) => {
@@ -2711,6 +2718,14 @@ fn f(x: i64) -> i64 {
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "M").expect("parse");
         let same = try_ir_from_rust_body("S", &px(), Some("i64"), "x.midpoint(x)").expect("same");
         assert!(same.contains("load $0"), "{same}");
+    }
+
+    #[test]
+    fn signed_next_multiple_of_encodes() {
+        let ir =
+            try_ir_from_rust_body("N", &px(), Some("i64"), "x.next_multiple_of(4)").expect("nmo");
+        assert!(ir.contains("arith mod") && ir.contains("cmp eq"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "N").expect("parse");
     }
 
     #[test]
