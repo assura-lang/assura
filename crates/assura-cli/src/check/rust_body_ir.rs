@@ -916,6 +916,12 @@ fn encode_syn_expr(
                     Some(slot)
                 }
                 ("abs_diff", 1) => {
+                    if expr_same_simple_path(&m.receiver, &m.args[0]) {
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const 0 : Int"));
+                        return Some(slot);
+                    }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
                     let d = *next;
@@ -1391,6 +1397,8 @@ fn f(x: i64) -> i64 {
         let ir = try_ir_from_rust_body("D", &pxy, Some("i64"), "x.abs_diff(y)").expect("diff");
         assert!(ir.contains("arith sub") && ir.contains("call abs"), "{ir}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "D").expect("parse");
+        let same = try_ir_from_rust_body("S", &px(), Some("i64"), "x.abs_diff(x)").expect("same");
+        assert!(same.contains("const 0"), "{same}");
         let r = try_ir_from_rust_body("R", &px(), Some("i64"), "&x").expect("ref");
         assert!(r.contains("$result = load $0"), "{r}");
         let d = try_ir_from_rust_body("De", &px(), Some("i64"), "*&x").expect("deref");
