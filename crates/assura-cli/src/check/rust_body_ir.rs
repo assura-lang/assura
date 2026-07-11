@@ -19,9 +19,9 @@
 //! Variable wrapping_shl/shr case-sum for bits≤64 (i64 and u64/usize use
 //! synthetic 2^64 modulus; 2^63 factor is 2^32*2^31). Variable rotate_left/right
 //! case-sum for bits≤32. Variable BitAnd/Or/Xor: const mask (unsigned/signed
-//! ≤32; signed via bit-pattern map) or both-variable unsigned ≤32.
-//! Variable is_power_of_two for fixed-width ints via pot enum (≤63 exponents;
-//! identity peels keep bounds).
+//! ≤32; signed via bit-pattern map) or both-variable unsigned ≤32. Variable
+//! bitwise `!x` for fixed-width ints ≤32 (`(2^w-1)-u`). Variable is_power_of_two
+//! for fixed-width ints via pot enum (≤63 exponents; identity peels keep bounds).
 //! Literal `/0`, `%0`, `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
 //! rem_euclid/div_euclid with positive const (signed Euclidean).
 //!
@@ -1421,6 +1421,31 @@ fn encode_syn_expr(
                 *next += 1;
                 lines.push(format!("${slot} = const {notv} : Int"));
                 return Some(slot);
+            }
+            // Variable integer bitwise NOT (bits ≤32): !x ≡ (2^w-1) - u(x).
+            // Integer-typed receivers must not fall through to bool logical not.
+            if let Some((lo, hi)) = path_param_bounds(&u.expr).or_else(|| SAT_BOUNDS.get()) {
+                let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
+                if bits == 0 || bits > 32 {
+                    return None;
+                }
+                let modulus = modulus_i64?;
+                let a = encode_syn_expr(&u.expr, param_names, lines, next)?;
+                let mslot = *next;
+                *next += 1;
+                lines.push(format!("${mslot} = const {modulus} : Int"));
+                let all_ones = modulus - 1;
+                let ones = *next;
+                *next += 1;
+                lines.push(format!("${ones} = const {all_ones} : Int"));
+                let u_in = emit_to_unsigned_bits(a, mslot, lines, next);
+                let not_u = *next;
+                *next += 1;
+                lines.push(format!("${not_u} = arith sub ${ones} ${u_in} : Int"));
+                if signed {
+                    return Some(emit_from_unsigned_bits(not_u, mslot, hi, lines, next));
+                }
+                return Some(not_u);
             }
             // Bool / general: logical not as eq 0.
             let zero = *next;
@@ -3230,6 +3255,32 @@ fn f(x: i64) -> i64 {
     fn const_bitwise_not_typed() {
         let ir = try_ir_from_rust_body("N", &px(), Some("u8"), "!5u8").expect("not");
         assert!(ir.contains("const 250 : Int"), "{ir}");
+    }
+
+    #[test]
+    fn variable_bitwise_not_encodes() {
+        let pu8 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "u8".into(),
+        }];
+        let ir = try_ir_from_rust_body("N", &pu8, Some("u8"), "!x").expect("!u8");
+        assert!(ir.contains("arith sub") && ir.contains("const 255"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "N").expect("parse");
+        let pi8 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "i8".into(),
+        }];
+        let s = try_ir_from_rust_body("S", &pi8, Some("i8"), "!x").expect("!i8");
+        assert!(s.contains("cmp gt") && s.contains("arith sub"), "{s}");
+        // bool stays logical not (eq 0)
+        let pb = vec![ParamInfo {
+            name: "b".into(),
+            ty: "bool".into(),
+        }];
+        let b = try_ir_from_rust_body("B", &pb, Some("bool"), "!b").expect("!bool");
+        assert!(b.contains("cmp eq"), "{b}");
+        // i64 width >32 must BNM (not logical not)
+        assert!(try_ir_from_rust_body("I", &px(), Some("i64"), "!x").is_none());
     }
 
     #[test]
