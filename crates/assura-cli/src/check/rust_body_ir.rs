@@ -1041,17 +1041,59 @@ fn encode_syn_expr(
                     }
                     acc
                 }
-                // Non-negative lit only (two's-complement needs bit width).
+                // count_ones: const peep, or unsigned path-param bit-sum (≤32 bits).
                 ("count_ones", 0) => {
-                    let v = lit_int_i64(&m.receiver)?;
-                    if v < 0 {
+                    if let Some(v) = lit_int_i64(&m.receiver) {
+                        if v < 0 {
+                            return None;
+                        }
+                        let ones = (v as u64).count_ones();
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const {ones} : Int"));
+                        return Some(slot);
+                    }
+                    // Variable: unsigned fixed-width only (bit_i = (x / 2^i) mod 2).
+                    let (lo, hi) = path_param_bounds(&m.receiver)?;
+                    if lo != 0 {
                         return None;
                     }
-                    let ones = (v as u64).count_ones();
-                    let slot = *next;
+                    let modulus = hi.checked_add(1)?;
+                    let modulus_u = modulus as u64;
+                    if !modulus_u.is_power_of_two() {
+                        return None;
+                    }
+                    let bits = modulus_u.trailing_zeros();
+                    if bits == 0 || bits > 32 {
+                        return None;
+                    }
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let two = *next;
                     *next += 1;
-                    lines.push(format!("${slot} = const {ones} : Int"));
-                    Some(slot)
+                    lines.push(format!("${two} = const 2 : Int"));
+                    let mut acc: Option<usize> = None;
+                    for i in 0..bits {
+                        let factor = 1i64 << i;
+                        let f = *next;
+                        *next += 1;
+                        lines.push(format!("${f} = const {factor} : Int"));
+                        let shifted = *next;
+                        *next += 1;
+                        lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
+                        let bit = *next;
+                        *next += 1;
+                        lines.push(format!("${bit} = arith mod ${shifted} ${two} : Int"));
+                        acc = Some(match acc {
+                            None => bit,
+                            Some(prev) => {
+                                let sum = *next;
+                                *next += 1;
+                                lines.push(format!("${sum} = arith add ${prev} ${bit} : Int"));
+                                sum
+                            }
+                        });
+                    }
+                    acc
                 }
                 // trailing_ones: non-neg lit (width-independent for magnitude).
                 ("trailing_ones", 0) => {
@@ -2700,6 +2742,22 @@ fn f(x: i64) -> i64 { let y = &x; *y }
             u32ir.contains("const 2147483648") || u32ir.contains("const 1 : Int"),
             "{u32ir}"
         );
+    }
+
+    #[test]
+    fn variable_u8_count_ones_encodes() {
+        let pu8 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "u8".into(),
+        }];
+        let ir = try_ir_from_rust_body("C", &pu8, Some("u32"), "x.count_ones()").expect("u8 ones");
+        assert!(
+            ir.contains("arith div") && ir.contains("arith mod") && ir.contains("const 2"),
+            "{ir}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "C").expect("parse");
+        // signed stays const-only / BNM for variables
+        assert!(try_ir_from_rust_body("S", &px(), Some("u32"), "x.count_ones()").is_none());
     }
 
     #[test]
