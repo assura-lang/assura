@@ -3727,6 +3727,33 @@ fn free(x: i64) -> i64 { min(x, x) }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// abs/saturating_abs().is_negative() peeps to false.
+#[test]
+fn check_rust_encodes_abs_never_negative() {
+    let tmp = unique_temp("assura_check_rust_abs_nn");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == false
+fn a(x: i64) -> bool { x.abs().is_negative() }
+
+/// @ensures result == false
+fn s(x: i64) -> bool { x.saturating_abs().is_negative() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// PartialOrd methods (x.gt(&0)) encode via cmp + ref strip.
 #[test]
 fn check_rust_encodes_partial_ord() {
