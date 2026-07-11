@@ -4574,6 +4574,9 @@ fn ztz(x: u8) -> u32 { 0u8.trailing_zeros() }
 
 /// @ensures result == 3
 fn ig(x: u32) -> u32 { 8u32.ilog2() }
+
+/// @ensures result == 4
+fn np(x: u32) -> u32 { 3u32.next_power_of_two() }
 "#,
     )
     .unwrap();
