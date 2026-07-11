@@ -4465,6 +4465,9 @@ fn check_rust_encodes_const_bit_peeps() {
 /// @ensures result == 2
 fn ones(x: u32) -> u32 { 12u32.count_ones() }
 
+/// @ensures result == 30
+fn zeros(x: u32) -> u32 { 12u32.count_zeros() }
+
 /// @ensures result == 2
 fn tz(x: u32) -> u32 { 12u32.trailing_zeros() }
 
