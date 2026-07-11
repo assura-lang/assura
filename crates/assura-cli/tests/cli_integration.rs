@@ -4785,6 +4785,35 @@ fn s(x: i8) -> i8 { x.wrapping_shl(1) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Signed rotate_left encodes via bit-pattern map + reinterpret.
+#[test]
+fn check_rust_encodes_signed_rotate() {
+    let tmp = unique_temp("assura_check_rust_signed_rot");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= -128
+/// @ensures result <= 127
+fn r(x: i8) -> i8 { x.rotate_left(1) }
+
+/// @ensures result >= -128
+/// @ensures result <= 127
+fn rr(x: i8) -> i8 { x.rotate_right(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Unsigned wrapping_shl by const encodes via mul+mod (#1010 partial).
 #[test]
 fn check_rust_encodes_u8_wrapping_shl() {
