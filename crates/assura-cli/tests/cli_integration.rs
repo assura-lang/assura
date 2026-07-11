@@ -4384,6 +4384,75 @@ fn w(x: u8) -> u8 { x.wrapping_add(1) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// u16/u32 wrapping_add encode via mod 2^w (#1010 partial).
+#[test]
+fn check_rust_encodes_u16_u32_wrapping_add() {
+    let tmp = unique_temp("assura_check_rust_u16u32_wrap");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+/// @ensures result <= 65535
+fn w16(x: u16) -> u16 { x.wrapping_add(1) }
+
+/// @ensures result >= 0
+/// @ensures result <= 4294967295
+fn w32(x: u32) -> u32 { x.wrapping_add(1) }
+
+/// @ensures result >= 0
+/// @ensures result <= 4294967295
+fn m32(x: u32) -> u32 { x.wrapping_mul(2) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Const bit-count peeps (partial #1034 family) + shift/rotate-by-0 identity.
+#[test]
+fn check_rust_encodes_const_bit_peeps() {
+    let tmp = unique_temp("assura_check_rust_bit_peeps");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 2
+fn ones(x: u32) -> u32 { 12u32.count_ones() }
+
+/// @ensures result == 2
+fn tz(x: u32) -> u32 { 12u32.trailing_zeros() }
+
+/// @ensures result == 28
+fn lz(x: u32) -> u32 { 8u32.leading_zeros() }
+
+/// @ensures result == x
+fn id_shl(x: i64) -> i64 { x.wrapping_shl(0) }
+
+/// @ensures result == x
+fn id_rot(x: i64) -> i64 { x.rotate_left(0) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Top-level wrapping_neg encodes (MIN stays MIN); nested still BNM.
 #[test]
 fn check_rust_encodes_wrapping_neg() {

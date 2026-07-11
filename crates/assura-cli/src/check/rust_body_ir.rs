@@ -6,10 +6,11 @@
 //! `not`), `default` and integer MIN/MAX, small `pow`, multi-let (incl. ref/cast folds),
 //! if/match (incl. guards), and Bool comparisons. Body text via `syn` (co-publish-safe).
 //!
-//! Peeps: wrapping `+0`/`-0`/`*1`/`*0`/`sub(x,x)`; `is_multiple_of(±1)`;
-//! same-path `abs_diff`/`min`/`max`/`clamp(_,y,y)`; `abs`/`saturating_abs`
-//! `.is_negative()` → false; const `is_power_of_two` (partial #1034). Unsigned
-//! wrapping_add/sub via mod 2^w (#1010 partial). Signed wrapping_add needs BV.
+//! Peeps: wrapping `+0`/`-0`/`*1`/`*0`/`sub(x,x)`; shift/rotate by 0;
+//! `is_multiple_of(±1)`; same-path `abs_diff`/`min`/`max`/`clamp(_,y,y)`;
+//! `abs`/`saturating_abs` `.is_negative()` → false; const `is_power_of_two` /
+//! `count_ones` / `trailing_zeros` / typed `leading_zeros` (partial #1034).
+//! Unsigned wrapping_* via mod 2^w (#1010 partial). Signed wrapping_add needs BV.
 //! Top-level signed `wrapping_neg` (multi-block if). Variable is_power_of_two
 //! and signed wrap remain BNM. Literal `/0`, `%0`, `is_multiple_of(0)` BNM.
 //! `signum` nestable clamp (#1032).
@@ -553,6 +554,34 @@ fn lit_int_i64(expr: &syn::Expr) -> Option<i64> {
     }
 }
 
+/// Literal integer with known bit width from a typed suffix (`8u32` → (8, 32)).
+/// Bare unsuffixed lits return `None` (leading_zeros needs a width).
+fn lit_int_i64_bits(expr: &syn::Expr) -> Option<(i64, u32)> {
+    match expr {
+        syn::Expr::Paren(p) => lit_int_i64_bits(&p.expr),
+        syn::Expr::Group(g) => lit_int_i64_bits(&g.expr),
+        syn::Expr::Unary(u) if matches!(u.op, syn::UnOp::Neg(_)) => {
+            let (v, bits) = lit_int_i64_bits(&u.expr)?;
+            Some((v.checked_neg()?, bits))
+        }
+        syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Int(n),
+            ..
+        }) => {
+            let bits = match n.suffix() {
+                "u8" | "i8" => 8,
+                "u16" | "i16" => 16,
+                "u32" | "i32" => 32,
+                "u64" | "i64" | "usize" | "isize" => 64,
+                _ => return None,
+            };
+            let v: i64 = n.base10_parse().ok()?;
+            Some((v, bits))
+        }
+        _ => None,
+    }
+}
+
 /// True for literal `1` or `-1` (after paren/group peels).
 fn is_lit_int_abs_one(expr: &syn::Expr) -> bool {
     match expr {
@@ -874,6 +903,46 @@ fn encode_syn_expr(
                     ));
                     Some(slot)
                 }
+                // Non-negative lit only (two's-complement needs bit width).
+                ("count_ones", 0) => {
+                    let v = lit_int_i64(&m.receiver)?;
+                    if v < 0 {
+                        return None;
+                    }
+                    let ones = (v as u64).count_ones();
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const {ones} : Int"));
+                    Some(slot)
+                }
+                // Non-zero non-neg lit (0.trailing_zeros is bit-width of type).
+                ("trailing_zeros", 0) => {
+                    let v = lit_int_i64(&m.receiver)?;
+                    if v <= 0 {
+                        return None;
+                    }
+                    let tz = (v as u64).trailing_zeros();
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const {tz} : Int"));
+                    Some(slot)
+                }
+                // Needs typed suffix for bit width (8u32.leading_zeros() → 28).
+                ("leading_zeros", 0) => {
+                    let (v, bits) = lit_int_i64_bits(&m.receiver)?;
+                    if v < 0 {
+                        return None;
+                    }
+                    let lz = if v == 0 {
+                        bits
+                    } else {
+                        (v as u64).leading_zeros() - (64 - bits)
+                    };
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const {lz} : Int"));
+                    Some(slot)
+                }
                 ("default", 0) => {
                     let slot = *next;
                     *next += 1;
@@ -1070,6 +1139,12 @@ fn encode_syn_expr(
                             ..
                         }) if n.base10_digits() == "1"
                     ) =>
+                {
+                    encode_syn_expr(&m.receiver, param_names, lines, next)
+                }
+                // Shift/rotate by 0 is identity (signed or unsigned).
+                ("wrapping_shl" | "wrapping_shr" | "rotate_left" | "rotate_right", 1)
+                    if is_lit_int_zero(&m.args[0]) =>
                 {
                     encode_syn_expr(&m.receiver, param_names, lines, next)
                 }
@@ -1815,6 +1890,41 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let z = try_ir_from_rust_body("Z", &px(), Some("bool"), "0i64.is_power_of_two()")
             .expect("0 not");
         assert!(z.contains("const 0 : Bool"), "{z}");
+    }
+
+    #[test]
+    fn const_count_ones_and_trailing_zeros_peep() {
+        let c = try_ir_from_rust_body("C", &px(), Some("u32"), "12u32.count_ones()").expect("co");
+        assert!(c.contains("const 2 : Int"), "{c}"); // 12 = 0b1100
+        let tz =
+            try_ir_from_rust_body("T", &px(), Some("u32"), "12u32.trailing_zeros()").expect("tz");
+        assert!(tz.contains("const 2 : Int"), "{tz}");
+        // Variable receivers stay BNM
+        assert!(try_ir_from_rust_body("V", &px(), Some("u32"), "x.count_ones()").is_none());
+        // 0.trailing_zeros needs bit width → BNM without typed 0uN handled... 0u32 has width
+        // but we intentionally BNM zero trailing_zeros for non-typed; 0u32 still v==0 → None
+        assert!(try_ir_from_rust_body("Z", &px(), Some("u32"), "0u32.trailing_zeros()").is_none());
+    }
+
+    #[test]
+    fn typed_leading_zeros_peep() {
+        let lz =
+            try_ir_from_rust_body("L", &px(), Some("u32"), "8u32.leading_zeros()").expect("lz");
+        // 8u32 = 0b1000 → 28 leading zeros in 32 bits
+        assert!(lz.contains("const 28 : Int"), "{lz}");
+        // bare unsuffixed lit has no width
+        assert!(try_ir_from_rust_body("B", &px(), Some("u32"), "8.leading_zeros()").is_none());
+    }
+
+    #[test]
+    fn shift_rotate_zero_identity_peep() {
+        let shl = try_ir_from_rust_body("S", &px(), Some("i64"), "x.wrapping_shl(0)").expect("shl");
+        assert!(shl.contains("load $0"), "{shl}");
+        assert!(!shl.contains("arith"), "{shl}");
+        let rot = try_ir_from_rust_body("R", &px(), Some("i64"), "x.rotate_left(0)").expect("rot");
+        assert!(rot.contains("load $0"), "{rot}");
+        // non-zero stays BNM
+        assert!(try_ir_from_rust_body("N", &px(), Some("i64"), "x.wrapping_shl(1)").is_none());
     }
 
     #[test]
