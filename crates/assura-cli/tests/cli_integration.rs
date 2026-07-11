@@ -4384,6 +4384,60 @@ fn w(x: u8) -> u8 { x.wrapping_add(1) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// i8 wrapping_add encodes via mod 256 + signed reinterpret (#1010 partial).
+#[test]
+fn check_rust_encodes_i8_wrapping_add() {
+    let tmp = unique_temp("assura_check_rust_i8_wrap");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= -128
+/// @ensures result <= 127
+fn w(x: i8) -> i8 { x.wrapping_add(1) }
+
+/// @ensures result >= -128
+/// @ensures result <= 127
+fn s(x: i8) -> i8 { x.wrapping_sub(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong i8 wrapping_add ensures must CE (proves wrap of 127 is live).
+#[test]
+fn check_rust_i8_wrapping_add_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_i8_wrap_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x + 1
+fn w(x: i8) -> i8 { x.wrapping_add(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE on wrap of 127: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// u16/u32 wrapping_add encode via mod 2^w (#1010 partial).
 #[test]
 fn check_rust_encodes_u16_u32_wrapping_add() {
