@@ -4071,6 +4071,31 @@ fn f(x: i64) -> i64 { let y = x as i64; y }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Wrong abs_diff body must CE.
+#[test]
+fn check_rust_abs_diff_wrong_body_ce() {
+    let tmp = unique_temp("assura_check_rust_ad_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result >= 0
+fn d(x: i64, y: i64) -> i64 { x - y }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).expect("json");
+    assert_eq!(v["body_not_modeled"], 0);
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
+}
+
 /// Nested if/else-if encodes multi-block IR and can CE wrong branches.
 #[test]
 fn check_rust_encodes_nested_if_body() {
