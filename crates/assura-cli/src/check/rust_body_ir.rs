@@ -18,9 +18,10 @@
 //! (multi-block if); nested signed via modular (0-x) mod 2^w + reinterpret.
 //! Variable wrapping_shl/shr case-sum for bits≤64 (i64 and u64/usize use
 //! synthetic 2^64 modulus; 2^63 factor is 2^32*2^31). Variable rotate_left/right
-//! case-sum for bits≤32. Variable BitAnd/Or/Xor with one non-neg const mask
-//! (unsigned ≤32 bits via bit products). Variable is_power_of_two for fixed-width
-//! ints via pot enum (≤63 exponents; identity peels keep bounds).
+//! case-sum for bits≤32. Variable BitAnd/Or/Xor with one const mask (unsigned
+//! or signed ≤32 bits via bit products; signed maps through unsigned pattern).
+//! Variable is_power_of_two for fixed-width ints via pot enum (≤63 exponents;
+//! identity peels keep bounds).
 //! Literal `/0`, `%0`, `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
 //! rem_euclid/div_euclid with positive const (signed Euclidean).
 //!
@@ -783,30 +784,56 @@ fn lit_int_i64_bits(expr: &syn::Expr) -> Option<(i64, u32)> {
     }
 }
 
-/// Unsigned width in bits from bounds, or `None` if signed / >32 / not power-of-two.
-fn unsigned_bits_from_bounds(lo: i64, hi: i64) -> Option<u32> {
-    if lo != 0 || is_u64_width_bounds(lo, hi) {
-        return None;
-    }
-    let modulus = hi.checked_add(1)? as u64;
-    if modulus == 0 || !modulus.is_power_of_two() {
-        return None;
-    }
-    let bits = modulus.trailing_zeros();
-    if bits == 0 || bits > 32 {
-        return None;
-    }
-    Some(bits)
+/// Const mask as unsigned bit pattern in `bits` width (two's complement for negatives).
+fn mask_bits_u64(m: i64, bits: u32) -> u64 {
+    let width_mask = if bits >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << bits) - 1
+    };
+    (m as u64) & width_mask
 }
 
-/// Prefer path-param unsigned width; fall back to return-type SAT_BOUNDS.
-fn unsigned_width_bits_for(expr: &syn::Expr) -> Option<u32> {
-    if let Some((lo, hi)) = path_param_bounds(expr) {
-        return unsigned_bits_from_bounds(lo, hi);
-    }
-    SAT_BOUNDS
-        .get()
-        .and_then(|(lo, hi)| unsigned_bits_from_bounds(lo, hi))
+/// Map signed Int slot to unsigned bit pattern in `[0, m)`.
+fn emit_to_unsigned_bits(
+    a: usize,
+    mslot: usize,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> usize {
+    let t1 = *next;
+    *next += 1;
+    lines.push(format!("${t1} = arith mod ${a} ${mslot} : Int"));
+    let t2 = *next;
+    *next += 1;
+    lines.push(format!("${t2} = arith add ${t1} ${mslot} : Int"));
+    let u = *next;
+    *next += 1;
+    lines.push(format!("${u} = arith mod ${t2} ${mslot} : Int"));
+    u
+}
+
+/// Reinterpret unsigned bit pattern in `[0, m)` as signed Int using `hi` max.
+fn emit_from_unsigned_bits(
+    u: usize,
+    mslot: usize,
+    hi: i64,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> usize {
+    let his = *next;
+    *next += 1;
+    lines.push(format!("${his} = const {hi} : Int"));
+    let gt = *next;
+    *next += 1;
+    lines.push(format!("${gt} = cmp gt ${u} ${his} : Bool"));
+    let adj = *next;
+    *next += 1;
+    lines.push(format!("${adj} = arith mul ${gt} ${mslot} : Int"));
+    let slot = *next;
+    *next += 1;
+    lines.push(format!("${slot} = arith sub ${u} ${adj} : Int"));
+    slot
 }
 
 #[derive(Clone, Copy)]
@@ -1325,24 +1352,44 @@ fn encode_syn_expr(
                     return Some(slot);
                 }
             }
-            // Variable BitAnd/Or/Xor with one non-neg const mask (unsigned ≤32).
+            // Variable BitAnd/Or/Xor with one const mask (unsigned or signed ≤32).
             if let Some(kind) = match &b.op {
                 syn::BinOp::BitAnd(_) => Some(BitOpKind::And),
                 syn::BinOp::BitOr(_) => Some(BitOpKind::Or),
                 syn::BinOp::BitXor(_) => Some(BitOpKind::Xor),
                 _ => None,
             } {
-                let sides: Option<(&syn::Expr, u64)> =
+                let sides: Option<(&syn::Expr, i64)> =
                     match (lit_int_i64(&b.left), lit_int_i64(&b.right)) {
-                        (Some(m), None) if m >= 0 => Some((&b.right, m as u64)),
-                        (None, Some(m)) if m >= 0 => Some((&b.left, m as u64)),
+                        (Some(m), None) => Some((&b.right, m)),
+                        (None, Some(m)) => Some((&b.left, m)),
                         _ => None,
                     };
-                if let Some((var_e, mask)) = sides
-                    && let Some(bits) = unsigned_width_bits_for(var_e)
-                {
-                    let a = encode_syn_expr(var_e, param_names, lines, next)?;
-                    return encode_unsigned_bitop_var_const(a, mask, kind, bits, lines, next);
+                if let Some((var_e, mask_i)) = sides {
+                    let bounds = path_param_bounds(var_e).or_else(|| SAT_BOUNDS.get());
+                    if let Some((lo, hi)) = bounds
+                        && let Some((bits, modulus_i64, signed)) = wrap_width(lo, hi)
+                        && bits > 0
+                        && bits <= 32
+                        && let Some(modulus) = modulus_i64
+                        && (signed || mask_i >= 0)
+                    {
+                        let mask = mask_bits_u64(mask_i, bits);
+                        let a = encode_syn_expr(var_e, param_names, lines, next)?;
+                        if !signed {
+                            return encode_unsigned_bitop_var_const(
+                                a, mask, kind, bits, lines, next,
+                            );
+                        }
+                        // Signed: map to unsigned bit pattern, bitop, reinterpret.
+                        let mslot = *next;
+                        *next += 1;
+                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        let u_in = emit_to_unsigned_bits(a, mslot, lines, next);
+                        let u_out =
+                            encode_unsigned_bitop_var_const(u_in, mask, kind, bits, lines, next)?;
+                        return Some(emit_from_unsigned_bits(u_out, mslot, hi, lines, next));
+                    }
                 }
             }
             if let Some(cmp) = match &b.op {
@@ -3108,7 +3155,7 @@ fn f(x: i64) -> i64 {
         assert!(z.contains("const 0 : Int"), "{z}");
         let id = try_ir_from_rust_body("I", &pu8, Some("u8"), "x | 0").expect("or0");
         assert!(id.contains("load $0"), "{id}");
-        // i64 unsigned path not available (signed) → BNM
+        // i64 width >32 → BNM
         assert!(try_ir_from_rust_body("S", &px(), Some("i64"), "x & 1").is_none());
         // u64 width >32 → BNM
         let pu64 = vec![ParamInfo {
@@ -3116,6 +3163,22 @@ fn f(x: i64) -> i64 {
             ty: "u64".into(),
         }];
         assert!(try_ir_from_rust_body("U", &pu64, Some("u64"), "x & 1").is_none());
+        // Nested expr uses SAT_BOUNDS width
+        let nest = try_ir_from_rust_body("N", &pu8, Some("u8"), "(x + 1) & 1").expect("nested and");
+        assert!(nest.contains("arith mod"), "{nest}");
+        // Signed i8: map through unsigned bit pattern
+        let pi8 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "i8".into(),
+        }];
+        let sand = try_ir_from_rust_body("Sa", &pi8, Some("i8"), "x & 1").expect("i8 and");
+        assert!(
+            sand.contains("arith mod") && sand.contains("cmp gt"),
+            "{sand}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&sand, "Sa").expect("parse i8");
+        let sxor = try_ir_from_rust_body("Sx", &pi8, Some("i8"), "x ^ -1").expect("i8 xor -1");
+        assert!(sxor.contains("arith sub"), "{sxor}");
     }
 
     #[test]
