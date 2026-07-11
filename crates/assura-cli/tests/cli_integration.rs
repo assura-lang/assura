@@ -4313,6 +4313,10 @@ fn w(x: u8) -> u8 { x.wrapping_add(1) }
 /// @ensures result >= 0
 /// @ensures result <= 255
 fn s(x: u8) -> u8 { x.wrapping_sub(1) }
+
+/// @ensures result >= 0
+/// @ensures result <= 255
+fn m(x: u8) -> u8 { x.wrapping_mul(3) }
 "#,
     )
     .unwrap();
