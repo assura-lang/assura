@@ -3694,6 +3694,39 @@ fn r(x: i64) -> i64 { *&x }
     assert!(v["verified"].as_u64().unwrap_or(0) >= 2, "{stdout}");
 }
 
+/// Same-path peeps: abs_diff/min/max identity.
+#[test]
+fn check_rust_encodes_same_path_peeps() {
+    let tmp = unique_temp("assura_check_rust_same_path");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 0
+fn d(x: i64) -> i64 { x.abs_diff(x) }
+
+/// @ensures result == x
+fn mn(x: i64) -> i64 { x.min(x) }
+
+/// @ensures result == x
+fn mx(x: i64) -> i64 { x.max(x) }
+
+/// @ensures result == x
+fn free(x: i64) -> i64 { min(x, x) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// PartialOrd methods (x.gt(&0)) encode via cmp + ref strip.
 #[test]
 fn check_rust_encodes_partial_ord() {
