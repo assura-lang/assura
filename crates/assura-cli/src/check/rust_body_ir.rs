@@ -1675,45 +1675,32 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = arith div ${sum} ${b} : Int"));
                     Some(slot)
                 }
-                // rem_euclid for non-neg + positive const divisor ≡ mod.
+                // rem_euclid with positive const divisor: ((a mod b) + b) mod b
+                // (works for signed; non-neg reduces to a mod b).
                 ("rem_euclid", 1) => {
                     let b_val = lit_int_i64(&m.args[0])?;
                     if b_val <= 0 {
-                        return None;
-                    }
-                    let nonneg = if let Some(v) = lit_int_i64(&m.receiver) {
-                        v >= 0
-                    } else if let Some((lo, _)) = path_param_bounds(&m.receiver) {
-                        lo >= 0
-                    } else {
-                        false
-                    };
-                    if !nonneg {
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let b = *next;
                     *next += 1;
                     lines.push(format!("${b} = const {b_val} : Int"));
+                    let t1 = *next;
+                    *next += 1;
+                    lines.push(format!("${t1} = arith mod ${a} ${b} : Int"));
+                    let t2 = *next;
+                    *next += 1;
+                    lines.push(format!("${t2} = arith add ${t1} ${b} : Int"));
                     let slot = *next;
                     *next += 1;
-                    lines.push(format!("${slot} = arith mod ${a} ${b} : Int"));
+                    lines.push(format!("${slot} = arith mod ${t2} ${b} : Int"));
                     Some(slot)
                 }
-                // div_euclid for non-neg + positive const divisor ≡ floor div.
+                // div_euclid with positive const divisor ≡ floor div (SMT Int).
                 ("div_euclid", 1) => {
                     let b_val = lit_int_i64(&m.args[0])?;
                     if b_val <= 0 {
-                        return None;
-                    }
-                    let nonneg = if let Some(v) = lit_int_i64(&m.receiver) {
-                        v >= 0
-                    } else if let Some((lo, _)) = path_param_bounds(&m.receiver) {
-                        lo >= 0
-                    } else {
-                        false
-                    };
-                    if !nonneg {
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -2723,6 +2710,15 @@ fn f(x: i64) -> i64 {
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "M").expect("parse");
         let same = try_ir_from_rust_body("S", &px(), Some("i64"), "x.midpoint(x)").expect("same");
         assert!(same.contains("load $0"), "{same}");
+    }
+
+    #[test]
+    fn signed_rem_euclid_encodes() {
+        let ir = try_ir_from_rust_body("R", &px(), Some("i64"), "x.rem_euclid(3)").expect("re");
+        assert!(ir.contains("arith mod") && ir.contains("arith add"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "R").expect("parse");
+        let de = try_ir_from_rust_body("D", &px(), Some("i64"), "x.div_euclid(3)").expect("de");
+        assert!(de.contains("arith div"), "{de}");
     }
 
     #[test]
