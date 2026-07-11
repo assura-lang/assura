@@ -4479,7 +4479,6 @@ fn m(x: i32) -> i32 { x.wrapping_mul(2) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
-
 /// u16/u32 wrapping_add encode via mod 2^w (#1010 partial).
 #[test]
 fn check_rust_encodes_u16_u32_wrapping_add() {
