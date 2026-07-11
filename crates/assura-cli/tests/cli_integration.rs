@@ -4593,6 +4593,34 @@ fn sq(x: u32) -> u32 { 10u32.isqrt() }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// div_ceil with positive const divisor for unsigned params.
+#[test]
+fn check_rust_encodes_div_ceil() {
+    let tmp = unique_temp("assura_check_rust_div_ceil");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+/// @ensures result <= 255
+fn d(x: u8) -> u8 { x.div_ceil(3) }
+
+/// @ensures result == 4
+fn c(x: u32) -> u32 { 10u32.div_ceil(3) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Top-level wrapping_neg encodes (MIN stays MIN); nested still BNM.
 #[test]
 fn check_rust_encodes_wrapping_neg() {

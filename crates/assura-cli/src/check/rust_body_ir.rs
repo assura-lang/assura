@@ -1187,6 +1187,42 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = cmp eq ${rem} ${z} : Bool"));
                     Some(slot)
                 }
+                // div_ceil for non-neg receiver + positive const divisor: (a+b-1)/b.
+                // Requires unsigned/Nat param bounds (or const non-neg lit receiver).
+                ("div_ceil", 1) => {
+                    let b_val = lit_int_i64(&m.args[0])?;
+                    if b_val <= 0 {
+                        return None;
+                    }
+                    // Receiver must be non-negative: path param with lo>=0, or non-neg lit.
+                    let nonneg = if let Some(v) = lit_int_i64(&m.receiver) {
+                        v >= 0
+                    } else if let Some((lo, _)) = path_param_bounds(&m.receiver) {
+                        lo >= 0
+                    } else {
+                        false
+                    };
+                    if !nonneg {
+                        return None;
+                    }
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let b = *next;
+                    *next += 1;
+                    lines.push(format!("${b} = const {b_val} : Int"));
+                    let one = *next;
+                    *next += 1;
+                    lines.push(format!("${one} = const 1 : Int"));
+                    let bm1 = *next;
+                    *next += 1;
+                    lines.push(format!("${bm1} = arith sub ${b} ${one} : Int"));
+                    let sum = *next;
+                    *next += 1;
+                    lines.push(format!("${sum} = arith add ${a} ${bm1} : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = arith div ${sum} ${b} : Int"));
+                    Some(slot)
+                }
                 ("pow", 1) => {
                     let syn::Expr::Lit(syn::ExprLit {
                         lit: syn::Lit::Int(n),
@@ -1918,6 +1954,22 @@ fn f(x: i64) -> i64 {
         assert!(try_ir_from_rust_body("N", &px(), Some("i32"), "x as i32").is_none());
         assura_smt::LoadedVerifyExtras::from_ir_text(&into, "I").expect("parse into");
         assura_smt::LoadedVerifyExtras::from_ir_text(&cast, "C").expect("parse cast");
+    }
+
+    #[test]
+    fn div_ceil_const_divisor_encodes() {
+        let pu8 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "u8".into(),
+        }];
+        let ir = try_ir_from_rust_body("D", &pu8, Some("u8"), "x.div_ceil(3)").expect("div_ceil");
+        assert!(ir.contains("arith div") && ir.contains("const 3"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "D").expect("parse");
+        // signed i64 path stays BNM (may be negative)
+        assert!(try_ir_from_rust_body("S", &px(), Some("i64"), "x.div_ceil(3)").is_none());
+        // const non-neg lit
+        let c = try_ir_from_rust_body("C", &px(), Some("u32"), "10u32.div_ceil(3)").expect("const");
+        assert!(c.contains("const 4") || c.contains("arith div"), "{c}");
     }
 
     #[test]
