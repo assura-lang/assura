@@ -782,6 +782,17 @@ fn encode_syn_expr(
                     Some(slot)
                 }
                 ("is_positive", 0) => {
+                    // abs_diff(x, x).is_positive() is always false
+                    if let syn::Expr::MethodCall(inner) = m.receiver.as_ref()
+                        && inner.method == "abs_diff"
+                        && inner.args.len() == 1
+                        && expr_same_simple_path(&inner.receiver, &inner.args[0])
+                    {
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const 0 : Bool"));
+                        return Some(slot);
+                    }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let z = *next;
                     *next += 1;
@@ -812,6 +823,17 @@ fn encode_syn_expr(
                     Some(slot)
                 }
                 ("is_zero", 0) => {
+                    // abs_diff(x, x).is_zero() is always true
+                    if let syn::Expr::MethodCall(inner) = m.receiver.as_ref()
+                        && inner.method == "abs_diff"
+                        && inner.args.len() == 1
+                        && expr_same_simple_path(&inner.receiver, &inner.args[0])
+                    {
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const 1 : Bool"));
+                        return Some(slot);
+                    }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let z = *next;
                     *next += 1;
@@ -1505,6 +1527,12 @@ fn f(x: i64) -> i64 {
             try_ir_from_rust_body("S", &px(), Some("bool"), "x.saturating_abs().is_negative()")
                 .expect("satneg");
         assert!(sat.contains("const 0 : Bool"), "{sat}");
+        let z = try_ir_from_rust_body("Z", &px(), Some("bool"), "x.abs_diff(x).is_zero()")
+            .expect("ad0");
+        assert!(z.contains("const 1 : Bool"), "{z}");
+        let p = try_ir_from_rust_body("P", &px(), Some("bool"), "x.abs_diff(x).is_positive()")
+            .expect("adp");
+        assert!(p.contains("const 0 : Bool"), "{p}");
     }
 
     #[test]
