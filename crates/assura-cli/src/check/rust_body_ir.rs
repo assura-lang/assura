@@ -18,8 +18,9 @@
 //! (multi-block if); nested signed via modular (0-x) mod 2^w + reinterpret.
 //! Variable wrapping_shl/shr case-sum for bits≤64 (i64 and u64/usize use
 //! synthetic 2^64 modulus; 2^63 factor is 2^32*2^31). Variable rotate_left/right
-//! case-sum for bits≤32. Variable is_power_of_two for fixed-width ints via pot
-//! enum (≤63 exponents; identity peels keep bounds).
+//! case-sum for bits≤32. Variable BitAnd/Or/Xor with one non-neg const mask
+//! (unsigned ≤32 bits via bit products). Variable is_power_of_two for fixed-width
+//! ints via pot enum (≤63 exponents; identity peels keep bounds).
 //! Literal `/0`, `%0`, `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
 //! rem_euclid/div_euclid with positive const (signed Euclidean).
 //!
@@ -782,6 +783,142 @@ fn lit_int_i64_bits(expr: &syn::Expr) -> Option<(i64, u32)> {
     }
 }
 
+/// Unsigned width in bits from bounds, or `None` if signed / >32 / not power-of-two.
+fn unsigned_bits_from_bounds(lo: i64, hi: i64) -> Option<u32> {
+    if lo != 0 || is_u64_width_bounds(lo, hi) {
+        return None;
+    }
+    let modulus = hi.checked_add(1)? as u64;
+    if modulus == 0 || !modulus.is_power_of_two() {
+        return None;
+    }
+    let bits = modulus.trailing_zeros();
+    if bits == 0 || bits > 32 {
+        return None;
+    }
+    Some(bits)
+}
+
+/// Prefer path-param unsigned width; fall back to return-type SAT_BOUNDS.
+fn unsigned_width_bits_for(expr: &syn::Expr) -> Option<u32> {
+    if let Some((lo, hi)) = path_param_bounds(expr) {
+        return unsigned_bits_from_bounds(lo, hi);
+    }
+    SAT_BOUNDS
+        .get()
+        .and_then(|(lo, hi)| unsigned_bits_from_bounds(lo, hi))
+}
+
+#[derive(Clone, Copy)]
+enum BitOpKind {
+    And,
+    Or,
+    Xor,
+}
+
+/// Variable unsigned `a &/|/^ mask` with const non-neg `mask` (bits ≤32).
+/// Bit product encode: extract bit_i of `a`, combine with known mask bit, sum * 2^i.
+fn encode_unsigned_bitop_var_const(
+    a: usize,
+    mask: u64,
+    op: BitOpKind,
+    bits: u32,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> Option<usize> {
+    if bits == 0 || bits > 32 {
+        return None;
+    }
+    let width_mask = if bits >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << bits) - 1
+    };
+    let mask = mask & width_mask;
+    // Identity / zero peeps
+    if mask == 0 {
+        match op {
+            BitOpKind::And => {
+                let slot = *next;
+                *next += 1;
+                lines.push(format!("${slot} = const 0 : Int"));
+                return Some(slot);
+            }
+            BitOpKind::Or | BitOpKind::Xor => return Some(a),
+        }
+    }
+    if mask == width_mask {
+        match op {
+            BitOpKind::And => return Some(a),
+            BitOpKind::Or => {
+                let slot = *next;
+                *next += 1;
+                lines.push(format!("${slot} = const {mask} : Int"));
+                return Some(slot);
+            }
+            BitOpKind::Xor => { /* fall through: bitwise not */ }
+        }
+    }
+    let two = *next;
+    *next += 1;
+    lines.push(format!("${two} = const 2 : Int"));
+    let one = *next;
+    *next += 1;
+    lines.push(format!("${one} = const 1 : Int"));
+    let zero = *next;
+    *next += 1;
+    lines.push(format!("${zero} = const 0 : Int"));
+    let mut acc = zero;
+    for i in 0..bits {
+        let m_bit = ((mask >> i) & 1) as i64;
+        let factor = 1i64 << i;
+        match (op, m_bit) {
+            (BitOpKind::And, 0) => continue,
+            (BitOpKind::Or, 1) => {
+                // result bit is 1
+                let f = *next;
+                *next += 1;
+                lines.push(format!("${f} = const {factor} : Int"));
+                let sum = *next;
+                *next += 1;
+                lines.push(format!("${sum} = arith add ${acc} ${f} : Int"));
+                acc = sum;
+                continue;
+            }
+            _ => {}
+        }
+        let f = *next;
+        *next += 1;
+        lines.push(format!("${f} = const {factor} : Int"));
+        let shifted = *next;
+        *next += 1;
+        lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
+        let bit = *next;
+        *next += 1;
+        lines.push(format!("${bit} = arith mod ${shifted} ${two} : Int"));
+        // result_bit in {0,1}
+        let rbit = match (op, m_bit) {
+            (BitOpKind::And, 1) | (BitOpKind::Or, 0) | (BitOpKind::Xor, 0) => bit,
+            (BitOpKind::Xor, 1) => {
+                // 1 - bit
+                let inv = *next;
+                *next += 1;
+                lines.push(format!("${inv} = arith sub ${one} ${bit} : Int"));
+                inv
+            }
+            _ => unreachable!("handled by match above"),
+        };
+        let term = *next;
+        *next += 1;
+        lines.push(format!("${term} = arith mul ${rbit} ${f} : Int"));
+        let sum = *next;
+        *next += 1;
+        lines.push(format!("${sum} = arith add ${acc} ${term} : Int"));
+        acc = sum;
+    }
+    Some(acc)
+}
+
 /// Popcount bit-sum for an unsigned value already in slot `a` with width `bits`.
 /// Emits `sum_i (a / 2^i) mod 2` into IR; returns the accumulator slot.
 fn encode_bit_sum_count_ones(
@@ -1186,6 +1323,26 @@ fn encode_syn_expr(
                     *next += 1;
                     lines.push(format!("${slot} = const {val} : Int"));
                     return Some(slot);
+                }
+            }
+            // Variable BitAnd/Or/Xor with one non-neg const mask (unsigned ≤32).
+            if let Some(kind) = match &b.op {
+                syn::BinOp::BitAnd(_) => Some(BitOpKind::And),
+                syn::BinOp::BitOr(_) => Some(BitOpKind::Or),
+                syn::BinOp::BitXor(_) => Some(BitOpKind::Xor),
+                _ => None,
+            } {
+                let sides: Option<(&syn::Expr, u64)> =
+                    match (lit_int_i64(&b.left), lit_int_i64(&b.right)) {
+                        (Some(m), None) if m >= 0 => Some((&b.right, m as u64)),
+                        (None, Some(m)) if m >= 0 => Some((&b.left, m as u64)),
+                        _ => None,
+                    };
+                if let Some((var_e, mask)) = sides
+                    && let Some(bits) = unsigned_width_bits_for(var_e)
+                {
+                    let a = encode_syn_expr(var_e, param_names, lines, next)?;
+                    return encode_unsigned_bitop_var_const(a, mask, kind, bits, lines, next);
                 }
             }
             if let Some(cmp) = match &b.op {
@@ -2916,8 +3073,49 @@ fn f(x: i64) -> i64 {
         assert!(or.contains("const 15 : Int"), "{or}");
         let sh = try_ir_from_rust_body("S", &px(), Some("u32"), "3u32 << 2").expect("shl");
         assert!(sh.contains("const 12 : Int"), "{sh}");
-        // variable bitops stay BNM
-        assert!(try_ir_from_rust_body("V", &px(), Some("u32"), "x & 1").is_none());
+        // both-variable bitops stay BNM
+        let pxy = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "u32".into(),
+            },
+            ParamInfo {
+                name: "y".into(),
+                ty: "u32".into(),
+            },
+        ];
+        assert!(try_ir_from_rust_body("V", &pxy, Some("u32"), "x & y").is_none());
+    }
+
+    #[test]
+    fn variable_bitop_const_mask_encodes() {
+        let pu8 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "u8".into(),
+        }];
+        let and = try_ir_from_rust_body("A", &pu8, Some("u8"), "x & 1").expect("and");
+        assert!(
+            and.contains("arith mod") && and.contains("arith mul"),
+            "{and}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&and, "A").expect("parse and");
+        let or = try_ir_from_rust_body("O", &pu8, Some("u8"), "x | 0xF0").expect("or");
+        assert!(or.contains("arith add"), "{or}");
+        let xor = try_ir_from_rust_body("X", &pu8, Some("u8"), "x ^ 0xFF").expect("xor");
+        assert!(xor.contains("arith sub"), "{xor}"); // 1-bit
+        // mask 0 peeps
+        let z = try_ir_from_rust_body("Z", &pu8, Some("u8"), "x & 0").expect("and0");
+        assert!(z.contains("const 0 : Int"), "{z}");
+        let id = try_ir_from_rust_body("I", &pu8, Some("u8"), "x | 0").expect("or0");
+        assert!(id.contains("load $0"), "{id}");
+        // i64 unsigned path not available (signed) → BNM
+        assert!(try_ir_from_rust_body("S", &px(), Some("i64"), "x & 1").is_none());
+        // u64 width >32 → BNM
+        let pu64 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "u64".into(),
+        }];
+        assert!(try_ir_from_rust_body("U", &pu64, Some("u64"), "x & 1").is_none());
     }
 
     #[test]
