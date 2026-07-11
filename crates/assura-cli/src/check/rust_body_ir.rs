@@ -1073,8 +1073,8 @@ fn encode_syn_expr(
                 {
                     encode_syn_expr(&m.receiver, param_names, lines, next)
                 }
-                // Unsigned wrapping_add/sub via mod 2^w when SAT_BOUNDS starts at 0 (#1010 partial).
-                ("wrapping_add" | "wrapping_sub", 1) => {
+                // Unsigned wrapping_add/sub/mul via mod 2^w when SAT_BOUNDS starts at 0 (#1010 partial).
+                ("wrapping_add" | "wrapping_sub" | "wrapping_mul", 1) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
                     if lo != 0 {
                         return None; // signed needs BV
@@ -1084,10 +1084,11 @@ fn encode_syn_expr(
                     let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
                     let raw = *next;
                     *next += 1;
-                    let op = if method == "wrapping_add" {
-                        "add"
-                    } else {
-                        "sub"
+                    let op = match method.as_str() {
+                        "wrapping_add" => "add",
+                        "wrapping_sub" => "sub",
+                        "wrapping_mul" => "mul",
+                        _ => return None,
                     };
                     lines.push(format!("${raw} = arith {op} ${a} ${b} : Int"));
                     // Bring into [0, modulus) for possibly-negative sub results
@@ -1741,6 +1742,12 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         assert!(ir.contains("arith add") && ir.contains("arith mod"), "{ir}");
         assert!(ir.contains("const 256"), "{ir}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "W").expect("parse");
+        let mul =
+            try_ir_from_rust_body("M", &pu8, Some("u8"), "x.wrapping_mul(3)").expect("u8 mul");
+        assert!(
+            mul.contains("arith mul") && mul.contains("arith mod"),
+            "{mul}"
+        );
     }
 
     #[test]
