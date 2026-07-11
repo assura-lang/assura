@@ -3466,7 +3466,7 @@ fn f(x: i64) -> i64 { x.clone() }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
-/// signum expands to nested if and verifies range ensures.
+/// signum encodes as clamp to [-1, 1] (single-block) and verifies range ensures.
 #[test]
 fn check_rust_encodes_signum() {
     let tmp = unique_temp("assura_check_rust_signum");
@@ -3477,6 +3477,31 @@ fn check_rust_encodes_signum() {
         r#"
 /// @ensures result == -1 || result == 0 || result == 1
 fn f(x: i64) -> i64 { x.signum() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Nested signum in arith encodes (#1032); proves result in {-1,0,1,2}.
+#[test]
+fn check_rust_encodes_nested_signum() {
+    let tmp = unique_temp("assura_check_rust_nested_signum");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+/// @ensures result <= 2
+fn s(x: i64) -> i64 { x.signum() + 1 }
 "#,
     )
     .unwrap();
@@ -4150,31 +4175,34 @@ fn p(x: i64) -> bool { x.is_power_of_two() }
     assert!(!out.status.success());
 }
 
-/// Nested signum in arith must be body_not_modeled (#1032).
+/// Wrong nested signum ensures must CE (proves encode is live, #1032).
 #[test]
-fn check_rust_nested_signum_bnm() {
-    let tmp = unique_temp("assura_check_rust_ns_bnm");
+fn check_rust_nested_signum_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_ns_ce");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
     std::fs::write(
-        tmp.join("ok.rs"),
+        tmp.join("bad.rs"),
         r#"
-/// @ensures result >= -1
-fn s(x: i64) -> i64 { x.signum() + 0 }
+/// @ensures result == 0
+fn s(x: i64) -> i64 { x.signum() + 1 }
 "#,
     )
     .unwrap();
     let out = Command::new(assura_bin())
-        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must fail: {stdout}");
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode, not BNM: {stdout}");
     assert!(
-        v["body_not_modeled"].as_u64().unwrap_or(0) >= 1,
-        "nested signum must BNM: {stdout}"
+        v["errors"].as_u64().unwrap_or(0) >= 1,
+        "expected counterexample/errors: {v}"
     );
-    assert!(!out.status.success());
+    let status = v["results"][0]["status"].as_str().unwrap_or("");
+    assert_eq!(status, "error", "expected error status from CE: {v}");
 }
 
 /// into() identity and bool true path encode.
