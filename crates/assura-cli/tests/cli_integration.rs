@@ -4731,6 +4731,60 @@ fn m32(x: u32) -> u32 { x.wrapping_mul(2) }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Signed wrapping_shl by const encodes via mul+double-mod+reinterpret.
+#[test]
+fn check_rust_encodes_signed_wrapping_shl() {
+    let tmp = unique_temp("assura_check_rust_signed_shl");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= -128
+/// @ensures result <= 127
+fn s(x: i8) -> i8 { x.wrapping_shl(1) }
+
+/// @ensures result >= -9223372036854775808
+/// @ensures result <= 9223372036854775807
+fn l(x: i64) -> i64 { x.wrapping_shl(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong signed wrapping_shl ensures must CE (proves wrap is live).
+#[test]
+fn check_rust_signed_wrapping_shl_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_signed_shl_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x * 2
+fn s(x: i8) -> i8 { x.wrapping_shl(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE on i8 shl wrap: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Unsigned wrapping_shl by const encodes via mul+mod (#1010 partial).
 #[test]
 fn check_rust_encodes_u8_wrapping_shl() {
