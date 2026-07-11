@@ -795,6 +795,27 @@ fn encode_syn_expr(
             Some(slot)
         }
         syn::Expr::Binary(b) => {
+            // Const-fold bitops when both sides are integer lits (partial #1034 bitops).
+            if let (Some(l), Some(r)) = (lit_int_i64(&b.left), lit_int_i64(&b.right)) {
+                let folded = match &b.op {
+                    syn::BinOp::BitAnd(_) if l >= 0 && r >= 0 => Some((l as u64 & r as u64) as i64),
+                    syn::BinOp::BitOr(_) if l >= 0 && r >= 0 => Some((l as u64 | r as u64) as i64),
+                    syn::BinOp::BitXor(_) if l >= 0 && r >= 0 => Some((l as u64 ^ r as u64) as i64),
+                    syn::BinOp::Shl(_) if l >= 0 && (0..63).contains(&r) => {
+                        Some(((l as u64) << (r as u32)) as i64)
+                    }
+                    syn::BinOp::Shr(_) if l >= 0 && (0..63).contains(&r) => {
+                        Some(((l as u64) >> (r as u32)) as i64)
+                    }
+                    _ => None,
+                };
+                if let Some(val) = folded {
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const {val} : Int"));
+                    return Some(slot);
+                }
+            }
             if let Some(cmp) = match &b.op {
                 syn::BinOp::Lt(_) => Some("lt"),
                 syn::BinOp::Gt(_) => Some("gt"),
@@ -2161,6 +2182,18 @@ fn f(x: i64) -> i64 {
             "{nmo}"
         );
         assura_smt::LoadedVerifyExtras::from_ir_text(&nmo, "N").expect("parse");
+    }
+
+    #[test]
+    fn const_bitops_fold() {
+        let ir = try_ir_from_rust_body("A", &px(), Some("u32"), "12u32 & 10u32").expect("and");
+        assert!(ir.contains("const 8 : Int"), "{ir}"); // 0b1100 & 0b1010 = 0b1000
+        let or = try_ir_from_rust_body("O", &px(), Some("u32"), "12u32 | 3u32").expect("or");
+        assert!(or.contains("const 15 : Int"), "{or}");
+        let sh = try_ir_from_rust_body("S", &px(), Some("u32"), "3u32 << 2").expect("shl");
+        assert!(sh.contains("const 12 : Int"), "{sh}");
+        // variable bitops stay BNM
+        assert!(try_ir_from_rust_body("V", &px(), Some("u32"), "x & 1").is_none());
     }
 
     #[test]
