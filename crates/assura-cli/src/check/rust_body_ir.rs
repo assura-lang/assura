@@ -1,6 +1,6 @@
 //! Encode simple Rust function bodies as Assura Implementation IR for check-rust.
 //!
-//! Supports int/bool arith, abs/min/max/clamp/saturating(+neg)/abs_diff/signum,
+//! Supports int/bool arith, abs/min/max/clamp/saturating(+neg/abs)/abs_diff/signum,
 //! is_positive/negative/zero, `is_multiple_of`, PartialOrd methods, logical `&&`/`||`,
 //! unary `-`/`!`/`*`/`&`, identity ops (`into`/`as` lossless/`clone`/`copied`/`as_ref`/
 //! `not`), `default` and integer MIN/MAX, small `pow`, multi-let (incl. ref/cast folds),
@@ -835,6 +835,21 @@ fn encode_syn_expr(
                     lines.push(format!("${neg} = arith sub ${zero} ${a} : Int"));
                     emit_sat_clamp(neg, lines, next)
                 }
+                // saturating_abs: abs then clamp to MAX (i64::MIN → MAX, not |MIN|).
+                ("saturating_abs", 0) => {
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let ab = *next;
+                    *next += 1;
+                    lines.push(format!("${ab} = call abs (${a}) : Int"));
+                    let (_, hi_v) = SAT_BOUNDS.get()?;
+                    let hi = *next;
+                    *next += 1;
+                    lines.push(format!("${hi} = const {hi_v} : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = call min (${ab}, ${hi}) : Int"));
+                    Some(slot)
+                }
                 // saturating_add/sub: clamp arith to i64 range (#1007; needs param
                 // range requires from check_rust for soundness on unbounded Int).
                 ("saturating_add" | "saturating_sub" | "saturating_mul", 1) => {
@@ -879,6 +894,21 @@ fn encode_syn_expr(
                     let slot = *next;
                     *next += 1;
                     lines.push(format!("${slot} = call abs (${a}) : Int"));
+                    Some(slot)
+                }
+                // i64::saturating_abs(x) associated form
+                ("saturating_abs", 1) if path.path.segments.len() == 2 => {
+                    let a = encode_syn_expr(&c.args[0], param_names, lines, next)?;
+                    let ab = *next;
+                    *next += 1;
+                    lines.push(format!("${ab} = call abs (${a}) : Int"));
+                    let (_, hi_v) = SAT_BOUNDS.get()?;
+                    let hi = *next;
+                    *next += 1;
+                    lines.push(format!("${hi} = const {hi_v} : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = call min (${ab}, ${hi}) : Int"));
                     Some(slot)
                 }
                 ("min" | "max", 2) => {
@@ -1219,6 +1249,23 @@ fn f(x: i64) -> i64 {
         let ir = try_ir_from_rust_body("N", &px(), Some("i64"), "x.saturating_neg()").expect("neg");
         assert!(ir.contains("arith sub") && ir.contains("call max"), "{ir}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "N").expect("parse");
+    }
+
+    #[test]
+    fn saturating_abs_body_ir() {
+        let ir =
+            try_ir_from_rust_body("A", &px(), Some("i64"), "x.saturating_abs()").expect("sat_abs");
+        assert!(ir.contains("call abs") && ir.contains("call min"), "{ir}");
+        assert!(ir.contains(&format!("const {}", i64::MAX)), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "A").expect("parse");
+        // Needs return-type bounds (same as other saturating_*).
+        assert!(try_ir_from_rust_body("B", &px(), None, "x.saturating_abs()").is_none());
+        let assoc = try_ir_from_rust_body("C", &px(), Some("i64"), "i64::saturating_abs(x)")
+            .expect("assoc");
+        assert!(
+            assoc.contains("call abs") && assoc.contains("call min"),
+            "{assoc}"
+        );
     }
 
     #[test]
