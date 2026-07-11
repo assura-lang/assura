@@ -4842,6 +4842,31 @@ fn rr(x: i8) -> i8 { x.rotate_right(1) }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Wrong signed rotate_left ensures must CE (bit rotate is live).
+#[test]
+fn check_rust_signed_rotate_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_signed_rot_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x * 2
+fn r(x: i8) -> i8 { x.rotate_left(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE on rotate: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Unsigned wrapping_shl by const encodes via mul+mod (#1010 partial).
 #[test]
 fn check_rust_encodes_u8_wrapping_shl() {
