@@ -8,9 +8,10 @@
 //!
 //! Peeps: wrapping `+0`/`-0`/`*1`/`*0`/`sub(x,x)`; `is_multiple_of(±1)`;
 //! same-path `abs_diff`/`min`/`max`/`clamp(_,y,y)`; `abs`/`saturating_abs`
-//! `.is_negative()` → false; const `is_power_of_two` (partial #1034). Top-level
-//! `wrapping_neg` (multi-block if). General wrapping/BV (#1010) and variable
-//! is_power_of_two remain BNM. Literal `/0`, `%0`, `is_multiple_of(0)` BNM.
+//! `.is_negative()` → false; const `is_power_of_two` (partial #1034). Unsigned
+//! wrapping_add/sub via mod 2^w (#1010 partial). Signed wrapping_add needs BV.
+//! Top-level signed `wrapping_neg` (multi-block if). Variable is_power_of_two
+//! and signed wrap remain BNM. Literal `/0`, `%0`, `is_multiple_of(0)` BNM.
 //! `signum` nestable clamp (#1032).
 //!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
@@ -1072,6 +1073,35 @@ fn encode_syn_expr(
                 {
                     encode_syn_expr(&m.receiver, param_names, lines, next)
                 }
+                // Unsigned wrapping_add/sub via mod 2^w when SAT_BOUNDS starts at 0 (#1010 partial).
+                ("wrapping_add" | "wrapping_sub", 1) => {
+                    let (lo, hi) = SAT_BOUNDS.get()?;
+                    if lo != 0 {
+                        return None; // signed needs BV
+                    }
+                    let modulus = hi.checked_add(1)?; // u8: 256, u16: 65536, u32 fits i64
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
+                    let raw = *next;
+                    *next += 1;
+                    let op = if method == "wrapping_add" {
+                        "add"
+                    } else {
+                        "sub"
+                    };
+                    lines.push(format!("${raw} = arith {op} ${a} ${b} : Int"));
+                    // Bring into [0, modulus) for possibly-negative sub results
+                    let mslot = *next;
+                    *next += 1;
+                    lines.push(format!("${mslot} = const {modulus} : Int"));
+                    let shifted = *next;
+                    *next += 1;
+                    lines.push(format!("${shifted} = arith add ${raw} ${mslot} : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = arith mod ${shifted} ${mslot} : Int"));
+                    Some(slot)
+                }
                 _ => None,
             }
         }
@@ -1693,11 +1723,24 @@ fn f(x: i64) -> i64 { let y = &x; *y }
 
     #[test]
     fn wrapping_methods_stay_unencoded() {
-        // #1010: non-identity wrapping needs BV; must not encode as plain arith.
+        // #1010: signed non-identity wrapping needs BV; must not encode as plain arith.
         assert!(try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_add(1)").is_none());
         assert!(try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_mul(2)").is_none());
         // Nested wrapping_neg still BNM (top-level expands to multi-block if).
         assert!(try_ir_from_rust_body("N", &px(), Some("i64"), "x.wrapping_neg() + 1").is_none());
+    }
+
+    #[test]
+    fn unsigned_wrapping_add_encodes_via_mod() {
+        let pu8 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "u8".into(),
+        }];
+        let ir =
+            try_ir_from_rust_body("W", &pu8, Some("u8"), "x.wrapping_add(1)").expect("u8 wrap");
+        assert!(ir.contains("arith add") && ir.contains("arith mod"), "{ir}");
+        assert!(ir.contains("const 256"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "W").expect("parse");
     }
 
     #[test]
