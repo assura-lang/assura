@@ -13,7 +13,7 @@
 //! `swap_bytes` (partial #1034).
 //! Unsigned wrapping_* via mod 2^w (#1010 partial). Signed wrapping_add needs BV.
 //! Top-level signed `wrapping_neg` (multi-block if). Variable is_power_of_two
-//! for u8/u16/u32/i8/i16/i32 via pot enum (≤32); i64 pot and signed wrap BNM.
+//! for fixed-width ints via pot enum (≤63 exponents, covers i64); signed wrap BNM.
 //! Literal `/0`, `%0`, `is_multiple_of(0)` BNM.
 //! `signum` nestable clamp (#1032).
 //!
@@ -958,8 +958,8 @@ fn encode_syn_expr(
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
                     let n_exp = pot_exponents(lo, hi)?;
-                    // Cap IR size: i64 would emit ~63 OR chain steps (~300 lines).
-                    if n_exp > 32 {
+                    // Cap IR size: i64 uses 63 OR-chain steps (~300 lines); fine for SMT.
+                    if n_exp > 63 {
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -2034,9 +2034,8 @@ fn f(x: i64) -> i64 { let y = &x; *y }
     }
 
     #[test]
-    fn is_power_of_two_stays_unencoded() {
-        // i64 variable: >32 pot exponents → BNM; const lit still peeps
-        assert!(try_ir_from_rust_body("P", &px(), Some("bool"), "x.is_power_of_two()").is_none());
+    fn is_power_of_two_const_and_i64_var() {
+        // Const lit peeps
         let t = try_ir_from_rust_body("T", &px(), Some("bool"), "8i64.is_power_of_two()")
             .expect("8 pot");
         assert!(t.contains("const 1 : Bool"), "{t}");
@@ -2046,6 +2045,14 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let z = try_ir_from_rust_body("Z", &px(), Some("bool"), "0i64.is_power_of_two()")
             .expect("0 not");
         assert!(z.contains("const 0 : Bool"), "{z}");
+        // i64 path param: 63-pot enum
+        let ir =
+            try_ir_from_rust_body("P", &px(), Some("bool"), "x.is_power_of_two()").expect("i64");
+        assert!(
+            ir.contains("cmp eq") && ir.contains("const 1 : Int"),
+            "{ir}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "P").expect("parse");
     }
 
     #[test]
