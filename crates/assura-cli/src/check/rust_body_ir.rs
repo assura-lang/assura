@@ -656,6 +656,17 @@ fn encode_syn_expr(
                 syn::BinOp::Rem(_) => "mod",
                 _ => return None,
             };
+            // Refuse literal /0 and %0 (Rust panic / UB); do not give SMT a free
+            // div-by-zero term that can pass ensures spuriously.
+            if matches!(ir_op, "div" | "mod")
+                && let syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Int(n),
+                    ..
+                }) = b.right.as_ref()
+                && n.base10_digits() == "0"
+            {
+                return None;
+            }
             let lhs = encode_syn_expr(&b.left, param_names, lines, next)?;
             let rhs = encode_syn_expr(&b.right, param_names, lines, next)?;
             let slot = *next;
@@ -1237,6 +1248,14 @@ fn f(x: i64) -> i64 {
         let ok =
             try_ir_from_rust_body("T", &px(), Some("bool"), "x.is_multiple_of(2)").expect("by2");
         assert!(ok.contains("const 2") || ok.contains("arith mod"), "{ok}");
+    }
+
+    #[test]
+    fn div_rem_by_literal_zero_stays_unencoded() {
+        assert!(try_ir_from_rust_body("D", &px(), Some("i64"), "x / 0").is_none());
+        assert!(try_ir_from_rust_body("R", &px(), Some("i64"), "x % 0").is_none());
+        let ok = try_ir_from_rust_body("D2", &px(), Some("i64"), "x / 2").expect("div2");
+        assert!(ok.contains("arith div"), "{ok}");
     }
 
     #[test]
