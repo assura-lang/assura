@@ -490,6 +490,19 @@ fn block_as_expr_owned(block: &syn::Block) -> Option<syn::Expr> {
     }
 }
 
+/// True when `expr` is integer literal 0 (after paren/group peels).
+fn is_lit_int_zero(expr: &syn::Expr) -> bool {
+    match expr {
+        syn::Expr::Paren(p) => is_lit_int_zero(&p.expr),
+        syn::Expr::Group(g) => is_lit_int_zero(&g.expr),
+        syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Int(n),
+            ..
+        }) => n.base10_digits() == "0",
+        _ => false,
+    }
+}
+
 /// Clamp `val` slot into SAT_BOUNDS using max/min; returns result slot.
 fn emit_sat_clamp(val: usize, lines: &mut Vec<String>, next: &mut usize) -> Option<usize> {
     let (lo_v, hi_v) = SAT_BOUNDS.get()?;
@@ -659,13 +672,7 @@ fn encode_syn_expr(
             };
             // Refuse literal /0 and %0 (Rust panic / UB); do not give SMT a free
             // div-by-zero term that can pass ensures spuriously.
-            if matches!(ir_op, "div" | "mod")
-                && let syn::Expr::Lit(syn::ExprLit {
-                    lit: syn::Lit::Int(n),
-                    ..
-                }) = b.right.as_ref()
-                && n.base10_digits() == "0"
-            {
+            if matches!(ir_op, "div" | "mod") && is_lit_int_zero(&b.right) {
                 return None;
             }
             let lhs = encode_syn_expr(&b.left, param_names, lines, next)?;
@@ -765,12 +772,7 @@ fn encode_syn_expr(
                 ("is_multiple_of", 1) => {
                     // Rust panics on divisor 0; refuse literal 0 so we do not
                     // model mod-by-zero as a free SMT fact (false Verified risk).
-                    if let syn::Expr::Lit(syn::ExprLit {
-                        lit: syn::Lit::Int(n),
-                        ..
-                    }) = &m.args[0]
-                        && n.base10_digits() == "0"
-                    {
+                    if is_lit_int_zero(&m.args[0]) {
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -1254,6 +1256,10 @@ fn f(x: i64) -> i64 {
     fn div_rem_by_literal_zero_stays_unencoded() {
         assert!(try_ir_from_rust_body("D", &px(), Some("i64"), "x / 0").is_none());
         assert!(try_ir_from_rust_body("R", &px(), Some("i64"), "x % 0").is_none());
+        assert!(try_ir_from_rust_body("Dp", &px(), Some("i64"), "x / (0)").is_none());
+        assert!(
+            try_ir_from_rust_body("Mp", &px(), Some("bool"), "x.is_multiple_of((0))").is_none()
+        );
         let ok = try_ir_from_rust_body("D2", &px(), Some("i64"), "x / 2").expect("div2");
         assert!(ok.contains("arith div"), "{ok}");
     }
