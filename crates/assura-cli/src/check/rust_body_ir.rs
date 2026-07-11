@@ -15,9 +15,10 @@
 //! wrapping_add/sub/mul and wrapping_shl via double-mod+reinterpret for i8..i64
 //! (i64 modulus is synthetic `(2^32)*(2^32)`). Signed rotate via bit-pattern map.
 //! Signed wrapping_shr via floor div by 2^k. Top-level signed `wrapping_neg`
-//! (multi-block if). Variable wrapping_shl/shr case-sum for bits≤64 (i64 uses
-//! synthetic modulus; 2^63 factor is 2^32*2^31). Variable is_power_of_two for
-//! fixed-width ints via pot enum (≤63 exponents; identity peels keep bounds).
+//! (multi-block if); nested signed via modular (0-x) mod 2^w + reinterpret.
+//! Variable wrapping_shl/shr case-sum for bits≤64 (i64 uses synthetic modulus;
+//! 2^63 factor is 2^32*2^31). Variable is_power_of_two for fixed-width ints via
+//! pot enum (≤63 exponents; identity peels keep bounds).
 //! Literal `/0`, `%0`, `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
 //! rem_euclid/div_euclid with positive const (signed Euclidean).
 //!
@@ -217,7 +218,8 @@ pub(crate) fn try_ir_from_rust_body(
     }
 
     let mut expr: syn::Expr = syn::parse_str(body_return).ok()?;
-    // Top-level wrapping_neg → multi-block if (MIN stays MIN). Nested stays BNM (#1010).
+    // Top-level wrapping_neg → multi-block if (MIN stays MIN). Nested signed uses
+    // modular encode in the method arm (same bit pattern).
     if let Some(e) = expand_wrapping_neg_method(&expr) {
         expr = e;
     }
@@ -2326,13 +2328,21 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = arith sub ${u} ${adj} : Int"));
                     Some(slot)
                 }
-                // Unsigned wrapping_neg: (0 - x) mod 2^w
+                // wrapping_neg: (0 - x) mod 2^w; signed reinterprets into [lo, hi].
+                // Nested signed works in single-block IR (no top-level expand required).
                 ("wrapping_neg", 0) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
-                    if lo != 0 {
-                        return None; // signed uses expand_wrapping_neg_method
-                    }
-                    let modulus = hi.checked_add(1)?;
+                    let signed = lo != 0;
+                    let modulus_i64 = if signed {
+                        hi.checked_sub(lo).and_then(|d| d.checked_add(1))
+                    } else {
+                        hi.checked_add(1)
+                    };
+                    let use_synthetic_2_64 = match modulus_i64 {
+                        Some(m) if m > 0 && (m as u64).is_power_of_two() => false,
+                        None if signed && lo == i64::MIN && hi == i64::MAX => true,
+                        _ => return None,
+                    };
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let zero = *next;
                     *next += 1;
@@ -2340,15 +2350,46 @@ fn encode_syn_expr(
                     let raw = *next;
                     *next += 1;
                     lines.push(format!("${raw} = arith sub ${zero} ${a} : Int"));
-                    let mslot = *next;
+                    let mslot = if use_synthetic_2_64 {
+                        let half = *next;
+                        *next += 1;
+                        lines.push(format!("${half} = const 4294967296 : Int"));
+                        let mslot = *next;
+                        *next += 1;
+                        lines.push(format!("${mslot} = arith mul ${half} ${half} : Int"));
+                        mslot
+                    } else {
+                        let modulus = modulus_i64?;
+                        let mslot = *next;
+                        *next += 1;
+                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        mslot
+                    };
+                    // rem_euclid into [0, m)
+                    let t1 = *next;
                     *next += 1;
-                    lines.push(format!("${mslot} = const {modulus} : Int"));
-                    let shifted = *next;
+                    lines.push(format!("${t1} = arith mod ${raw} ${mslot} : Int"));
+                    let t2 = *next;
                     *next += 1;
-                    lines.push(format!("${shifted} = arith add ${raw} ${mslot} : Int"));
+                    lines.push(format!("${t2} = arith add ${t1} ${mslot} : Int"));
+                    let u = *next;
+                    *next += 1;
+                    lines.push(format!("${u} = arith mod ${t2} ${mslot} : Int"));
+                    if !signed {
+                        return Some(u);
+                    }
+                    let his = *next;
+                    *next += 1;
+                    lines.push(format!("${his} = const {hi} : Int"));
+                    let gt = *next;
+                    *next += 1;
+                    lines.push(format!("${gt} = cmp gt ${u} ${his} : Bool"));
+                    let adj = *next;
+                    *next += 1;
+                    lines.push(format!("${adj} = arith mul ${gt} ${mslot} : Int"));
                     let slot = *next;
                     *next += 1;
-                    lines.push(format!("${slot} = arith mod ${shifted} ${mslot} : Int"));
+                    lines.push(format!("${slot} = arith sub ${u} ${adj} : Int"));
                     Some(slot)
                 }
                 _ => None,
@@ -3085,8 +3126,14 @@ fn f(x: i64) -> i64 { let y = &x; *y }
             "{mul}"
         );
         assura_smt::LoadedVerifyExtras::from_ir_text(&mul, "M").expect("parse mul");
-        // Nested wrapping_neg still BNM (top-level expands to multi-block if).
-        assert!(try_ir_from_rust_body("N", &px(), Some("i64"), "x.wrapping_neg() + 1").is_none());
+        // Nested wrapping_neg encodes via modular (0-x) mod 2^w + reinterpret.
+        let nest =
+            try_ir_from_rust_body("N", &px(), Some("i64"), "x.wrapping_neg() + 1").expect("nest");
+        assert!(
+            nest.contains("arith sub") && nest.contains("arith mod") && nest.contains("cmp gt"),
+            "{nest}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&nest, "N").expect("parse nest");
     }
 
     #[test]

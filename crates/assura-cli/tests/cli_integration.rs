@@ -4319,16 +4319,16 @@ fn d(x: i64, y: i64) -> i64 { x - y }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
 }
 
-/// Nested wrapping_neg stays body_not_modeled (top-level alone encodes).
+/// Nested wrapping_neg encodes via modular 2^w (no longer BNM).
 #[test]
-fn check_rust_nested_wrapping_neg_body_not_modeled() {
-    let tmp = unique_temp("assura_check_rust_wrap_bnm");
+fn check_rust_encodes_nested_wrapping_neg() {
+    let tmp = unique_temp("assura_check_rust_wrap_nest");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
     std::fs::write(
         tmp.join("ok.rs"),
         r#"
-/// @ensures result >= 0
+/// @ensures result == 0 || result != 0
 fn w(x: i64) -> i64 { x.wrapping_neg() + 1 }
 "#,
     )
@@ -4338,12 +4338,34 @@ fn w(x: i64) -> i64 { x.wrapping_neg() + 1 }
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
-    assert!(
-        v["body_not_modeled"].as_u64().unwrap_or(0) >= 1,
-        "nested wrapping_neg must BNM not soft-pass: {stdout}"
-    );
-    assert!(!out.status.success());
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong nested wrapping_neg ensures must CE.
+#[test]
+fn check_rust_nested_wrapping_neg_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_wrap_nest_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn w(x: i64) -> i64 { x.wrapping_neg() + 1 }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
 /// i64 wrapping_add encodes via synthetic 2^64 modulus (#1010).
@@ -5586,7 +5608,7 @@ fn m(x: i64) -> i64 { 4i64.midpoint(6) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
-/// Top-level wrapping_neg encodes (MIN stays MIN); nested still BNM.
+/// Top-level and nested wrapping_neg both encode.
 #[test]
 fn check_rust_encodes_wrapping_neg() {
     let tmp = unique_temp("assura_check_rust_wneg");
@@ -5598,7 +5620,7 @@ fn check_rust_encodes_wrapping_neg() {
 /// @ensures result == 0 || result != 0
 fn n(x: i64) -> i64 { x.wrapping_neg() }
 
-/// @ensures result == x
+/// @ensures result == 0 || result != 0
 fn nest(x: i64) -> i64 { x.wrapping_neg() + x }
 "#,
     )
@@ -5608,27 +5630,9 @@ fn nest(x: i64) -> i64 { x.wrapping_neg() + x }
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
-    assert!(
-        v["body_not_modeled"].as_u64().unwrap_or(0) >= 1,
-        "nested wrapping_neg must BNM: {stdout}"
-    );
-    let results = v["results"].as_array().expect("results");
-    let statuses: Vec<_> = results
-        .iter()
-        .map(|r| {
-            (
-                r["item"].as_str().unwrap_or(""),
-                r["status"].as_str().unwrap_or(""),
-            )
-        })
-        .collect();
-    assert!(
-        statuses
-            .iter()
-            .any(|(i, s)| *i == "n" && *s != "body_not_modeled"),
-        "top-level wrapping_neg should encode, got {statuses:?}: {stdout}"
-    );
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
 /// wrapping_add(0) / wrapping_mul(1) identity peeps encode.
