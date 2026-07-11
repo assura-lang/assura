@@ -4373,6 +4373,33 @@ fn f(x: f32) -> f32 { x.abs() }
     assert!(!out.status.success());
 }
 
+/// String bodies stay body_not_modeled (not false verified).
+#[test]
+fn check_rust_string_body_not_modeled() {
+    let tmp = unique_temp("assura_check_rust_string_bnm");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result.len() >= 0
+fn f(x: &str) -> usize { x.len() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert!(
+        v["body_not_modeled"].as_u64().unwrap_or(0) >= 1,
+        "string must BNM: {stdout}"
+    );
+    assert!(!out.status.success());
+}
+
 /// Unsigned wrapping_add encodes via mod 2^w (#1010 partial).
 #[test]
 fn check_rust_encodes_u8_wrapping_add() {
