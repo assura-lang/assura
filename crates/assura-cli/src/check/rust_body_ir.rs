@@ -791,6 +791,16 @@ fn encode_syn_expr(
                     Some(slot)
                 }
                 ("is_negative", 0) => {
+                    // abs(...).is_negative() is always false
+                    if let syn::Expr::MethodCall(inner) = m.receiver.as_ref()
+                        && inner.method == "abs"
+                        && inner.args.is_empty()
+                    {
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const 0 : Bool"));
+                        return Some(slot);
+                    }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let z = *next;
                     *next += 1;
@@ -1487,6 +1497,9 @@ fn f(x: i64) -> i64 {
         let ir = try_ir_from_rust_body("A", &pxy, Some("bool"), "x.abs_diff(y).is_positive()")
             .expect("chain");
         assert!(ir.contains("call abs") && ir.contains("cmp gt"), "{ir}");
+        let never =
+            try_ir_from_rust_body("N", &px(), Some("bool"), "x.abs().is_negative()").expect("neg");
+        assert!(never.contains("const 0 : Bool"), "{never}");
     }
 
     #[test]
