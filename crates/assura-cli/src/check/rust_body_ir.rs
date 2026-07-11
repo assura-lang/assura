@@ -1261,6 +1261,31 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = arith mod ${a} ${b} : Int"));
                     Some(slot)
                 }
+                // div_euclid for non-neg + positive const divisor ≡ floor div.
+                ("div_euclid", 1) => {
+                    let b_val = lit_int_i64(&m.args[0])?;
+                    if b_val <= 0 {
+                        return None;
+                    }
+                    let nonneg = if let Some(v) = lit_int_i64(&m.receiver) {
+                        v >= 0
+                    } else if let Some((lo, _)) = path_param_bounds(&m.receiver) {
+                        lo >= 0
+                    } else {
+                        false
+                    };
+                    if !nonneg {
+                        return None;
+                    }
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let b = *next;
+                    *next += 1;
+                    lines.push(format!("${b} = const {b_val} : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = arith div ${a} ${b} : Int"));
+                    Some(slot)
+                }
                 ("pow", 1) => {
                     let syn::Expr::Lit(syn::ExprLit {
                         lit: syn::Lit::Int(n),
@@ -2029,6 +2054,12 @@ fn f(x: i64) -> i64 {
         // const non-neg lit
         let c = try_ir_from_rust_body("C", &px(), Some("u32"), "10u32.div_ceil(3)").expect("const");
         assert!(c.contains("const 4") || c.contains("arith div"), "{c}");
+        let re =
+            try_ir_from_rust_body("R", &pu8, Some("u8"), "x.rem_euclid(3)").expect("rem_euclid");
+        assert!(re.contains("arith mod") && re.contains("const 3"), "{re}");
+        let de =
+            try_ir_from_rust_body("De", &pu8, Some("u8"), "x.div_euclid(3)").expect("div_euclid");
+        assert!(de.contains("arith div") && de.contains("const 3"), "{de}");
     }
 
     #[test]
