@@ -9,7 +9,8 @@
 //! Peeps: wrapping `+0`/`-0`/`*1`/`*0`/`sub(x,x)`; shift/rotate by 0;
 //! `is_multiple_of(±1)`; same-path `abs_diff`/`min`/`max`/`clamp(_,y,y)`;
 //! `abs`/`saturating_abs` `.is_negative()` → false; const `is_power_of_two` /
-//! `count_ones` / `trailing_zeros` / typed `leading_zeros` (partial #1034).
+//! `count_ones` / `trailing_zeros` / typed `leading_zeros` / `reverse_bits` /
+//! `swap_bytes` (partial #1034).
 //! Unsigned wrapping_* via mod 2^w (#1010 partial). Signed wrapping_add needs BV.
 //! Top-level signed `wrapping_neg` (multi-block if). Variable is_power_of_two
 //! for u8/u16/u32/i8/i16/i32 via pot enum (≤32); i64 pot and signed wrap BNM.
@@ -1001,8 +1002,22 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = const {ones} : Int"));
                     Some(slot)
                 }
-                // Non-zero non-neg lit (0.trailing_zeros is bit-width of type).
+                // Non-neg lit; 0.trailing_zeros needs typed width (= bits).
                 ("trailing_zeros", 0) => {
+                    if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
+                        if v < 0 {
+                            return None;
+                        }
+                        let tz = if v == 0 {
+                            bits
+                        } else {
+                            (v as u64).trailing_zeros()
+                        };
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const {tz} : Int"));
+                        return Some(slot);
+                    }
                     let v = lit_int_i64(&m.receiver)?;
                     if v <= 0 {
                         return None;
@@ -1027,6 +1042,53 @@ fn encode_syn_expr(
                     let slot = *next;
                     *next += 1;
                     lines.push(format!("${slot} = const {lz} : Int"));
+                    Some(slot)
+                }
+                // Typed non-neg lit: reverse_bits / swap_bytes need width.
+                ("reverse_bits", 0) => {
+                    let (v, bits) = lit_int_i64_bits(&m.receiver)?;
+                    if v < 0 {
+                        return None;
+                    }
+                    let rev = match bits {
+                        8 => (v as u8).reverse_bits() as i64,
+                        16 => (v as u16).reverse_bits() as i64,
+                        32 => (v as u32).reverse_bits() as i64,
+                        64 => (v as u64).reverse_bits() as i64,
+                        _ => return None,
+                    };
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const {rev} : Int"));
+                    Some(slot)
+                }
+                ("swap_bytes", 0) => {
+                    let (v, bits) = lit_int_i64_bits(&m.receiver)?;
+                    if v < 0 {
+                        return None;
+                    }
+                    let sw = match bits {
+                        8 => v, // no-op
+                        16 => (v as u16).swap_bytes() as i64,
+                        32 => (v as u32).swap_bytes() as i64,
+                        64 => (v as u64).swap_bytes() as i64,
+                        _ => return None,
+                    };
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const {sw} : Int"));
+                    Some(slot)
+                }
+                // Positive lit only (ilog2(0) panics in Rust).
+                ("ilog2", 0) => {
+                    let v = lit_int_i64(&m.receiver)?;
+                    if v <= 0 {
+                        return None;
+                    }
+                    let log = (v as u64).ilog2();
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const {log} : Int"));
                     Some(slot)
                 }
                 ("default", 0) => {
@@ -2014,9 +2076,12 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         assert!(tz.contains("const 2 : Int"), "{tz}");
         // Variable receivers stay BNM
         assert!(try_ir_from_rust_body("V", &px(), Some("u32"), "x.count_ones()").is_none());
-        // 0.trailing_zeros needs bit width → BNM without typed 0uN handled... 0u32 has width
-        // but we intentionally BNM zero trailing_zeros for non-typed; 0u32 still v==0 → None
-        assert!(try_ir_from_rust_body("Z", &px(), Some("u32"), "0u32.trailing_zeros()").is_none());
+        // Typed 0.trailing_zeros() == bit width
+        let z0 =
+            try_ir_from_rust_body("Z", &px(), Some("u32"), "0u32.trailing_zeros()").expect("0tz");
+        assert!(z0.contains("const 32 : Int"), "{z0}");
+        // bare 0 without suffix still BNM
+        assert!(try_ir_from_rust_body("B", &px(), Some("u32"), "0.trailing_zeros()").is_none());
     }
 
     #[test]
@@ -2027,6 +2092,21 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         assert!(lz.contains("const 28 : Int"), "{lz}");
         // bare unsuffixed lit has no width
         assert!(try_ir_from_rust_body("B", &px(), Some("u32"), "8.leading_zeros()").is_none());
+    }
+
+    #[test]
+    fn typed_reverse_bits_and_swap_bytes_peep() {
+        // 0b0000_0001 u8 reversed → 0b1000_0000 = 128
+        let rev = try_ir_from_rust_body("R", &px(), Some("u8"), "1u8.reverse_bits()").expect("rev");
+        assert!(rev.contains("const 128 : Int"), "{rev}");
+        // 0x1234u16.swap_bytes() → 0x3412 = 13330
+        let sw =
+            try_ir_from_rust_body("S", &px(), Some("u16"), "0x1234u16.swap_bytes()").expect("sw");
+        assert!(sw.contains("const 13330 : Int"), "{sw}");
+        assert!(try_ir_from_rust_body("V", &px(), Some("u8"), "x.reverse_bits()").is_none());
+        let ig = try_ir_from_rust_body("I", &px(), Some("u32"), "8u32.ilog2()").expect("ilog");
+        assert!(ig.contains("const 3 : Int"), "{ig}");
+        assert!(try_ir_from_rust_body("Z", &px(), Some("u32"), "0u32.ilog2()").is_none());
     }
 
     #[test]
