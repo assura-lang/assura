@@ -1,13 +1,13 @@
 //! Encode simple Rust function bodies as Assura Implementation IR for check-rust.
 //!
-//! Supports int/bool arith, abs/min/max/clamp/saturating(+neg)/abs_diff, is_positive/
-//! negative/zero, `is_multiple_of`, PartialOrd methods, logical `&&`/`||`, unary
-//! `-`/`!`/`*`/`&`, identity ops (`into`/`as` lossless/`clone`/`copied`/`as_ref`/`not`),
-//! `default` and integer MIN/MAX, small `pow`, multi-let (incl. ref/cast folds),
+//! Supports int/bool arith, abs/min/max/clamp/saturating(+neg)/abs_diff/signum,
+//! is_positive/negative/zero, `is_multiple_of`, PartialOrd methods, logical `&&`/`||`,
+//! unary `-`/`!`/`*`/`&`, identity ops (`into`/`as` lossless/`clone`/`copied`/`as_ref`/
+//! `not`), `default` and integer MIN/MAX, small `pow`, multi-let (incl. ref/cast folds),
 //! if/match (incl. guards), and Bool comparisons. Body text via `syn` (co-publish-safe).
 //!
-//! Not yet encoded (stay body_not_modeled): wrapping_* (#1010), nested
-//! if-valued methods like `signum` in arith (#1032), is_power_of_two (#1034).
+//! Not yet encoded (stay body_not_modeled): wrapping_* (#1010), is_power_of_two (#1034).
+//! `signum` is encoded as clamp to [-1, 1] (nestable in arith; #1032).
 //!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
 //! `eval_ir_block` clones parent slots into each block; reusing `$1`/`$2` for
@@ -161,19 +161,6 @@ fn expr_source(expr: &syn::Expr) -> String {
         .join(" ")
 }
 
-/// `x.signum()` → nested if for multi-block encode.
-fn expand_signum_method(expr: &syn::Expr) -> Option<syn::Expr> {
-    let syn::Expr::MethodCall(m) = expr else {
-        return None;
-    };
-    if m.method != "signum" || !m.args.is_empty() {
-        return None;
-    }
-    let recv = expr_source(&m.receiver);
-    let tree = format!("if {recv} > 0 {{ 1 }} else {{ if {recv} < 0 {{ -1 }} else {{ 0 }} }}");
-    syn::parse_str(&tree).ok()
-}
-
 /// Build IR text for a function if `body_return` is a simple supported shape.
 pub(crate) fn try_ir_from_rust_body(
     item_name: &str,
@@ -217,10 +204,7 @@ pub(crate) fn try_ir_from_rust_body(
         }
     }
 
-    let mut expr: syn::Expr = syn::parse_str(body_return).ok()?;
-    if let Some(e) = expand_signum_method(&expr) {
-        expr = e;
-    }
+    let expr: syn::Expr = syn::parse_str(body_return).ok()?;
 
     let mut sig_parts = Vec::new();
     for (i, p) in params.iter().filter(|p| p.name != "self").enumerate() {
@@ -687,6 +671,24 @@ fn encode_syn_expr(
                     let slot = *next;
                     *next += 1;
                     lines.push(format!("${slot} = call abs (${a}) : Int"));
+                    Some(slot)
+                }
+                // Integer signum ≡ clamp to [-1, 1] via min/max (nestable; #1032).
+                // max(min(x, 1), -1) matches x.signum() for all Int values.
+                ("signum", 0) => {
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let lo = *next;
+                    *next += 1;
+                    lines.push(format!("${lo} = const -1 : Int"));
+                    let hi = *next;
+                    *next += 1;
+                    lines.push(format!("${hi} = const 1 : Int"));
+                    let mx = *next;
+                    *next += 1;
+                    lines.push(format!("${mx} = call max (${a}, ${lo}) : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = call min (${mx}, ${hi}) : Int"));
                     Some(slot)
                 }
                 ("is_positive", 0) => {
@@ -1392,8 +1394,21 @@ fn f(x: i64) -> i64 { let y = &x; *y }
     }
 
     #[test]
-    fn nested_signum_stays_unencoded() {
-        // #1032: need ITE for if-valued methods inside arith
-        assert!(try_ir_from_rust_body("S", &px(), Some("i64"), "x.signum() + 1").is_none());
+    fn nested_signum_encodes_as_clamp() {
+        // #1032: signum ≡ min(max(x, -1), 1); works inside arith without multi-block if.
+        let ir = try_ir_from_rust_body("S", &px(), Some("i64"), "x.signum() + 1").expect("nested");
+        assert!(ir.contains("call max"), "{ir}");
+        assert!(ir.contains("call min"), "{ir}");
+        assert!(ir.contains("arith add"), "{ir}");
+        assert!(!ir.contains("then #"), "must stay single-block: {ir}");
+    }
+
+    #[test]
+    fn top_level_signum_encodes() {
+        let ir = try_ir_from_rust_body("S", &px(), Some("i64"), "x.signum()").expect("signum");
+        assert!(ir.contains("const -1"), "{ir}");
+        assert!(ir.contains("const 1"), "{ir}");
+        assert!(ir.contains("call max"), "{ir}");
+        assert!(ir.contains("call min"), "{ir}");
     }
 }
