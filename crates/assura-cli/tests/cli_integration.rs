@@ -4180,6 +4180,51 @@ fn w(x: i64) -> i64 { x.wrapping_add(1) }
     assert!(!out.status.success());
 }
 
+/// Top-level wrapping_neg encodes (MIN stays MIN); nested still BNM.
+#[test]
+fn check_rust_encodes_wrapping_neg() {
+    let tmp = unique_temp("assura_check_rust_wneg");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 0 || result != 0
+fn n(x: i64) -> i64 { x.wrapping_neg() }
+
+/// @ensures result == x
+fn nest(x: i64) -> i64 { x.wrapping_neg() + x }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert!(
+        v["body_not_modeled"].as_u64().unwrap_or(0) >= 1,
+        "nested wrapping_neg must BNM: {stdout}"
+    );
+    let results = v["results"].as_array().expect("results");
+    let statuses: Vec<_> = results
+        .iter()
+        .map(|r| {
+            (
+                r["item"].as_str().unwrap_or(""),
+                r["status"].as_str().unwrap_or(""),
+            )
+        })
+        .collect();
+    assert!(
+        statuses
+            .iter()
+            .any(|(i, s)| *i == "n" && *s != "body_not_modeled"),
+        "top-level wrapping_neg should encode, got {statuses:?}: {stdout}"
+    );
+}
+
 /// Literal /0 and is_multiple_of(0) must be body_not_modeled (panic paths).
 #[test]
 fn check_rust_div_zero_body_not_modeled() {

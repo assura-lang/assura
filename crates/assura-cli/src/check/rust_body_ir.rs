@@ -6,7 +6,8 @@
 //! `not`), `default` and integer MIN/MAX, small `pow`, multi-let (incl. ref/cast folds),
 //! if/match (incl. guards), and Bool comparisons. Body text via `syn` (co-publish-safe).
 //!
-//! Not yet encoded (stay body_not_modeled): wrapping_* (#1010), is_power_of_two (#1034).
+//! Not yet encoded (stay body_not_modeled): wrapping_add/sub/mul (#1010), is_power_of_two
+//! (#1034). Top-level `wrapping_neg` expands to multi-block if (MIN → MIN).
 //! `signum` is encoded as clamp to [-1, 1] (nestable in arith; #1032).
 //! Literal `/0`, `%0`, and `is_multiple_of(0)` also stay unencoded (Rust panic paths).
 //!
@@ -205,7 +206,11 @@ pub(crate) fn try_ir_from_rust_body(
         }
     }
 
-    let expr: syn::Expr = syn::parse_str(body_return).ok()?;
+    let mut expr: syn::Expr = syn::parse_str(body_return).ok()?;
+    // Top-level wrapping_neg → multi-block if (MIN stays MIN). Nested stays BNM (#1010).
+    if let Some(e) = expand_wrapping_neg_method(&expr) {
+        expr = e;
+    }
 
     let mut sig_parts = Vec::new();
     for (i, p) in params.iter().filter(|p| p.name != "self").enumerate() {
@@ -488,6 +493,31 @@ fn block_as_expr_owned(block: &syn::Block) -> Option<syn::Expr> {
         [syn::Stmt::Expr(e, _)] => Some(e.clone()),
         stmts => fold_simple_lets(stmts),
     }
+}
+
+/// `x.wrapping_neg()` → if x == MIN { MIN } else { -x } (needs SAT_BOUNDS).
+/// Top-level only (multi-block if); nested wrapping stays unencoded (#1010).
+fn expand_wrapping_neg_method(expr: &syn::Expr) -> Option<syn::Expr> {
+    let syn::Expr::MethodCall(m) = expr else {
+        return None;
+    };
+    if m.method != "wrapping_neg" || !m.args.is_empty() {
+        return None;
+    }
+    let (lo, _) = SAT_BOUNDS.get()?;
+    // Unsigned wrapping_neg is just 0-x mod 2^w; skip (needs mod width).
+    if lo == 0 {
+        return None;
+    }
+    let recv = expr_source(&m.receiver);
+    // Avoid raw MIN literals that do not parse as i64 tokens (use -MAX-1).
+    let lo_src = if lo == i64::MIN {
+        format!("-{} - 1", i64::MAX)
+    } else {
+        lo.to_string()
+    };
+    let tree = format!("if {recv} == ({lo_src}) {{ ({lo_src}) }} else {{ -({recv}) }}");
+    syn::parse_str(&tree).ok()
 }
 
 /// True when `expr` is integer literal 0 (after paren/group peels).
@@ -1469,10 +1499,18 @@ fn f(x: i64) -> i64 { let y = &x; *y }
 
     #[test]
     fn wrapping_methods_stay_unencoded() {
-        // #1010: need BV / mod 2^n; must not silently encode as plain arith.
+        // #1010: wrapping_add/mul need BV / mod 2^n; must not silently encode as plain arith.
         assert!(try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_add(1)").is_none());
         assert!(try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_mul(2)").is_none());
-        assert!(try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_neg()").is_none());
+        // Nested wrapping_neg still BNM (top-level expands to multi-block if).
+        assert!(try_ir_from_rust_body("N", &px(), Some("i64"), "x.wrapping_neg() + 1").is_none());
+    }
+
+    #[test]
+    fn top_level_wrapping_neg_encodes() {
+        let ir = try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_neg()").expect("wneg");
+        assert!(ir.contains("then #") || ir.contains("if $"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "W").expect("parse");
     }
 
     #[test]
