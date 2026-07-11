@@ -1245,13 +1245,8 @@ fn f(x: i64) -> i64 {
                 ty: "i64".into(),
             },
         ];
-        let ir = try_ir_from_rust_body(
-            "A",
-            &pxy,
-            Some("bool"),
-            "x.abs_diff(y).is_positive()",
-        )
-        .expect("chain");
+        let ir = try_ir_from_rust_body("A", &pxy, Some("bool"), "x.abs_diff(y).is_positive()")
+            .expect("chain");
         assert!(ir.contains("call abs") && ir.contains("cmp gt"), "{ir}");
     }
 
