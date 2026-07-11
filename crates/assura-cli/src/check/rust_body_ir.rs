@@ -1120,6 +1120,18 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = const {pot} : Int"));
                     Some(slot)
                 }
+                // Non-neg lit integer square root.
+                ("isqrt", 0) => {
+                    let v = lit_int_i64(&m.receiver)?;
+                    if v < 0 {
+                        return None;
+                    }
+                    let root = (v as u64).isqrt();
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const {root} : Int"));
+                    Some(slot)
+                }
                 ("default", 0) => {
                     let slot = *next;
                     *next += 1;
@@ -2340,6 +2352,9 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let z1 = try_ir_from_rust_body("Z1", &px(), Some("u32"), "0u32.next_power_of_two()")
             .expect("0np");
         assert!(z1.contains("const 1 : Int"), "{z1}");
+        let sq = try_ir_from_rust_body("Sq", &px(), Some("u32"), "10u32.isqrt()").expect("isqrt");
+        assert!(sq.contains("const 3 : Int"), "{sq}");
+        assert!(try_ir_from_rust_body("Neg", &px(), Some("i64"), "(-1i64).isqrt()").is_none());
     }
 
     #[test]

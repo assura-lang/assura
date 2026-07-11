@@ -4577,6 +4577,9 @@ fn ig(x: u32) -> u32 { 8u32.ilog2() }
 
 /// @ensures result == 4
 fn np(x: u32) -> u32 { 3u32.next_power_of_two() }
+
+/// @ensures result == 3
+fn sq(x: u32) -> u32 { 10u32.isqrt() }
 "#,
     )
     .unwrap();
