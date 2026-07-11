@@ -4458,6 +4458,36 @@ fn f(x: &str) -> usize { x.len() }
     assert!(!out.status.success());
 }
 
+/// to_be/to_le stay body_not_modeled (host-endian; not encoded).
+#[test]
+fn check_rust_to_be_body_not_modeled() {
+    let tmp = unique_temp("assura_check_rust_to_be_bnm");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn t(x: u32) -> u32 { x.to_be() }
+
+/// @ensures result >= 0
+fn l(x: u32) -> u32 { x.to_le() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert!(
+        v["body_not_modeled"].as_u64().unwrap_or(0) >= 1,
+        "to_be/to_le must BNM: {stdout}"
+    );
+    assert!(!out.status.success());
+}
+
 /// checked_/overflowing_* stay body_not_modeled (Option/tuple returns unencoded).
 #[test]
 fn check_rust_checked_overflowing_body_not_modeled() {
