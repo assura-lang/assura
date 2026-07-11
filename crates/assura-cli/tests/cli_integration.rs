@@ -4584,6 +4584,12 @@ fn np(x: u32) -> u32 { 3u32.next_power_of_two() }
 
 /// @ensures result == 3
 fn sq(x: u32) -> u32 { 10u32.isqrt() }
+
+/// @ensures result == 2
+fn l10(x: u32) -> u32 { 100u32.ilog10() }
+
+/// @ensures result >= 0
+fn ua(x: i64) -> u64 { x.unsigned_abs() }
 "#,
     )
     .unwrap();
