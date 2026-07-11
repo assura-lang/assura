@@ -4180,6 +4180,36 @@ fn w(x: i64) -> i64 { x.wrapping_add(1) }
     assert!(!out.status.success());
 }
 
+/// Literal /0 and is_multiple_of(0) must be body_not_modeled (panic paths).
+#[test]
+fn check_rust_div_zero_body_not_modeled() {
+    let tmp = unique_temp("assura_check_rust_div0_bnm");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 0
+fn d(x: i64) -> i64 { x / 0 }
+
+/// @ensures result == true
+fn m(x: i64) -> bool { x.is_multiple_of(0) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert!(
+        v["body_not_modeled"].as_u64().unwrap_or(0) >= 2,
+        "div0 / is_multiple_of(0) must BNM: {stdout}"
+    );
+    assert!(!out.status.success());
+}
+
 /// is_power_of_two body must be body_not_modeled (#1034).
 #[test]
 fn check_rust_is_power_of_two_bnm() {
