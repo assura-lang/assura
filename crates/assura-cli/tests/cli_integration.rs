@@ -4309,6 +4309,10 @@ fn check_rust_encodes_u8_wrapping_add() {
 /// @ensures result >= 0
 /// @ensures result <= 255
 fn w(x: u8) -> u8 { x.wrapping_add(1) }
+
+/// @ensures result >= 0
+/// @ensures result <= 255
+fn s(x: u8) -> u8 { x.wrapping_sub(1) }
 "#,
     )
     .unwrap();
@@ -4320,6 +4324,31 @@ fn w(x: u8) -> u8 { x.wrapping_add(1) }
     assert!(out.status.success(), "{stdout}");
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong u8 wrapping_add ensures must CE.
+#[test]
+fn check_rust_u8_wrapping_add_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_u8_wrap_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x + 1
+fn w(x: u8) -> u8 { x.wrapping_add(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE on wrap of 255: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
 /// Top-level wrapping_neg encodes (MIN stays MIN); nested still BNM.
