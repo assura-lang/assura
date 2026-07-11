@@ -4417,6 +4417,38 @@ fn m32(x: u32) -> u32 { x.wrapping_mul(2) }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Unsigned wrapping_shl by const encodes via mul+mod (#1010 partial).
+#[test]
+fn check_rust_encodes_u8_wrapping_shl() {
+    let tmp = unique_temp("assura_check_rust_u8_shl");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+/// @ensures result <= 255
+fn s(x: u8) -> u8 { x.wrapping_shl(1) }
+
+/// @ensures result == x
+fn id(x: u8) -> u8 { x.wrapping_shl(8) }
+
+/// @ensures result >= 0
+/// @ensures result <= 255
+fn r(x: u8) -> u8 { x.wrapping_shr(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Const bit-count peeps (partial #1034 family) + shift/rotate-by-0 identity.
 #[test]
 fn check_rust_encodes_const_bit_peeps() {
