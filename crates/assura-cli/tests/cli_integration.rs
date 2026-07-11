@@ -4423,7 +4423,10 @@ fn r(x: i64) -> i64 { x.rem_euclid(3) }
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(!out.status.success(), "must CE (rem_euclid always >=0): {stdout}");
+    assert!(
+        !out.status.success(),
+        "must CE (rem_euclid always >=0): {stdout}"
+    );
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
     assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
