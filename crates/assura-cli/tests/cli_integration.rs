@@ -4785,10 +4785,10 @@ fn s(x: i8) -> i8 { x.wrapping_shl(1) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
-/// Signed wrapping_shr stays body_not_modeled (arithmetic shift needs BV).
+/// Signed wrapping_shr encodes via floor div by 2^k.
 #[test]
-fn check_rust_signed_wrapping_shr_body_not_modeled() {
-    let tmp = unique_temp("assura_check_rust_signed_shr_bnm");
+fn check_rust_encodes_signed_wrapping_shr() {
+    let tmp = unique_temp("assura_check_rust_signed_shr");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
     std::fs::write(
@@ -4797,6 +4797,10 @@ fn check_rust_signed_wrapping_shr_body_not_modeled() {
 /// @ensures result >= -128
 /// @ensures result <= 127
 fn s(x: i8) -> i8 { x.wrapping_shr(1) }
+
+/// @ensures result >= -9223372036854775808
+/// @ensures result <= 9223372036854775807
+fn l(x: i64) -> i64 { x.wrapping_shr(1) }
 "#,
     )
     .unwrap();
@@ -4805,12 +4809,34 @@ fn s(x: i8) -> i8 { x.wrapping_shr(1) }
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
-    assert!(
-        v["body_not_modeled"].as_u64().unwrap_or(0) >= 1,
-        "signed wrapping_shr must BNM: {stdout}"
-    );
-    assert!(!out.status.success());
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong signed wrapping_shr ensures must CE (proves floor-div is live).
+#[test]
+fn check_rust_signed_wrapping_shr_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_signed_shr_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn s(x: i8) -> i8 { x.wrapping_shr(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
 /// Signed rotate_left encodes via bit-pattern map + reinterpret.

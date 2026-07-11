@@ -14,7 +14,7 @@
 //! Unsigned wrapping_* / shl/shr/rotate via mod 2^w (#1010). Signed
 //! wrapping_add/sub/mul and wrapping_shl via double-mod+reinterpret for i8..i64
 //! (i64 modulus is synthetic `(2^32)*(2^32)`). Signed rotate via bit-pattern map.
-//! Signed wrapping_shr stays BNM (needs BV). Top-level signed `wrapping_neg`
+//! Signed wrapping_shr via floor div by 2^k. Top-level signed `wrapping_neg`
 //! (multi-block if). Variable is_power_of_two for fixed-width ints via pot enum
 //! (≤63 exponents; identity peels keep bounds). Literal `/0`, `%0`,
 //! `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
@@ -1932,14 +1932,11 @@ fn encode_syn_expr(
                 }
                 // wrapping_shl/shr by const k (#1010 partial).
                 // Unsigned: shl (x * 2^k) mod 2^w; shr floor x / 2^k.
-                // Signed: only wrapping_shl (mul+double-mod+reinterpret); shr needs
-                // arithmetic shift (BV) and stays BNM.
+                // Signed: wrapping_shl via mul+double-mod+reinterpret; wrapping_shr
+                // via floor div by 2^k (Rust arithmetic >> on two's-complement Int).
                 ("wrapping_shl" | "wrapping_shr", 1) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
                     let signed = lo != 0;
-                    if signed && method == "wrapping_shr" {
-                        return None; // arithmetic/logical shift needs BV
-                    }
                     let k = lit_int_i64(&m.args[0])?;
                     if k < 0 {
                         return None;
@@ -1979,7 +1976,8 @@ fn encode_syn_expr(
                     *next += 1;
                     lines.push(format!("${f} = const {factor} : Int"));
                     if method == "wrapping_shr" {
-                        // floor div for non-negative unsigned values
+                        // Floor div by 2^k: unsigned logical shr (x>=0) and signed
+                        // arithmetic wrapping_shr both match Int floor div in SMT.
                         let slot = *next;
                         *next += 1;
                         lines.push(format!("${slot} = arith div ${a} ${f} : Int"));
@@ -3232,8 +3230,10 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         assert!(!shl.contains("arith"), "{shl}");
         let rot = try_ir_from_rust_body("R", &px(), Some("i64"), "x.rotate_left(0)").expect("rot");
         assert!(rot.contains("load $0"), "{rot}");
-        // signed wrapping_shr still BNM (arithmetic shift needs BV)
-        assert!(try_ir_from_rust_body("N", &px(), Some("i64"), "x.wrapping_shr(1)").is_none());
+        // signed wrapping_shr via floor div
+        let shr =
+            try_ir_from_rust_body("N", &px(), Some("i64"), "x.wrapping_shr(1)").expect("i64 shr");
+        assert!(shr.contains("arith div"), "{shr}");
     }
 
     #[test]
@@ -3286,7 +3286,9 @@ fn f(x: i64) -> i64 { let y = &x; *y }
             "{ir}"
         );
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
-        assert!(try_ir_from_rust_body("R", &pi8, Some("i8"), "x.wrapping_shr(1)").is_none());
+        let i8shr =
+            try_ir_from_rust_body("R", &pi8, Some("i8"), "x.wrapping_shr(1)").expect("i8 shr");
+        assert!(i8shr.contains("arith div"), "{i8shr}");
         let i64ir =
             try_ir_from_rust_body("L", &px(), Some("i64"), "x.wrapping_shl(1)").expect("i64 shl");
         assert!(
