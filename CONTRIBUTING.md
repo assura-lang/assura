@@ -146,9 +146,11 @@ cargo test -p <crate> --locked --lib
 match literals and identity guards, multi-let folds,
 abs/min/max/clamp/signum/saturating/abs_diff, &&/||, is_multiple_of, into/as,
 PartialOrd/borrow/deref/pow/default). `signum` is nestable in arith (clamp to
-[-1, 1]). Known gaps: `wrapping_*` (#1010), `is_power_of_two` (#1034). Bodies
-that cannot be modeled report `body_not_modeled` and exit **1** (including
-SMT skipped/checked soft passes). Do not treat empty/skipped SMT as proof.
+[-1, 1]). Top-level `wrapping_neg` expands to multi-block if (MIN stays MIN).
+Known gaps: `wrapping_add`/`sub`/`mul` (#1010), nested wrapping, `is_power_of_two`
+(#1034). Bodies that cannot be modeled report `body_not_modeled` and exit **1**
+(including SMT skipped/checked soft passes). Do not treat empty/skipped SMT as
+proof.
 
 Implementation: `crates/assura-cli/src/check/rust_body_ir.rs` (syn extract +
 IR text) and `should_mark_body_not_modeled` in `check_rust.rs`. Multi-block
