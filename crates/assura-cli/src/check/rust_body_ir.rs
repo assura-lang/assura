@@ -1002,6 +1002,18 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = const {ones} : Int"));
                     Some(slot)
                 }
+                // Typed width: count_zeros = bits - count_ones (non-neg lit).
+                ("count_zeros", 0) => {
+                    let (v, bits) = lit_int_i64_bits(&m.receiver)?;
+                    if v < 0 {
+                        return None;
+                    }
+                    let zeros = bits - (v as u64).count_ones();
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const {zeros} : Int"));
+                    Some(slot)
+                }
                 // Non-neg lit; 0.trailing_zeros needs typed width (= bits).
                 ("trailing_zeros", 0) => {
                     if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
@@ -2189,6 +2201,10 @@ fn f(x: i64) -> i64 { let y = &x; *y }
     fn const_count_ones_and_trailing_zeros_peep() {
         let c = try_ir_from_rust_body("C", &px(), Some("u32"), "12u32.count_ones()").expect("co");
         assert!(c.contains("const 2 : Int"), "{c}"); // 12 = 0b1100
+        // 12u32 has 2 ones → 30 zeros
+        let cz =
+            try_ir_from_rust_body("Cz", &px(), Some("u32"), "12u32.count_zeros()").expect("cz");
+        assert!(cz.contains("const 30 : Int"), "{cz}");
         let tz =
             try_ir_from_rust_body("T", &px(), Some("u32"), "12u32.trailing_zeros()").expect("tz");
         assert!(tz.contains("const 2 : Int"), "{tz}");
