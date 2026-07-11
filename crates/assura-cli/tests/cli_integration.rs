@@ -5406,7 +5406,7 @@ fn f(x: i64) -> bool { 3i64.is_power_of_two() }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
-/// Unsigned path-param count_ones encodes via bit-sum (div/mod).
+/// Unsigned path-param count_ones/count_zeros encode via bit-sum (div/mod).
 #[test]
 fn check_rust_encodes_u8_count_ones() {
     let tmp = unique_temp("assura_check_rust_count_ones");
@@ -5418,6 +5418,10 @@ fn check_rust_encodes_u8_count_ones() {
 /// @ensures result >= 0
 /// @ensures result <= 8
 fn c(x: u8) -> u32 { x.count_ones() }
+
+/// @ensures result >= 0
+/// @ensures result <= 8
+fn z(x: u8) -> u32 { x.count_zeros() }
 "#,
     )
     .unwrap();
