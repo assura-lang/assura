@@ -17,8 +17,9 @@
 //! Signed wrapping_shr via floor div by 2^k. Top-level signed `wrapping_neg`
 //! (multi-block if); nested signed via modular (0-x) mod 2^w + reinterpret.
 //! Variable wrapping_shl/shr case-sum for bits≤64 (i64 and u64/usize use
-//! synthetic 2^64 modulus; 2^63 factor is 2^32*2^31). Variable is_power_of_two
-//! for fixed-width ints via pot enum (≤63 exponents; identity peels keep bounds).
+//! synthetic 2^64 modulus; 2^63 factor is 2^32*2^31). Variable rotate_left/right
+//! case-sum for bits≤32. Variable is_power_of_two for fixed-width ints via pot
+//! enum (≤63 exponents; identity peels keep bounds).
 //! Literal `/0`, `%0`, `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
 //! rem_euclid/div_euclid with positive const (signed Euclidean).
 //!
@@ -602,6 +603,81 @@ fn wrap_width(lo: i64, hi: i64) -> Option<(u32, Option<i64>, bool)> {
         return None;
     }
     Some(((modulus as u64).trailing_zeros(), Some(modulus), signed))
+}
+
+/// Shared wrap-width slots for rotate emit (keeps `emit_rotl_bits` under clippy's arg cap).
+struct RotWrap {
+    bits: u32,
+    mslot: usize,
+    signed: bool,
+    hi: i64,
+}
+
+/// Rotate-left `u_in` (unsigned bit pattern in `[0, m)`) by `k_left` bits.
+/// Returns the unsigned result in `[0, m)`, or signed reinterpret when `signed`.
+fn emit_rotl_bits(
+    u_in: usize,
+    k_left: u32,
+    w: &RotWrap,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> Option<usize> {
+    if k_left == 0 || k_left >= w.bits {
+        // identity (caller should short-circuit 0)
+        if !w.signed {
+            return Some(u_in);
+        }
+        let his = *next;
+        *next += 1;
+        lines.push(format!("${his} = const {} : Int", w.hi));
+        let gt = *next;
+        *next += 1;
+        lines.push(format!("${gt} = cmp gt ${u_in} ${his} : Bool"));
+        let adj = *next;
+        *next += 1;
+        lines.push(format!("${adj} = arith mul ${gt} ${} : Int", w.mslot));
+        let slot = *next;
+        *next += 1;
+        lines.push(format!("${slot} = arith sub ${u_in} ${adj} : Int"));
+        return Some(slot);
+    }
+    let lo_shift = w.bits - k_left;
+    let hf = emit_pow2_factor(k_left, lines, next)?;
+    let lf = emit_pow2_factor(lo_shift, lines, next)?;
+    let hi_part = *next;
+    *next += 1;
+    lines.push(format!("${hi_part} = arith mul ${u_in} ${hf} : Int"));
+    let lo_part = *next;
+    *next += 1;
+    lines.push(format!("${lo_part} = arith div ${u_in} ${lf} : Int"));
+    let raw = *next;
+    *next += 1;
+    lines.push(format!("${raw} = arith add ${hi_part} ${lo_part} : Int"));
+    let t3 = *next;
+    *next += 1;
+    lines.push(format!("${t3} = arith mod ${raw} ${} : Int", w.mslot));
+    let t4 = *next;
+    *next += 1;
+    lines.push(format!("${t4} = arith add ${t3} ${} : Int", w.mslot));
+    let u = *next;
+    *next += 1;
+    lines.push(format!("${u} = arith mod ${t4} ${} : Int", w.mslot));
+    if !w.signed {
+        return Some(u);
+    }
+    let his = *next;
+    *next += 1;
+    lines.push(format!("${his} = const {} : Int", w.hi));
+    let gt = *next;
+    *next += 1;
+    lines.push(format!("${gt} = cmp gt ${u} ${his} : Bool"));
+    let adj = *next;
+    *next += 1;
+    lines.push(format!("${adj} = arith mul ${gt} ${} : Int", w.mslot));
+    let slot = *next;
+    *next += 1;
+    lines.push(format!("${slot} = arith sub ${u} ${adj} : Int"));
+    Some(slot)
 }
 
 /// Emit IR for `2^e` as an Int slot (`e` in 0..=63).
@@ -2154,32 +2230,14 @@ fn encode_syn_expr(
                     }
                     Some(acc)
                 }
-                // rotate_left/right by const k (#1010 partial).
-                // Unsigned bits: rotl ≡ (x*2^k + x/2^(bits-k)) mod 2^w.
+                // rotate_left/right by const or variable k.
+                // Unsigned: rotl ≡ (x*2^k + x/2^(bits-k)) mod 2^w.
                 // Signed: map to unsigned bit pattern, rotate, reinterpret.
+                // Variable: case-sum over k%bits for bits<=32 (IR size).
                 ("rotate_left" | "rotate_right", 1) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
                     let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
                     let use_synthetic_2_64 = modulus_i64.is_none();
-                    let k = lit_int_i64(&m.args[0])?;
-                    if k < 0 {
-                        return None;
-                    }
-                    let k_eff = (k as u64) % (bits as u64);
-                    if k_eff == 0 {
-                        return encode_syn_expr(&m.receiver, param_names, lines, next);
-                    }
-                    // rotate_right(k) ≡ rotate_left(bits-k)
-                    let k_left = if method == "rotate_left" {
-                        k_eff
-                    } else {
-                        bits as u64 - k_eff
-                    };
-                    if k_left == 0 || k_left >= 63 || (bits as u64 - k_left) >= 63 {
-                        return None;
-                    }
-                    let hi_f = 1i64 << k_left;
-                    let lo_f = 1i64 << (bits as u64 - k_left);
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let mslot = if use_synthetic_2_64 {
                         let half = *next;
@@ -2196,6 +2254,12 @@ fn encode_syn_expr(
                         lines.push(format!("${mslot} = const {modulus} : Int"));
                         mslot
                     };
+                    let wrap = RotWrap {
+                        bits,
+                        mslot,
+                        signed,
+                        hi,
+                    };
                     // Unsigned bit pattern: ((a mod m) + m) mod m
                     let t1 = *next;
                     *next += 1;
@@ -2206,46 +2270,84 @@ fn encode_syn_expr(
                     let u_in = *next;
                     *next += 1;
                     lines.push(format!("${u_in} = arith mod ${t2} ${mslot} : Int"));
-                    let hf = *next;
-                    *next += 1;
-                    lines.push(format!("${hf} = const {hi_f} : Int"));
-                    let lf = *next;
-                    *next += 1;
-                    lines.push(format!("${lf} = const {lo_f} : Int"));
-                    let hi_part = *next;
-                    *next += 1;
-                    lines.push(format!("${hi_part} = arith mul ${u_in} ${hf} : Int"));
-                    let lo_part = *next;
-                    *next += 1;
-                    lines.push(format!("${lo_part} = arith div ${u_in} ${lf} : Int"));
-                    let raw = *next;
-                    *next += 1;
-                    lines.push(format!("${raw} = arith add ${hi_part} ${lo_part} : Int"));
-                    let t3 = *next;
-                    *next += 1;
-                    lines.push(format!("${t3} = arith mod ${raw} ${mslot} : Int"));
-                    let t4 = *next;
-                    *next += 1;
-                    lines.push(format!("${t4} = arith add ${t3} ${mslot} : Int"));
-                    let u = *next;
-                    *next += 1;
-                    lines.push(format!("${u} = arith mod ${t4} ${mslot} : Int"));
-                    if !signed {
-                        return Some(u);
+
+                    // Const shift amount (fast path)
+                    if let Some(k) = lit_int_i64(&m.args[0]) {
+                        if k < 0 {
+                            return None;
+                        }
+                        let k_eff = (k as u32) % bits;
+                        if k_eff == 0 {
+                            return Some(a);
+                        }
+                        // rotate_right(k) ≡ rotate_left(bits-k)
+                        let k_left = if method == "rotate_left" {
+                            k_eff
+                        } else {
+                            bits - k_eff
+                        };
+                        return emit_rotl_bits(u_in, k_left, &wrap, lines, next);
                     }
-                    let his = *next;
+
+                    // Variable: case-sum over k%bits (bits<=32 only).
+                    if bits > 32 {
+                        return None;
+                    }
+                    let k_slot = encode_syn_expr(&m.args[0], param_names, lines, next)?;
+                    if let Some((klo, _)) = path_param_bounds(&m.args[0])
+                        && klo < 0
+                    {
+                        return None;
+                    }
+                    let bits_c = *next;
                     *next += 1;
-                    lines.push(format!("${his} = const {hi} : Int"));
-                    let gt = *next;
+                    lines.push(format!("${bits_c} = const {bits} : Int"));
+                    let tm1 = *next;
                     *next += 1;
-                    lines.push(format!("${gt} = cmp gt ${u} ${his} : Bool"));
-                    let adj = *next;
+                    lines.push(format!("${tm1} = arith mod ${k_slot} ${bits_c} : Int"));
+                    let tm2 = *next;
                     *next += 1;
-                    lines.push(format!("${adj} = arith mul ${gt} ${mslot} : Int"));
-                    let slot = *next;
+                    lines.push(format!("${tm2} = arith add ${tm1} ${bits_c} : Int"));
+                    let k_eff = *next;
                     *next += 1;
-                    lines.push(format!("${slot} = arith sub ${u} ${adj} : Int"));
-                    Some(slot)
+                    lines.push(format!("${k_eff} = arith mod ${tm2} ${bits_c} : Int"));
+                    let zero = *next;
+                    *next += 1;
+                    lines.push(format!("${zero} = const 0 : Int"));
+                    let mut acc = zero;
+                    for e in 0..bits {
+                        let e_c = *next;
+                        *next += 1;
+                        lines.push(format!("${e_c} = const {e} : Int"));
+                        let eq = *next;
+                        *next += 1;
+                        lines.push(format!("${eq} = cmp eq ${k_eff} ${e_c} : Bool"));
+                        // For rotate_right, case e means rotl by (bits-e)%bits
+                        let k_left = if method == "rotate_left" {
+                            e
+                        } else if e == 0 {
+                            0
+                        } else {
+                            bits - e
+                        };
+                        let case_val = if k_left == 0 {
+                            if signed {
+                                emit_rotl_bits(u_in, 0, &wrap, lines, next)?
+                            } else {
+                                u_in
+                            }
+                        } else {
+                            emit_rotl_bits(u_in, k_left, &wrap, lines, next)?
+                        };
+                        let term = *next;
+                        *next += 1;
+                        lines.push(format!("${term} = arith mul ${eq} ${case_val} : Int"));
+                        let sum = *next;
+                        *next += 1;
+                        lines.push(format!("${sum} = arith add ${acc} ${term} : Int"));
+                        acc = sum;
+                    }
+                    Some(acc)
                 }
                 // wrapping_* via mod 2^w (#1010).
                 // Unsigned (lo==0): result in [0, 2^w).
@@ -3383,6 +3485,39 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let shr =
             try_ir_from_rust_body("N", &px(), Some("i64"), "x.wrapping_shr(1)").expect("i64 shr");
         assert!(shr.contains("arith div"), "{shr}");
+    }
+
+    #[test]
+    fn variable_u8_rotate_left_encodes() {
+        let p = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "u8".into(),
+            },
+            ParamInfo {
+                name: "n".into(),
+                ty: "u32".into(),
+            },
+        ];
+        let ir = try_ir_from_rust_body("R", &p, Some("u8"), "x.rotate_left(n)").expect("rot");
+        assert!(ir.contains("cmp eq") && ir.contains("arith mul"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "R").expect("parse");
+        let rr = try_ir_from_rust_body("Rr", &p, Some("u8"), "x.rotate_right(n)").expect("rotr");
+        assert!(rr.contains("cmp eq"), "{rr}");
+        let c = try_ir_from_rust_body("C", &p[..1], Some("u8"), "x.rotate_left(1)").expect("c1");
+        assert!(c.contains("arith mul") && c.contains("arith div"), "{c}");
+        // i64 variable rotate stays BNM (bits>32 case-sum limit)
+        let pi = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "i64".into(),
+            },
+            ParamInfo {
+                name: "n".into(),
+                ty: "u32".into(),
+            },
+        ];
+        assert!(try_ir_from_rust_body("I", &pi, Some("i64"), "x.rotate_left(n)").is_none());
     }
 
     #[test]
