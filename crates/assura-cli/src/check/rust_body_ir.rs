@@ -920,6 +920,29 @@ fn encode_syn_expr(
                     lines.push(format!("${sum} = arith {op} ${a} ${b} : Int"));
                     emit_sat_clamp(sum, lines, next)
                 }
+                // wrapping_* peeps only for identity constants (full wrap needs #1010 BV).
+                // wrapping_add(x, 0) / wrapping_sub(x, 0) ≡ x; wrapping_mul(x, 1) ≡ x;
+                // wrapping_mul(x, 0) ≡ 0. Non-constant args stay BNM (not plain arith).
+                ("wrapping_add" | "wrapping_sub", 1) if is_lit_int_zero(&m.args[0]) => {
+                    encode_syn_expr(&m.receiver, param_names, lines, next)
+                }
+                ("wrapping_mul", 1) if is_lit_int_zero(&m.args[0]) => {
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const 0 : Int"));
+                    Some(slot)
+                }
+                ("wrapping_mul", 1)
+                    if matches!(
+                        &m.args[0],
+                        syn::Expr::Lit(syn::ExprLit {
+                            lit: syn::Lit::Int(n),
+                            ..
+                        }) if n.base10_digits() == "1"
+                    ) =>
+                {
+                    encode_syn_expr(&m.receiver, param_names, lines, next)
+                }
                 _ => None,
             }
         }
@@ -1499,11 +1522,23 @@ fn f(x: i64) -> i64 { let y = &x; *y }
 
     #[test]
     fn wrapping_methods_stay_unencoded() {
-        // #1010: wrapping_add/mul need BV / mod 2^n; must not silently encode as plain arith.
+        // #1010: non-identity wrapping needs BV; must not encode as plain arith.
         assert!(try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_add(1)").is_none());
         assert!(try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_mul(2)").is_none());
         // Nested wrapping_neg still BNM (top-level expands to multi-block if).
         assert!(try_ir_from_rust_body("N", &px(), Some("i64"), "x.wrapping_neg() + 1").is_none());
+    }
+
+    #[test]
+    fn wrapping_identity_peeps_encode() {
+        let a0 = try_ir_from_rust_body("A", &px(), Some("i64"), "x.wrapping_add(0)").expect("+0");
+        assert!(a0.contains("$result = load $0"), "{a0}");
+        let s0 = try_ir_from_rust_body("S", &px(), Some("i64"), "x.wrapping_sub(0)").expect("-0");
+        assert!(s0.contains("$result = load $0"), "{s0}");
+        let m1 = try_ir_from_rust_body("M", &px(), Some("i64"), "x.wrapping_mul(1)").expect("*1");
+        assert!(m1.contains("$result = load $0"), "{m1}");
+        let m0 = try_ir_from_rust_body("Z", &px(), Some("i64"), "x.wrapping_mul(0)").expect("*0");
+        assert!(m0.contains("const 0"), "{m0}");
     }
 
     #[test]
