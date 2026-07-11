@@ -1104,6 +1104,22 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = const {log} : Int"));
                     Some(slot)
                 }
+                // Non-neg lit; 0.next_power_of_two() == 1. Oversized stays BNM.
+                ("next_power_of_two", 0) => {
+                    let v = lit_int_i64(&m.receiver)?;
+                    if v < 0 {
+                        return None;
+                    }
+                    let pot = (v as u64).next_power_of_two();
+                    // Keep result in i64 (next_power_of_two of values near 2^63 overflows)
+                    if pot > i64::MAX as u64 {
+                        return None;
+                    }
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const {pot} : Int"));
+                    Some(slot)
+                }
                 ("default", 0) => {
                     let slot = *next;
                     *next += 1;
@@ -2318,6 +2334,12 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let ig = try_ir_from_rust_body("I", &px(), Some("u32"), "8u32.ilog2()").expect("ilog");
         assert!(ig.contains("const 3 : Int"), "{ig}");
         assert!(try_ir_from_rust_body("Z", &px(), Some("u32"), "0u32.ilog2()").is_none());
+        let np = try_ir_from_rust_body("Np", &px(), Some("u32"), "3u32.next_power_of_two()")
+            .expect("np");
+        assert!(np.contains("const 4 : Int"), "{np}");
+        let z1 = try_ir_from_rust_body("Z1", &px(), Some("u32"), "0u32.next_power_of_two()")
+            .expect("0np");
+        assert!(z1.contains("const 1 : Int"), "{z1}");
     }
 
     #[test]
