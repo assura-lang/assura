@@ -1234,6 +1234,28 @@ fn f(x: i64) -> i64 {
     }
 
     #[test]
+    fn abs_diff_then_is_positive_body_ir() {
+        let pxy = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "i64".into(),
+            },
+            ParamInfo {
+                name: "y".into(),
+                ty: "i64".into(),
+            },
+        ];
+        let ir = try_ir_from_rust_body(
+            "A",
+            &pxy,
+            Some("bool"),
+            "x.abs_diff(y).is_positive()",
+        )
+        .expect("chain");
+        assert!(ir.contains("call abs") && ir.contains("cmp gt"), "{ir}");
+    }
+
+    #[test]
     fn copied_cloned_identity_body_ir() {
         let ir = try_ir_from_rust_body("C", &px(), Some("i64"), "x.copied()").expect("copied");
         assert!(ir.contains("$result = load $0"), "{ir}");
