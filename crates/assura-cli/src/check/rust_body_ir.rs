@@ -598,10 +598,21 @@ fn pot_exponents(lo: i64, hi: i64) -> Option<u32> {
 }
 
 /// Bounds for a simple path param (`x`), if registered.
+/// Also peels paren/group/ref/deref and identity methods (`clone`, `into`, …)
+/// so `x.clone().is_power_of_two()` shares the path-param pot enum path.
 fn path_param_bounds(expr: &syn::Expr) -> Option<(i64, i64)> {
     let name = match expr {
         syn::Expr::Paren(p) => return path_param_bounds(&p.expr),
         syn::Expr::Group(g) => return path_param_bounds(&g.expr),
+        syn::Expr::Reference(r) => return path_param_bounds(&r.expr),
+        syn::Expr::Unary(u) if matches!(u.op, syn::UnOp::Deref(_)) => {
+            return path_param_bounds(&u.expr);
+        }
+        syn::Expr::MethodCall(m)
+            if m.args.is_empty() && is_identity_peel_method(&m.method.to_string()) =>
+        {
+            return path_param_bounds(&m.receiver);
+        }
         syn::Expr::Path(p) if p.path.segments.len() == 1 => p.path.segments[0].ident.to_string(),
         _ => return None,
     };
@@ -2615,6 +2626,13 @@ fn f(x: i64) -> i64 { let y = &x; *y }
             "{ir}"
         );
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "P").expect("parse");
+        // Identity peels keep path-param bounds (#1034 nested receivers)
+        let clone = try_ir_from_rust_body("C", &px(), Some("bool"), "x.clone().is_power_of_two()")
+            .expect("clone pot");
+        assert!(clone.contains("cmp eq"), "{clone}");
+        let into = try_ir_from_rust_body("I", &px(), Some("bool"), "x.into().is_power_of_two()")
+            .expect("into pot");
+        assert!(into.contains("cmp eq"), "{into}");
     }
 
     #[test]
