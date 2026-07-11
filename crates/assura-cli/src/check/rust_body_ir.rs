@@ -1542,8 +1542,9 @@ fn encode_syn_expr(
                 }
                 // wrapping_* via mod 2^w (#1010 partial).
                 // Unsigned (lo==0): result in [0, 2^w).
-                // Signed: same unsigned mod, then reinterpret as two's complement.
-                // Signed mul only i8/i16 (offset 2^(w-1)*2^w fits i64 const).
+                // Signed: double-mod to [0, 2^w) then reinterpret as two's complement.
+                // Double-mod ((raw mod m) + m) mod m works for large |raw| (signed mul)
+                // without a 2^(2w-1) offset that may not fit in i64.
                 ("wrapping_add" | "wrapping_sub" | "wrapping_mul", 1) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
                     let signed = lo != 0;
@@ -1561,11 +1562,6 @@ fn encode_syn_expr(
                     if !modulus_u.is_power_of_two() {
                         return None;
                     }
-                    let bits = modulus_u.trailing_zeros();
-                    // signed mul needs offset modulus*(2^(bits-1)); keep const in i64
-                    if signed && method == "wrapping_mul" && bits > 16 {
-                        return None;
-                    }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
                     let raw = *next;
@@ -1580,29 +1576,16 @@ fn encode_syn_expr(
                     let mslot = *next;
                     *next += 1;
                     lines.push(format!("${mslot} = const {modulus} : Int"));
-                    // Offset so raw+offset ≥ 0 before mod. add/sub: +modulus enough;
-                    // mul signed: +modulus*(2^(bits-1)).
-                    let shifted = if signed && method == "wrapping_mul" {
-                        let half = 1i64 << (bits - 1);
-                        let off = *next;
-                        *next += 1;
-                        lines.push(format!("${off} = const {half} : Int"));
-                        let big = *next;
-                        *next += 1;
-                        lines.push(format!("${big} = arith mul ${mslot} ${off} : Int"));
-                        let s = *next;
-                        *next += 1;
-                        lines.push(format!("${s} = arith add ${raw} ${big} : Int"));
-                        s
-                    } else {
-                        let s = *next;
-                        *next += 1;
-                        lines.push(format!("${s} = arith add ${raw} ${mslot} : Int"));
-                        s
-                    };
+                    // ((raw mod m) + m) mod m → [0, m) for any raw (truncating or Euclidean)
+                    let t1 = *next;
+                    *next += 1;
+                    lines.push(format!("${t1} = arith mod ${raw} ${mslot} : Int"));
+                    let t2 = *next;
+                    *next += 1;
+                    lines.push(format!("${t2} = arith add ${t1} ${mslot} : Int"));
                     let u = *next;
                     *next += 1;
-                    lines.push(format!("${u} = arith mod ${shifted} ${mslot} : Int"));
+                    lines.push(format!("${u} = arith mod ${t2} ${mslot} : Int"));
                     if !signed {
                         return Some(u);
                     }
@@ -2335,12 +2318,18 @@ fn f(x: i64) -> i64 { let y = &x; *y }
             mul.contains("arith mul") && mul.contains("arith mod"),
             "{mul}"
         );
-        // i32 signed mul still BNM (offset too large for i64 const path)
+        // i32 signed mul via double-mod (no huge offset)
         let pi32 = vec![ParamInfo {
             name: "x".into(),
             ty: "i32".into(),
         }];
-        assert!(try_ir_from_rust_body("M32", &pi32, Some("i32"), "x.wrapping_mul(2)").is_none());
+        let m32 =
+            try_ir_from_rust_body("M32", &pi32, Some("i32"), "x.wrapping_mul(2)").expect("i32 mul");
+        assert!(
+            m32.contains("arith mul") && m32.contains("arith mod"),
+            "{m32}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&m32, "M32").expect("parse");
     }
 
     #[test]
