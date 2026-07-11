@@ -18,8 +18,8 @@
 //! (multi-block if); nested signed via modular (0-x) mod 2^w + reinterpret.
 //! Variable wrapping_shl/shr case-sum for bits≤64 (i64 and u64/usize use
 //! synthetic 2^64 modulus; 2^63 factor is 2^32*2^31). Variable rotate_left/right
-//! case-sum for bits≤32. Variable BitAnd/Or/Xor with one const mask (unsigned
-//! or signed ≤32 bits via bit products; signed maps through unsigned pattern).
+//! case-sum for bits≤32. Variable BitAnd/Or/Xor: const mask (unsigned/signed
+//! ≤32; signed via bit-pattern map) or both-variable unsigned ≤32.
 //! Variable is_power_of_two for fixed-width ints via pot enum (≤63 exponents;
 //! identity peels keep bounds).
 //! Literal `/0`, `%0`, `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
@@ -946,6 +946,108 @@ fn encode_unsigned_bitop_var_const(
     Some(acc)
 }
 
+/// Both-variable unsigned `a &/|/^ b` (bits ≤32) via bit products.
+fn encode_unsigned_bitop_var_var(
+    a: usize,
+    b: usize,
+    op: BitOpKind,
+    bits: u32,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> Option<usize> {
+    if bits == 0 || bits > 32 {
+        return None;
+    }
+    let two = *next;
+    *next += 1;
+    lines.push(format!("${two} = const 2 : Int"));
+    let one = *next;
+    *next += 1;
+    lines.push(format!("${one} = const 1 : Int"));
+    let zero = *next;
+    *next += 1;
+    lines.push(format!("${zero} = const 0 : Int"));
+    let mut acc = zero;
+    for i in 0..bits {
+        let factor = 1i64 << i;
+        let f = *next;
+        *next += 1;
+        lines.push(format!("${f} = const {factor} : Int"));
+        let sa = *next;
+        *next += 1;
+        lines.push(format!("${sa} = arith div ${a} ${f} : Int"));
+        let ba = *next;
+        *next += 1;
+        lines.push(format!("${ba} = arith mod ${sa} ${two} : Int"));
+        let sb = *next;
+        *next += 1;
+        lines.push(format!("${sb} = arith div ${b} ${f} : Int"));
+        let bb = *next;
+        *next += 1;
+        lines.push(format!("${bb} = arith mod ${sb} ${two} : Int"));
+        let rbit = match op {
+            BitOpKind::And => {
+                let p = *next;
+                *next += 1;
+                lines.push(format!("${p} = arith mul ${ba} ${bb} : Int"));
+                p
+            }
+            BitOpKind::Or => {
+                // ba + bb - ba*bb
+                let s = *next;
+                *next += 1;
+                lines.push(format!("${s} = arith add ${ba} ${bb} : Int"));
+                let p = *next;
+                *next += 1;
+                lines.push(format!("${p} = arith mul ${ba} ${bb} : Int"));
+                let o = *next;
+                *next += 1;
+                lines.push(format!("${o} = arith sub ${s} ${p} : Int"));
+                o
+            }
+            BitOpKind::Xor => {
+                // ba + bb - 2*ba*bb
+                let s = *next;
+                *next += 1;
+                lines.push(format!("${s} = arith add ${ba} ${bb} : Int"));
+                let p = *next;
+                *next += 1;
+                lines.push(format!("${p} = arith mul ${ba} ${bb} : Int"));
+                let two_p = *next;
+                *next += 1;
+                lines.push(format!("${two_p} = arith mul ${two} ${p} : Int"));
+                let x = *next;
+                *next += 1;
+                lines.push(format!("${x} = arith sub ${s} ${two_p} : Int"));
+                x
+            }
+        };
+        let term = *next;
+        *next += 1;
+        lines.push(format!("${term} = arith mul ${rbit} ${f} : Int"));
+        let sum = *next;
+        *next += 1;
+        lines.push(format!("${sum} = arith add ${acc} ${term} : Int"));
+        acc = sum;
+    }
+    // Defense: keep result in [0, 2^bits) even if bit extraction is off for
+    // unconstrained Int models (helps range ensures like result <= 255).
+    let modulus = 1i64 << bits;
+    let mslot = *next;
+    *next += 1;
+    lines.push(format!("${mslot} = const {modulus} : Int"));
+    let t1 = *next;
+    *next += 1;
+    lines.push(format!("${t1} = arith mod ${acc} ${mslot} : Int"));
+    let t2 = *next;
+    *next += 1;
+    lines.push(format!("${t2} = arith add ${t1} ${mslot} : Int"));
+    let u = *next;
+    *next += 1;
+    lines.push(format!("${u} = arith mod ${t2} ${mslot} : Int"));
+    Some(u)
+}
+
 /// Popcount bit-sum for an unsigned value already in slot `a` with width `bits`.
 /// Emits `sum_i (a / 2^i) mod 2` into IR; returns the accumulator slot.
 fn encode_bit_sum_count_ones(
@@ -1352,7 +1454,7 @@ fn encode_syn_expr(
                     return Some(slot);
                 }
             }
-            // Variable BitAnd/Or/Xor with one const mask (unsigned or signed ≤32).
+            // Variable BitAnd/Or/Xor: const mask (signed/unsigned) or both-var unsigned.
             if let Some(kind) = match &b.op {
                 syn::BinOp::BitAnd(_) => Some(BitOpKind::And),
                 syn::BinOp::BitOr(_) => Some(BitOpKind::Or),
@@ -1389,6 +1491,24 @@ fn encode_syn_expr(
                         let u_out =
                             encode_unsigned_bitop_var_const(u_in, mask, kind, bits, lines, next)?;
                         return Some(emit_from_unsigned_bits(u_out, mslot, hi, lines, next));
+                    }
+                } else if lit_int_i64(&b.left).is_none() && lit_int_i64(&b.right).is_none() {
+                    // Both variable: unsigned only, same width from either side or SAT.
+                    let bits = path_param_bounds(&b.left)
+                        .or_else(|| path_param_bounds(&b.right))
+                        .or_else(|| SAT_BOUNDS.get())
+                        .and_then(|(lo, hi)| {
+                            let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
+                            if signed || bits == 0 || bits > 32 || modulus_i64.is_none() {
+                                None
+                            } else {
+                                Some(bits)
+                            }
+                        });
+                    if let Some(bits) = bits {
+                        let lhs = encode_syn_expr(&b.left, param_names, lines, next)?;
+                        let rhs = encode_syn_expr(&b.right, param_names, lines, next)?;
+                        return encode_unsigned_bitop_var_var(lhs, rhs, kind, bits, lines, next);
                     }
                 }
             }
@@ -3120,18 +3240,51 @@ fn f(x: i64) -> i64 {
         assert!(or.contains("const 15 : Int"), "{or}");
         let sh = try_ir_from_rust_body("S", &px(), Some("u32"), "3u32 << 2").expect("shl");
         assert!(sh.contains("const 12 : Int"), "{sh}");
-        // both-variable bitops stay BNM
+        // both-variable unsigned bitops encode (≤32)
         let pxy = vec![
             ParamInfo {
                 name: "x".into(),
-                ty: "u32".into(),
+                ty: "u8".into(),
             },
             ParamInfo {
                 name: "y".into(),
-                ty: "u32".into(),
+                ty: "u8".into(),
             },
         ];
-        assert!(try_ir_from_rust_body("V", &pxy, Some("u32"), "x & y").is_none());
+        let vv = try_ir_from_rust_body("V", &pxy, Some("u8"), "x & y").expect("x&y");
+        assert!(vv.contains("arith mul") && vv.contains("arith mod"), "{vv}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&vv, "V").expect("parse x&y");
+        // both-variable signed stays BNM (no joint signed map yet)
+        let pxyi = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "i8".into(),
+            },
+            ParamInfo {
+                name: "y".into(),
+                ty: "i8".into(),
+            },
+        ];
+        assert!(try_ir_from_rust_body("Si", &pxyi, Some("i8"), "x & y").is_none());
+    }
+
+    #[test]
+    fn both_variable_bitops_encodes() {
+        let pxy = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "u8".into(),
+            },
+            ParamInfo {
+                name: "y".into(),
+                ty: "u8".into(),
+            },
+        ];
+        let or = try_ir_from_rust_body("O", &pxy, Some("u8"), "x | y").expect("or");
+        assert!(or.contains("arith sub"), "{or}"); // or uses a+b-ab
+        let xor = try_ir_from_rust_body("X", &pxy, Some("u8"), "x ^ y").expect("xor");
+        assert!(xor.contains("arith mul"), "{xor}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&xor, "X").expect("parse");
     }
 
     #[test]
