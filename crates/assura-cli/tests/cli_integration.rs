@@ -4626,6 +4626,10 @@ fn c(x: u32) -> u32 { 10u32.div_ceil(3) }
 /// @ensures result >= 0
 /// @ensures result < 3
 fn r(x: u8) -> u8 { x.rem_euclid(3) }
+
+/// @ensures result >= 0
+/// @ensures result <= 255
+fn de(x: u8) -> u8 { x.div_euclid(3) }
 "#,
     )
     .unwrap();
