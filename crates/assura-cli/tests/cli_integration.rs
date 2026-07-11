@@ -4408,6 +4408,10 @@ fn m(x: i8) -> i8 { x.wrapping_mul(2) }
 /// @ensures result >= -2147483648
 /// @ensures result <= 2147483647
 fn w32(x: i32) -> i32 { x.wrapping_add(1) }
+
+/// @ensures result >= -32768
+/// @ensures result <= 32767
+fn w16s(x: i16) -> i16 { x.wrapping_add(1) }
 "#,
     )
     .unwrap();
