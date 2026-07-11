@@ -1339,4 +1339,12 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         assert!(!super::is_identity_peel_method("abs"));
         assert!(!super::is_identity_peel_method("signum"));
     }
+
+    #[test]
+    fn wrapping_methods_stay_unencoded() {
+        // #1010: need BV / mod 2^n; must not silently encode as plain arith.
+        assert!(try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_add(1)").is_none());
+        assert!(try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_mul(2)").is_none());
+        assert!(try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_neg()").is_none());
+    }
 }
