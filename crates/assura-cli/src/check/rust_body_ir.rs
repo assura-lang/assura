@@ -785,6 +785,22 @@ fn encode_syn_expr(
             Some(slot)
         }
         syn::Expr::Unary(u) if matches!(u.op, syn::UnOp::Not(_)) => {
+            // Typed integer lit: bitwise NOT (ones' complement within width).
+            if let Some((v, bits)) = lit_int_i64_bits(&u.expr)
+                && v >= 0
+            {
+                let mask = if bits == 64 {
+                    u64::MAX
+                } else {
+                    (1u64 << bits) - 1
+                };
+                let notv = (!(v as u64)) & mask;
+                let slot = *next;
+                *next += 1;
+                lines.push(format!("${slot} = const {notv} : Int"));
+                return Some(slot);
+            }
+            // Bool / general: logical not as eq 0.
             let zero = *next;
             *next += 1;
             lines.push(format!("${zero} = const 0 : Bool"));
@@ -2182,6 +2198,12 @@ fn f(x: i64) -> i64 {
             "{nmo}"
         );
         assura_smt::LoadedVerifyExtras::from_ir_text(&nmo, "N").expect("parse");
+    }
+
+    #[test]
+    fn const_bitwise_not_typed() {
+        let ir = try_ir_from_rust_body("N", &px(), Some("u8"), "!5u8").expect("not");
+        assert!(ir.contains("const 250 : Int"), "{ir}");
     }
 
     #[test]
