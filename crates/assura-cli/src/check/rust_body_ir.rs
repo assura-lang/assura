@@ -9,8 +9,8 @@
 //! Peeps: wrapping `+0`/`-0`/`*1`/`*0`/`sub(x,x)`; shift/rotate by 0;
 //! `is_multiple_of(±1)`; same-path `abs_diff`/`min`/`max`/`clamp(_,y,y)`;
 //! `abs`/`saturating_abs` `.is_negative()` → false; const `is_power_of_two` /
-//! `count_ones` / `count_zeros` (unsigned path-param bit-sum) / `trailing_zeros` /
-//! typed `leading_zeros` / `reverse_bits` / `swap_bytes` (partial #1034).
+//! `count_ones` / `count_zeros` / `trailing_zeros` / `leading_zeros` /
+//! `reverse_bits` / `swap_bytes` for unsigned path params (bit products; ≤32).
 //! Unsigned wrapping_* / shl/shr/rotate via mod 2^w (#1010). Signed
 //! wrapping_add/sub/mul and wrapping_shl via double-mod+reinterpret for i8..i64
 //! (i64 modulus is synthetic `(2^32)*(2^32)`). Signed rotate via bit-pattern map.
