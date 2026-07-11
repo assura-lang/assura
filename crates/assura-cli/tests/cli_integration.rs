@@ -3617,6 +3617,9 @@ fn even(x: i64) -> bool { x.is_multiple_of(2) }
 /// @ensures result == true
 fn by_one(x: i64) -> bool { x.is_multiple_of(1) }
 
+/// @ensures result == true
+fn by_neg_one(x: i64) -> bool { x.is_multiple_of(-1) }
+
 /// @ensures result == x
 fn id_into(x: i64) -> i64 { x.into() }
 
@@ -3636,7 +3639,7 @@ fn id_as(x: i64) -> i64 { x as i64 }
     );
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
-    assert!(v["verified"].as_u64().unwrap_or(0) >= 4, "{stdout}");
+    assert!(v["verified"].as_u64().unwrap_or(0) >= 5, "{stdout}");
 }
 
 /// abs_diff and ref/deref encode and verify.
