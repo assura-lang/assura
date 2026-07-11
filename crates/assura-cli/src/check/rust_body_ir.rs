@@ -11,9 +11,10 @@
 //! `abs`/`saturating_abs` `.is_negative()` → false; const `is_power_of_two` /
 //! `count_ones` / `trailing_zeros` / typed `leading_zeros` / `reverse_bits` /
 //! `swap_bytes` (partial #1034).
-//! Unsigned wrapping_* via mod 2^w (#1010 partial). Signed wrapping_add needs BV.
+//! Unsigned wrapping_* / shl/shr/rotate via mod 2^w (#1010 partial). Signed
+//! wrapping_add/sub (≤i32) and mul (≤i16) via mod+reinterpret; i64 wrap BNM.
 //! Top-level signed `wrapping_neg` (multi-block if). Variable is_power_of_two
-//! for fixed-width ints via pot enum (≤63 exponents, covers i64); signed wrap BNM.
+//! for fixed-width ints via pot enum (≤63 exponents, covers i64).
 //! Literal `/0`, `%0`, `is_multiple_of(0)` BNM.
 //! `signum` nestable clamp (#1032).
 //!
