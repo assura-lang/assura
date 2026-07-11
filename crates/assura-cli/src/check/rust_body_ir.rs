@@ -758,6 +758,57 @@ fn encode_unsigned_trailing_zeros(
     Some(slot)
 }
 
+/// leading_zeros for unsigned `a` with width `bits`.
+/// Scan high→low: count consecutive zero bits while still in prefix.
+fn encode_unsigned_leading_zeros(
+    a: usize,
+    bits: u32,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> Option<usize> {
+    if bits == 0 || bits > 32 {
+        return None;
+    }
+    let two = *next;
+    *next += 1;
+    lines.push(format!("${two} = const 2 : Int"));
+    let one = *next;
+    *next += 1;
+    lines.push(format!("${one} = const 1 : Int"));
+    let zero = *next;
+    *next += 1;
+    lines.push(format!("${zero} = const 0 : Int"));
+    let mut still = one;
+    let mut acc = zero;
+    for i in (0..bits).rev() {
+        let factor = 1i64 << i;
+        let f = *next;
+        *next += 1;
+        lines.push(format!("${f} = const {factor} : Int"));
+        let shifted = *next;
+        *next += 1;
+        lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
+        let bit = *next;
+        *next += 1;
+        lines.push(format!("${bit} = arith mod ${shifted} ${two} : Int"));
+        let zbit = *next;
+        *next += 1;
+        lines.push(format!("${zbit} = arith sub ${one} ${bit} : Int"));
+        let term = *next;
+        *next += 1;
+        lines.push(format!("${term} = arith mul ${still} ${zbit} : Int"));
+        let new_acc = *next;
+        *next += 1;
+        lines.push(format!("${new_acc} = arith add ${acc} ${term} : Int"));
+        acc = new_acc;
+        let new_still = *next;
+        *next += 1;
+        lines.push(format!("${new_still} = arith mul ${still} ${zbit} : Int"));
+        still = new_still;
+    }
+    Some(acc)
+}
+
 /// True for literal `1` or `-1` (after paren/group peels).
 fn is_lit_int_abs_one(expr: &syn::Expr) -> bool {
     match expr {
@@ -1281,20 +1332,34 @@ fn encode_syn_expr(
                     encode_unsigned_trailing_zeros(a, bits, lines, next)
                 }
                 // Needs typed suffix for bit width (8u32.leading_zeros() → 28).
+                // Unsigned path params: high→low zero-prefix product (≤32 bits).
                 ("leading_zeros", 0) => {
-                    let (v, bits) = lit_int_i64_bits(&m.receiver)?;
-                    if v < 0 {
+                    if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
+                        if v < 0 {
+                            return None;
+                        }
+                        let lz = if v == 0 {
+                            bits
+                        } else {
+                            (v as u64).leading_zeros() - (64 - bits)
+                        };
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const {lz} : Int"));
+                        return Some(slot);
+                    }
+                    let (lo, hi) = path_param_bounds(&m.receiver)?;
+                    if lo != 0 {
                         return None;
                     }
-                    let lz = if v == 0 {
-                        bits
-                    } else {
-                        (v as u64).leading_zeros() - (64 - bits)
-                    };
-                    let slot = *next;
-                    *next += 1;
-                    lines.push(format!("${slot} = const {lz} : Int"));
-                    Some(slot)
+                    let modulus = hi.checked_add(1)?;
+                    let modulus_u = modulus as u64;
+                    if !modulus_u.is_power_of_two() {
+                        return None;
+                    }
+                    let bits = modulus_u.trailing_zeros();
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    encode_unsigned_leading_zeros(a, bits, lines, next)
                 }
                 // Typed non-neg lit: reverse_bits / swap_bytes need width.
                 ("reverse_bits", 0) => {
