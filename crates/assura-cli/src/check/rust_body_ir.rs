@@ -895,6 +895,9 @@ fn encode_syn_expr(
                 }
 
                 ("min" | "max", 1) => {
+                    if expr_same_simple_path(&m.receiver, &m.args[0]) {
+                        return encode_syn_expr(&m.receiver, param_names, lines, next);
+                    }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
                     let slot = *next;
@@ -1237,6 +1240,10 @@ fn multi_let(x: i64) -> i64 { let a = x + 1; let b = a + 1; b }
         let abs = try_ir_from_rust_body("A", &px(), Some("i64"), "x . abs ()").expect("abs");
         assert!(abs.contains("call abs"), "{abs}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&abs, "A").expect("parse abs");
+        let mn = try_ir_from_rust_body("M", &px(), Some("i64"), "x.min(x)").expect("min self");
+        assert!(mn.contains("$result = load $0"), "{mn}");
+        let mx = try_ir_from_rust_body("X", &px(), Some("i64"), "x.max(x)").expect("max self");
+        assert!(mx.contains("$result = load $0"), "{mx}");
     }
 
     #[test]
