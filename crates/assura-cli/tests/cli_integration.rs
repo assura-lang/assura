@@ -4785,6 +4785,35 @@ fn s(x: i8) -> i8 { x.wrapping_shl(1) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Signed variable wrapping_shl/shr encode via case-sum (#1145).
+#[test]
+fn check_rust_encodes_i8_variable_wrapping_shl() {
+    let tmp = unique_temp("assura_check_rust_i8_var_shl");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= -128
+/// @ensures result <= 127
+fn s(x: i8, n: u32) -> i8 { x.wrapping_shl(n) }
+
+/// @ensures result >= -128
+/// @ensures result <= 127
+fn r(x: i8, n: u32) -> i8 { x.wrapping_shr(n) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Variable wrapping_shl/shr for u8 encodes via case-sum (#1145).
 #[test]
 fn check_rust_encodes_u8_variable_wrapping_shl() {

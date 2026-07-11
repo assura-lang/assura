@@ -2025,8 +2025,8 @@ fn encode_syn_expr(
                         lines.push(format!("${slot} = arith sub ${u} ${adj} : Int"));
                         return Some(slot);
                     }
-                    // Variable shift: case-sum over k%bits (unsigned receiver bits<=32).
-                    if signed || bits > 32 {
+                    // Variable shift: case-sum over k%bits (bits<=32, incl. signed).
+                    if bits > 32 {
                         return None;
                     }
                     let k_slot = encode_syn_expr(&m.args[0], param_names, lines, next)?;
@@ -2049,10 +2049,21 @@ fn encode_syn_expr(
                     let k_eff = *next;
                     *next += 1;
                     lines.push(format!("${k_eff} = arith mod ${t2} ${bits_c} : Int"));
-                    let modulus = modulus_i64?;
-                    let mslot = *next;
-                    *next += 1;
-                    lines.push(format!("${mslot} = const {modulus} : Int"));
+                    let mslot = if use_synthetic_2_64 {
+                        let half = *next;
+                        *next += 1;
+                        lines.push(format!("${half} = const 4294967296 : Int"));
+                        let mslot = *next;
+                        *next += 1;
+                        lines.push(format!("${mslot} = arith mul ${half} ${half} : Int"));
+                        mslot
+                    } else {
+                        let modulus = modulus_i64?;
+                        let mslot = *next;
+                        *next += 1;
+                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        mslot
+                    };
                     let zero = *next;
                     *next += 1;
                     lines.push(format!("${zero} = const 0 : Int"));
@@ -2086,7 +2097,23 @@ fn encode_syn_expr(
                             let u = *next;
                             *next += 1;
                             lines.push(format!("${u} = arith mod ${s2} ${mslot} : Int"));
-                            u
+                            if !signed {
+                                u
+                            } else {
+                                let his = *next;
+                                *next += 1;
+                                lines.push(format!("${his} = const {hi} : Int"));
+                                let gt = *next;
+                                *next += 1;
+                                lines.push(format!("${gt} = cmp gt ${u} ${his} : Bool"));
+                                let adj = *next;
+                                *next += 1;
+                                lines.push(format!("${adj} = arith mul ${gt} ${mslot} : Int"));
+                                let slot = *next;
+                                *next += 1;
+                                lines.push(format!("${slot} = arith sub ${u} ${adj} : Int"));
+                                slot
+                            }
                         };
                         let term = *next;
                         *next += 1;
@@ -3360,6 +3387,25 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         assert!(ir.contains("cmp eq") && ir.contains("arith mul"), "{ir}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
         let shr = try_ir_from_rust_body("R", &p, Some("u8"), "x.wrapping_shr(n)").expect("var shr");
+        assert!(shr.contains("arith div"), "{shr}");
+    }
+
+    #[test]
+    fn variable_i8_wrapping_shl_encodes() {
+        let p = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "i8".into(),
+            },
+            ParamInfo {
+                name: "n".into(),
+                ty: "u32".into(),
+            },
+        ];
+        let ir = try_ir_from_rust_body("S", &p, Some("i8"), "x.wrapping_shl(n)").expect("i8");
+        assert!(ir.contains("cmp eq") && ir.contains("cmp gt"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
+        let shr = try_ir_from_rust_body("R", &p, Some("i8"), "x.wrapping_shr(n)").expect("shr");
         assert!(shr.contains("arith div"), "{shr}");
     }
 
