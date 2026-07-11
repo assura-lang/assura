@@ -1930,17 +1930,13 @@ fn encode_syn_expr(
                 {
                     encode_syn_expr(&m.receiver, param_names, lines, next)
                 }
-                // wrapping_shl/shr by const k (#1010 partial).
+                // wrapping_shl/shr by const or small variable amount (#1010/#1145).
                 // Unsigned: shl (x * 2^k) mod 2^w; shr floor x / 2^k.
                 // Signed: wrapping_shl via mul+double-mod+reinterpret; wrapping_shr
-                // via floor div by 2^k (Rust arithmetic >> on two's-complement Int).
+                // via floor div by 2^k. Variable k: case-sum over k%bits for bits<=16.
                 ("wrapping_shl" | "wrapping_shr", 1) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
                     let signed = lo != 0;
-                    let k = lit_int_i64(&m.args[0])?;
-                    if k < 0 {
-                        return None;
-                    }
                     let modulus_i64 = if signed {
                         hi.checked_sub(lo).and_then(|d| d.checked_add(1))
                     } else {
@@ -1962,71 +1958,145 @@ fn encode_syn_expr(
                         }
                         bits
                     };
-                    // Rust masks shift amount by BITS-1 (equiv k % bits for power-of-two width).
-                    let k_eff = (k as u64) % (bits as u64);
-                    if k_eff == 0 {
-                        return encode_syn_expr(&m.receiver, param_names, lines, next);
-                    }
-                    if k_eff >= 63 {
-                        return None; // 2^k would overflow i64 factor
-                    }
-                    let factor = 1i64 << k_eff;
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
-                    let f = *next;
-                    *next += 1;
-                    lines.push(format!("${f} = const {factor} : Int"));
-                    if method == "wrapping_shr" {
-                        // Floor div by 2^k: unsigned logical shr (x>=0) and signed
-                        // arithmetic wrapping_shr both match Int floor div in SMT.
+                    // Const shift amount (fast path)
+                    if let Some(k) = lit_int_i64(&m.args[0]) {
+                        if k < 0 {
+                            return None;
+                        }
+                        let k_eff = (k as u64) % (bits as u64);
+                        if k_eff == 0 {
+                            return Some(a);
+                        }
+                        if k_eff >= 63 {
+                            return None;
+                        }
+                        let factor = 1i64 << k_eff;
+                        let f = *next;
+                        *next += 1;
+                        lines.push(format!("${f} = const {factor} : Int"));
+                        if method == "wrapping_shr" {
+                            let slot = *next;
+                            *next += 1;
+                            lines.push(format!("${slot} = arith div ${a} ${f} : Int"));
+                            return Some(slot);
+                        }
+                        let raw = *next;
+                        *next += 1;
+                        lines.push(format!("${raw} = arith mul ${a} ${f} : Int"));
+                        let mslot = if use_synthetic_2_64 {
+                            let half = *next;
+                            *next += 1;
+                            lines.push(format!("${half} = const 4294967296 : Int"));
+                            let mslot = *next;
+                            *next += 1;
+                            lines.push(format!("${mslot} = arith mul ${half} ${half} : Int"));
+                            mslot
+                        } else {
+                            let modulus = modulus_i64?;
+                            let mslot = *next;
+                            *next += 1;
+                            lines.push(format!("${mslot} = const {modulus} : Int"));
+                            mslot
+                        };
+                        let t1 = *next;
+                        *next += 1;
+                        lines.push(format!("${t1} = arith mod ${raw} ${mslot} : Int"));
+                        let t2 = *next;
+                        *next += 1;
+                        lines.push(format!("${t2} = arith add ${t1} ${mslot} : Int"));
+                        let u = *next;
+                        *next += 1;
+                        lines.push(format!("${u} = arith mod ${t2} ${mslot} : Int"));
+                        if !signed {
+                            return Some(u);
+                        }
+                        let his = *next;
+                        *next += 1;
+                        lines.push(format!("${his} = const {hi} : Int"));
+                        let gt = *next;
+                        *next += 1;
+                        lines.push(format!("${gt} = cmp gt ${u} ${his} : Bool"));
+                        let adj = *next;
+                        *next += 1;
+                        lines.push(format!("${adj} = arith mul ${gt} ${mslot} : Int"));
                         let slot = *next;
                         *next += 1;
-                        lines.push(format!("${slot} = arith div ${a} ${f} : Int"));
+                        lines.push(format!("${slot} = arith sub ${u} ${adj} : Int"));
                         return Some(slot);
                     }
-                    // wrapping_shl: (x * 2^k) double-mod 2^w, then signed reinterpret
-                    let raw = *next;
+                    // Variable shift: case-sum over k%bits (unsigned receiver bits<=16).
+                    if signed || bits > 16 {
+                        return None;
+                    }
+                    let k_slot = encode_syn_expr(&m.args[0], param_names, lines, next)?;
+                    // Require non-neg path param for shift amount when available.
+                    if let Some((klo, _)) = path_param_bounds(&m.args[0])
+                        && klo < 0
+                    {
+                        return None;
+                    }
+                    let bits_c = *next;
                     *next += 1;
-                    lines.push(format!("${raw} = arith mul ${a} ${f} : Int"));
-                    let mslot = if use_synthetic_2_64 {
-                        let half = *next;
-                        *next += 1;
-                        lines.push(format!("${half} = const 4294967296 : Int"));
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = arith mul ${half} ${half} : Int"));
-                        mslot
-                    } else {
-                        let modulus = modulus_i64?;
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = const {modulus} : Int"));
-                        mslot
-                    };
+                    lines.push(format!("${bits_c} = const {bits} : Int"));
+                    // k_eff = k mod bits (k non-neg)
                     let t1 = *next;
                     *next += 1;
-                    lines.push(format!("${t1} = arith mod ${raw} ${mslot} : Int"));
+                    lines.push(format!("${t1} = arith mod ${k_slot} ${bits_c} : Int"));
                     let t2 = *next;
                     *next += 1;
-                    lines.push(format!("${t2} = arith add ${t1} ${mslot} : Int"));
-                    let u = *next;
+                    lines.push(format!("${t2} = arith add ${t1} ${bits_c} : Int"));
+                    let k_eff = *next;
                     *next += 1;
-                    lines.push(format!("${u} = arith mod ${t2} ${mslot} : Int"));
-                    if !signed {
-                        return Some(u);
+                    lines.push(format!("${k_eff} = arith mod ${t2} ${bits_c} : Int"));
+                    let modulus = modulus_i64?;
+                    let mslot = *next;
+                    *next += 1;
+                    lines.push(format!("${mslot} = const {modulus} : Int"));
+                    let zero = *next;
+                    *next += 1;
+                    lines.push(format!("${zero} = const 0 : Int"));
+                    let mut acc = zero;
+                    for e in 0..bits {
+                        let e_c = *next;
+                        *next += 1;
+                        lines.push(format!("${e_c} = const {e} : Int"));
+                        let eq = *next;
+                        *next += 1;
+                        lines.push(format!("${eq} = cmp eq ${k_eff} ${e_c} : Bool"));
+                        let factor = 1i64 << e;
+                        let f = *next;
+                        *next += 1;
+                        lines.push(format!("${f} = const {factor} : Int"));
+                        let case_val = if method == "wrapping_shr" {
+                            let d = *next;
+                            *next += 1;
+                            lines.push(format!("${d} = arith div ${a} ${f} : Int"));
+                            d
+                        } else {
+                            let raw = *next;
+                            *next += 1;
+                            lines.push(format!("${raw} = arith mul ${a} ${f} : Int"));
+                            let s1 = *next;
+                            *next += 1;
+                            lines.push(format!("${s1} = arith mod ${raw} ${mslot} : Int"));
+                            let s2 = *next;
+                            *next += 1;
+                            lines.push(format!("${s2} = arith add ${s1} ${mslot} : Int"));
+                            let u = *next;
+                            *next += 1;
+                            lines.push(format!("${u} = arith mod ${s2} ${mslot} : Int"));
+                            u
+                        };
+                        let term = *next;
+                        *next += 1;
+                        lines.push(format!("${term} = arith mul ${eq} ${case_val} : Int"));
+                        let sum = *next;
+                        *next += 1;
+                        lines.push(format!("${sum} = arith add ${acc} ${term} : Int"));
+                        acc = sum;
                     }
-                    let his = *next;
-                    *next += 1;
-                    lines.push(format!("${his} = const {hi} : Int"));
-                    let gt = *next;
-                    *next += 1;
-                    lines.push(format!("${gt} = cmp gt ${u} ${his} : Bool"));
-                    let adj = *next;
-                    *next += 1;
-                    lines.push(format!("${adj} = arith mul ${gt} ${mslot} : Int"));
-                    let slot = *next;
-                    *next += 1;
-                    lines.push(format!("${slot} = arith sub ${u} ${adj} : Int"));
-                    Some(slot)
+                    Some(acc)
                 }
                 // rotate_left/right by const k (#1010 partial).
                 // Unsigned bits: rotl ≡ (x*2^k + x/2^(bits-k)) mod 2^w.
@@ -3272,6 +3342,25 @@ fn f(x: i64) -> i64 { let y = &x; *y }
             "{srot}"
         );
         assura_smt::LoadedVerifyExtras::from_ir_text(&srot, "Sr").expect("parse srot");
+    }
+
+    #[test]
+    fn variable_u8_wrapping_shl_encodes() {
+        let p = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "u8".into(),
+            },
+            ParamInfo {
+                name: "n".into(),
+                ty: "u32".into(),
+            },
+        ];
+        let ir = try_ir_from_rust_body("S", &p, Some("u8"), "x.wrapping_shl(n)").expect("var shl");
+        assert!(ir.contains("cmp eq") && ir.contains("arith mul"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
+        let shr = try_ir_from_rust_body("R", &p, Some("u8"), "x.wrapping_shr(n)").expect("var shr");
+        assert!(shr.contains("arith div"), "{shr}");
     }
 
     #[test]
