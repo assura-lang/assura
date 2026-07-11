@@ -4436,6 +4436,10 @@ fn id(x: u8) -> u8 { x.wrapping_shl(8) }
 /// @ensures result >= 0
 /// @ensures result <= 255
 fn r(x: u8) -> u8 { x.wrapping_shr(1) }
+
+/// @ensures result >= 0
+/// @ensures result <= 255
+fn rot(x: u8) -> u8 { x.rotate_left(1) }
 "#,
     )
     .unwrap();

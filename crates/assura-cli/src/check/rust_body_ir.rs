@@ -1348,6 +1348,65 @@ fn encode_syn_expr(
                         Some(slot)
                     }
                 }
+                // Unsigned rotate_left/right by const k (#1010 partial).
+                // rotl: ((x << k) | (x >> (bits-k))) mod 2^w ≡ (x*2^k + x/2^(bits-k)) mod 2^w
+                ("rotate_left" | "rotate_right", 1) => {
+                    let (lo, hi) = SAT_BOUNDS.get()?;
+                    if lo != 0 {
+                        return None;
+                    }
+                    let k = lit_int_i64(&m.args[0])?;
+                    if k < 0 {
+                        return None;
+                    }
+                    let modulus = hi.checked_add(1)?;
+                    let modulus_u = modulus as u64;
+                    let bits = modulus_u.trailing_zeros();
+                    if bits == 0 || !modulus_u.is_power_of_two() {
+                        return None;
+                    }
+                    let k_eff = (k as u64) % (bits as u64);
+                    if k_eff == 0 {
+                        return encode_syn_expr(&m.receiver, param_names, lines, next);
+                    }
+                    // rotate_right(k) ≡ rotate_left(bits-k)
+                    let k_left = if method == "rotate_left" {
+                        k_eff
+                    } else {
+                        bits as u64 - k_eff
+                    };
+                    if k_left == 0 || k_left >= 63 || (bits as u64 - k_left) >= 63 {
+                        return None;
+                    }
+                    let hi_f = 1i64 << k_left;
+                    let lo_f = 1i64 << (bits as u64 - k_left);
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let hf = *next;
+                    *next += 1;
+                    lines.push(format!("${hf} = const {hi_f} : Int"));
+                    let lf = *next;
+                    *next += 1;
+                    lines.push(format!("${lf} = const {lo_f} : Int"));
+                    let hi_part = *next;
+                    *next += 1;
+                    lines.push(format!("${hi_part} = arith mul ${a} ${hf} : Int"));
+                    let lo_part = *next;
+                    *next += 1;
+                    lines.push(format!("${lo_part} = arith div ${a} ${lf} : Int"));
+                    let raw = *next;
+                    *next += 1;
+                    lines.push(format!("${raw} = arith add ${hi_part} ${lo_part} : Int"));
+                    let mslot = *next;
+                    *next += 1;
+                    lines.push(format!("${mslot} = const {modulus} : Int"));
+                    let shifted = *next;
+                    *next += 1;
+                    lines.push(format!("${shifted} = arith add ${raw} ${mslot} : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = arith mod ${shifted} ${mslot} : Int"));
+                    Some(slot)
+                }
                 // Unsigned wrapping_* via mod 2^w when SAT_BOUNDS starts at 0 (#1010 partial).
                 ("wrapping_add" | "wrapping_sub" | "wrapping_mul", 1) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
@@ -2197,6 +2256,12 @@ fn f(x: i64) -> i64 { let y = &x; *y }
             shr.contains("arith div") && shr.contains("const 2"),
             "{shr}"
         );
+        let rot = try_ir_from_rust_body("Ro", &pu8, Some("u8"), "x.rotate_left(1)").expect("rotl");
+        assert!(
+            rot.contains("arith mul") && rot.contains("arith div"),
+            "{rot}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&rot, "Ro").expect("parse rot");
     }
 
     #[test]
