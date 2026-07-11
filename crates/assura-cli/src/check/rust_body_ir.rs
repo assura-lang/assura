@@ -1347,4 +1347,16 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         assert!(try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_mul(2)").is_none());
         assert!(try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_neg()").is_none());
     }
+
+    #[test]
+    fn is_power_of_two_stays_unencoded() {
+        // #1034: needs bitops
+        assert!(try_ir_from_rust_body("P", &px(), Some("bool"), "x.is_power_of_two()").is_none());
+    }
+
+    #[test]
+    fn nested_signum_stays_unencoded() {
+        // #1032: need ITE for if-valued methods inside arith
+        assert!(try_ir_from_rust_body("S", &px(), Some("i64"), "x.signum() + 1").is_none());
+    }
 }
