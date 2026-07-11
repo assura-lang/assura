@@ -6136,8 +6136,9 @@ fn p(x: u8) -> bool { x.clone().is_power_of_two() }
 
 /// Nested non-path is_power_of_two stays body_not_modeled (no param bounds).
 #[test]
-fn check_rust_is_power_of_two_nested_bnm() {
-    let tmp = unique_temp("assura_check_rust_pot_bnm");
+fn check_rust_is_power_of_two_nested_i64_encodes() {
+    // Nested pot inherits i64 pot-enum width (#1034 / #1169); was BNM before expr_int_bounds.
+    let tmp = unique_temp("assura_check_rust_pot_nested_i64");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
     std::fs::write(
@@ -6153,12 +6154,9 @@ fn p(x: i64) -> bool { (x + 1).is_power_of_two() }
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
-    assert!(
-        v["body_not_modeled"].as_u64().unwrap_or(0) >= 1,
-        "nested pot must BNM: {stdout}"
-    );
-    assert!(!out.status.success());
+    assert_eq!(v["body_not_modeled"], 0, "nested i64 pot must encode: {stdout}");
 }
 
 /// u8/u32/i64 is_power_of_two encodes via pot enum (partial #1034).
