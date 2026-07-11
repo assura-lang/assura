@@ -686,6 +686,78 @@ fn encode_bit_sum_count_ones(
     acc
 }
 
+/// trailing_zeros for unsigned `a` with width `bits`.
+/// `sum_i i * bit_i * prod_{j<i}(1-bit_j) + bits * prod_all(1-bit)`.
+fn encode_unsigned_trailing_zeros(
+    a: usize,
+    bits: u32,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> Option<usize> {
+    if bits == 0 || bits > 32 {
+        return None;
+    }
+    let two = *next;
+    *next += 1;
+    lines.push(format!("${two} = const 2 : Int"));
+    let one = *next;
+    *next += 1;
+    lines.push(format!("${one} = const 1 : Int"));
+    let zero = *next;
+    *next += 1;
+    lines.push(format!("${zero} = const 0 : Int"));
+    // prod starts at 1 (all lower bits zero so far)
+    let mut prod = one;
+    let mut acc = zero;
+    for i in 0..bits {
+        let factor = 1i64 << i;
+        let f = *next;
+        *next += 1;
+        lines.push(format!("${f} = const {factor} : Int"));
+        let shifted = *next;
+        *next += 1;
+        lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
+        let bit = *next;
+        *next += 1;
+        lines.push(format!("${bit} = arith mod ${shifted} ${two} : Int"));
+        // term = i * bit * prod
+        let i_c = *next;
+        *next += 1;
+        lines.push(format!("${i_c} = const {i} : Int"));
+        let ib = *next;
+        *next += 1;
+        lines.push(format!("${ib} = arith mul ${i_c} ${bit} : Int"));
+        let term = *next;
+        *next += 1;
+        lines.push(format!("${term} = arith mul ${ib} ${prod} : Int"));
+        let new_acc = *next;
+        *next += 1;
+        lines.push(format!("${new_acc} = arith add ${acc} ${term} : Int"));
+        acc = new_acc;
+        // prod *= (1 - bit)
+        let one_m_bit = *next;
+        *next += 1;
+        lines.push(format!("${one_m_bit} = arith sub ${one} ${bit} : Int"));
+        let new_prod = *next;
+        *next += 1;
+        lines.push(format!(
+            "${new_prod} = arith mul ${prod} ${one_m_bit} : Int"
+        ));
+        prod = new_prod;
+    }
+    // + bits when all zero (prod still 1)
+    let bits_c = *next;
+    *next += 1;
+    lines.push(format!("${bits_c} = const {bits} : Int"));
+    let all_zero = *next;
+    *next += 1;
+    lines.push(format!("${all_zero} = arith mul ${bits_c} ${prod} : Int"));
+    let slot = *next;
+    *next += 1;
+    lines.push(format!("${slot} = arith add ${acc} ${all_zero} : Int"));
+    Some(slot)
+}
+
 /// True for literal `1` or `-1` (after paren/group peels).
 fn is_lit_int_abs_one(expr: &syn::Expr) -> bool {
     match expr {
@@ -1169,6 +1241,7 @@ fn encode_syn_expr(
                     Some(slot)
                 }
                 // Non-neg lit; 0.trailing_zeros needs typed width (= bits).
+                // Unsigned path params: first-set-bit product encode (≤32 bits).
                 ("trailing_zeros", 0) => {
                     if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
                         if v < 0 {
@@ -1184,15 +1257,28 @@ fn encode_syn_expr(
                         lines.push(format!("${slot} = const {tz} : Int"));
                         return Some(slot);
                     }
-                    let v = lit_int_i64(&m.receiver)?;
-                    if v <= 0 {
+                    if let Some(v) = lit_int_i64(&m.receiver) {
+                        if v <= 0 {
+                            return None;
+                        }
+                        let tz = (v as u64).trailing_zeros();
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const {tz} : Int"));
+                        return Some(slot);
+                    }
+                    let (lo, hi) = path_param_bounds(&m.receiver)?;
+                    if lo != 0 {
                         return None;
                     }
-                    let tz = (v as u64).trailing_zeros();
-                    let slot = *next;
-                    *next += 1;
-                    lines.push(format!("${slot} = const {tz} : Int"));
-                    Some(slot)
+                    let modulus = hi.checked_add(1)?;
+                    let modulus_u = modulus as u64;
+                    if !modulus_u.is_power_of_two() {
+                        return None;
+                    }
+                    let bits = modulus_u.trailing_zeros();
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    encode_unsigned_trailing_zeros(a, bits, lines, next)
                 }
                 // Needs typed suffix for bit width (8u32.leading_zeros() → 28).
                 ("leading_zeros", 0) => {
@@ -2843,6 +2929,21 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "C").expect("parse");
         // signed stays const-only / BNM for variables
         assert!(try_ir_from_rust_body("S", &px(), Some("u32"), "x.count_ones()").is_none());
+    }
+
+    #[test]
+    fn variable_u8_trailing_zeros_encodes() {
+        let pu8 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "u8".into(),
+        }];
+        let ir = try_ir_from_rust_body("T", &pu8, Some("u32"), "x.trailing_zeros()").expect("tz");
+        assert!(
+            ir.contains("arith mul") && ir.contains("const 8") && ir.contains("arith mod"),
+            "{ir}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "T").expect("parse");
+        assert!(try_ir_from_rust_body("S", &px(), Some("u32"), "x.trailing_zeros()").is_none());
     }
 
     #[test]
