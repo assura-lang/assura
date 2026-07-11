@@ -1411,4 +1411,29 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         assert!(ir.contains("call max"), "{ir}");
         assert!(ir.contains("call min"), "{ir}");
     }
+
+    #[test]
+    fn signum_method_chains_and_neg_encode() {
+        let abs = try_ir_from_rust_body("A", &px(), Some("i64"), "x.signum().abs()").expect("abs");
+        assert!(abs.contains("call abs"), "{abs}");
+        let pxy = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "i64".into(),
+            },
+            ParamInfo {
+                name: "y".into(),
+                ty: "i64".into(),
+            },
+        ];
+        let sum = try_ir_from_rust_body("T", &pxy, Some("i64"), "(x + y).signum()").expect("sum");
+        assert!(sum.contains("arith add"), "{sum}");
+        let neg = try_ir_from_rust_body("N", &px(), Some("i64"), "-x.signum()").expect("neg");
+        assert!(neg.contains("arith sub"), "{neg}");
+        let mul = try_ir_from_rust_body("M", &px(), Some("i64"), "x.signum() * x").expect("mul");
+        assert!(mul.contains("arith mul"), "{mul}");
+        let notz =
+            try_ir_from_rust_body("Z", &px(), Some("bool"), "!x.is_zero()").expect("not zero");
+        assert!(notz.contains("cmp eq"), "{notz}");
+    }
 }
