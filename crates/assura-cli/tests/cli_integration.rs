@@ -4801,6 +4801,10 @@ fn s(x: u8, n: u32) -> u8 { x.wrapping_shl(n) }
 /// @ensures result >= 0
 /// @ensures result <= 255
 fn r(x: u8, n: u32) -> u8 { x.wrapping_shr(n) }
+
+/// @ensures result >= 0
+/// @ensures result <= 4294967295
+fn s32(x: u32, n: u32) -> u32 { x.wrapping_shl(n) }
 "#,
     )
     .unwrap();
@@ -4812,6 +4816,31 @@ fn r(x: u8, n: u32) -> u8 { x.wrapping_shr(n) }
     assert!(out.status.success(), "{stdout}");
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong variable wrapping_shl ensures must CE.
+#[test]
+fn check_rust_u8_variable_wrapping_shl_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_var_shl_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn s(x: u8, n: u32) -> u8 { x.wrapping_shl(n) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
 /// Signed wrapping_shr encodes via floor div by 2^k.

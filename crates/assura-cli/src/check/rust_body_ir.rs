@@ -2025,8 +2025,8 @@ fn encode_syn_expr(
                         lines.push(format!("${slot} = arith sub ${u} ${adj} : Int"));
                         return Some(slot);
                     }
-                    // Variable shift: case-sum over k%bits (unsigned receiver bits<=16).
-                    if signed || bits > 16 {
+                    // Variable shift: case-sum over k%bits (unsigned receiver bits<=32).
+                    if signed || bits > 32 {
                         return None;
                     }
                     let k_slot = encode_syn_expr(&m.args[0], param_names, lines, next)?;
@@ -3361,6 +3361,23 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
         let shr = try_ir_from_rust_body("R", &p, Some("u8"), "x.wrapping_shr(n)").expect("var shr");
         assert!(shr.contains("arith div"), "{shr}");
+    }
+
+    #[test]
+    fn variable_u32_wrapping_shl_encodes() {
+        let p = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "u32".into(),
+            },
+            ParamInfo {
+                name: "n".into(),
+                ty: "u32".into(),
+            },
+        ];
+        let ir = try_ir_from_rust_body("S", &p, Some("u32"), "x.wrapping_shl(n)").expect("u32");
+        assert!(ir.contains("cmp eq"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
     }
 
     #[test]
