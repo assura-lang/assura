@@ -4319,17 +4319,17 @@ fn d(x: i64, y: i64) -> i64 { x - y }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
 }
 
-/// wrapping_add body must be body_not_modeled (not false verified).
+/// Nested wrapping_neg stays body_not_modeled (top-level alone encodes).
 #[test]
-fn check_rust_wrapping_body_not_modeled() {
+fn check_rust_nested_wrapping_neg_body_not_modeled() {
     let tmp = unique_temp("assura_check_rust_wrap_bnm");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
     std::fs::write(
         tmp.join("ok.rs"),
         r#"
-/// @ensures result == x + 1
-fn w(x: i64) -> i64 { x.wrapping_add(1) }
+/// @ensures result >= 0
+fn w(x: i64) -> i64 { x.wrapping_neg() + 1 }
 "#,
     )
     .unwrap();
@@ -4341,9 +4341,67 @@ fn w(x: i64) -> i64 { x.wrapping_add(1) }
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
     assert!(
         v["body_not_modeled"].as_u64().unwrap_or(0) >= 1,
-        "wrapping must BNM not soft-pass: {stdout}"
+        "nested wrapping_neg must BNM not soft-pass: {stdout}"
     );
     assert!(!out.status.success());
+}
+
+/// i64 wrapping_add encodes via synthetic 2^64 modulus (#1010).
+#[test]
+fn check_rust_encodes_i64_wrapping_add() {
+    let tmp = unique_temp("assura_check_rust_i64_wrap");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= -9223372036854775808
+/// @ensures result <= 9223372036854775807
+fn w(x: i64) -> i64 { x.wrapping_add(1) }
+
+/// @ensures result >= -9223372036854775808
+/// @ensures result <= 9223372036854775807
+fn s(x: i64) -> i64 { x.wrapping_sub(1) }
+
+/// @ensures result >= -9223372036854775808
+/// @ensures result <= 9223372036854775807
+fn m(x: i64) -> i64 { x.wrapping_mul(2) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong i64 wrapping_add ensures must CE (proves wrap of MAX is live).
+#[test]
+fn check_rust_i64_wrapping_add_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_i64_wrap_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x + 1
+fn w(x: i64) -> i64 { x.wrapping_add(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE on wrap of MAX: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
 /// f32 bodies stay body_not_modeled (not false verified).
@@ -5456,7 +5514,7 @@ fn nest(x: i64) -> i64 {
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
 }
 
-/// Bool comparison bodies encode; wrapping_add stays body_not_modeled with exit 1.
+/// Bool comparison bodies encode; wrong wrapping ensures CEs (encode live).
 #[test]
 fn check_rust_bool_body_and_bnm_unmodeled() {
     let tmp = unique_temp("assura_check_rust_bool_bnm");
@@ -5486,6 +5544,7 @@ fn is_pos(x: i64) -> bool { x > 0 }
         "bool comparison should encode body: {stdout}"
     );
 
+    // wrapping_add encodes; wrong ensures (result >= x fails at MAX wrap) must CE.
     std::fs::write(
         tmp.join("wrap.rs"),
         r#"
@@ -5504,15 +5563,16 @@ fn add1(x: i64) -> i64 { x.wrapping_add(1) }
         .unwrap();
     assert!(
         !out.status.success(),
-        "unmodeled wrapping_add must fail exit: {}",
+        "wrong wrapping ensures must fail exit: {}",
         String::from_utf8_lossy(&out.stdout)
     );
     let v: serde_json::Value =
         serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).expect("json");
     assert_eq!(
-        v["body_not_modeled"], 1,
-        "wrapping_add must be body_not_modeled: {v}"
+        v["body_not_modeled"], 0,
+        "wrapping_add must encode (not BNM): {v}"
     );
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
 /// #975: wrong identity body vs ensures x+1 must CE (not silent verified / BNM).

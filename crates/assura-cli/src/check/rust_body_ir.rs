@@ -12,7 +12,8 @@
 //! `count_ones` / `trailing_zeros` / typed `leading_zeros` / `reverse_bits` /
 //! `swap_bytes` (partial #1034).
 //! Unsigned wrapping_* / shl/shr/rotate via mod 2^w (#1010 partial). Signed
-//! wrapping_add/sub (≤i32) and mul (≤i16) via mod+reinterpret; i64 wrap BNM.
+//! wrapping_add/sub/mul via double-mod+reinterpret for i8..i64 (i64 modulus is
+//! synthetic `(2^32)*(2^32)` because 2^64 is not an i64 IR const).
 //! Top-level signed `wrapping_neg` (multi-block if). Variable is_power_of_two
 //! for fixed-width ints via pot enum (≤63 exponents, covers i64).
 //! Literal `/0`, `%0`, `is_multiple_of(0)` BNM.
@@ -1696,28 +1697,27 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = arith mod ${shifted} ${mslot} : Int"));
                     Some(slot)
                 }
-                // wrapping_* via mod 2^w (#1010 partial).
+                // wrapping_* via mod 2^w (#1010).
                 // Unsigned (lo==0): result in [0, 2^w).
                 // Signed: double-mod to [0, 2^w) then reinterpret as two's complement.
                 // Double-mod ((raw mod m) + m) mod m works for large |raw| (signed mul)
                 // without a 2^(2w-1) offset that may not fit in i64.
+                // i64 modulus is 2^64: emit as (2^32)*(2^32) (const 2^64 is not i64).
                 ("wrapping_add" | "wrapping_sub" | "wrapping_mul", 1) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
                     let signed = lo != 0;
-                    // modulus = 2^w: unsigned hi+1; signed (hi - lo + 1)
-                    let modulus = if signed {
-                        hi.checked_sub(lo)?.checked_add(1)?
+                    // modulus = 2^w as i64 when it fits; else full 64-bit signed only
+                    let modulus_i64 = if signed {
+                        hi.checked_sub(lo).and_then(|d| d.checked_add(1))
                     } else {
-                        hi.checked_add(1)?
+                        hi.checked_add(1)
                     };
-                    // i64 modulus overflows i64 as positive 2^64 — skip
-                    if modulus <= 0 {
-                        return None;
-                    }
-                    let modulus_u = modulus as u64;
-                    if !modulus_u.is_power_of_two() {
-                        return None;
-                    }
+                    let use_synthetic_2_64 = match modulus_i64 {
+                        Some(m) if m > 0 && (m as u64).is_power_of_two() => false,
+                        // i64/isize: hi-lo+1 overflows i64 (2^64)
+                        None if signed && lo == i64::MIN && hi == i64::MAX => true,
+                        _ => return None,
+                    };
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
                     let raw = *next;
@@ -1729,9 +1729,22 @@ fn encode_syn_expr(
                         _ => return None,
                     };
                     lines.push(format!("${raw} = arith {op} ${a} ${b} : Int"));
-                    let mslot = *next;
-                    *next += 1;
-                    lines.push(format!("${mslot} = const {modulus} : Int"));
+                    let mslot = if use_synthetic_2_64 {
+                        // 2^32 fits in i64; product is 2^64 in SMT Int
+                        let half = *next;
+                        *next += 1;
+                        lines.push(format!("${half} = const 4294967296 : Int"));
+                        let mslot = *next;
+                        *next += 1;
+                        lines.push(format!("${mslot} = arith mul ${half} ${half} : Int"));
+                        mslot
+                    } else {
+                        let modulus = modulus_i64?;
+                        let mslot = *next;
+                        *next += 1;
+                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        mslot
+                    };
                     // ((raw mod m) + m) mod m → [0, m) for any raw (truncating or Euclidean)
                     let t1 = *next;
                     *next += 1;
@@ -2480,10 +2493,27 @@ fn f(x: i64) -> i64 { let y = &x; *y }
     }
 
     #[test]
-    fn wrapping_methods_stay_unencoded() {
-        // i64 wrapping_add modulus is 2^64, not representable as positive i64 const
-        assert!(try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_add(1)").is_none());
-        assert!(try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_mul(2)").is_none());
+    fn i64_wrapping_encodes_via_synthetic_modulus() {
+        // i64 modulus 2^64 = (2^32)*(2^32) in IR (const 2^64 not representable as i64)
+        let add =
+            try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_add(1)").expect("i64 add");
+        assert!(
+            add.contains("const 4294967296")
+                && add.contains("arith mul")
+                && add.contains("arith mod"),
+            "{add}"
+        );
+        assert!(add.contains("cmp gt"), "signed reinterpret: {add}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&add, "W").expect("parse add");
+        let mul =
+            try_ir_from_rust_body("M", &px(), Some("i64"), "x.wrapping_mul(2)").expect("i64 mul");
+        assert!(
+            mul.contains("arith mul")
+                && mul.contains("arith mod")
+                && mul.contains("const 4294967296"),
+            "{mul}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&mul, "M").expect("parse mul");
         // Nested wrapping_neg still BNM (top-level expands to multi-block if).
         assert!(try_ir_from_rust_body("N", &px(), Some("i64"), "x.wrapping_neg() + 1").is_none());
     }
