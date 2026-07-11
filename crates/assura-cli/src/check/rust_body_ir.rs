@@ -2325,7 +2325,10 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         }];
         let m32 =
             try_ir_from_rust_body("M32", &pi32, Some("i32"), "x.wrapping_mul(2)").expect("i32 mul");
-        assert!(m32.contains("arith mul") && m32.contains("arith mod"), "{m32}");
+        assert!(
+            m32.contains("arith mul") && m32.contains("arith mod"),
+            "{m32}"
+        );
         assura_smt::LoadedVerifyExtras::from_ir_text(&m32, "M32").expect("parse");
     }
 
