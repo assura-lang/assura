@@ -5700,6 +5700,31 @@ fn l(x: u8) -> u32 { x.leading_zeros() }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Wrong count_zeros ensures must CE.
+#[test]
+fn check_rust_u8_count_zeros_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_cz_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn z(x: u8) -> u32 { x.count_zeros() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Wrong count_ones ensures must CE (proves bit-sum is live).
 #[test]
 fn check_rust_u8_count_ones_wrong_ce() {
