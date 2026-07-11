@@ -907,6 +907,10 @@ fn encode_syn_expr(
                 }
                 // x.clamp(lo, hi) ≡ min(max(x, lo), hi)
                 ("clamp", 2) => {
+                    // clamp(x, b, b) ≡ b for any x
+                    if expr_same_simple_path(&m.args[0], &m.args[1]) {
+                        return encode_syn_expr(&m.args[0], param_names, lines, next);
+                    }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let lo = encode_syn_expr(&m.args[0], param_names, lines, next)?;
                     let hi = encode_syn_expr(&m.args[1], param_names, lines, next)?;
@@ -1236,6 +1240,18 @@ fn multi_let(x: i64) -> i64 { let a = x + 1; let b = a + 1; b }
             try_ir_from_rust_body("C", &px(), Some("i64"), "x . clamp (0 , 10)").expect("clamp");
         assert!(ir.contains("call max") && ir.contains("call min"), "{ir}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "C").expect("parse");
+        let pxy = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "i64".into(),
+            },
+            ParamInfo {
+                name: "y".into(),
+                ty: "i64".into(),
+            },
+        ];
+        let same = try_ir_from_rust_body("B", &pxy, Some("i64"), "x.clamp(y, y)").expect("same");
+        assert!(same.contains("$result = load $1"), "{same}");
     }
 
     #[test]
