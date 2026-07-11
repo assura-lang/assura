@@ -4096,6 +4096,33 @@ fn d(x: i64, y: i64) -> i64 { x - y }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
 }
 
+/// wrapping_add body must be body_not_modeled (not false verified).
+#[test]
+fn check_rust_wrapping_body_not_modeled() {
+    let tmp = unique_temp("assura_check_rust_wrap_bnm");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == x + 1
+fn w(x: i64) -> i64 { x.wrapping_add(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert!(
+        v["body_not_modeled"].as_u64().unwrap_or(0) >= 1,
+        "wrapping must BNM not soft-pass: {stdout}"
+    );
+    assert!(!out.status.success());
+}
+
 /// Nested if/else-if encodes multi-block IR and can CE wrong branches.
 #[test]
 fn check_rust_encodes_nested_if_body() {
