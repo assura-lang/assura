@@ -1770,23 +1770,37 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = arith sub ${u} ${adj} : Int"));
                     Some(slot)
                 }
-                // Unsigned rotate_left/right by const k (#1010 partial).
-                // rotl: ((x << k) | (x >> (bits-k))) mod 2^w ≡ (x*2^k + x/2^(bits-k)) mod 2^w
+                // rotate_left/right by const k (#1010 partial).
+                // Unsigned bits: rotl ≡ (x*2^k + x/2^(bits-k)) mod 2^w.
+                // Signed: map to unsigned bit pattern, rotate, reinterpret.
                 ("rotate_left" | "rotate_right", 1) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
-                    if lo != 0 {
-                        return None;
-                    }
+                    let signed = lo != 0;
+                    let modulus_i64 = if signed {
+                        hi.checked_sub(lo).and_then(|d| d.checked_add(1))
+                    } else {
+                        hi.checked_add(1)
+                    };
+                    let use_synthetic_2_64 = match modulus_i64 {
+                        Some(m) if m > 0 && (m as u64).is_power_of_two() => false,
+                        None if signed && lo == i64::MIN && hi == i64::MAX => true,
+                        _ => return None,
+                    };
                     let k = lit_int_i64(&m.args[0])?;
                     if k < 0 {
                         return None;
                     }
-                    let modulus = hi.checked_add(1)?;
-                    let modulus_u = modulus as u64;
-                    let bits = modulus_u.trailing_zeros();
-                    if bits == 0 || !modulus_u.is_power_of_two() {
-                        return None;
-                    }
+                    let bits = if use_synthetic_2_64 {
+                        64u32
+                    } else {
+                        let modulus = modulus_i64?;
+                        let modulus_u = modulus as u64;
+                        let bits = modulus_u.trailing_zeros();
+                        if bits == 0 || !modulus_u.is_power_of_two() {
+                            return None;
+                        }
+                        bits
+                    };
                     let k_eff = (k as u64) % (bits as u64);
                     if k_eff == 0 {
                         return encode_syn_expr(&m.receiver, param_names, lines, next);
@@ -1803,6 +1817,31 @@ fn encode_syn_expr(
                     let hi_f = 1i64 << k_left;
                     let lo_f = 1i64 << (bits as u64 - k_left);
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let mslot = if use_synthetic_2_64 {
+                        let half = *next;
+                        *next += 1;
+                        lines.push(format!("${half} = const 4294967296 : Int"));
+                        let mslot = *next;
+                        *next += 1;
+                        lines.push(format!("${mslot} = arith mul ${half} ${half} : Int"));
+                        mslot
+                    } else {
+                        let modulus = modulus_i64?;
+                        let mslot = *next;
+                        *next += 1;
+                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        mslot
+                    };
+                    // Unsigned bit pattern: ((a mod m) + m) mod m
+                    let t1 = *next;
+                    *next += 1;
+                    lines.push(format!("${t1} = arith mod ${a} ${mslot} : Int"));
+                    let t2 = *next;
+                    *next += 1;
+                    lines.push(format!("${t2} = arith add ${t1} ${mslot} : Int"));
+                    let u_in = *next;
+                    *next += 1;
+                    lines.push(format!("${u_in} = arith mod ${t2} ${mslot} : Int"));
                     let hf = *next;
                     *next += 1;
                     lines.push(format!("${hf} = const {hi_f} : Int"));
@@ -1811,22 +1850,37 @@ fn encode_syn_expr(
                     lines.push(format!("${lf} = const {lo_f} : Int"));
                     let hi_part = *next;
                     *next += 1;
-                    lines.push(format!("${hi_part} = arith mul ${a} ${hf} : Int"));
+                    lines.push(format!("${hi_part} = arith mul ${u_in} ${hf} : Int"));
                     let lo_part = *next;
                     *next += 1;
-                    lines.push(format!("${lo_part} = arith div ${a} ${lf} : Int"));
+                    lines.push(format!("${lo_part} = arith div ${u_in} ${lf} : Int"));
                     let raw = *next;
                     *next += 1;
                     lines.push(format!("${raw} = arith add ${hi_part} ${lo_part} : Int"));
-                    let mslot = *next;
+                    let t3 = *next;
                     *next += 1;
-                    lines.push(format!("${mslot} = const {modulus} : Int"));
-                    let shifted = *next;
+                    lines.push(format!("${t3} = arith mod ${raw} ${mslot} : Int"));
+                    let t4 = *next;
                     *next += 1;
-                    lines.push(format!("${shifted} = arith add ${raw} ${mslot} : Int"));
+                    lines.push(format!("${t4} = arith add ${t3} ${mslot} : Int"));
+                    let u = *next;
+                    *next += 1;
+                    lines.push(format!("${u} = arith mod ${t4} ${mslot} : Int"));
+                    if !signed {
+                        return Some(u);
+                    }
+                    let his = *next;
+                    *next += 1;
+                    lines.push(format!("${his} = const {hi} : Int"));
+                    let gt = *next;
+                    *next += 1;
+                    lines.push(format!("${gt} = cmp gt ${u} ${his} : Bool"));
+                    let adj = *next;
+                    *next += 1;
+                    lines.push(format!("${adj} = arith mul ${gt} ${mslot} : Int"));
                     let slot = *next;
                     *next += 1;
-                    lines.push(format!("${slot} = arith mod ${shifted} ${mslot} : Int"));
+                    lines.push(format!("${slot} = arith sub ${u} ${adj} : Int"));
                     Some(slot)
                 }
                 // wrapping_* via mod 2^w (#1010).
@@ -2902,6 +2956,18 @@ fn f(x: i64) -> i64 { let y = &x; *y }
             "{rot}"
         );
         assura_smt::LoadedVerifyExtras::from_ir_text(&rot, "Ro").expect("parse rot");
+        // signed rotate via bit-pattern map + reinterpret
+        let pi8 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "i8".into(),
+        }];
+        let srot =
+            try_ir_from_rust_body("Sr", &pi8, Some("i8"), "x.rotate_left(1)").expect("i8 rotl");
+        assert!(
+            srot.contains("cmp gt") && srot.contains("arith mod"),
+            "{srot}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&srot, "Sr").expect("parse srot");
     }
 
     #[test]
