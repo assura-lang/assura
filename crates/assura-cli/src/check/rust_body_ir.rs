@@ -786,19 +786,19 @@ fn encode_syn_expr(
         }
         syn::Expr::Unary(u) if matches!(u.op, syn::UnOp::Not(_)) => {
             // Typed integer lit: bitwise NOT (ones' complement within width).
-            if let Some((v, bits)) = lit_int_i64_bits(&u.expr) {
-                if v >= 0 {
-                    let mask = if bits == 64 {
-                        u64::MAX
-                    } else {
-                        (1u64 << bits) - 1
-                    };
-                    let notv = (!(v as u64)) & mask;
-                    let slot = *next;
-                    *next += 1;
-                    lines.push(format!("${slot} = const {notv} : Int"));
-                    return Some(slot);
-                }
+            if let Some((v, bits)) = lit_int_i64_bits(&u.expr)
+                && v >= 0
+            {
+                let mask = if bits == 64 {
+                    u64::MAX
+                } else {
+                    (1u64 << bits) - 1
+                };
+                let notv = (!(v as u64)) & mask;
+                let slot = *next;
+                *next += 1;
+                lines.push(format!("${slot} = const {notv} : Int"));
+                return Some(slot);
             }
             // Bool / general: logical not as eq 0.
             let zero = *next;
