@@ -15,9 +15,10 @@
 //! wrapping_add/sub/mul and wrapping_shl via double-mod+reinterpret for i8..i64
 //! (i64 modulus is synthetic `(2^32)*(2^32)`). Signed rotate via bit-pattern map.
 //! Signed wrapping_shr via floor div by 2^k. Top-level signed `wrapping_neg`
-//! (multi-block if). Variable is_power_of_two for fixed-width ints via pot enum
-//! (≤63 exponents; identity peels keep bounds). Literal `/0`, `%0`,
-//! `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
+//! (multi-block if). Variable wrapping_shl/shr case-sum for bits≤64 (i64 uses
+//! synthetic modulus; 2^63 factor is 2^32*2^31). Variable is_power_of_two for
+//! fixed-width ints via pot enum (≤63 exponents; identity peels keep bounds).
+//! Literal `/0`, `%0`, `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
 //! rem_euclid/div_euclid with positive const (signed Euclidean).
 //!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
@@ -573,6 +574,31 @@ fn rust_int_bounds(ty: &str) -> Option<(i64, i64)> {
         "u64" | "usize" => None,
         _ => None,
     }
+}
+
+/// Emit IR for `2^e` as an Int slot (`e` in 0..=63).
+/// `2^63` does not fit in a positive i64 const; build it as `2^32 * 2^31`.
+fn emit_pow2_factor(e: u32, lines: &mut Vec<String>, next: &mut usize) -> Option<usize> {
+    if e > 63 {
+        return None;
+    }
+    if e < 63 {
+        let factor = 1i64 << e;
+        let f = *next;
+        *next += 1;
+        lines.push(format!("${f} = const {factor} : Int"));
+        return Some(f);
+    }
+    let half = *next;
+    *next += 1;
+    lines.push(format!("${half} = const 4294967296 : Int"));
+    let q = *next;
+    *next += 1;
+    lines.push(format!("${q} = const 2147483648 : Int"));
+    let f = *next;
+    *next += 1;
+    lines.push(format!("${f} = arith mul ${half} ${q} : Int"));
+    Some(f)
 }
 
 /// Positive power-of-two exponents for a param with known integer bounds.
@@ -1925,10 +1951,10 @@ fn encode_syn_expr(
                 {
                     encode_syn_expr(&m.receiver, param_names, lines, next)
                 }
-                // wrapping_shl/shr by const or small variable amount (#1010/#1145).
+                // wrapping_shl/shr by const or variable amount (#1010/#1145/#1151).
                 // Unsigned: shl (x * 2^k) mod 2^w; shr floor x / 2^k.
                 // Signed: wrapping_shl via mul+double-mod+reinterpret; wrapping_shr
-                // via floor div by 2^k. Variable k: case-sum over k%bits for bits<=16.
+                // via floor div by 2^k. Variable k: case-sum over k%bits for bits<=64.
                 ("wrapping_shl" | "wrapping_shr", 1) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
                     let signed = lo != 0;
@@ -1963,13 +1989,7 @@ fn encode_syn_expr(
                         if k_eff == 0 {
                             return Some(a);
                         }
-                        if k_eff >= 63 {
-                            return None;
-                        }
-                        let factor = 1i64 << k_eff;
-                        let f = *next;
-                        *next += 1;
-                        lines.push(format!("${f} = const {factor} : Int"));
+                        let f = emit_pow2_factor(k_eff as u32, lines, next)?;
                         if method == "wrapping_shr" {
                             let slot = *next;
                             *next += 1;
@@ -2020,8 +2040,8 @@ fn encode_syn_expr(
                         lines.push(format!("${slot} = arith sub ${u} ${adj} : Int"));
                         return Some(slot);
                     }
-                    // Variable shift: case-sum over k%bits (bits<=32, incl. signed).
-                    if bits > 32 {
+                    // Variable shift: case-sum over k%bits (bits<=64, incl. signed i64).
+                    if bits > 64 {
                         return None;
                     }
                     let k_slot = encode_syn_expr(&m.args[0], param_names, lines, next)?;
@@ -2070,10 +2090,7 @@ fn encode_syn_expr(
                         let eq = *next;
                         *next += 1;
                         lines.push(format!("${eq} = cmp eq ${k_eff} ${e_c} : Bool"));
-                        let factor = 1i64 << e;
-                        let f = *next;
-                        *next += 1;
-                        lines.push(format!("${f} = const {factor} : Int"));
+                        let f = emit_pow2_factor(e, lines, next)?;
                         let case_val = if method == "wrapping_shr" {
                             let d = *next;
                             *next += 1;
@@ -3437,6 +3454,35 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let ir = try_ir_from_rust_body("S", &p, Some("u32"), "x.wrapping_shl(n)").expect("u32");
         assert!(ir.contains("cmp eq"), "{ir}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
+    }
+
+    #[test]
+    fn variable_i64_wrapping_shl_encodes() {
+        let p = vec![
+            ParamInfo {
+                name: "x".into(),
+                ty: "i64".into(),
+            },
+            ParamInfo {
+                name: "n".into(),
+                ty: "u32".into(),
+            },
+        ];
+        let ir = try_ir_from_rust_body("S", &p, Some("i64"), "x.wrapping_shl(n)").expect("i64");
+        assert!(
+            ir.contains("cmp eq")
+                && ir.contains("const 4294967296")
+                && ir.contains("const 2147483648"),
+            "{ir}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
+        let shr = try_ir_from_rust_body("R", &p, Some("i64"), "x.wrapping_shr(n)").expect("shr");
+        assert!(shr.contains("arith div") && shr.contains("cmp eq"), "{shr}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&shr, "R").expect("parse");
+        // const shift by 63 now encodes (2^63 = 2^32*2^31)
+        let c63 =
+            try_ir_from_rust_body("C", &px(), Some("i64"), "x.wrapping_shl(63)").expect("shl63");
+        assert!(c63.contains("const 2147483648"), "{c63}");
     }
 
     #[test]

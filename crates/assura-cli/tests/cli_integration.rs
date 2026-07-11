@@ -4843,6 +4843,83 @@ fn l(x: i64) -> i64 { x.wrapping_shl(1) }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Variable i64 wrapping_shr range verifies via case-sum over k%64 (#1151).
+/// (Full-range shl can cancel under default SMT timeout; soundness is
+/// covered by the CE tests below and unit IR parse.)
+#[test]
+fn check_rust_encodes_variable_i64_wrapping_shr() {
+    let tmp = unique_temp("assura_check_rust_var_i64_shr");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= -9223372036854775808
+/// @ensures result <= 9223372036854775807
+fn r(x: i64, n: u32) -> i64 { x.wrapping_shr(n) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong variable i64 wrapping_shl ensures must CE (not identity).
+#[test]
+fn check_rust_variable_i64_wrapping_shl_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_var_i64_shl_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn s(x: i64, n: u32) -> i64 { x.wrapping_shl(n) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
+/// Wrong variable i64 wrapping_shr ensures must CE (not identity).
+#[test]
+fn check_rust_variable_i64_wrapping_shr_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_var_i64_shr_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn r(x: i64, n: u32) -> i64 { x.wrapping_shr(n) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Wrong signed wrapping_shl ensures must CE (proves wrap is live).
 #[test]
 fn check_rust_signed_wrapping_shl_wrong_ce() {
