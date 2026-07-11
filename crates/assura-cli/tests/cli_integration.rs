@@ -4593,6 +4593,33 @@ fn id_rot(x: i64) -> i64 { x.rotate_left(0) }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Const bitops fold and verify.
+#[test]
+fn check_rust_encodes_const_bitops() {
+    let tmp = unique_temp("assura_check_rust_bitops");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 8
+fn a(x: u32) -> u32 { 12u32 & 10u32 }
+
+/// @ensures result == 12
+fn s(x: u32) -> u32 { 3u32 << 2 }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Const reverse_bits / swap_bytes / zero trailing_zeros (typed).
 #[test]
 fn check_rust_encodes_const_reverse_swap() {
