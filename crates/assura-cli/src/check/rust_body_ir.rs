@@ -2759,8 +2759,9 @@ fn f(x: i64) -> i64 {
         assert!(de.contains("arith div") && de.contains("const 3"), "{de}");
         let nmo =
             try_ir_from_rust_body("N", &pu8, Some("u8"), "x.next_multiple_of(4)").expect("nmo");
+        // rem_euclid formula: rem = ((a mod m)+m) mod m; a - rem + m*[rem!=0]
         assert!(
-            nmo.contains("arith mul") && nmo.contains("arith div"),
+            nmo.contains("arith mod") && nmo.contains("cmp eq") && nmo.contains("arith mul"),
             "{nmo}"
         );
         assura_smt::LoadedVerifyExtras::from_ir_text(&nmo, "N").expect("parse");
