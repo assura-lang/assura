@@ -6,6 +6,9 @@
 //! `default` and integer MIN/MAX, small `pow`, multi-let (incl. ref/cast folds),
 //! if/match (incl. guards), and Bool comparisons. Body text via `syn` (co-publish-safe).
 //!
+//! Not yet encoded (stay body_not_modeled): wrapping_* (#1010), nested
+//! if-valued methods like `signum` in arith (#1032), is_power_of_two (#1034).
+//!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
 //! `eval_ir_block` clones parent slots into each block; reusing `$1`/`$2` for
 //! temps collides with the condition/`if` result and makes SMT unsound
