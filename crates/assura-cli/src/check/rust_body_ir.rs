@@ -499,7 +499,7 @@ fn block_as_expr_owned(block: &syn::Block) -> Option<syn::Expr> {
 }
 
 /// `x.wrapping_neg()` → if x == MIN { MIN } else { -x } (needs SAT_BOUNDS).
-/// Top-level only (multi-block if); nested wrapping stays unencoded (#1010).
+/// Signed only (multi-block if). Unsigned uses encode MethodCall mod path.
 fn expand_wrapping_neg_method(expr: &syn::Expr) -> Option<syn::Expr> {
     let syn::Expr::MethodCall(m) = expr else {
         return None;
@@ -508,7 +508,7 @@ fn expand_wrapping_neg_method(expr: &syn::Expr) -> Option<syn::Expr> {
         return None;
     }
     let (lo, _) = SAT_BOUNDS.get()?;
-    // Unsigned wrapping_neg is just 0-x mod 2^w; skip (needs mod width).
+    // Unsigned: handled in encode_syn_expr via mod 2^w.
     if lo == 0 {
         return None;
     }
@@ -1073,7 +1073,7 @@ fn encode_syn_expr(
                 {
                     encode_syn_expr(&m.receiver, param_names, lines, next)
                 }
-                // Unsigned wrapping_add/sub/mul via mod 2^w when SAT_BOUNDS starts at 0 (#1010 partial).
+                // Unsigned wrapping_* via mod 2^w when SAT_BOUNDS starts at 0 (#1010 partial).
                 ("wrapping_add" | "wrapping_sub" | "wrapping_mul", 1) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
                     if lo != 0 {
@@ -1092,6 +1092,31 @@ fn encode_syn_expr(
                     };
                     lines.push(format!("${raw} = arith {op} ${a} ${b} : Int"));
                     // Bring into [0, modulus) for possibly-negative sub results
+                    let mslot = *next;
+                    *next += 1;
+                    lines.push(format!("${mslot} = const {modulus} : Int"));
+                    let shifted = *next;
+                    *next += 1;
+                    lines.push(format!("${shifted} = arith add ${raw} ${mslot} : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = arith mod ${shifted} ${mslot} : Int"));
+                    Some(slot)
+                }
+                // Unsigned wrapping_neg: (0 - x) mod 2^w
+                ("wrapping_neg", 0) => {
+                    let (lo, hi) = SAT_BOUNDS.get()?;
+                    if lo != 0 {
+                        return None; // signed uses expand_wrapping_neg_method
+                    }
+                    let modulus = hi.checked_add(1)?;
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let zero = *next;
+                    *next += 1;
+                    lines.push(format!("${zero} = const 0 : Int"));
+                    let raw = *next;
+                    *next += 1;
+                    lines.push(format!("${raw} = arith sub ${zero} ${a} : Int"));
                     let mslot = *next;
                     *next += 1;
                     lines.push(format!("${mslot} = const {modulus} : Int"));
@@ -1747,6 +1772,12 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         assert!(
             mul.contains("arith mul") && mul.contains("arith mod"),
             "{mul}"
+        );
+        let neg =
+            try_ir_from_rust_body("Ng", &pu8, Some("u8"), "x.wrapping_neg()").expect("u8 neg");
+        assert!(
+            neg.contains("arith sub") && neg.contains("arith mod"),
+            "{neg}"
         );
     }
 
