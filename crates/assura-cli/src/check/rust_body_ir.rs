@@ -18,6 +18,7 @@
 //! (multi-block if). Variable is_power_of_two for fixed-width ints via pot enum
 //! (≤63 exponents; identity peels keep bounds). Literal `/0`, `%0`,
 //! `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
+//! rem_euclid/div_euclid with positive const (signed Euclidean).
 //!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
 //! `eval_ir_block` clones parent slots into each block; reusing `$1`/`$2` for
