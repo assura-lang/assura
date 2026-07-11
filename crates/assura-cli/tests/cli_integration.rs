@@ -5358,6 +5358,30 @@ fn c(x: u32) -> u32 { 10u32.div_ceil(3) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Signed next_multiple_of with positive const encodes.
+#[test]
+fn check_rust_encodes_signed_next_multiple_of() {
+    let tmp = unique_temp("assura_check_rust_signed_nmo");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= x
+fn n(x: i64) -> i64 { x.next_multiple_of(4) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Signed rem_euclid/div_euclid with positive const encode.
 #[test]
 fn check_rust_encodes_signed_rem_euclid() {
