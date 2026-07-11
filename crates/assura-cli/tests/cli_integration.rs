@@ -5517,7 +5517,7 @@ fn z(x: u8) -> u32 { x.count_zeros() }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
-/// Unsigned path-param trailing_zeros encodes via first-set-bit product.
+/// Unsigned path-param trailing_zeros/leading_zeros encode via bit products.
 #[test]
 fn check_rust_encodes_u8_trailing_zeros() {
     let tmp = unique_temp("assura_check_rust_tz");
@@ -5529,6 +5529,10 @@ fn check_rust_encodes_u8_trailing_zeros() {
 /// @ensures result >= 0
 /// @ensures result <= 8
 fn t(x: u8) -> u32 { x.trailing_zeros() }
+
+/// @ensures result >= 0
+/// @ensures result <= 8
+fn l(x: u8) -> u32 { x.leading_zeros() }
 "#,
     )
     .unwrap();
