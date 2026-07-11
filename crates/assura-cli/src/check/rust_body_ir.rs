@@ -533,6 +533,24 @@ fn is_lit_int_zero(expr: &syn::Expr) -> bool {
     }
 }
 
+/// Same single-segment path after paren/group peels (`x` vs `x`, not `x` vs `y`).
+fn expr_same_simple_path(a: &syn::Expr, b: &syn::Expr) -> bool {
+    fn path_name(expr: &syn::Expr) -> Option<String> {
+        match expr {
+            syn::Expr::Paren(p) => path_name(&p.expr),
+            syn::Expr::Group(g) => path_name(&g.expr),
+            syn::Expr::Path(p) if p.path.segments.len() == 1 => {
+                Some(p.path.segments[0].ident.to_string())
+            }
+            _ => None,
+        }
+    }
+    match (path_name(a), path_name(b)) {
+        (Some(x), Some(y)) => x == y,
+        _ => false,
+    }
+}
+
 /// Clamp `val` slot into SAT_BOUNDS using max/min; returns result slot.
 fn emit_sat_clamp(val: usize, lines: &mut Vec<String>, next: &mut usize) -> Option<usize> {
     let (lo_v, hi_v) = SAT_BOUNDS.get()?;
@@ -922,9 +940,15 @@ fn encode_syn_expr(
                 }
                 // wrapping_* peeps only for identity constants (full wrap needs #1010 BV).
                 // wrapping_add(x, 0) / wrapping_sub(x, 0) ≡ x; wrapping_mul(x, 1) ≡ x;
-                // wrapping_mul(x, 0) ≡ 0. Non-constant args stay BNM (not plain arith).
+                // wrapping_mul(x, 0) ≡ 0; wrapping_sub(x, x) ≡ 0. Non-constant stay BNM.
                 ("wrapping_add" | "wrapping_sub", 1) if is_lit_int_zero(&m.args[0]) => {
                     encode_syn_expr(&m.receiver, param_names, lines, next)
+                }
+                ("wrapping_sub", 1) if expr_same_simple_path(&m.receiver, &m.args[0]) => {
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const 0 : Int"));
+                    Some(slot)
                 }
                 ("wrapping_mul", 1) if is_lit_int_zero(&m.args[0]) => {
                     let slot = *next;
@@ -1539,6 +1563,8 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         assert!(m1.contains("$result = load $0"), "{m1}");
         let m0 = try_ir_from_rust_body("Z", &px(), Some("i64"), "x.wrapping_mul(0)").expect("*0");
         assert!(m0.contains("const 0"), "{m0}");
+        let sx = try_ir_from_rust_body("Sx", &px(), Some("i64"), "x.wrapping_sub(x)").expect("x-x");
+        assert!(sx.contains("const 0"), "{sx}");
     }
 
     #[test]
