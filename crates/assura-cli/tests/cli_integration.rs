@@ -4625,6 +4625,33 @@ fn r(x: u8) -> u8 { x.rem_euclid(3) }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// midpoint encodes as floor((a+b)/2).
+#[test]
+fn check_rust_encodes_midpoint() {
+    let tmp = unique_temp("assura_check_rust_midpoint");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 5
+fn m(x: i64) -> i64 { 4i64.midpoint(6) }
+
+/// @ensures result == x
+fn s(x: i64) -> i64 { x.midpoint(x) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Top-level wrapping_neg encodes (MIN stays MIN); nested still BNM.
 #[test]
 fn check_rust_encodes_wrapping_neg() {
