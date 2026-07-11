@@ -857,7 +857,8 @@ fn encode_syn_expr(
         syn::Expr::MethodCall(m) => {
             let method = m.method.to_string();
             match (method.as_str(), m.args.len()) {
-                ("abs", 0) => {
+                ("abs" | "unsigned_abs", 0) => {
+                    // unsigned_abs is |x| as unsigned magnitude; SMT Int uses abs.
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let slot = *next;
                     *next += 1;
@@ -1099,6 +1100,18 @@ fn encode_syn_expr(
                         return None;
                     }
                     let log = (v as u64).ilog2();
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const {log} : Int"));
+                    Some(slot)
+                }
+                // Positive lit only.
+                ("ilog10", 0) => {
+                    let v = lit_int_i64(&m.receiver)?;
+                    if v <= 0 {
+                        return None;
+                    }
+                    let log = (v as u64).ilog10();
                     let slot = *next;
                     *next += 1;
                     lines.push(format!("${slot} = const {log} : Int"));
@@ -2470,6 +2483,11 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let sq = try_ir_from_rust_body("Sq", &px(), Some("u32"), "10u32.isqrt()").expect("isqrt");
         assert!(sq.contains("const 3 : Int"), "{sq}");
         assert!(try_ir_from_rust_body("Neg", &px(), Some("i64"), "(-1i64).isqrt()").is_none());
+        let l10 =
+            try_ir_from_rust_body("L10", &px(), Some("u32"), "100u32.ilog10()").expect("ilog10");
+        assert!(l10.contains("const 2 : Int"), "{l10}");
+        let ua = try_ir_from_rust_body("Ua", &px(), Some("i64"), "x.unsigned_abs()").expect("uabs");
+        assert!(ua.contains("call abs"), "{ua}");
     }
 
     #[test]
