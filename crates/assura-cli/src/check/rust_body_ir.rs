@@ -1051,6 +1051,9 @@ fn encode_syn_expr(
                     Some(slot)
                 }
                 ("min" | "max", 2) => {
+                    if expr_same_simple_path(&c.args[0], &c.args[1]) {
+                        return encode_syn_expr(&c.args[0], param_names, lines, next);
+                    }
                     let a = encode_syn_expr(&c.args[0], param_names, lines, next)?;
                     let b = encode_syn_expr(&c.args[1], param_names, lines, next)?;
                     let slot = *next;
@@ -1501,6 +1504,8 @@ fn f(x: i64) -> i64 {
         let ir2 = try_ir_from_rust_body("N", &px(), Some("i64"), "i64::MIN").expect("min");
         assert!(ir2.contains(&i64::MIN.to_string()), "{ir2}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "M").expect("parse");
+        let free = try_ir_from_rust_body("F", &px(), Some("i64"), "min(x, x)").expect("free min");
+        assert!(free.contains("$result = load $0"), "{free}");
     }
 
     #[test]
