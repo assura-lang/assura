@@ -1296,6 +1296,49 @@ fn encode_syn_expr(
                 {
                     encode_syn_expr(&m.receiver, param_names, lines, next)
                 }
+                // Unsigned wrapping_shl by const k: (x * 2^(k%bits)) mod 2^w (#1010 partial).
+                ("wrapping_shl", 1) => {
+                    let (lo, hi) = SAT_BOUNDS.get()?;
+                    if lo != 0 {
+                        return None; // signed needs BV
+                    }
+                    let k = lit_int_i64(&m.args[0])?;
+                    if k < 0 {
+                        return None;
+                    }
+                    let modulus = hi.checked_add(1)?;
+                    let modulus_u = modulus as u64;
+                    let bits = modulus_u.trailing_zeros();
+                    if bits == 0 || !modulus_u.is_power_of_two() {
+                        return None;
+                    }
+                    // Rust masks shift amount by BITS-1 (equiv k % bits for power-of-two width).
+                    let k_eff = (k as u64) % (bits as u64);
+                    if k_eff == 0 {
+                        return encode_syn_expr(&m.receiver, param_names, lines, next);
+                    }
+                    if k_eff >= 63 {
+                        return None; // 2^k would overflow i64 factor
+                    }
+                    let factor = 1i64 << k_eff;
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let f = *next;
+                    *next += 1;
+                    lines.push(format!("${f} = const {factor} : Int"));
+                    let raw = *next;
+                    *next += 1;
+                    lines.push(format!("${raw} = arith mul ${a} ${f} : Int"));
+                    let mslot = *next;
+                    *next += 1;
+                    lines.push(format!("${mslot} = const {modulus} : Int"));
+                    let shifted = *next;
+                    *next += 1;
+                    lines.push(format!("${shifted} = arith add ${raw} ${mslot} : Int"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = arith mod ${shifted} ${mslot} : Int"));
+                    Some(slot)
+                }
                 // Unsigned wrapping_* via mod 2^w when SAT_BOUNDS starts at 0 (#1010 partial).
                 ("wrapping_add" | "wrapping_sub" | "wrapping_mul", 1) => {
                     let (lo, hi) = SAT_BOUNDS.get()?;
@@ -2123,8 +2166,23 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         assert!(!shl.contains("arith"), "{shl}");
         let rot = try_ir_from_rust_body("R", &px(), Some("i64"), "x.rotate_left(0)").expect("rot");
         assert!(rot.contains("load $0"), "{rot}");
-        // non-zero stays BNM
+        // signed non-zero stays BNM (needs BV)
         assert!(try_ir_from_rust_body("N", &px(), Some("i64"), "x.wrapping_shl(1)").is_none());
+    }
+
+    #[test]
+    fn unsigned_wrapping_shl_const_encodes() {
+        let pu8 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "u8".into(),
+        }];
+        let ir = try_ir_from_rust_body("S", &pu8, Some("u8"), "x.wrapping_shl(1)").expect("shl1");
+        assert!(ir.contains("arith mul") && ir.contains("const 2"), "{ir}");
+        assert!(ir.contains("arith mod") && ir.contains("const 256"), "{ir}");
+        // shift 8 on u8 ≡ shift 0 (mask)
+        let id = try_ir_from_rust_body("I", &pu8, Some("u8"), "x.wrapping_shl(8)").expect("shl8");
+        assert!(id.contains("load $0"), "{id}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
     }
 
     #[test]
