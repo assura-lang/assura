@@ -8,6 +8,7 @@
 //!
 //! Not yet encoded (stay body_not_modeled): wrapping_* (#1010), is_power_of_two (#1034).
 //! `signum` is encoded as clamp to [-1, 1] (nestable in arith; #1032).
+//! Literal `/0`, `%0`, and `is_multiple_of(0)` also stay unencoded (Rust panic paths).
 //!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
 //! `eval_ir_block` clones parent slots into each block; reusing `$1`/`$2` for
