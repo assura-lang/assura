@@ -4453,6 +4453,39 @@ fn id_rot(x: i64) -> i64 { x.rotate_left(0) }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Const reverse_bits / swap_bytes / zero trailing_zeros (typed).
+#[test]
+fn check_rust_encodes_const_reverse_swap() {
+    let tmp = unique_temp("assura_check_rust_rev_swap");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 128
+fn rev(x: u8) -> u8 { 1u8.reverse_bits() }
+
+/// @ensures result == 13330
+fn sw(x: u16) -> u16 { 0x1234u16.swap_bytes() }
+
+/// @ensures result == 8
+fn ztz(x: u8) -> u32 { 0u8.trailing_zeros() }
+
+/// @ensures result == 3
+fn ig(x: u32) -> u32 { 8u32.ilog2() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Top-level wrapping_neg encodes (MIN stays MIN); nested still BNM.
 #[test]
 fn check_rust_encodes_wrapping_neg() {
