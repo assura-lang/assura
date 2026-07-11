@@ -6156,7 +6156,10 @@ fn p(x: i64) -> bool { (x + 1).is_power_of_two() }
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success(), "{stdout}");
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
-    assert_eq!(v["body_not_modeled"], 0, "nested i64 pot must encode: {stdout}");
+    assert_eq!(
+        v["body_not_modeled"], 0,
+        "nested i64 pot must encode: {stdout}"
+    );
 }
 
 /// u8/u32/i64 is_power_of_two encodes via pot enum (partial #1034).
