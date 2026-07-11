@@ -4644,6 +4644,31 @@ fn s(x: u32) -> u32 { 3u32 << 2 }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Wrong const bitops ensures must CE.
+#[test]
+fn check_rust_const_bitops_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_bitops_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn a(x: u32) -> u32 { 12u32 & 10u32 }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Const reverse_bits / swap_bytes / zero trailing_zeros (typed).
 #[test]
 fn check_rust_encodes_const_reverse_swap() {
