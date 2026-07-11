@@ -2192,9 +2192,11 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let id = try_ir_from_rust_body("I", &pu8, Some("u8"), "x.wrapping_shl(8)").expect("shl8");
         assert!(id.contains("load $0"), "{id}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
-        let shr =
-            try_ir_from_rust_body("R", &pu8, Some("u8"), "x.wrapping_shr(1)").expect("shr1");
-        assert!(shr.contains("arith div") && shr.contains("const 2"), "{shr}");
+        let shr = try_ir_from_rust_body("R", &pu8, Some("u8"), "x.wrapping_shr(1)").expect("shr1");
+        assert!(
+            shr.contains("arith div") && shr.contains("const 2"),
+            "{shr}"
+        );
     }
 
     #[test]
