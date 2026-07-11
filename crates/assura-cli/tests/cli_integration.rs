@@ -4430,7 +4430,7 @@ fn m(x: i64) -> bool { x.is_multiple_of(0) }
     assert!(!out.status.success());
 }
 
-/// is_power_of_two body must be body_not_modeled (#1034).
+/// is_power_of_two body must be body_not_modeled (#1034) for variables.
 #[test]
 fn check_rust_is_power_of_two_bnm() {
     let tmp = unique_temp("assura_check_rust_pot_bnm");
@@ -4455,6 +4455,33 @@ fn p(x: i64) -> bool { x.is_power_of_two() }
         "is_power_of_two must BNM: {stdout}"
     );
     assert!(!out.status.success());
+}
+
+/// Const is_power_of_two peeps (partial #1034 / #1089).
+#[test]
+fn check_rust_encodes_const_is_power_of_two() {
+    let tmp = unique_temp("assura_check_rust_pot_const");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == true
+fn t(x: i64) -> bool { 8i64.is_power_of_two() }
+
+/// @ensures result == false
+fn f(x: i64) -> bool { 3i64.is_power_of_two() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
 /// Wrong nested signum ensures must CE (proves encode is live, #1032).
