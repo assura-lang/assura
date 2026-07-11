@@ -647,6 +647,45 @@ fn lit_int_i64_bits(expr: &syn::Expr) -> Option<(i64, u32)> {
     }
 }
 
+/// Popcount bit-sum for an unsigned value already in slot `a` with width `bits`.
+/// Emits `sum_i (a / 2^i) mod 2` into IR; returns the accumulator slot.
+fn encode_bit_sum_count_ones(
+    a: usize,
+    bits: u32,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> Option<usize> {
+    if bits == 0 || bits > 32 {
+        return None;
+    }
+    let two = *next;
+    *next += 1;
+    lines.push(format!("${two} = const 2 : Int"));
+    let mut acc: Option<usize> = None;
+    for i in 0..bits {
+        let factor = 1i64 << i;
+        let f = *next;
+        *next += 1;
+        lines.push(format!("${f} = const {factor} : Int"));
+        let shifted = *next;
+        *next += 1;
+        lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
+        let bit = *next;
+        *next += 1;
+        lines.push(format!("${bit} = arith mod ${shifted} ${two} : Int"));
+        acc = Some(match acc {
+            None => bit,
+            Some(prev) => {
+                let sum = *next;
+                *next += 1;
+                lines.push(format!("${sum} = arith add ${prev} ${bit} : Int"));
+                sum
+            }
+        });
+    }
+    acc
+}
+
 /// True for literal `1` or `-1` (after paren/group peels).
 fn is_lit_int_abs_one(expr: &syn::Expr) -> bool {
     match expr {
@@ -1053,7 +1092,6 @@ fn encode_syn_expr(
                         lines.push(format!("${slot} = const {ones} : Int"));
                         return Some(slot);
                     }
-                    // Variable: unsigned fixed-width only (bit_i = (x / 2^i) mod 2).
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
                     if lo != 0 {
                         return None;
@@ -1064,36 +1102,8 @@ fn encode_syn_expr(
                         return None;
                     }
                     let bits = modulus_u.trailing_zeros();
-                    if bits == 0 || bits > 32 {
-                        return None;
-                    }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
-                    let two = *next;
-                    *next += 1;
-                    lines.push(format!("${two} = const 2 : Int"));
-                    let mut acc: Option<usize> = None;
-                    for i in 0..bits {
-                        let factor = 1i64 << i;
-                        let f = *next;
-                        *next += 1;
-                        lines.push(format!("${f} = const {factor} : Int"));
-                        let shifted = *next;
-                        *next += 1;
-                        lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
-                        let bit = *next;
-                        *next += 1;
-                        lines.push(format!("${bit} = arith mod ${shifted} ${two} : Int"));
-                        acc = Some(match acc {
-                            None => bit,
-                            Some(prev) => {
-                                let sum = *next;
-                                *next += 1;
-                                lines.push(format!("${sum} = arith add ${prev} ${bit} : Int"));
-                                sum
-                            }
-                        });
-                    }
-                    acc
+                    encode_bit_sum_count_ones(a, bits, lines, next)
                 }
                 // trailing_ones: non-neg lit (width-independent for magnitude).
                 ("trailing_ones", 0) => {
@@ -1126,15 +1136,36 @@ fn encode_syn_expr(
                     Some(slot)
                 }
                 // Typed width: count_zeros = bits - count_ones (non-neg lit).
+                // Unsigned path params: bits - count_ones (shared bit-sum helper).
                 ("count_zeros", 0) => {
-                    let (v, bits) = lit_int_i64_bits(&m.receiver)?;
-                    if v < 0 {
+                    if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
+                        if v < 0 {
+                            return None;
+                        }
+                        let zeros = bits - (v as u64).count_ones();
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const {zeros} : Int"));
+                        return Some(slot);
+                    }
+                    let (lo, hi) = path_param_bounds(&m.receiver)?;
+                    if lo != 0 {
                         return None;
                     }
-                    let zeros = bits - (v as u64).count_ones();
+                    let modulus = hi.checked_add(1)?;
+                    let modulus_u = modulus as u64;
+                    if !modulus_u.is_power_of_two() {
+                        return None;
+                    }
+                    let bits = modulus_u.trailing_zeros();
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let ones = encode_bit_sum_count_ones(a, bits, lines, next)?;
+                    let bits_c = *next;
+                    *next += 1;
+                    lines.push(format!("${bits_c} = const {bits} : Int"));
                     let slot = *next;
                     *next += 1;
-                    lines.push(format!("${slot} = const {zeros} : Int"));
+                    lines.push(format!("${slot} = arith sub ${bits_c} ${ones} : Int"));
                     Some(slot)
                 }
                 // Non-neg lit; 0.trailing_zeros needs typed width (= bits).
