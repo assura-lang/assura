@@ -809,6 +809,49 @@ fn encode_unsigned_leading_zeros(
     Some(acc)
 }
 
+/// reverse_bits for unsigned `a` with width `bits`: sum_i bit_i * 2^(bits-1-i).
+fn encode_unsigned_reverse_bits(
+    a: usize,
+    bits: u32,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> Option<usize> {
+    if bits == 0 || bits > 32 {
+        return None;
+    }
+    let two = *next;
+    *next += 1;
+    lines.push(format!("${two} = const 2 : Int"));
+    let zero = *next;
+    *next += 1;
+    lines.push(format!("${zero} = const 0 : Int"));
+    let mut acc = zero;
+    for i in 0..bits {
+        let factor = 1i64 << i;
+        let rev_factor = 1i64 << (bits - 1 - i);
+        let f = *next;
+        *next += 1;
+        lines.push(format!("${f} = const {factor} : Int"));
+        let shifted = *next;
+        *next += 1;
+        lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
+        let bit = *next;
+        *next += 1;
+        lines.push(format!("${bit} = arith mod ${shifted} ${two} : Int"));
+        let rf = *next;
+        *next += 1;
+        lines.push(format!("${rf} = const {rev_factor} : Int"));
+        let term = *next;
+        *next += 1;
+        lines.push(format!("${term} = arith mul ${bit} ${rf} : Int"));
+        let new_acc = *next;
+        *next += 1;
+        lines.push(format!("${new_acc} = arith add ${acc} ${term} : Int"));
+        acc = new_acc;
+    }
+    Some(acc)
+}
+
 /// True for literal `1` or `-1` (after paren/group peels).
 fn is_lit_int_abs_one(expr: &syn::Expr) -> bool {
     match expr {
@@ -1361,23 +1404,36 @@ fn encode_syn_expr(
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     encode_unsigned_leading_zeros(a, bits, lines, next)
                 }
-                // Typed non-neg lit: reverse_bits / swap_bytes need width.
+                // Typed non-neg lit or unsigned path-param bit reverse.
                 ("reverse_bits", 0) => {
-                    let (v, bits) = lit_int_i64_bits(&m.receiver)?;
-                    if v < 0 {
+                    if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
+                        if v < 0 {
+                            return None;
+                        }
+                        let rev = match bits {
+                            8 => (v as u8).reverse_bits() as i64,
+                            16 => (v as u16).reverse_bits() as i64,
+                            32 => (v as u32).reverse_bits() as i64,
+                            64 => (v as u64).reverse_bits() as i64,
+                            _ => return None,
+                        };
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const {rev} : Int"));
+                        return Some(slot);
+                    }
+                    let (lo, hi) = path_param_bounds(&m.receiver)?;
+                    if lo != 0 {
                         return None;
                     }
-                    let rev = match bits {
-                        8 => (v as u8).reverse_bits() as i64,
-                        16 => (v as u16).reverse_bits() as i64,
-                        32 => (v as u32).reverse_bits() as i64,
-                        64 => (v as u64).reverse_bits() as i64,
-                        _ => return None,
-                    };
-                    let slot = *next;
-                    *next += 1;
-                    lines.push(format!("${slot} = const {rev} : Int"));
-                    Some(slot)
+                    let modulus = hi.checked_add(1)?;
+                    let modulus_u = modulus as u64;
+                    if !modulus_u.is_power_of_two() {
+                        return None;
+                    }
+                    let bits = modulus_u.trailing_zeros();
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    encode_unsigned_reverse_bits(a, bits, lines, next)
                 }
                 ("swap_bytes", 0) => {
                     let (v, bits) = lit_int_i64_bits(&m.receiver)?;
@@ -3050,6 +3106,17 @@ fn f(x: i64) -> i64 { let y = &x; *y }
     }
 
     #[test]
+    fn variable_u8_reverse_bits_encodes() {
+        let pu8 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "u8".into(),
+        }];
+        let ir = try_ir_from_rust_body("R", &pu8, Some("u8"), "x.reverse_bits()").expect("rev");
+        assert!(ir.contains("arith mul") && ir.contains("arith mod"), "{ir}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "R").expect("parse");
+    }
+
+    #[test]
     fn typed_reverse_bits_and_swap_bytes_peep() {
         // 0b0000_0001 u8 reversed → 0b1000_0000 = 128
         let rev = try_ir_from_rust_body("R", &px(), Some("u8"), "1u8.reverse_bits()").expect("rev");
@@ -3058,6 +3125,7 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let sw =
             try_ir_from_rust_body("S", &px(), Some("u16"), "0x1234u16.swap_bytes()").expect("sw");
         assert!(sw.contains("const 13330 : Int"), "{sw}");
+        // i64 path param has no unsigned bit reverse (signed)
         assert!(try_ir_from_rust_body("V", &px(), Some("u8"), "x.reverse_bits()").is_none());
         let ig = try_ir_from_rust_body("I", &px(), Some("u32"), "8u32.ilog2()").expect("ilog");
         assert!(ig.contains("const 3 : Int"), "{ig}");
