@@ -9,15 +9,15 @@
 //! Peeps: wrapping `+0`/`-0`/`*1`/`*0`/`sub(x,x)`; shift/rotate by 0;
 //! `is_multiple_of(±1)`; same-path `abs_diff`/`min`/`max`/`clamp(_,y,y)`;
 //! `abs`/`saturating_abs` `.is_negative()` → false; const `is_power_of_two` /
-//! `count_ones` / `trailing_zeros` / typed `leading_zeros` / `reverse_bits` /
-//! `swap_bytes` (partial #1034).
-//! Unsigned wrapping_* / shl/shr/rotate via mod 2^w (#1010 partial). Signed
-//! wrapping_add/sub/mul via double-mod+reinterpret for i8..i64 (i64 modulus is
-//! synthetic `(2^32)*(2^32)` because 2^64 is not an i64 IR const).
-//! Top-level signed `wrapping_neg` (multi-block if). Variable is_power_of_two
-//! for fixed-width ints via pot enum (≤63 exponents, covers i64).
-//! Literal `/0`, `%0`, `is_multiple_of(0)` BNM.
-//! `signum` nestable clamp (#1032).
+//! `count_ones` / `count_zeros` (unsigned path-param bit-sum) / `trailing_zeros` /
+//! typed `leading_zeros` / `reverse_bits` / `swap_bytes` (partial #1034).
+//! Unsigned wrapping_* / shl/shr/rotate via mod 2^w (#1010). Signed
+//! wrapping_add/sub/mul and wrapping_shl via double-mod+reinterpret for i8..i64
+//! (i64 modulus is synthetic `(2^32)*(2^32)`). Signed rotate via bit-pattern map.
+//! Signed wrapping_shr stays BNM (needs BV). Top-level signed `wrapping_neg`
+//! (multi-block if). Variable is_power_of_two for fixed-width ints via pot enum
+//! (≤63 exponents; identity peels keep bounds). Literal `/0`, `%0`,
+//! `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
 //!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
 //! `eval_ir_block` clones parent slots into each block; reusing `$1`/`$2` for

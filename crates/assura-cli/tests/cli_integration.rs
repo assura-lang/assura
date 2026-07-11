@@ -4785,6 +4785,34 @@ fn s(x: i8) -> i8 { x.wrapping_shl(1) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Signed wrapping_shr stays body_not_modeled (arithmetic shift needs BV).
+#[test]
+fn check_rust_signed_wrapping_shr_body_not_modeled() {
+    let tmp = unique_temp("assura_check_rust_signed_shr_bnm");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= -128
+/// @ensures result <= 127
+fn s(x: i8) -> i8 { x.wrapping_shr(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert!(
+        v["body_not_modeled"].as_u64().unwrap_or(0) >= 1,
+        "signed wrapping_shr must BNM: {stdout}"
+    );
+    assert!(!out.status.success());
+}
+
 /// Signed rotate_left encodes via bit-pattern map + reinterpret.
 #[test]
 fn check_rust_encodes_signed_rotate() {
