@@ -1004,6 +1004,36 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = const {ones} : Int"));
                     Some(slot)
                 }
+                // trailing_ones: non-neg lit (width-independent for magnitude).
+                ("trailing_ones", 0) => {
+                    let v = lit_int_i64(&m.receiver)?;
+                    if v < 0 {
+                        return None;
+                    }
+                    let t = (v as u64).trailing_ones();
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const {t} : Int"));
+                    Some(slot)
+                }
+                // leading_ones needs typed width (like leading_zeros).
+                ("leading_ones", 0) => {
+                    let (v, bits) = lit_int_i64_bits(&m.receiver)?;
+                    if v < 0 {
+                        return None;
+                    }
+                    let lo = match bits {
+                        8 => (v as u8).leading_ones(),
+                        16 => (v as u16).leading_ones(),
+                        32 => (v as u32).leading_ones(),
+                        64 => (v as u64).leading_ones(),
+                        _ => return None,
+                    };
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const {lo} : Int"));
+                    Some(slot)
+                }
                 // Typed width: count_zeros = bits - count_ones (non-neg lit).
                 ("count_zeros", 0) => {
                     let (v, bits) = lit_int_i64_bits(&m.receiver)?;
@@ -2498,6 +2528,13 @@ fn f(x: i64) -> i64 { let y = &x; *y }
     fn const_count_ones_and_trailing_zeros_peep() {
         let c = try_ir_from_rust_body("C", &px(), Some("u32"), "12u32.count_ones()").expect("co");
         assert!(c.contains("const 2 : Int"), "{c}"); // 12 = 0b1100
+        // 0b0111 = 7 has 3 trailing ones
+        let to = try_ir_from_rust_body("To", &px(), Some("u8"), "7u8.trailing_ones()").expect("to");
+        assert!(to.contains("const 3 : Int"), "{to}");
+        // 0xF000_0000u32 leading ones = 4
+        let lo = try_ir_from_rust_body("Lo", &px(), Some("u32"), "0xF000_0000u32.leading_ones()")
+            .expect("lo");
+        assert!(lo.contains("const 4 : Int"), "{lo}");
         // 12u32 has 2 ones → 30 zeros
         let cz =
             try_ir_from_rust_body("Cz", &px(), Some("u32"), "12u32.count_zeros()").expect("cz");
