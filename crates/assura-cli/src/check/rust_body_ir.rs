@@ -6,10 +6,11 @@
 //! `not`), `default` and integer MIN/MAX, small `pow`, multi-let (incl. ref/cast folds),
 //! if/match (incl. guards), and Bool comparisons. Body text via `syn` (co-publish-safe).
 //!
-//! Wrapping: top-level `wrapping_neg` (multi-block if); identity peeps
-//! (`+0`/`-0`/`*1`/`*0`/`sub(x,x)`). General wrapping_add/sub/mul need BV (#1010).
-//! Also BNM: is_power_of_two (#1034); literal `/0`, `%0`, `is_multiple_of(0)`.
-//! `signum` is clamp to [-1, 1] (nestable; #1032).
+//! Peeps (always-true identities): wrapping `+0`/`-0`/`*1`/`*0`/`sub(x,x)`;
+//! `is_multiple_of(±1)`; same-path `abs_diff`/`min`/`max`/`clamp(_,y,y)`;
+//! `abs`/`saturating_abs().is_negative()` → false. Top-level `wrapping_neg`
+//! (multi-block if). General wrapping needs BV (#1010). BNM: is_power_of_two
+//! (#1034); literal `/0`, `%0`, `is_multiple_of(0)`. `signum` nestable clamp (#1032).
 //!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
 //! `eval_ir_block` clones parent slots into each block; reusing `$1`/`$2` for
