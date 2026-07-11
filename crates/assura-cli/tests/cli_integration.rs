@@ -4334,6 +4334,31 @@ fn n(x: u8) -> u8 { x.wrapping_neg() }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// u16 wrapping_add encodes via mod 65536.
+#[test]
+fn check_rust_encodes_u16_wrapping_add() {
+    let tmp = unique_temp("assura_check_rust_u16_wrap");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+/// @ensures result <= 65535
+fn w(x: u16) -> u16 { x.wrapping_add(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Wrong u8 wrapping_add ensures must CE.
 #[test]
 fn check_rust_u8_wrapping_add_wrong_ce() {
