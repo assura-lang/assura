@@ -4297,6 +4297,31 @@ fn w(x: i64) -> i64 { x.wrapping_add(1) }
     assert!(!out.status.success());
 }
 
+/// Unsigned wrapping_add encodes via mod 2^w (#1010 partial).
+#[test]
+fn check_rust_encodes_u8_wrapping_add() {
+    let tmp = unique_temp("assura_check_rust_u8_wrap");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+/// @ensures result <= 255
+fn w(x: u8) -> u8 { x.wrapping_add(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Top-level wrapping_neg encodes (MIN stays MIN); nested still BNM.
 #[test]
 fn check_rust_encodes_wrapping_neg() {
