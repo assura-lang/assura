@@ -5089,6 +5089,61 @@ fn band(x: u8, y: u8) -> u8 { x & y }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Nested is_power_of_two inherits path-param pot width (#1034).
+#[test]
+fn check_rust_encodes_nested_is_power_of_two() {
+    let tmp = unique_temp("assura_check_rust_nested_pot");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == true || result == false
+fn n(x: u8) -> bool { (x + 1).is_power_of_two() }
+
+/// @ensures result == true || result == false
+fn m(x: u8) -> bool { (x * 2).is_power_of_two() }
+
+/// @ensures result == true || result == false
+fn w(x: u8) -> bool { x.wrapping_add(1).is_power_of_two() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong nested pot ensures must CE.
+#[test]
+fn check_rust_nested_is_power_of_two_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_nested_pot_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == true
+fn n(x: u8) -> bool { (x + 1).is_power_of_two() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Variable bitwise NOT for fixed-width ints.
 #[test]
 fn check_rust_encodes_variable_bitnot() {
