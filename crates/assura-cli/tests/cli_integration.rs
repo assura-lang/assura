@@ -4225,6 +4225,36 @@ fn nest(x: i64) -> i64 { x.wrapping_neg() + x }
     );
 }
 
+/// wrapping_add(0) / wrapping_mul(1) identity peeps encode.
+#[test]
+fn check_rust_encodes_wrapping_identity_peeps() {
+    let tmp = unique_temp("assura_check_rust_wpeep");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == x
+fn a(x: i64) -> i64 { x.wrapping_add(0) }
+
+/// @ensures result == x
+fn m(x: i64) -> i64 { x.wrapping_mul(1) }
+
+/// @ensures result == 0
+fn z(x: i64) -> i64 { x.wrapping_mul(0) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Wrong wrapping_neg ensures must CE (proves multi-block encode is live).
 #[test]
 fn check_rust_wrapping_neg_wrong_ce() {
