@@ -1527,6 +1527,12 @@ fn f(x: i64) -> i64 {
             try_ir_from_rust_body("S", &px(), Some("bool"), "x.saturating_abs().is_negative()")
                 .expect("satneg");
         assert!(sat.contains("const 0 : Bool"), "{sat}");
+        let z = try_ir_from_rust_body("Z", &px(), Some("bool"), "x.abs_diff(x).is_zero()")
+            .expect("ad0");
+        assert!(z.contains("const 1 : Bool"), "{z}");
+        let p = try_ir_from_rust_body("P", &px(), Some("bool"), "x.abs_diff(x).is_positive()")
+            .expect("adp");
+        assert!(p.contains("const 0 : Bool"), "{p}");
     }
 
     #[test]
