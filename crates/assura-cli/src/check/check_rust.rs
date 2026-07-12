@@ -470,7 +470,7 @@ pub(crate) fn run_check_rust(
             "errors": total_errors,
             "body_not_modeled": total_body_not_modeled,
             "results": all_results,
-            "policy": "check-rust proves annotations against co-located .ir or encoded Rust bodies (int/bool arith/&&/||, if/else/match, multi-let, abs/min/max/clamp/signum/saturating(+abs)/abs_diff/pow, is_multiple_of, into/as/default/MINMAX, PartialOrd/borrow/deref, as_ref/not)",
+            "policy": "check-rust proves annotations against co-located .ir or encoded Rust bodies (arith/if/match/wrapping/bitops/rotate/is_power_of_two/ilog, abs/min/max/clamp/signum/saturating, PartialOrd; see CONTRIBUTING check-rust body proof)",
         });
         println!("{}", serde_json::to_string_pretty(&summary).unwrap());
         if total_errors > 0 || total_body_not_modeled > 0 {
