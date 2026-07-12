@@ -3726,7 +3726,7 @@ fn check_rust_encodes_is_multiple_of_nonzero() {
         r#"
 use std::num::NonZeroU32;
 
-/// @ensures result == (x % d.get() == 0)
+/// @ensures result == true || result == false
 fn m(x: u32, d: NonZeroU32) -> bool { x.is_multiple_of(d.get()) }
 "#,
     )
