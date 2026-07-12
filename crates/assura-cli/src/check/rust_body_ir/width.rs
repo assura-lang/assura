@@ -226,26 +226,38 @@ pub(super) fn expr_int_bounds(expr: &syn::Expr) -> Option<(i64, i64)> {
 /// Literal integer with known bit width from a typed suffix (`8u32` → (8, 32)).
 /// Bare unsuffixed lits return `None` (leading_zeros needs a width).
 pub(super) fn lit_int_i64_bits(expr: &syn::Expr) -> Option<(i64, u32)> {
+    lit_int_i64_bits_signed(expr).map(|(v, bits, _)| (v, bits))
+}
+
+/// Like [`lit_int_i64_bits`] but also reports whether the suffix is signed
+/// (`i8`/`i16`/`i32`/`i64`/`isize` → true; `u*`/`usize` → false).
+/// Needed for bit-pattern peeps (`reverse_bits`/`swap_bytes`) where
+/// `1u8.reverse_bits() == 128` but `1i8.reverse_bits() == -128`.
+pub(super) fn lit_int_i64_bits_signed(expr: &syn::Expr) -> Option<(i64, u32, bool)> {
     match expr {
-        syn::Expr::Paren(p) => lit_int_i64_bits(&p.expr),
-        syn::Expr::Group(g) => lit_int_i64_bits(&g.expr),
+        syn::Expr::Paren(p) => lit_int_i64_bits_signed(&p.expr),
+        syn::Expr::Group(g) => lit_int_i64_bits_signed(&g.expr),
         syn::Expr::Unary(u) if matches!(u.op, syn::UnOp::Neg(_)) => {
-            let (v, bits) = lit_int_i64_bits(&u.expr)?;
-            Some((v.checked_neg()?, bits))
+            let (v, bits, signed) = lit_int_i64_bits_signed(&u.expr)?;
+            Some((v.checked_neg()?, bits, signed))
         }
         syn::Expr::Lit(syn::ExprLit {
             lit: syn::Lit::Int(n),
             ..
         }) => {
-            let bits = match n.suffix() {
-                "u8" | "i8" => 8,
-                "u16" | "i16" => 16,
-                "u32" | "i32" => 32,
-                "u64" | "i64" | "usize" | "isize" => 64,
+            let (bits, signed) = match n.suffix() {
+                "u8" => (8, false),
+                "i8" => (8, true),
+                "u16" => (16, false),
+                "i16" => (16, true),
+                "u32" => (32, false),
+                "i32" => (32, true),
+                "u64" | "usize" => (64, false),
+                "i64" | "isize" => (64, true),
                 _ => return None,
             };
             let v: i64 = n.base10_parse().ok()?;
-            Some((v, bits))
+            Some((v, bits, signed))
         }
         _ => None,
     }

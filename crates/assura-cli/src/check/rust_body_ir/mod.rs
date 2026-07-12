@@ -10,7 +10,8 @@
 //! `is_multiple_of(±1)`; same-path `abs_diff`/`min`/`max`/`clamp(_,y,y)`;
 //! `abs`/`saturating_abs` `.is_negative()` → false; const `is_power_of_two` /
 //! `count_ones` / `count_zeros` / `trailing_zeros` / `leading_zeros` /
-//! `reverse_bits` / `swap_bytes` for unsigned path params (bit products; ≤32).
+//! `reverse_bits` / `swap_bytes` for unsigned and signed path params ≤32
+//! (signed via bit-pattern map; bit products).
 //! Unsigned wrapping_* / shl/shr/rotate via mod 2^w (#1010). Signed
 //! wrapping_add/sub/mul and wrapping_shl via double-mod+reinterpret for i8..i64
 //! (i64 modulus is synthetic `(2^32)*(2^32)`). Signed rotate via bit-pattern map.
@@ -1169,31 +1170,37 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = const {lo} : Int"));
                     Some(slot)
                 }
-                // Typed width: count_zeros = bits - count_ones (non-neg lit).
-                // Unsigned path params: bits - count_ones (shared bit-sum helper).
+                // Typed width: count_zeros = bits - count_ones.
+                // Path params ≤32: unsigned direct; signed via bit-pattern map.
                 ("count_zeros", 0) => {
                     if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
-                        if v < 0 {
-                            return None;
-                        }
-                        let zeros = bits - (v as u64).count_ones();
+                        let mask = if bits >= 64 {
+                            u64::MAX
+                        } else {
+                            (1u64 << bits) - 1
+                        };
+                        let zeros = bits - ((v as u64) & mask).count_ones();
                         let slot = *next;
                         *next += 1;
                         lines.push(format!("${slot} = const {zeros} : Int"));
                         return Some(slot);
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
-                    if lo != 0 {
+                    let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
+                    if bits == 0 || bits > 32 {
                         return None;
                     }
-                    let modulus = hi.checked_add(1)?;
-                    let modulus_u = modulus as u64;
-                    if !modulus_u.is_power_of_two() {
-                        return None;
-                    }
-                    let bits = modulus_u.trailing_zeros();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
-                    let ones = encode_bit_sum_count_ones(a, bits, lines, next)?;
+                    let u_in = if signed {
+                        let modulus = modulus_i64?;
+                        let mslot = *next;
+                        *next += 1;
+                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        emit_to_unsigned_bits(a, mslot, lines, next)
+                    } else {
+                        a
+                    };
+                    let ones = encode_bit_sum_count_ones(u_in, bits, lines, next)?;
                     let bits_c = *next;
                     *next += 1;
                     lines.push(format!("${bits_c} = const {bits} : Int"));
@@ -1202,18 +1209,17 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = arith sub ${bits_c} ${ones} : Int"));
                     Some(slot)
                 }
-                // Non-neg lit; 0.trailing_zeros needs typed width (= bits).
-                // Unsigned path params: first-set-bit product encode (≤32 bits).
+                // Typed width lit (incl. negative via mask); path params ≤32
+                // unsigned direct or signed via bit-pattern map.
                 ("trailing_zeros", 0) => {
                     if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
-                        if v < 0 {
-                            return None;
-                        }
-                        let tz = if v == 0 {
-                            bits
+                        let mask = if bits >= 64 {
+                            u64::MAX
                         } else {
-                            (v as u64).trailing_zeros()
+                            (1u64 << bits) - 1
                         };
+                        let u = (v as u64) & mask;
+                        let tz = if u == 0 { bits } else { u.trailing_zeros() };
                         let slot = *next;
                         *next += 1;
                         lines.push(format!("${slot} = const {tz} : Int"));
@@ -1230,29 +1236,36 @@ fn encode_syn_expr(
                         return Some(slot);
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
-                    if lo != 0 {
+                    let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
+                    if bits == 0 || bits > 32 {
                         return None;
                     }
-                    let modulus = hi.checked_add(1)?;
-                    let modulus_u = modulus as u64;
-                    if !modulus_u.is_power_of_two() {
-                        return None;
-                    }
-                    let bits = modulus_u.trailing_zeros();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
-                    encode_unsigned_trailing_zeros(a, bits, lines, next)
+                    let u_in = if signed {
+                        let modulus = modulus_i64?;
+                        let mslot = *next;
+                        *next += 1;
+                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        emit_to_unsigned_bits(a, mslot, lines, next)
+                    } else {
+                        a
+                    };
+                    encode_unsigned_trailing_zeros(u_in, bits, lines, next)
                 }
-                // Needs typed suffix for bit width (8u32.leading_zeros() → 28).
-                // Unsigned path params: high→low zero-prefix product (≤32 bits).
+                // Typed lit (incl. negative via mask); path params ≤32
+                // unsigned direct or signed via bit-pattern map.
                 ("leading_zeros", 0) => {
                     if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
-                        if v < 0 {
-                            return None;
-                        }
-                        let lz = if v == 0 {
+                        let mask = if bits >= 64 {
+                            u64::MAX
+                        } else {
+                            (1u64 << bits) - 1
+                        };
+                        let u = (v as u64) & mask;
+                        let lz = if u == 0 {
                             bits
                         } else {
-                            (v as u64).leading_zeros() - (64 - bits)
+                            u.leading_zeros() - (64 - bits)
                         };
                         let slot = *next;
                         *next += 1;
@@ -1260,29 +1273,34 @@ fn encode_syn_expr(
                         return Some(slot);
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
-                    if lo != 0 {
+                    let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
+                    if bits == 0 || bits > 32 {
                         return None;
                     }
-                    let modulus = hi.checked_add(1)?;
-                    let modulus_u = modulus as u64;
-                    if !modulus_u.is_power_of_two() {
-                        return None;
-                    }
-                    let bits = modulus_u.trailing_zeros();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
-                    encode_unsigned_leading_zeros(a, bits, lines, next)
+                    let u_in = if signed {
+                        let modulus = modulus_i64?;
+                        let mslot = *next;
+                        *next += 1;
+                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        emit_to_unsigned_bits(a, mslot, lines, next)
+                    } else {
+                        a
+                    };
+                    encode_unsigned_leading_zeros(u_in, bits, lines, next)
                 }
-                // Typed non-neg lit or unsigned path-param bit reverse.
+                // Typed lit (incl. signed) or path-param bit reverse (≤32;
+                // signed via bit-pattern map + reinterpret).
                 ("reverse_bits", 0) => {
-                    if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
-                        if v < 0 {
-                            return None;
-                        }
-                        let rev = match bits {
-                            8 => (v as u8).reverse_bits() as i64,
-                            16 => (v as u16).reverse_bits() as i64,
-                            32 => (v as u32).reverse_bits() as i64,
-                            64 => (v as u64).reverse_bits() as i64,
+                    if let Some((v, bits, signed)) = lit_int_i64_bits_signed(&m.receiver) {
+                        let rev = match (bits, signed) {
+                            (8, true) => (v as u8).reverse_bits() as i8 as i64,
+                            (8, false) => (v as u8).reverse_bits() as i64,
+                            (16, true) => (v as u16).reverse_bits() as i16 as i64,
+                            (16, false) => (v as u16).reverse_bits() as i64,
+                            (32, true) => (v as u32).reverse_bits() as i32 as i64,
+                            (32, false) => (v as u32).reverse_bits() as i64,
+                            (64, _) => (v as u64).reverse_bits() as i64,
                             _ => return None,
                         };
                         let slot = *next;
@@ -1291,28 +1309,31 @@ fn encode_syn_expr(
                         return Some(slot);
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
-                    if lo != 0 {
+                    let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
+                    if bits == 0 || bits > 32 {
                         return None;
                     }
-                    let modulus = hi.checked_add(1)?;
-                    let modulus_u = modulus as u64;
-                    if !modulus_u.is_power_of_two() {
-                        return None;
-                    }
-                    let bits = modulus_u.trailing_zeros();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
-                    encode_unsigned_reverse_bits(a, bits, lines, next)
+                    if !signed {
+                        return encode_unsigned_reverse_bits(a, bits, lines, next);
+                    }
+                    let modulus = modulus_i64?;
+                    let mslot = *next;
+                    *next += 1;
+                    lines.push(format!("${mslot} = const {modulus} : Int"));
+                    let u_in = emit_to_unsigned_bits(a, mslot, lines, next);
+                    let u_out = encode_unsigned_reverse_bits(u_in, bits, lines, next)?;
+                    Some(emit_from_unsigned_bits(u_out, mslot, hi, lines, next))
                 }
                 ("swap_bytes", 0) => {
-                    if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
-                        if v < 0 {
-                            return None;
-                        }
-                        let sw = match bits {
-                            8 => v, // no-op
-                            16 => (v as u16).swap_bytes() as i64,
-                            32 => (v as u32).swap_bytes() as i64,
-                            64 => (v as u64).swap_bytes() as i64,
+                    if let Some((v, bits, signed)) = lit_int_i64_bits_signed(&m.receiver) {
+                        let sw = match (bits, signed) {
+                            (8, _) => v, // no-op
+                            (16, true) => (v as u16).swap_bytes() as i16 as i64,
+                            (16, false) => (v as u16).swap_bytes() as i64,
+                            (32, true) => (v as u32).swap_bytes() as i32 as i64,
+                            (32, false) => (v as u32).swap_bytes() as i64,
+                            (64, _) => (v as u64).swap_bytes() as i64,
                             _ => return None,
                         };
                         let slot = *next;
@@ -1320,25 +1341,26 @@ fn encode_syn_expr(
                         lines.push(format!("${slot} = const {sw} : Int"));
                         return Some(slot);
                     }
-                    // Unsigned path params: reverse byte order (≤32 bits).
+                    // Path params ≤32: reverse byte order; signed via bit-pattern map.
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
-                    if lo != 0 {
-                        return None;
-                    }
-                    let modulus = hi.checked_add(1)?;
-                    let modulus_u = modulus as u64;
-                    if !modulus_u.is_power_of_two() {
-                        return None;
-                    }
-                    let bits = modulus_u.trailing_zeros();
+                    let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
                     if bits == 0 || bits > 32 || !bits.is_multiple_of(8) {
                         return None;
                     }
                     let nbytes = bits / 8;
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     if nbytes == 1 {
-                        return Some(a); // u8 identity
+                        return Some(a); // i8/u8 identity
                     }
+                    let (u_in, mslot) = if signed {
+                        let modulus = modulus_i64?;
+                        let mslot = *next;
+                        *next += 1;
+                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        (emit_to_unsigned_bits(a, mslot, lines, next), Some(mslot))
+                    } else {
+                        (a, None)
+                    };
                     let b256 = *next;
                     *next += 1;
                     lines.push(format!("${b256} = const 256 : Int"));
@@ -1347,8 +1369,8 @@ fn encode_syn_expr(
                     lines.push(format!("${zero} = const 0 : Int"));
                     let mut acc = zero;
                     for i in 0..nbytes {
-                        // byte_i = (a / 256^i) % 256
-                        let mut div = a;
+                        // byte_i = (u_in / 256^i) % 256
+                        let mut div = u_in;
                         for _ in 0..i {
                             let d = *next;
                             *next += 1;
@@ -1371,7 +1393,11 @@ fn encode_syn_expr(
                         lines.push(format!("${sum} = arith add ${acc} ${placed} : Int"));
                         acc = sum;
                     }
-                    Some(acc)
+                    if let Some(mslot) = mslot {
+                        Some(emit_from_unsigned_bits(acc, mslot, hi, lines, next))
+                    } else {
+                        Some(acc)
+                    }
                 }
                 // Const peep (ilog2(0) panics → BNM). Variable: unsigned path ≤32.
                 ("ilog2", 0) => {
