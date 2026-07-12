@@ -2555,9 +2555,9 @@ fn encode_syn_expr(
                     lines.push(format!("${sum} = arith {op} ${a} ${b} : Int"));
                     emit_sat_clamp(sum, lines, next)
                 }
-                // wrapping_* peeps only for identity constants (full wrap needs #1010 BV).
+                // wrapping_* peeps for identity constants (before general mod 2^w path):
                 // wrapping_add(x, 0) / wrapping_sub(x, 0) ≡ x; wrapping_mul(x, 1) ≡ x;
-                // wrapping_mul(x, 0) ≡ 0; wrapping_sub(x, x) ≡ 0. Non-constant stay BNM.
+                // wrapping_mul(x, 0) ≡ 0; wrapping_sub(x, x) ≡ 0.
                 ("wrapping_add" | "wrapping_sub", 1) if is_lit_int_zero(&m.args[0]) => {
                     encode_syn_expr(&m.receiver, param_names, lines, next)
                 }
