@@ -43,8 +43,12 @@ jobs:
 
       # App token for auto-merge so the merge is not attributed to GITHUB_TOKEN
       # (which suppresses post-merge push workflows — issue #785 / #790).
+      # Dependabot `pull_request` runs do not receive repository secrets: the
+      # private-key input is empty and create-github-app-token fails. Use
+      # continue-on-error + GITHUB_TOKEN fallback so approve still succeeds.
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token
+        continue-on-error: true
         with:
           client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
           private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
@@ -58,7 +62,16 @@ jobs:
         if: >-
           !contains(github.event.pull_request.labels.*.name, 'autorelease: pending')
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          # Prefer App token; fall back to GITHUB_TOKEN when App mint failed
+          # (Dependabot secret isolation or missing AUTO_APPROVE_PRIVATE_KEY).
+          # Use env (not ${{ }} inside run:) so zizmor template-injection is clean.
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
-          gh pr merge --auto --squash "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" \
+          if [ -z "${APP_TOKEN}" ]; then
+            echo "App token unavailable; using GITHUB_TOKEN for auto-merge (post-merge push workflows may be suppressed)."
+          fi
+          gh pr merge --auto --squash "${PR_NUMBER}" --repo "${REPO}" \
             || echo "Could not enable auto-merge (common when PR modifies .github/workflows/* and the App lacks workflows permission, or checks not yet green). PR was approved; manual merge may be needed."

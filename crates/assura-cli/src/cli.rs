@@ -103,9 +103,10 @@ enum Commands {
     /// Verify inline contract annotations in Rust source files
     ///
     /// Proves `/// @requires` / `@ensures` against a co-located `.ir` sidecar or a
-    /// simple encoded body (int/bool arith, if/match, multi-let, abs/min/max/clamp/
-    /// signum/saturating(+abs)/abs_diff, PartialOrd, small pow, …). Ensures without
-    /// a body model exit non-zero as `body_not_modeled` (not a soft pass).
+    /// simple encoded body (arith, if/match, wrapping/bitops/rotate ≤64,
+    /// is_power_of_two, ilog2/10, abs/min/max/clamp/signum/saturating, …).
+    /// Ensures without a body model exit non-zero as `body_not_modeled`
+    /// (not a soft pass).
     CheckRust {
         /// Rust source file or directory to check
         path: String,

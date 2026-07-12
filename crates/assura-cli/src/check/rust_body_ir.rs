@@ -1621,7 +1621,7 @@ fn encode_syn_expr(
                     return Some(slot);
                 }
             }
-            // Variable BitAnd/Or/Xor: const mask (signed/unsigned) or both-var unsigned.
+            // Variable BitAnd/Or/Xor: const mask (signed/unsigned) or both-var ≤32.
             if let Some(kind) = match &b.op {
                 syn::BinOp::BitAnd(_) => Some(BitOpKind::And),
                 syn::BinOp::BitOr(_) => Some(BitOpKind::Or),
@@ -2555,9 +2555,9 @@ fn encode_syn_expr(
                     lines.push(format!("${sum} = arith {op} ${a} ${b} : Int"));
                     emit_sat_clamp(sum, lines, next)
                 }
-                // wrapping_* peeps only for identity constants (full wrap needs #1010 BV).
+                // wrapping_* peeps for identity constants (before general mod 2^w path):
                 // wrapping_add(x, 0) / wrapping_sub(x, 0) ≡ x; wrapping_mul(x, 1) ≡ x;
-                // wrapping_mul(x, 0) ≡ 0; wrapping_sub(x, x) ≡ 0. Non-constant stay BNM.
+                // wrapping_mul(x, 0) ≡ 0; wrapping_sub(x, x) ≡ 0.
                 ("wrapping_add" | "wrapping_sub", 1) if is_lit_int_zero(&m.args[0]) => {
                     encode_syn_expr(&m.receiver, param_names, lines, next)
                 }
@@ -3546,6 +3546,25 @@ fn f(x: i64) -> i64 {
         let sxor = try_ir_from_rust_body("Sx", &pxyi, Some("i8"), "x ^ y").expect("i8 xor");
         assert!(sxor.contains("arith mul"), "{sxor}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&sxor, "Sx").expect("parse");
+        // i16 / i32 both-var signed (#1171 acceptance surface)
+        for (ty, name) in [("i16", "Si16"), ("i32", "Si32")] {
+            let p = vec![
+                ParamInfo {
+                    name: "x".into(),
+                    ty: ty.into(),
+                },
+                ParamInfo {
+                    name: "y".into(),
+                    ty: ty.into(),
+                },
+            ];
+            let ir = try_ir_from_rust_body(name, &p, Some(ty), "x & y").expect(ty);
+            assert!(
+                ir.contains("cmp gt") && ir.contains("arith mul"),
+                "{ty}: {ir}"
+            );
+            assura_smt::LoadedVerifyExtras::from_ir_text(&ir, name).expect(ty);
+        }
     }
 
     #[test]
