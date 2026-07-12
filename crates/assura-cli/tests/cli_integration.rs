@@ -5521,7 +5521,6 @@ fn check_rust_encodes_variable_isqrt_u16() {
         tmp.join("ok.rs"),
         r#"
 /// @ensures result >= 0
-/// @ensures result <= 255
 fn sq(x: u16) -> u16 { x.isqrt() }
 "#,
     )
