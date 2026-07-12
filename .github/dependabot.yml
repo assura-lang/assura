@@ -63,3 +63,7 @@ updates:
         patterns:
           - "actions/upload-artifact"
           - "actions/download-artifact"
+      # init/analyze/upload-sarif must share one version (mixed pins fail CodeQL).
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
