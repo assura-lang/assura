@@ -46,6 +46,11 @@ thread_local! {
 
 use quote::ToTokens;
 
+// Layout (issue #1187):
+// - bitops: BitAnd/Or/Xor, bit counts, reverse, ilog, next_power_of_two
+// - width: wrap_width, pot exponents, path/receiver bounds, rotl, emit_pow2
+// - tests: unit coverage for try_ir_from_rust_body
+// - this file: extract/body fold, multi-block if/match, encode_syn_expr dispatch
 mod bitops;
 mod width;
 use bitops::*;
