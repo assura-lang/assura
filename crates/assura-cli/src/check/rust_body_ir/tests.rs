@@ -633,6 +633,32 @@ fn div_rem_by_literal_zero_stays_unencoded() {
     assert!(try_ir_from_rust_body("Mp", &px(), Some("bool"), "x.is_multiple_of((0))").is_none());
     let ok = try_ir_from_rust_body("D2", &px(), Some("i64"), "x / 2").expect("div2");
     assert!(ok.contains("arith div"), "{ok}");
+    // Zero-including path divisors stay BNM (soundness).
+    let pxy = vec![
+        ParamInfo {
+            name: "x".into(),
+            ty: "i64".into(),
+        },
+        ParamInfo {
+            name: "y".into(),
+            ty: "i64".into(),
+        },
+    ];
+    assert!(try_ir_from_rust_body("Vd", &pxy, Some("i64"), "x / y").is_none());
+    assert!(try_ir_from_rust_body("Vm", &pxy, Some("i64"), "x % y").is_none());
+    // NonZero path divisor encodes.
+    let nzd = vec![
+        ParamInfo {
+            name: "x".into(),
+            ty: "u32".into(),
+        },
+        ParamInfo {
+            name: "d".into(),
+            ty: "NonZeroU32".into(),
+        },
+    ];
+    let nz = try_ir_from_rust_body("Nz", &nzd, Some("u32"), "x / d").expect("nz div");
+    assert!(nz.contains("arith div"), "{nz}");
 }
 
 #[test]
