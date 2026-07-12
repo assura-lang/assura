@@ -1169,31 +1169,37 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = const {lo} : Int"));
                     Some(slot)
                 }
-                // Typed width: count_zeros = bits - count_ones (non-neg lit).
-                // Unsigned path params: bits - count_ones (shared bit-sum helper).
+                // Typed width: count_zeros = bits - count_ones.
+                // Path params ≤32: unsigned direct; signed via bit-pattern map.
                 ("count_zeros", 0) => {
                     if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
-                        if v < 0 {
-                            return None;
-                        }
-                        let zeros = bits - (v as u64).count_ones();
+                        let mask = if bits >= 64 {
+                            u64::MAX
+                        } else {
+                            (1u64 << bits) - 1
+                        };
+                        let zeros = bits - ((v as u64) & mask).count_ones();
                         let slot = *next;
                         *next += 1;
                         lines.push(format!("${slot} = const {zeros} : Int"));
                         return Some(slot);
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
-                    if lo != 0 {
+                    let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
+                    if bits == 0 || bits > 32 {
                         return None;
                     }
-                    let modulus = hi.checked_add(1)?;
-                    let modulus_u = modulus as u64;
-                    if !modulus_u.is_power_of_two() {
-                        return None;
-                    }
-                    let bits = modulus_u.trailing_zeros();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
-                    let ones = encode_bit_sum_count_ones(a, bits, lines, next)?;
+                    let u_in = if signed {
+                        let modulus = modulus_i64?;
+                        let mslot = *next;
+                        *next += 1;
+                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        emit_to_unsigned_bits(a, mslot, lines, next)
+                    } else {
+                        a
+                    };
+                    let ones = encode_bit_sum_count_ones(u_in, bits, lines, next)?;
                     let bits_c = *next;
                     *next += 1;
                     lines.push(format!("${bits_c} = const {bits} : Int"));
