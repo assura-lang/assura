@@ -1132,9 +1132,7 @@ fn encode_syn_expr(
                     if !signed {
                         return encode_bit_sum_count_ones(a, bits, lines, next);
                     }
-                    let Some(modulus) = modulus_i64 else {
-                        return None;
-                    };
+                    let modulus = modulus_i64?;
                     let mslot = *next;
                     *next += 1;
                     lines.push(format!("${mslot} = const {modulus} : Int"));
