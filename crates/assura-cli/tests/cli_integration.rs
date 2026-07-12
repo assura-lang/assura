@@ -5457,6 +5457,31 @@ fn np(x: u32) -> u32 { x.next_power_of_two() }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Wrong u32 next_power_of_two ensures must CE.
+#[test]
+fn check_rust_variable_next_power_of_two_u32_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_var_npot_u32_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn np(x: u32) -> u32 { x.next_power_of_two() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Wrong u16 next_power_of_two ensures must CE.
 #[test]
 fn check_rust_variable_next_power_of_two_u16_wrong_ce() {
