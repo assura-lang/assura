@@ -181,11 +181,11 @@ and variable `ilog2`/`ilog10` for unsigned path params ≤32. `signum` is
 nestable in arith (clamp to [-1, 1]). Top-level `wrapping_neg` expands to
 multi-block if (MIN stays MIN).
 
-Residual `body_not_modeled` (still intentional): const-mask bitops and
-bitwise `!x` for i64/u64 (width >32 IR cost); panic paths (`/0`, `%0`,
-`is_multiple_of(0)`, literal `0.ilog2()`). Bodies that cannot be modeled
-report `body_not_modeled` and exit **1** (including SMT skipped/checked
-soft passes). Do not treat empty/skipped SMT as proof.
+Residual `body_not_modeled` (still intentional): panic paths (`/0`, `%0`,
+`is_multiple_of(0)`, literal `0.ilog2()`); some width>32 both-variable
+bitops; `u64` `next_power_of_two`. Bodies that cannot be modeled report
+`body_not_modeled` and exit **1** (including SMT skipped/checked soft
+passes). Do not treat empty/skipped SMT as proof.
 
 Implementation: `crates/assura-cli/src/check/rust_body_ir.rs` (syn extract +
 IR text) and `should_mark_body_not_modeled` in `check_rust.rs`. Multi-block

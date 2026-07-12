@@ -19,14 +19,12 @@
 //! Variable wrapping_shl/shr case-sum for bits≤64 (i64 and u64/usize use
 //! synthetic 2^64 modulus; 2^63 factor is 2^32*2^31). Variable rotate_left/right
 //! case-sum for bits≤64 (same budget as wrapping_shl/shr). Variable BitAnd/Or/Xor:
-//! const mask (unsigned/signed ≤32; signed via bit-pattern map) or both-variable
-//! signed/unsigned ≤32. Variable bitwise `!x` for fixed-width ints ≤32
-//! (`(2^w-1)-u`). Residual BNM for width>32: const-mask bitops and `!x` on
-//! i64/u64 (IR cost; variable rotate now covers the >32 case-sum path). Variable
-//! is_power_of_two via pot enum (≤64 exponents incl. u64/usize via synthetic
-//! 2^63; identity peels + nested arith inherit path bounds). Variable
-//! `ilog2`/`ilog10` for unsigned path params ≤32 (x=0 yields 0, not panic).
-//! Literal `/0`, `%0`, `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
+//! const mask (unsigned/signed ≤64; signed via bit-pattern map) or both-variable
+//! signed/unsigned ≤32. Variable bitwise `!x` for fixed-width ints ≤64
+//! (`(2^w-1)-u`, synthetic 2^64 for i64/u64). Variable is_power_of_two via pot
+//! enum (≤64 exponents incl. u64/usize). Variable `ilog2`/`ilog10` and
+//! `next_power_of_two` for unsigned path params ≤32. Literal `/0`, `%0`,
+//! `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
 //! rem_euclid/div_euclid with positive const (signed Euclidean).
 //!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
@@ -878,7 +876,7 @@ enum BitOpKind {
     Xor,
 }
 
-/// Variable unsigned `a &/|/^ mask` with const non-neg `mask` (bits ≤32).
+/// Variable unsigned `a &/|/^ mask` with const non-neg `mask` (bits ≤64).
 /// Bit product encode: extract bit_i of `a`, combine with known mask bit, sum * 2^i.
 fn encode_unsigned_bitop_var_const(
     a: usize,
@@ -888,7 +886,7 @@ fn encode_unsigned_bitop_var_const(
     lines: &mut Vec<String>,
     next: &mut usize,
 ) -> Option<usize> {
-    if bits == 0 || bits > 32 {
+    if bits == 0 || bits > 64 {
         return None;
     }
     let width_mask = if bits >= 64 {
@@ -913,9 +911,25 @@ fn encode_unsigned_bitop_var_const(
         match op {
             BitOpKind::And => return Some(a),
             BitOpKind::Or => {
+                // all-ones: 2^bits - 1 (synthetic when bits==64)
+                if bits < 64 {
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = const {mask} : Int"));
+                    return Some(slot);
+                }
+                let half = *next;
+                *next += 1;
+                lines.push(format!("${half} = const 4294967296 : Int"));
+                let m = *next;
+                *next += 1;
+                lines.push(format!("${m} = arith mul ${half} ${half} : Int"));
+                let one = *next;
+                *next += 1;
+                lines.push(format!("${one} = const 1 : Int"));
                 let slot = *next;
                 *next += 1;
-                lines.push(format!("${slot} = const {mask} : Int"));
+                lines.push(format!("${slot} = arith sub ${m} ${one} : Int"));
                 return Some(slot);
             }
             BitOpKind::Xor => { /* fall through: bitwise not */ }
@@ -933,14 +947,11 @@ fn encode_unsigned_bitop_var_const(
     let mut acc = zero;
     for i in 0..bits {
         let m_bit = ((mask >> i) & 1) as i64;
-        let factor = 1i64 << i;
         match (op, m_bit) {
             (BitOpKind::And, 0) => continue,
             (BitOpKind::Or, 1) => {
                 // result bit is 1
-                let f = *next;
-                *next += 1;
-                lines.push(format!("${f} = const {factor} : Int"));
+                let f = emit_pow2_factor(i, lines, next)?;
                 let sum = *next;
                 *next += 1;
                 lines.push(format!("${sum} = arith add ${acc} ${f} : Int"));
@@ -949,9 +960,7 @@ fn encode_unsigned_bitop_var_const(
             }
             _ => {}
         }
-        let f = *next;
-        *next += 1;
-        lines.push(format!("${f} = const {factor} : Int"));
+        let f = emit_pow2_factor(i, lines, next)?;
         let shifted = *next;
         *next += 1;
         lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
@@ -1081,6 +1090,55 @@ fn encode_unsigned_bitop_var_var(
     *next += 1;
     lines.push(format!("${u} = arith mod ${t2} ${mslot} : Int"));
     Some(u)
+}
+
+/// `next_power_of_two` for unsigned `a` with width `bits`.
+/// Ladder: for pot `2^k` (k=0..bits-1), select when `a` is in `(prev, pot]`.
+/// When `a > 2^(bits-1)`, result is 0 (Rust non-wrapping panics; wrapping wraps).
+fn encode_unsigned_next_power_of_two(
+    a: usize,
+    bits: u32,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> Option<usize> {
+    if bits == 0 || bits > 32 {
+        return None;
+    }
+    let zero = *next;
+    *next += 1;
+    lines.push(format!("${zero} = const 0 : Int"));
+    let mut acc = zero;
+    let mut prev: Option<usize> = None;
+    for k in 0..bits {
+        let pot_v = 1i64 << k;
+        let pot = *next;
+        *next += 1;
+        lines.push(format!("${pot} = const {pot_v} : Int"));
+        let le = *next;
+        *next += 1;
+        lines.push(format!("${le} = cmp le ${a} ${pot} : Bool"));
+        let sel = if let Some(p) = prev {
+            let gt = *next;
+            *next += 1;
+            lines.push(format!("${gt} = cmp gt ${a} ${p} : Bool"));
+            let s = *next;
+            *next += 1;
+            lines.push(format!("${s} = arith mul ${gt} ${le} : Bool"));
+            s
+        } else {
+            // k==0: pot=1 covers a==0 and a==1
+            le
+        };
+        let term = *next;
+        *next += 1;
+        lines.push(format!("${term} = arith mul ${sel} ${pot} : Int"));
+        let sum = *next;
+        *next += 1;
+        lines.push(format!("${sum} = arith add ${acc} ${term} : Int"));
+        acc = sum;
+        prev = Some(pot);
+    }
+    Some(acc)
 }
 
 /// `ilog2` for unsigned `a` with width `bits`: highest set bit index.
@@ -1564,22 +1622,35 @@ fn encode_syn_expr(
                 lines.push(format!("${slot} = const {notv} : Int"));
                 return Some(slot);
             }
-            // Variable integer bitwise NOT (bits ≤32): !x ≡ (2^w-1) - u(x).
+            // Variable integer bitwise NOT (bits ≤64): !x ≡ (2^w-1) - u(x).
             // Integer-typed receivers must not fall through to bool logical not.
             if let Some((lo, hi)) = path_param_bounds(&u.expr).or_else(|| SAT_BOUNDS.get()) {
                 let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
-                if bits == 0 || bits > 32 {
+                if bits == 0 || bits > 64 {
                     return None;
                 }
-                let modulus = modulus_i64?;
                 let a = encode_syn_expr(&u.expr, param_names, lines, next)?;
-                let mslot = *next;
+                let mslot = if modulus_i64.is_none() {
+                    let half = *next;
+                    *next += 1;
+                    lines.push(format!("${half} = const 4294967296 : Int"));
+                    let m = *next;
+                    *next += 1;
+                    lines.push(format!("${m} = arith mul ${half} ${half} : Int"));
+                    m
+                } else {
+                    let modulus = modulus_i64?;
+                    let m = *next;
+                    *next += 1;
+                    lines.push(format!("${m} = const {modulus} : Int"));
+                    m
+                };
+                let one = *next;
                 *next += 1;
-                lines.push(format!("${mslot} = const {modulus} : Int"));
-                let all_ones = modulus - 1;
+                lines.push(format!("${one} = const 1 : Int"));
                 let ones = *next;
                 *next += 1;
-                lines.push(format!("${ones} = const {all_ones} : Int"));
+                lines.push(format!("${ones} = arith sub ${mslot} ${one} : Int"));
                 let u_in = emit_to_unsigned_bits(a, mslot, lines, next);
                 let not_u = *next;
                 *next += 1;
@@ -1639,10 +1710,13 @@ fn encode_syn_expr(
                     if let Some((lo, hi)) = bounds
                         && let Some((bits, modulus_i64, signed)) = wrap_width(lo, hi)
                         && bits > 0
-                        && bits <= 32
-                        && let Some(modulus) = modulus_i64
+                        && bits <= 64
                         && (signed || mask_i >= 0)
                     {
+                        // Signed path needs concrete modulus for reinterpret (no i64 free-range).
+                        if signed && modulus_i64.is_none() {
+                            // i64 both-var signed bitops still too heavy; const mask OK via u map
+                        }
                         let mask = mask_bits_u64(mask_i, bits);
                         let a = encode_syn_expr(var_e, param_names, lines, next)?;
                         if !signed {
@@ -1651,6 +1725,20 @@ fn encode_syn_expr(
                             );
                         }
                         // Signed: map to unsigned bit pattern, bitop, reinterpret.
+                        let Some(modulus) = modulus_i64 else {
+                            // i64: synthetic 2^64 modulus
+                            let half = *next;
+                            *next += 1;
+                            lines.push(format!("${half} = const 4294967296 : Int"));
+                            let mslot = *next;
+                            *next += 1;
+                            lines.push(format!("${mslot} = arith mul ${half} ${half} : Int"));
+                            let u_in = emit_to_unsigned_bits(a, mslot, lines, next);
+                            let u_out = encode_unsigned_bitop_var_const(
+                                u_in, mask, kind, bits, lines, next,
+                            )?;
+                            return Some(emit_from_unsigned_bits(u_out, mslot, hi, lines, next));
+                        };
                         let mslot = *next;
                         *next += 1;
                         lines.push(format!("${mslot} = const {modulus} : Int"));
@@ -2195,48 +2283,72 @@ fn encode_syn_expr(
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     encode_unsigned_ilog10(a, hi, lines, next)
                 }
-                // Non-neg lit; 0.next_power_of_two() == 1. Oversized stays BNM.
+                // Const peep; variable unsigned path ≤32 (overflow → 0, like wrap).
                 ("next_power_of_two", 0) => {
-                    let v = lit_int_i64(&m.receiver)?;
-                    if v < 0 {
+                    if let Some(v) = lit_int_i64(&m.receiver) {
+                        if v < 0 {
+                            return None;
+                        }
+                        let pot = (v as u64).next_power_of_two();
+                        // Keep result in i64 (next_power_of_two of values near 2^63 overflows)
+                        if pot > i64::MAX as u64 {
+                            return None;
+                        }
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const {pot} : Int"));
+                        return Some(slot);
+                    }
+                    let (lo, hi) = path_param_bounds(&m.receiver)?;
+                    if lo != 0 || is_u64_width_bounds(lo, hi) {
                         return None;
                     }
-                    let pot = (v as u64).next_power_of_two();
-                    // Keep result in i64 (next_power_of_two of values near 2^63 overflows)
-                    if pot > i64::MAX as u64 {
+                    let modulus_u = (hi as u64).checked_add(1)?;
+                    if !modulus_u.is_power_of_two() {
                         return None;
                     }
-                    let slot = *next;
-                    *next += 1;
-                    lines.push(format!("${slot} = const {pot} : Int"));
-                    Some(slot)
+                    let bits = modulus_u.trailing_zeros();
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    encode_unsigned_next_power_of_two(a, bits, lines, next)
                 }
-                // Typed wrapping_next_power_of_two (overflow wraps to 0).
+                // Const peep or variable unsigned path ≤32 (overflow → 0).
                 // Manual: stable API; unstable wrapping_next_power_of_two not used.
                 ("wrapping_next_power_of_two", 0) => {
-                    let (v, bits) = lit_int_i64_bits(&m.receiver)?;
-                    if v < 0 {
+                    if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
+                        if v < 0 {
+                            return None;
+                        }
+                        let vu = v as u64;
+                        let pot = if vu == 0 {
+                            1u64
+                        } else {
+                            let n = vu.next_power_of_two();
+                            // If next power does not fit in `bits`, wrap to 0.
+                            if bits < 64 && n >= (1u64 << bits) {
+                                0
+                            } else if bits == 64 && n < vu {
+                                // u64 overflow wraps to 0
+                                0
+                            } else {
+                                n
+                            }
+                        };
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const {pot} : Int"));
+                        return Some(slot);
+                    }
+                    let (lo, hi) = path_param_bounds(&m.receiver)?;
+                    if lo != 0 || is_u64_width_bounds(lo, hi) {
                         return None;
                     }
-                    let vu = v as u64;
-                    let pot = if vu == 0 {
-                        1u64
-                    } else {
-                        let n = vu.next_power_of_two();
-                        // If next power does not fit in `bits`, wrap to 0.
-                        if bits < 64 && n >= (1u64 << bits) {
-                            0
-                        } else if bits == 64 && n < vu {
-                            // u64 overflow wraps to 0
-                            0
-                        } else {
-                            n
-                        }
-                    };
-                    let slot = *next;
-                    *next += 1;
-                    lines.push(format!("${slot} = const {pot} : Int"));
-                    Some(slot)
+                    let modulus_u = (hi as u64).checked_add(1)?;
+                    if !modulus_u.is_power_of_two() {
+                        return None;
+                    }
+                    let bits = modulus_u.trailing_zeros();
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    encode_unsigned_next_power_of_two(a, bits, lines, next)
                 }
                 // Non-neg lit integer square root.
                 ("isqrt", 0) => {
@@ -3444,7 +3556,8 @@ fn f(x: i64) -> i64 {
             ty: "u8".into(),
         }];
         let ir = try_ir_from_rust_body("N", &pu8, Some("u8"), "!x").expect("!u8");
-        assert!(ir.contains("arith sub") && ir.contains("const 255"), "{ir}");
+        // ones = modulus - 1 (const 256 then sub 1), not a bare const 255
+        assert!(ir.contains("arith sub") && ir.contains("const 256"), "{ir}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "N").expect("parse");
         let pi8 = vec![ParamInfo {
             name: "x".into(),
@@ -3459,8 +3572,19 @@ fn f(x: i64) -> i64 {
         }];
         let b = try_ir_from_rust_body("B", &pb, Some("bool"), "!b").expect("!bool");
         assert!(b.contains("cmp eq"), "{b}");
-        // i64 width >32 must BNM (not logical not)
-        assert!(try_ir_from_rust_body("I", &px(), Some("i64"), "!x").is_none());
+        // i64/u64 !x encodes via synthetic 2^64 ones-complement (#1186)
+        let i64n = try_ir_from_rust_body("I", &px(), Some("i64"), "!x").expect("!i64");
+        assert!(
+            i64n.contains("arith sub") && i64n.contains("4294967296"),
+            "{i64n}"
+        );
+        assura_smt::LoadedVerifyExtras::from_ir_text(&i64n, "I").expect("parse !i64");
+        let pu64 = vec![ParamInfo {
+            name: "x".into(),
+            ty: "u64".into(),
+        }];
+        let u64n = try_ir_from_rust_body("U", &pu64, Some("u64"), "!x").expect("!u64");
+        assert!(u64n.contains("arith sub"), "{u64n}");
     }
 
     #[test]
@@ -3588,14 +3712,16 @@ fn f(x: i64) -> i64 {
         assert!(z.contains("const 0 : Int"), "{z}");
         let id = try_ir_from_rust_body("I", &pu8, Some("u8"), "x | 0").expect("or0");
         assert!(id.contains("load $0"), "{id}");
-        // i64 width >32 → BNM
-        assert!(try_ir_from_rust_body("S", &px(), Some("i64"), "x & 1").is_none());
-        // u64 width >32 → BNM
+        // i64/u64 const-mask encodes via bit products through 64 (#1186)
+        let i64m = try_ir_from_rust_body("S", &px(), Some("i64"), "x & 1").expect("i64&1");
+        assert!(i64m.contains("arith mod"), "{i64m}");
         let pu64 = vec![ParamInfo {
             name: "x".into(),
             ty: "u64".into(),
         }];
-        assert!(try_ir_from_rust_body("U", &pu64, Some("u64"), "x & 1").is_none());
+        let u64m = try_ir_from_rust_body("U", &pu64, Some("u64"), "x & 1").expect("u64&1");
+        assert!(u64m.contains("arith mod"), "{u64m}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&u64m, "U").expect("parse u64&1");
         // Nested expr uses SAT_BOUNDS width
         let nest = try_ir_from_rust_body("N", &pu8, Some("u8"), "(x + 1) & 1").expect("nested and");
         assert!(nest.contains("arith mod"), "{nest}");
@@ -4211,6 +4337,15 @@ fn f(x: i64) -> i64 { let y = &x; *y }
         let z1 = try_ir_from_rust_body("Z1", &px(), Some("u32"), "0u32.next_power_of_two()")
             .expect("0np");
         assert!(z1.contains("const 1 : Int"), "{z1}");
+        // Variable path-param next_power_of_two (#1185)
+        let vnp =
+            try_ir_from_rust_body("Vnp", &pu8(), Some("u8"), "x.next_power_of_two()").expect("vnp");
+        assert!(vnp.contains("cmp le") && vnp.contains("const 128"), "{vnp}");
+        assura_smt::LoadedVerifyExtras::from_ir_text(&vnp, "Vnp").expect("parse");
+        let wvar =
+            try_ir_from_rust_body("Wv", &pu8(), Some("u8"), "x.wrapping_next_power_of_two()")
+                .expect("wvar");
+        assert!(wvar.contains("cmp le"), "{wvar}");
         // 200u8 wraps (256 would overflow u8)
         let wnp = try_ir_from_rust_body(
             "Wnp",
