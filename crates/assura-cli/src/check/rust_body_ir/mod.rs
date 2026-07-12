@@ -979,10 +979,20 @@ fn encode_syn_expr(
                 syn::BinOp::Rem(_) => "mod",
                 _ => return None,
             };
-            // Refuse literal /0 and %0 (Rust panic / UB); do not give SMT a free
+            // Refuse zero divisors (Rust panic / UB); do not give SMT a free
             // div-by-zero term that can pass ensures spuriously.
-            if matches!(ir_op, "div" | "mod") && is_lit_int_zero(&b.right) {
-                return None;
+            if matches!(ir_op, "div" | "mod") {
+                if is_lit_int_zero(&b.right) {
+                    return None;
+                }
+                // Non-literal divisor: only encode when bounds prove lo >= 1
+                // (e.g. NonZeroU*). Zero-including ranges stay BNM.
+                if lit_int_i64(&b.right).is_none() {
+                    let (lo, _) = path_param_bounds(&b.right)?;
+                    if lo < 1 {
+                        return None;
+                    }
+                }
             }
             let lhs = encode_syn_expr(&b.left, param_names, lines, next)?;
             let rhs = encode_syn_expr(&b.right, param_names, lines, next)?;
