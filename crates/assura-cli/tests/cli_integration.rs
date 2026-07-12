@@ -5537,6 +5537,30 @@ fn l(x: i8) -> u32 { x.leading_zeros() }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Signed path-param reverse_bits via bit-pattern map + reinterpret.
+#[test]
+fn check_rust_encodes_signed_reverse_bits() {
+    let tmp = unique_temp("assura_check_rust_signed_rev");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 1 || result != 1
+fn r(x: i8) -> i8 { x.reverse_bits() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Nested is_power_of_two inherits path-param pot width (#1034).
 #[test]
 fn check_rust_encodes_nested_is_power_of_two() {

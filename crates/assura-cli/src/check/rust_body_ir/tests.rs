@@ -1082,6 +1082,20 @@ fn variable_u8_reverse_bits_encodes() {
     let ir = try_ir_from_rust_body("R", &pu8, Some("u8"), "x.reverse_bits()").expect("rev");
     assert!(ir.contains("arith mul") && ir.contains("arith mod"), "{ir}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "R").expect("parse");
+    // signed ≤32 via bit-pattern map + reinterpret
+    let pi8 = vec![ParamInfo {
+        name: "x".into(),
+        ty: "i8".into(),
+    }];
+    let s = try_ir_from_rust_body("S", &pi8, Some("i8"), "x.reverse_bits()").expect("i8 rev");
+    assert!(
+        s.contains("arith mul") && s.contains("cmp gt") || s.contains("arith mod"),
+        "{s}"
+    );
+    assura_smt::LoadedVerifyExtras::from_ir_text(&s, "S").expect("parse i8 rev");
+    // const negative peep: (-128i8).reverse_bits() == 1
+    let c = try_ir_from_rust_body("C", &px(), Some("i8"), "(-128i8).reverse_bits()").expect("c");
+    assert!(c.contains("const 1 : Int"), "{c}");
 }
 
 #[test]
