@@ -387,7 +387,10 @@ mod tests {
         };
         let mut code = String::new();
         generate_bind(&b, &mut code);
-        assert!(code.contains("debug_assert!((b != 0)"));
+        assert!(
+            code.contains("debug_assert!((i128::from(b) != i128::from(0))"),
+            "bind requires: {code}"
+        );
     }
 
     #[test]
@@ -553,7 +556,10 @@ mod tests {
         };
         let mut code = String::new();
         generate_fn_def(&f, &mut code, None);
-        assert!(code.contains("debug_assert!((b != 0)"), "requires b != 0");
+        assert!(
+            code.contains("debug_assert!((i128::from(b) != i128::from(0))"),
+            "requires b != 0: {code}"
+        );
         assert!(code.contains(RESULT_VAR), "result variable");
         assert!(code.contains("ensures"), "ensures assertion");
     }

@@ -1,5 +1,6 @@
 //! Contract, enum, proptest, and error type code generation.
 
+use std::collections::HashSet;
 use std::fmt::Write;
 
 use super::*;
@@ -18,6 +19,101 @@ pub(crate) fn generate_enum_def(e: &EnumDef, code: &mut String) {
 // ---------------------------------------------------------------------------
 // Contract declarations
 // ---------------------------------------------------------------------------
+
+/// Collect free identifier names from an expression tree.
+///
+/// Walks the expression recursively and collects all `Expr::Ident` names,
+/// excluding `result` (handled separately by codegen) and quantifier-bound
+/// variables. Used to synthesize input parameters for contracts that reference
+/// free variables without an explicit `input()` clause.
+fn collect_free_idents(expr: &SpExpr, idents: &mut HashSet<String>) {
+    match &expr.node {
+        Expr::Ident(name) if name != "result" && name != "true" && name != "false" => {
+            idents.insert(name.clone());
+        }
+        Expr::Ident(_) => {}
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_free_idents(lhs, idents);
+            collect_free_idents(rhs, idents);
+        }
+        Expr::UnaryOp { expr: inner, .. }
+        | Expr::Old(inner)
+        | Expr::Ghost(inner)
+        | Expr::Cast { expr: inner, .. } => collect_free_idents(inner, idents),
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_free_idents(cond, idents);
+            collect_free_idents(then_branch, idents);
+            if let Some(e) = else_branch {
+                collect_free_idents(e, idents);
+            }
+        }
+        Expr::Forall {
+            var, body, domain, ..
+        }
+        | Expr::Exists {
+            var, body, domain, ..
+        } => {
+            collect_free_idents(body, idents);
+            collect_free_idents(domain, idents);
+            idents.remove(var);
+        }
+        Expr::Call { args, .. } => {
+            for arg in args {
+                collect_free_idents(arg, idents);
+            }
+        }
+        Expr::Field(receiver, _) => collect_free_idents(receiver, idents),
+        Expr::MethodCall { receiver, args, .. } => {
+            collect_free_idents(receiver, idents);
+            for arg in args {
+                collect_free_idents(arg, idents);
+            }
+        }
+        Expr::Index { expr, index } => {
+            collect_free_idents(expr, idents);
+            collect_free_idents(index, idents);
+        }
+        Expr::Let { value, body, .. } => {
+            collect_free_idents(value, idents);
+            collect_free_idents(body, idents);
+        }
+        Expr::Match { scrutinee, arms } => {
+            collect_free_idents(scrutinee, idents);
+            for arm in arms {
+                collect_free_idents(&arm.body, idents);
+            }
+        }
+        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
+            for item in items {
+                collect_free_idents(item, idents);
+            }
+        }
+        Expr::Apply { args, .. } => {
+            for arg in args {
+                collect_free_idents(arg, idents);
+            }
+        }
+        Expr::Literal(_) => {}
+        Expr::Raw(tokens) => {
+            for tok in tokens {
+                if tok
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_alphabetic() || c == '_')
+                    && tok != "result"
+                    && tok != "true"
+                    && tok != "false"
+                {
+                    idents.insert(tok.clone());
+                }
+            }
+        }
+    }
+}
 
 /// Generate the body of a contract as standalone module contents (no `pub mod`
 /// wrapper). Used in multi-file mode where each contract gets its own `.rs` file.
@@ -89,6 +185,27 @@ pub(crate) fn generate_contract_contents_opts(
             | ClauseKind::Decreases
             | ClauseKind::Ordering
             | ClauseKind::Other(_) => {}
+        }
+    }
+
+    // Synthesize input parameters from free variables when no input() clause
+    // exists. Contracts like `requires { x > 0 } ensures { x > 0 }` reference
+    // `x` as a free variable; without this, codegen produces `fn check()` with
+    // no parameters and the generated Rust fails to compile.
+    if input_params.is_empty() {
+        let mut free = HashSet::new();
+        for clause in &c.clauses {
+            match &clause.kind {
+                ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Invariant => {
+                    collect_free_idents(&clause.body, &mut free);
+                }
+                _ => {}
+            }
+        }
+        let mut sorted: Vec<String> = free.into_iter().collect();
+        sorted.sort();
+        for name in sorted {
+            input_params.push((name, "i64".to_string()));
         }
     }
 

@@ -14,6 +14,28 @@ pub(crate) const RESULT_VAR: &str = "__assura_result";
 /// Prefix for `old(expr)` pre-state snapshot variables in generated Rust.
 pub(crate) const OLD_VAR_PREFIX: &str = "__assura_old_";
 
+/// Returns true if the expression contains a literal that exceeds i128 range
+/// (e.g. u128::MAX). Such literals cannot be wrapped in `i128::from(...)`.
+fn has_u128_literal(expr: &SpExpr) -> bool {
+    match &expr.node {
+        Expr::Literal(Literal::Int(s)) => s.parse::<i128>().is_err() && s.parse::<u128>().is_ok(),
+        Expr::BinOp { lhs, rhs, .. } => has_u128_literal(lhs) || has_u128_literal(rhs),
+        Expr::UnaryOp { expr: e, .. }
+        | Expr::Old(e)
+        | Expr::Cast { expr: e, .. }
+        | Expr::Field(e, _) => has_u128_literal(e),
+        _ => false,
+    }
+}
+
+/// Returns true if the folded Rust string already contains i128 widening.
+/// Used to detect branch type mismatches in if/match expressions where
+/// one branch gets i128::from() from arithmetic widening but the other
+/// stays as a plain variable (i64).
+fn has_inner_i128(folded: &str) -> bool {
+    folded.contains("i128::from(") || folded.contains("_i128")
+}
+
 /// Heuristic: returns true if the expression is likely a numeric value
 /// (variable, constant, literal, or arithmetic). Used to decide whether to
 /// emit `i128::from(...)` casts for cross-width comparisons.
@@ -100,7 +122,27 @@ impl ExprFolder for RustCodegenFolder {
     type Output = String;
 
     fn fold_literal(&mut self, lit: &Literal) -> String {
-        literal_to_string(lit)
+        match lit {
+            // Suffix large integer literals so they are not inferred as i32
+            // inside `i128::from(...)` wrappings. Values within i32 range
+            // are emitted without a suffix. Values in i64 range get `_i64`.
+            // Values exceeding i64 range get `_i128`.
+            Literal::Int(s) => {
+                if let Ok(v) = s.parse::<i128>() {
+                    if v > i128::from(i64::MAX) || v < i128::from(i64::MIN) {
+                        return format!("{s}_i128");
+                    }
+                    if v > i128::from(i32::MAX) || v < i128::from(i32::MIN) {
+                        return format!("{s}_i64");
+                    }
+                } else if s.parse::<u128>().is_ok() {
+                    // Value exceeds i128 range (e.g. u128::MAX); emit as u128.
+                    return format!("{s}_u128");
+                }
+                s.clone()
+            }
+            _ => literal_to_string(lit),
+        }
     }
 
     fn fold_ident(&mut self, name: &str) -> String {
@@ -183,7 +225,22 @@ impl ExprFolder for RustCodegenFolder {
                 _ => {}
             }
             let op_s = op.as_rust_str();
-            if op.is_ordering_comparison() && is_numeric_expr(lhs) && is_numeric_expr(rhs) {
+            // Widen all numeric comparisons and arithmetic to i128 to prevent
+            // mixed-type errors (e.g. i64 + u64, u64 == i128) in generated
+            // code when contracts mix Int and Nat typed inputs.
+            // Skip i128 wrapping when either side has a u128-scale literal
+            // (e.g. u128::MAX) since i128::from(u128) does not exist.
+            if (op.is_comparison() || op.is_arithmetic())
+                && is_numeric_expr(lhs)
+                && is_numeric_expr(rhs)
+            {
+                if has_u128_literal(lhs) || has_u128_literal(rhs) {
+                    return format!(
+                        "(({} as u128) {op_s} ({} as u128))",
+                        self.fold_expr(lhs),
+                        self.fold_expr(rhs)
+                    );
+                }
                 return format!(
                     "(i128::from({}) {op_s} i128::from({}))",
                     self.fold_expr(lhs),
@@ -247,12 +304,37 @@ impl ExprFolder for RustCodegenFolder {
 
     fn fold_if(&mut self, cond: &SpExpr, then_br: &SpExpr, else_br: Option<&SpExpr>) -> String {
         match else_br {
-            Some(eb) => format!(
-                "if {} {{ {} }} else {{ {} }}",
-                self.fold_expr(cond),
-                self.fold_expr(then_br),
-                self.fold_expr(eb)
-            ),
+            Some(eb) => {
+                let then_s = self.fold_expr(then_br);
+                let else_s = self.fold_expr(eb);
+                // In runtime context, if either branch contains i128 arithmetic
+                // but the other is a plain ident/literal, the branches produce
+                // incompatible types. Normalize both to i128::from() when both
+                // are numeric to ensure type consistency.
+                if !self.static_context
+                    && is_numeric_expr(then_br)
+                    && is_numeric_expr(eb)
+                    && (has_inner_i128(&then_s) || has_inner_i128(&else_s))
+                {
+                    let t = if has_inner_i128(&then_s) {
+                        then_s
+                    } else {
+                        format!("i128::from({then_s})")
+                    };
+                    let e = if has_inner_i128(&else_s) {
+                        else_s
+                    } else {
+                        format!("i128::from({else_s})")
+                    };
+                    return format!("if {} {{ {} }} else {{ {} }}", self.fold_expr(cond), t, e);
+                }
+                format!(
+                    "if {} {{ {} }} else {{ {} }}",
+                    self.fold_expr(cond),
+                    then_s,
+                    else_s
+                )
+            }
             None => format!(
                 "if {} {{ {} }}",
                 self.fold_expr(cond),

@@ -2231,7 +2231,7 @@ fn expr_to_rust_arithmetic() {
         op: BinOp::Add,
         rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
     });
-    assert_eq!(expr_to_rust(&e), "(a + b)");
+    assert_eq!(expr_to_rust(&e), "(i128::from(a) + i128::from(b))");
 }
 
 #[test]
@@ -2289,13 +2289,13 @@ fn expr_to_rust_numeric_comparison_casts() {
 
 #[test]
 fn expr_to_rust_equality_no_cast() {
-    // Equality doesn't get i128 casts
+    // Equality on numeric idents now also gets i128 casts (prevents mixed-type errors)
     let e = Spanned::no_span(Expr::BinOp {
         lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         op: BinOp::Eq,
         rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
     });
-    assert_eq!(expr_to_rust(&e), "(a == b)");
+    assert_eq!(expr_to_rust(&e), "(i128::from(a) == i128::from(b))");
 }
 
 #[test]

@@ -193,7 +193,7 @@ fn expr_to_rust_binop_add() {
         op: BinOp::Add,
         rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
     });
-    assert_eq!(expr_to_rust(&e), "(a + b)");
+    assert_eq!(expr_to_rust(&e), "(i128::from(a) + i128::from(b))");
 }
 
 #[test]
@@ -248,13 +248,13 @@ fn expr_to_rust_numeric_cmp_casts_i128() {
 
 #[test]
 fn expr_to_rust_eq_no_cast() {
-    // Equality does not cast to i128
+    // Equality on numeric idents casts to i128 (prevents mixed-type errors)
     let e = Spanned::no_span(Expr::BinOp {
         lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         op: BinOp::Eq,
         rhs: Box::new(Spanned::no_span(Expr::Ident("y".into()))),
     });
-    assert_eq!(expr_to_rust(&e), "(x == y)");
+    assert_eq!(expr_to_rust(&e), "(i128::from(x) == i128::from(y))");
 }
 
 #[test]

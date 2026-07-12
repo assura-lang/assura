@@ -40,8 +40,8 @@ fn e2e_safe_division_generates_debug_assert_for_requires() {
         "generated code must contain debug_assert!"
     );
     assert!(
-        lib.contains("b != 0"),
-        "generated code must contain the requires predicate 'b != 0'"
+        lib.contains("i128::from(b) != i128::from(0)"),
+        "generated code must contain the widened requires predicate: {lib}"
     );
 }
 
