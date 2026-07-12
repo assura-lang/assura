@@ -993,8 +993,19 @@ fn variable_u8_count_ones_encodes() {
         "{ir}"
     );
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "C").expect("parse");
-    // signed stays const-only / BNM for variables
-    assert!(try_ir_from_rust_body("S", &px(), Some("u32"), "x.count_ones()").is_none());
+    // signed ≤32 via bit-pattern map then popcount
+    let pi8 = vec![ParamInfo {
+        name: "x".into(),
+        ty: "i8".into(),
+    }];
+    let s = try_ir_from_rust_body("S", &pi8, Some("u32"), "x.count_ones()").expect("i8 ones");
+    assert!(
+        s.contains("arith mod") && s.contains("cmp gt") || s.contains("arith add"),
+        "{s}"
+    );
+    assura_smt::LoadedVerifyExtras::from_ir_text(&s, "S").expect("parse i8");
+    // i64 width >32 stays BNM
+    assert!(try_ir_from_rust_body("I", &px(), Some("u32"), "x.count_ones()").is_none());
 }
 
 #[test]
