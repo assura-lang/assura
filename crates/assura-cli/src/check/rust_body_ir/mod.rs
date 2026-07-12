@@ -1098,9 +1098,22 @@ fn encode_syn_expr(
                     }
                     acc
                 }
-                // count_ones: const peep, or unsigned path-param bit-sum (≤32 bits).
+                // count_ones: const peep, or path-param bit-sum (≤32; signed via bit pattern).
                 ("count_ones", 0) => {
                     if let Some(v) = lit_int_i64(&m.receiver) {
+                        // Signed and unsigned lits: use two's complement width from suffix when present.
+                        if let Some((vv, bits)) = lit_int_i64_bits(&m.receiver) {
+                            let mask = if bits >= 64 {
+                                u64::MAX
+                            } else {
+                                (1u64 << bits) - 1
+                            };
+                            let ones = ((vv as u64) & mask).count_ones();
+                            let slot = *next;
+                            *next += 1;
+                            lines.push(format!("${slot} = const {ones} : Int"));
+                            return Some(slot);
+                        }
                         if v < 0 {
                             return None;
                         }
@@ -1111,17 +1124,20 @@ fn encode_syn_expr(
                         return Some(slot);
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
-                    if lo != 0 {
+                    let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
+                    if bits == 0 || bits > 32 {
                         return None;
                     }
-                    let modulus = hi.checked_add(1)?;
-                    let modulus_u = modulus as u64;
-                    if !modulus_u.is_power_of_two() {
-                        return None;
-                    }
-                    let bits = modulus_u.trailing_zeros();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
-                    encode_bit_sum_count_ones(a, bits, lines, next)
+                    if !signed {
+                        return encode_bit_sum_count_ones(a, bits, lines, next);
+                    }
+                    let modulus = modulus_i64?;
+                    let mslot = *next;
+                    *next += 1;
+                    lines.push(format!("${mslot} = const {modulus} : Int"));
+                    let u_in = emit_to_unsigned_bits(a, mslot, lines, next);
+                    encode_bit_sum_count_ones(u_in, bits, lines, next)
                 }
                 // trailing_ones: non-neg lit (width-independent for magnitude).
                 ("trailing_ones", 0) => {
