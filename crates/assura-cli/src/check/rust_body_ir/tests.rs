@@ -595,9 +595,25 @@ fn is_multiple_of_body_ir() {
             ty: "i64".into(),
         },
     ];
-    let ir = try_ir_from_rust_body("M", &pxy, Some("bool"), "x.is_multiple_of(y)").expect("imo");
+    // Unbounded divisor may be 0 → BNM (was unsound if encoded).
+    assert!(
+        try_ir_from_rust_body("M", &pxy, Some("bool"), "x.is_multiple_of(y)").is_none(),
+        "i64 divisor includes 0"
+    );
+    // NonZeroU8 divisor is safe.
+    let nzd = vec![
+        ParamInfo {
+            name: "x".into(),
+            ty: "i64".into(),
+        },
+        ParamInfo {
+            name: "d".into(),
+            ty: "NonZeroU8".into(),
+        },
+    ];
+    let ir = try_ir_from_rust_body("Nz", &nzd, Some("bool"), "x.is_multiple_of(d)").expect("imo");
     assert!(ir.contains("arith mod") && ir.contains("cmp eq"), "{ir}");
-    assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "M").expect("parse");
+    assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "Nz").expect("parse");
     // Literal 0 panics in Rust; must not encode as mod-by-zero.
     assert!(try_ir_from_rust_body("Z", &px(), Some("bool"), "x.is_multiple_of(0)").is_none());
     let ok = try_ir_from_rust_body("T", &px(), Some("bool"), "x.is_multiple_of(2)").expect("by2");

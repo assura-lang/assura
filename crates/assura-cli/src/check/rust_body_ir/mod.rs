@@ -1654,8 +1654,8 @@ fn encode_syn_expr(
                 }
 
                 ("is_multiple_of", 1) => {
-                    // Rust panics on divisor 0; refuse literal 0 so we do not
-                    // model mod-by-zero as a free SMT fact (false Verified risk).
+                    // Rust panics on divisor 0; refuse zero-including divisors so we
+                    // do not model mod-by-zero as a free SMT fact (false Verified).
                     if is_lit_int_zero(&m.args[0]) {
                         return None;
                     }
@@ -1667,7 +1667,18 @@ fn encode_syn_expr(
                         return Some(slot);
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
-                    let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
+                    // Const nonzero (any sign) or NonZeroU* / lo>=1 path param.
+                    let b = if let Some(v) = lit_int_i64(&m.args[0]) {
+                        if v == 0 {
+                            return None;
+                        }
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const {v} : Int"));
+                        slot
+                    } else {
+                        encode_positive_divisor(&m.args[0], param_names, lines, next)?
+                    };
                     let rem = *next;
                     *next += 1;
                     lines.push(format!("${rem} = arith mod ${a} ${b} : Int"));
