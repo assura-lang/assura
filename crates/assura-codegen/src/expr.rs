@@ -281,7 +281,7 @@ impl ExprFolder for RustCodegenFolder {
             format!("/* forall {var} in {d}: {b} */ true")
         } else {
             format!(
-                "{}.iter().all(|{var}| {})",
+                "{}.iter().copied().all(|{var}| {})",
                 self.fold_expr(domain),
                 self.fold_expr(body)
             )
@@ -295,7 +295,7 @@ impl ExprFolder for RustCodegenFolder {
             format!("/* exists {var} in {d}: {b} */ true")
         } else {
             format!(
-                "{}.iter().any(|{var}| {})",
+                "{}.iter().copied().any(|{var}| {})",
                 self.fold_expr(domain),
                 self.fold_expr(body)
             )
@@ -512,7 +512,7 @@ pub(crate) fn raw_tokens_to_rust(tokens: &[String]) -> String {
             let body = raw_tokens_to_rust(body_tokens);
 
             let method = if first == "forall" { "all" } else { "any" };
-            return format!("{domain}.iter().{method}(|{var}| {body})");
+            return format!("{domain}.iter().copied().{method}(|{var}| {body})");
         }
     }
 

@@ -295,7 +295,7 @@ fn expr_to_rust_forall() {
         })),
     });
     let result = expr_to_rust(&e);
-    assert!(result.contains("iter().all(|x|"));
+    assert!(result.contains("iter().copied().all(|x|"));
 }
 
 #[test]
@@ -305,7 +305,7 @@ fn expr_to_rust_exists() {
         domain: Box::new(Spanned::no_span(Expr::Ident("xs".into()))),
         body: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
     });
-    assert!(expr_to_rust(&e).contains("iter().any(|x|"));
+    assert!(expr_to_rust(&e).contains("iter().copied().any(|x|"));
 }
 
 #[test]
@@ -438,7 +438,7 @@ fn raw_tokens_forall_quantifier() {
         .map(String::from)
         .collect();
     let result = raw_tokens_to_rust(&tokens);
-    assert!(result.contains(".iter().all(|x|"), "got: {result}");
+    assert!(result.contains(".iter().copied().all(|x|"), "got: {result}");
 }
 
 #[test]
@@ -448,7 +448,7 @@ fn raw_tokens_exists_quantifier() {
         .map(String::from)
         .collect();
     let result = raw_tokens_to_rust(&tokens);
-    assert!(result.contains(".iter().any(|x|"), "got: {result}");
+    assert!(result.contains(".iter().copied().any(|x|"), "got: {result}");
 }
 
 #[test]
