@@ -187,7 +187,7 @@ non-neg receiver). `signum` is nestable in arith (clamp to [-1, 1]). Top-level
 `wrapping_neg` expands to multi-block if (MIN stays MIN).
 
 Residual `body_not_modeled` (still intentional): panic paths (`/0`, `%0`,
-`is_multiple_of(0)`, literal `0.ilog2()`); some width>32 both-variable
+`is_multiple_of(0)` / zero-including path divisors, literal `0.ilog2()`); some width>32 both-variable
 bitops; `u64` `next_power_of_two`; `isqrt` for widths >16; signed `ilog2`;
 `rem_euclid`/`div_euclid`/`div_ceil`/`next_multiple_of` with non-positive or
 zero-including divisors (use a positive const or `NonZeroU*` param). Bodies that
