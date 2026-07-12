@@ -525,6 +525,48 @@ pub(super) fn encode_bit_sum_count_ones(
     acc
 }
 
+/// Bitwise NOT of unsigned `a` in width `bits`: `(2^bits - 1) - a`.
+pub(super) fn encode_unsigned_bitnot(
+    a: usize,
+    bits: u32,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> Option<usize> {
+    if bits == 0 || bits > 32 {
+        return None;
+    }
+    let mask = (1i64 << bits) - 1;
+    let m = *next;
+    *next += 1;
+    lines.push(format!("${m} = const {mask} : Int"));
+    let slot = *next;
+    *next += 1;
+    lines.push(format!("${slot} = arith sub ${m} ${a} : Int"));
+    Some(slot)
+}
+
+/// trailing_ones: trailing_zeros of bitwise NOT (same width).
+pub(super) fn encode_unsigned_trailing_ones(
+    a: usize,
+    bits: u32,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> Option<usize> {
+    let not_a = encode_unsigned_bitnot(a, bits, lines, next)?;
+    encode_unsigned_trailing_zeros(not_a, bits, lines, next)
+}
+
+/// leading_ones: leading_zeros of bitwise NOT (same width).
+pub(super) fn encode_unsigned_leading_ones(
+    a: usize,
+    bits: u32,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> Option<usize> {
+    let not_a = encode_unsigned_bitnot(a, bits, lines, next)?;
+    encode_unsigned_leading_zeros(not_a, bits, lines, next)
+}
+
 /// trailing_zeros for unsigned `a` with width `bits`.
 /// `sum_i i * bit_i * prod_{j<i}(1-bit_j) + bits * prod_all(1-bit)`.
 pub(super) fn encode_unsigned_trailing_zeros(

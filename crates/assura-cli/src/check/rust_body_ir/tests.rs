@@ -1074,6 +1074,15 @@ fn variable_u8_trailing_zeros_encodes() {
     let sl = try_ir_from_rust_body("Sl", &pi8, Some("u32"), "x.leading_zeros()").expect("i8 lz");
     assert!(sl.contains("arith mul"), "{sl}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&sl, "Sl").expect("parse i8 lz");
+    // trailing_ones / leading_ones via NOT + zeros
+    let to = try_ir_from_rust_body("To", &pu8, Some("u32"), "x.trailing_ones()").expect("to");
+    assert!(to.contains("arith sub") && to.contains("arith mul"), "{to}");
+    assura_smt::LoadedVerifyExtras::from_ir_text(&to, "To").expect("parse to");
+    let lo = try_ir_from_rust_body("Lo", &pu8, Some("u32"), "x.leading_ones()").expect("lo");
+    assert!(lo.contains("arith sub"), "{lo}");
+    assura_smt::LoadedVerifyExtras::from_ir_text(&lo, "Lo").expect("parse lo");
+    let sto = try_ir_from_rust_body("Sto", &pi8, Some("u32"), "x.trailing_ones()").expect("i8 to");
+    assert!(sto.contains("arith sub"), "{sto}");
 }
 
 #[test]

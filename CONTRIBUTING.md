@@ -179,11 +179,12 @@ and rotate through 64 bits, BitAnd/Or/Xor (const mask ≤64; both-var signed/
 unsigned ≤32), variable bitwise `!x` ≤64, pot `is_power_of_two` through u64,
 variable `ilog2`/`ilog10`/`next_power_of_two` for unsigned path params ≤32,
 variable `isqrt` for unsigned path params ≤16, signed/unsigned path-param
-`count_ones`/`count_zeros`/`trailing_zeros`/`leading_zeros`/`reverse_bits`/
-`swap_bytes` (≤32; signed via bit-pattern map), and `rem_euclid`/`div_euclid`/
-`next_multiple_of` with a positive const or `NonZeroU*` path-param divisor
-(`.get()` peels). `signum` is nestable in arith (clamp to [-1, 1]). Top-level
-`wrapping_neg` expands to multi-block if (MIN stays MIN).
+`count_ones`/`count_zeros`/`trailing_zeros`/`leading_zeros`/`trailing_ones`/
+`leading_ones`/`reverse_bits`/`swap_bytes` (≤32; signed via bit-pattern map;
+ones via NOT+zeros), and `rem_euclid`/`div_euclid`/`next_multiple_of` with a
+positive const or `NonZeroU*` path-param divisor (`.get()` peels). `signum` is
+nestable in arith (clamp to [-1, 1]). Top-level `wrapping_neg` expands to
+multi-block if (MIN stays MIN).
 
 Residual `body_not_modeled` (still intentional): panic paths (`/0`, `%0`,
 `is_multiple_of(0)`, literal `0.ilog2()`); some width>32 both-variable
