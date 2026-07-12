@@ -1113,17 +1113,35 @@ fn variable_u16_swap_bytes_encodes() {
     }];
     let id = try_ir_from_rust_body("I", &pu8, Some("u8"), "x.swap_bytes()").expect("u8 id");
     assert!(id.contains("load $0"), "{id}");
+    // signed i16 via bit-pattern map + reinterpret
+    let pi16 = vec![ParamInfo {
+        name: "x".into(),
+        ty: "i16".into(),
+    }];
+    let s = try_ir_from_rust_body("Si", &pi16, Some("i16"), "x.swap_bytes()").expect("i16 sw");
+    assert!(s.contains("const 256") && s.contains("arith mul"), "{s}");
+    assura_smt::LoadedVerifyExtras::from_ir_text(&s, "Si").expect("parse i16 sw");
+    let expected = ((-2i16).swap_bytes()) as i64;
+    let c = try_ir_from_rust_body("C", &px(), Some("i16"), "(-2i16).swap_bytes()").expect("c");
+    assert!(
+        c.contains(&format!("const {expected} : Int")),
+        "want {expected}: {c}"
+    );
 }
 
 #[test]
 fn typed_reverse_bits_and_swap_bytes_peep() {
-    // 0b0000_0001 u8 reversed → 0b1000_0000 = 128
+    // 0b0000_0001 u8 reversed → 0b1000_0000 = 128 (unsigned keeps 128)
     let rev = try_ir_from_rust_body("R", &px(), Some("u8"), "1u8.reverse_bits()").expect("rev");
     assert!(rev.contains("const 128 : Int"), "{rev}");
+    // same pattern on i8 reinterprets high bit: 1i8 → -128
+    let revs =
+        try_ir_from_rust_body("Rs", &px(), Some("i8"), "1i8.reverse_bits()").expect("i8 rev");
+    assert!(revs.contains("const -128 : Int"), "{revs}");
     // 0x1234u16.swap_bytes() → 0x3412 = 13330
     let sw = try_ir_from_rust_body("S", &px(), Some("u16"), "0x1234u16.swap_bytes()").expect("sw");
     assert!(sw.contains("const 13330 : Int"), "{sw}");
-    // i64 path param has no unsigned bit reverse (signed)
+    // unbounded path (no fixed width) stays BNM
     assert!(try_ir_from_rust_body("V", &px(), Some("u8"), "x.reverse_bits()").is_none());
     let ig = try_ir_from_rust_body("I", &px(), Some("u32"), "8u32.ilog2()").expect("ilog");
     assert!(ig.contains("const 3 : Int"), "{ig}");
