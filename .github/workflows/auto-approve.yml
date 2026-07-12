@@ -64,10 +64,14 @@ jobs:
         env:
           # Prefer App token; fall back to GITHUB_TOKEN when App mint failed
           # (Dependabot secret isolation or missing AUTO_APPROVE_PRIVATE_KEY).
+          # Use env (not ${{ }} inside run:) so zizmor template-injection is clean.
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
-          if [ -z "${{ steps.app-token.outputs.token }}" ]; then
+          if [ -z "${APP_TOKEN}" ]; then
             echo "App token unavailable; using GITHUB_TOKEN for auto-merge (post-merge push workflows may be suppressed)."
           fi
-          gh pr merge --auto --squash "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" \
+          gh pr merge --auto --squash "${PR_NUMBER}" --repo "${REPO}" \
             || echo "Could not enable auto-merge (common when PR modifies .github/workflows/* and the App lacks workflows permission, or checks not yet green). PR was approved; manual merge may be needed."
