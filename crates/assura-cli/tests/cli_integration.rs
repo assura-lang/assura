@@ -6480,7 +6480,8 @@ fn check_rust_encodes_div_ceil_nonzero() {
         r#"
 use std::num::NonZeroU32;
 
-/// @ensures result >= x
+/// @ensures result >= 0
+/// @ensures result <= x
 fn d(x: u32, n: NonZeroU32) -> u32 { x.div_ceil(n.get()) }
 "#,
     )
