@@ -5511,6 +5511,30 @@ fn sq(x: u8) -> u8 { x.isqrt() }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Variable isqrt for u16 path params (≤16-bit ladder).
+#[test]
+fn check_rust_encodes_variable_isqrt_u16() {
+    let tmp = unique_temp("assura_check_rust_var_isqrt_u16");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn sq(x: u16) -> u16 { x.isqrt() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Wrong variable isqrt ensures must CE.
 #[test]
 fn check_rust_variable_isqrt_wrong_ce() {
