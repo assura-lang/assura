@@ -145,8 +145,7 @@ fn assert_no_slot_overlap_with_entry(ir: &str) {
 
 #[test]
 fn clamp_method_body_ir() {
-    let ir =
-        try_ir_from_rust_body("C", &px(), Some("i64"), "x . clamp (0 , 10)").expect("clamp");
+    let ir = try_ir_from_rust_body("C", &px(), Some("i64"), "x . clamp (0 , 10)").expect("clamp");
     assert!(ir.contains("call max") && ir.contains("call min"), "{ir}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "C").expect("parse");
     let pxy = vec![
@@ -236,9 +235,7 @@ fn match_guard_non_identity_body_encodes() {
 
 #[test]
 fn match_plain_binding_still_none() {
-    assert!(
-        try_ir_from_rust_body("B", &px(), Some("i64"), "match x { n => n, _ => 0 }").is_none()
-    );
+    assert!(try_ir_from_rust_body("B", &px(), Some("i64"), "match x { n => n, _ => 0 }").is_none());
 }
 
 fn pab() -> Vec<ParamInfo> {
@@ -298,8 +295,7 @@ fn midpoint_encodes() {
 
 #[test]
 fn signed_next_multiple_of_encodes() {
-    let ir =
-        try_ir_from_rust_body("N", &px(), Some("i64"), "x.next_multiple_of(4)").expect("nmo");
+    let ir = try_ir_from_rust_body("N", &px(), Some("i64"), "x.next_multiple_of(4)").expect("nmo");
     assert!(ir.contains("arith mod") && ir.contains("cmp eq"), "{ir}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "N").expect("parse");
 }
@@ -327,14 +323,11 @@ fn div_ceil_const_divisor_encodes() {
     // const non-neg lit
     let c = try_ir_from_rust_body("C", &px(), Some("u32"), "10u32.div_ceil(3)").expect("const");
     assert!(c.contains("const 4") || c.contains("arith div"), "{c}");
-    let re =
-        try_ir_from_rust_body("R", &pu8, Some("u8"), "x.rem_euclid(3)").expect("rem_euclid");
+    let re = try_ir_from_rust_body("R", &pu8, Some("u8"), "x.rem_euclid(3)").expect("rem_euclid");
     assert!(re.contains("arith mod") && re.contains("const 3"), "{re}");
-    let de =
-        try_ir_from_rust_body("De", &pu8, Some("u8"), "x.div_euclid(3)").expect("div_euclid");
+    let de = try_ir_from_rust_body("De", &pu8, Some("u8"), "x.div_euclid(3)").expect("div_euclid");
     assert!(de.contains("arith div") && de.contains("const 3"), "{de}");
-    let nmo =
-        try_ir_from_rust_body("N", &pu8, Some("u8"), "x.next_multiple_of(4)").expect("nmo");
+    let nmo = try_ir_from_rust_body("N", &pu8, Some("u8"), "x.next_multiple_of(4)").expect("nmo");
     // rem_euclid formula: rem = ((a mod m)+m) mod m; a - rem + m*[rem!=0]
     assert!(
         nmo.contains("arith mod") && nmo.contains("cmp eq") && nmo.contains("arith mul"),
@@ -552,17 +545,14 @@ fn is_multiple_of_body_ir() {
             ty: "i64".into(),
         },
     ];
-    let ir =
-        try_ir_from_rust_body("M", &pxy, Some("bool"), "x.is_multiple_of(y)").expect("imo");
+    let ir = try_ir_from_rust_body("M", &pxy, Some("bool"), "x.is_multiple_of(y)").expect("imo");
     assert!(ir.contains("arith mod") && ir.contains("cmp eq"), "{ir}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "M").expect("parse");
     // Literal 0 panics in Rust; must not encode as mod-by-zero.
     assert!(try_ir_from_rust_body("Z", &px(), Some("bool"), "x.is_multiple_of(0)").is_none());
-    let ok =
-        try_ir_from_rust_body("T", &px(), Some("bool"), "x.is_multiple_of(2)").expect("by2");
+    let ok = try_ir_from_rust_body("T", &px(), Some("bool"), "x.is_multiple_of(2)").expect("by2");
     assert!(ok.contains("const 2") || ok.contains("arith mod"), "{ok}");
-    let by1 =
-        try_ir_from_rust_body("O", &px(), Some("bool"), "x.is_multiple_of(1)").expect("by1");
+    let by1 = try_ir_from_rust_body("O", &px(), Some("bool"), "x.is_multiple_of(1)").expect("by1");
     assert!(by1.contains("const 1 : Bool"), "{by1}");
     let by_neg1 =
         try_ir_from_rust_body("N", &px(), Some("bool"), "x.is_multiple_of(-1)").expect("byn1");
@@ -574,9 +564,7 @@ fn div_rem_by_literal_zero_stays_unencoded() {
     assert!(try_ir_from_rust_body("D", &px(), Some("i64"), "x / 0").is_none());
     assert!(try_ir_from_rust_body("R", &px(), Some("i64"), "x % 0").is_none());
     assert!(try_ir_from_rust_body("Dp", &px(), Some("i64"), "x / (0)").is_none());
-    assert!(
-        try_ir_from_rust_body("Mp", &px(), Some("bool"), "x.is_multiple_of((0))").is_none()
-    );
+    assert!(try_ir_from_rust_body("Mp", &px(), Some("bool"), "x.is_multiple_of((0))").is_none());
     let ok = try_ir_from_rust_body("D2", &px(), Some("i64"), "x / 2").expect("div2");
     assert!(ok.contains("arith div"), "{ok}");
 }
@@ -613,15 +601,14 @@ fn saturating_neg_body_ir() {
 
 #[test]
 fn saturating_abs_body_ir() {
-    let ir =
-        try_ir_from_rust_body("A", &px(), Some("i64"), "x.saturating_abs()").expect("sat_abs");
+    let ir = try_ir_from_rust_body("A", &px(), Some("i64"), "x.saturating_abs()").expect("sat_abs");
     assert!(ir.contains("call abs") && ir.contains("call min"), "{ir}");
     assert!(ir.contains(&format!("const {}", i64::MAX)), "{ir}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "A").expect("parse");
     // Needs return-type bounds (same as other saturating_*).
     assert!(try_ir_from_rust_body("B", &px(), None, "x.saturating_abs()").is_none());
-    let assoc = try_ir_from_rust_body("C", &px(), Some("i64"), "i64::saturating_abs(x)")
-        .expect("assoc");
+    let assoc =
+        try_ir_from_rust_body("C", &px(), Some("i64"), "i64::saturating_abs(x)").expect("assoc");
     assert!(
         assoc.contains("call abs") && assoc.contains("call min"),
         "{assoc}"
@@ -663,12 +650,11 @@ fn abs_diff_then_is_positive_body_ir() {
     let never =
         try_ir_from_rust_body("N", &px(), Some("bool"), "x.abs().is_negative()").expect("neg");
     assert!(never.contains("const 0 : Bool"), "{never}");
-    let sat =
-        try_ir_from_rust_body("S", &px(), Some("bool"), "x.saturating_abs().is_negative()")
-            .expect("satneg");
+    let sat = try_ir_from_rust_body("S", &px(), Some("bool"), "x.saturating_abs().is_negative()")
+        .expect("satneg");
     assert!(sat.contains("const 0 : Bool"), "{sat}");
-    let z = try_ir_from_rust_body("Z", &px(), Some("bool"), "x.abs_diff(x).is_zero()")
-        .expect("ad0");
+    let z =
+        try_ir_from_rust_body("Z", &px(), Some("bool"), "x.abs_diff(x).is_zero()").expect("ad0");
     assert!(z.contains("const 1 : Bool"), "{z}");
     let p = try_ir_from_rust_body("P", &px(), Some("bool"), "x.abs_diff(x).is_positive()")
         .expect("adp");
@@ -762,8 +748,8 @@ fn narrowing_cast_returns_none() {
 
 #[test]
 fn nested_method_chain_body_ir() {
-    let ir = try_ir_from_rust_body("C", &px(), Some("bool"), "x.abs().is_positive()")
-        .expect("chain");
+    let ir =
+        try_ir_from_rust_body("C", &px(), Some("bool"), "x.abs().is_positive()").expect("chain");
     assert!(ir.contains("call abs") && ir.contains("cmp gt"), "{ir}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "C").expect("parse");
 }
@@ -804,22 +790,16 @@ fn is_identity_peel_method_list() {
 #[test]
 fn i64_wrapping_encodes_via_synthetic_modulus() {
     // i64 modulus 2^64 = (2^32)*(2^32) in IR (const 2^64 not representable as i64)
-    let add =
-        try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_add(1)").expect("i64 add");
+    let add = try_ir_from_rust_body("W", &px(), Some("i64"), "x.wrapping_add(1)").expect("i64 add");
     assert!(
-        add.contains("const 4294967296")
-            && add.contains("arith mul")
-            && add.contains("arith mod"),
+        add.contains("const 4294967296") && add.contains("arith mul") && add.contains("arith mod"),
         "{add}"
     );
     assert!(add.contains("cmp gt"), "signed reinterpret: {add}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&add, "W").expect("parse add");
-    let mul =
-        try_ir_from_rust_body("M", &px(), Some("i64"), "x.wrapping_mul(2)").expect("i64 mul");
+    let mul = try_ir_from_rust_body("M", &px(), Some("i64"), "x.wrapping_mul(2)").expect("i64 mul");
     assert!(
-        mul.contains("arith mul")
-            && mul.contains("arith mod")
-            && mul.contains("const 4294967296"),
+        mul.contains("arith mul") && mul.contains("arith mod") && mul.contains("const 4294967296"),
         "{mul}"
     );
     assura_smt::LoadedVerifyExtras::from_ir_text(&mul, "M").expect("parse mul");
@@ -839,13 +819,11 @@ fn signed_i8_wrapping_add_encodes() {
         name: "x".into(),
         ty: "i8".into(),
     }];
-    let ir =
-        try_ir_from_rust_body("W", &pi8, Some("i8"), "x.wrapping_add(1)").expect("i8 wrap");
+    let ir = try_ir_from_rust_body("W", &pi8, Some("i8"), "x.wrapping_add(1)").expect("i8 wrap");
     assert!(ir.contains("arith mod") && ir.contains("const 256"), "{ir}");
     assert!(ir.contains("cmp gt"), "signed reinterpret: {ir}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "W").expect("parse");
-    let mul =
-        try_ir_from_rust_body("M", &pi8, Some("i8"), "x.wrapping_mul(2)").expect("i8 mul");
+    let mul = try_ir_from_rust_body("M", &pi8, Some("i8"), "x.wrapping_mul(2)").expect("i8 mul");
     assert!(
         mul.contains("arith mul") && mul.contains("arith mod"),
         "{mul}"
@@ -870,19 +848,16 @@ fn unsigned_wrapping_add_encodes_via_mod() {
         name: "x".into(),
         ty: "u8".into(),
     }];
-    let ir =
-        try_ir_from_rust_body("W", &pu8, Some("u8"), "x.wrapping_add(1)").expect("u8 wrap");
+    let ir = try_ir_from_rust_body("W", &pu8, Some("u8"), "x.wrapping_add(1)").expect("u8 wrap");
     assert!(ir.contains("arith add") && ir.contains("arith mod"), "{ir}");
     assert!(ir.contains("const 256"), "{ir}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "W").expect("parse");
-    let mul =
-        try_ir_from_rust_body("M", &pu8, Some("u8"), "x.wrapping_mul(3)").expect("u8 mul");
+    let mul = try_ir_from_rust_body("M", &pu8, Some("u8"), "x.wrapping_mul(3)").expect("u8 mul");
     assert!(
         mul.contains("arith mul") && mul.contains("arith mod"),
         "{mul}"
     );
-    let neg =
-        try_ir_from_rust_body("Ng", &pu8, Some("u8"), "x.wrapping_neg()").expect("u8 neg");
+    let neg = try_ir_from_rust_body("Ng", &pu8, Some("u8"), "x.wrapping_neg()").expect("u8 neg");
     assert!(
         neg.contains("arith sub") && neg.contains("arith mod"),
         "{neg}"
@@ -913,18 +888,17 @@ fn top_level_wrapping_neg_encodes() {
 #[test]
 fn is_power_of_two_const_and_i64_var() {
     // Const lit peeps
-    let t = try_ir_from_rust_body("T", &px(), Some("bool"), "8i64.is_power_of_two()")
-        .expect("8 pot");
+    let t =
+        try_ir_from_rust_body("T", &px(), Some("bool"), "8i64.is_power_of_two()").expect("8 pot");
     assert!(t.contains("const 1 : Bool"), "{t}");
-    let f = try_ir_from_rust_body("F", &px(), Some("bool"), "3i64.is_power_of_two()")
-        .expect("3 not");
+    let f =
+        try_ir_from_rust_body("F", &px(), Some("bool"), "3i64.is_power_of_two()").expect("3 not");
     assert!(f.contains("const 0 : Bool"), "{f}");
-    let z = try_ir_from_rust_body("Z", &px(), Some("bool"), "0i64.is_power_of_two()")
-        .expect("0 not");
+    let z =
+        try_ir_from_rust_body("Z", &px(), Some("bool"), "0i64.is_power_of_two()").expect("0 not");
     assert!(z.contains("const 0 : Bool"), "{z}");
     // i64 path param: 63-pot enum
-    let ir =
-        try_ir_from_rust_body("P", &px(), Some("bool"), "x.is_power_of_two()").expect("i64");
+    let ir = try_ir_from_rust_body("P", &px(), Some("bool"), "x.is_power_of_two()").expect("i64");
     assert!(
         ir.contains("cmp eq") && ir.contains("const 1 : Int"),
         "{ir}"
@@ -942,16 +916,16 @@ fn is_power_of_two_const_and_i64_var() {
 #[test]
 fn variable_u8_is_power_of_two_encodes() {
     // #1034: u8/u32 path params enumerate 1,2,4,... via OR chain
-    let ir = try_ir_from_rust_body("P", &pu8(), Some("bool"), "x.is_power_of_two()")
-        .expect("u8 pot");
+    let ir =
+        try_ir_from_rust_body("P", &pu8(), Some("bool"), "x.is_power_of_two()").expect("u8 pot");
     assert!(ir.contains("cmp eq"), "{ir}");
     assert!(
         ir.contains("const 1 : Int") && ir.contains("const 128 : Int"),
         "{ir}"
     );
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "P").expect("parse");
-    let u32ir = try_ir_from_rust_body("Q", &pu32(), Some("bool"), "x.is_power_of_two()")
-        .expect("u32 pot");
+    let u32ir =
+        try_ir_from_rust_body("Q", &pu32(), Some("bool"), "x.is_power_of_two()").expect("u32 pot");
     assert!(
         u32ir.contains("const 2147483648") || u32ir.contains("const 1 : Int"),
         "{u32ir}"
@@ -961,8 +935,8 @@ fn variable_u8_is_power_of_two_encodes() {
         name: "x".into(),
         ty: "u64".into(),
     }];
-    let u64ir = try_ir_from_rust_body("U", &pu64, Some("bool"), "x.is_power_of_two()")
-        .expect("u64 pot");
+    let u64ir =
+        try_ir_from_rust_body("U", &pu64, Some("bool"), "x.is_power_of_two()").expect("u64 pot");
     assert!(
         u64ir.contains("cmp eq") && u64ir.contains("arith mul"),
         "{u64ir}"
@@ -1050,17 +1024,14 @@ fn const_count_ones_and_trailing_zeros_peep() {
         .expect("lo");
     assert!(lo.contains("const 4 : Int"), "{lo}");
     // 12u32 has 2 ones → 30 zeros
-    let cz =
-        try_ir_from_rust_body("Cz", &px(), Some("u32"), "12u32.count_zeros()").expect("cz");
+    let cz = try_ir_from_rust_body("Cz", &px(), Some("u32"), "12u32.count_zeros()").expect("cz");
     assert!(cz.contains("const 30 : Int"), "{cz}");
-    let tz =
-        try_ir_from_rust_body("T", &px(), Some("u32"), "12u32.trailing_zeros()").expect("tz");
+    let tz = try_ir_from_rust_body("T", &px(), Some("u32"), "12u32.trailing_zeros()").expect("tz");
     assert!(tz.contains("const 2 : Int"), "{tz}");
     // Variable receivers stay BNM
     assert!(try_ir_from_rust_body("V", &px(), Some("u32"), "x.count_ones()").is_none());
     // Typed 0.trailing_zeros() == bit width
-    let z0 =
-        try_ir_from_rust_body("Z", &px(), Some("u32"), "0u32.trailing_zeros()").expect("0tz");
+    let z0 = try_ir_from_rust_body("Z", &px(), Some("u32"), "0u32.trailing_zeros()").expect("0tz");
     assert!(z0.contains("const 32 : Int"), "{z0}");
     // bare 0 without suffix still BNM
     assert!(try_ir_from_rust_body("B", &px(), Some("u32"), "0.trailing_zeros()").is_none());
@@ -1068,8 +1039,7 @@ fn const_count_ones_and_trailing_zeros_peep() {
 
 #[test]
 fn typed_leading_zeros_peep() {
-    let lz =
-        try_ir_from_rust_body("L", &px(), Some("u32"), "8u32.leading_zeros()").expect("lz");
+    let lz = try_ir_from_rust_body("L", &px(), Some("u32"), "8u32.leading_zeros()").expect("lz");
     // 8u32 = 0b1000 → 28 leading zeros in 32 bits
     assert!(lz.contains("const 28 : Int"), "{lz}");
     // bare unsuffixed lit has no width
@@ -1110,8 +1080,7 @@ fn typed_reverse_bits_and_swap_bytes_peep() {
     let rev = try_ir_from_rust_body("R", &px(), Some("u8"), "1u8.reverse_bits()").expect("rev");
     assert!(rev.contains("const 128 : Int"), "{rev}");
     // 0x1234u16.swap_bytes() → 0x3412 = 13330
-    let sw =
-        try_ir_from_rust_body("S", &px(), Some("u16"), "0x1234u16.swap_bytes()").expect("sw");
+    let sw = try_ir_from_rust_body("S", &px(), Some("u16"), "0x1234u16.swap_bytes()").expect("sw");
     assert!(sw.contains("const 13330 : Int"), "{sw}");
     // i64 path param has no unsigned bit reverse (signed)
     assert!(try_ir_from_rust_body("V", &px(), Some("u8"), "x.reverse_bits()").is_none());
@@ -1119,8 +1088,7 @@ fn typed_reverse_bits_and_swap_bytes_peep() {
     assert!(ig.contains("const 3 : Int"), "{ig}");
     assert!(try_ir_from_rust_body("Z", &px(), Some("u32"), "0u32.ilog2()").is_none());
     // Variable unsigned path-param ilog2 (#1174)
-    let vilog =
-        try_ir_from_rust_body("V", &pu8(), Some("u32"), "x.ilog2()").expect("var ilog2");
+    let vilog = try_ir_from_rust_body("V", &pu8(), Some("u32"), "x.ilog2()").expect("var ilog2");
     assert!(
         vilog.contains("arith mod") && vilog.contains("arith mul"),
         "{vilog}"
@@ -1131,20 +1099,19 @@ fn typed_reverse_bits_and_swap_bytes_peep() {
     assert!(vilog10.contains("cmp ge"), "{vilog10}");
     // signed stays BNM
     assert!(try_ir_from_rust_body("S", &px(), Some("u32"), "x.ilog2()").is_none());
-    let np = try_ir_from_rust_body("Np", &px(), Some("u32"), "3u32.next_power_of_two()")
-        .expect("np");
+    let np =
+        try_ir_from_rust_body("Np", &px(), Some("u32"), "3u32.next_power_of_two()").expect("np");
     assert!(np.contains("const 4 : Int"), "{np}");
-    let z1 = try_ir_from_rust_body("Z1", &px(), Some("u32"), "0u32.next_power_of_two()")
-        .expect("0np");
+    let z1 =
+        try_ir_from_rust_body("Z1", &px(), Some("u32"), "0u32.next_power_of_two()").expect("0np");
     assert!(z1.contains("const 1 : Int"), "{z1}");
     // Variable path-param next_power_of_two (#1185)
     let vnp =
         try_ir_from_rust_body("Vnp", &pu8(), Some("u8"), "x.next_power_of_two()").expect("vnp");
     assert!(vnp.contains("cmp le") && vnp.contains("const 128"), "{vnp}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&vnp, "Vnp").expect("parse");
-    let wvar =
-        try_ir_from_rust_body("Wv", &pu8(), Some("u8"), "x.wrapping_next_power_of_two()")
-            .expect("wvar");
+    let wvar = try_ir_from_rust_body("Wv", &pu8(), Some("u8"), "x.wrapping_next_power_of_two()")
+        .expect("wvar");
     assert!(wvar.contains("cmp le"), "{wvar}");
     // 200u8 wraps (256 would overflow u8)
     let wnp = try_ir_from_rust_body(
@@ -1158,8 +1125,7 @@ fn typed_reverse_bits_and_swap_bytes_peep() {
     let sq = try_ir_from_rust_body("Sq", &px(), Some("u32"), "10u32.isqrt()").expect("isqrt");
     assert!(sq.contains("const 3 : Int"), "{sq}");
     assert!(try_ir_from_rust_body("Neg", &px(), Some("i64"), "(-1i64).isqrt()").is_none());
-    let l10 =
-        try_ir_from_rust_body("L10", &px(), Some("u32"), "100u32.ilog10()").expect("ilog10");
+    let l10 = try_ir_from_rust_body("L10", &px(), Some("u32"), "100u32.ilog10()").expect("ilog10");
     assert!(l10.contains("const 2 : Int"), "{l10}");
     let ua = try_ir_from_rust_body("Ua", &px(), Some("i64"), "x.unsigned_abs()").expect("uabs");
     assert!(ua.contains("call abs"), "{ua}");
@@ -1173,8 +1139,7 @@ fn shift_rotate_zero_identity_peep() {
     let rot = try_ir_from_rust_body("R", &px(), Some("i64"), "x.rotate_left(0)").expect("rot");
     assert!(rot.contains("load $0"), "{rot}");
     // signed wrapping_shr via floor div
-    let shr =
-        try_ir_from_rust_body("N", &px(), Some("i64"), "x.wrapping_shr(1)").expect("i64 shr");
+    let shr = try_ir_from_rust_body("N", &px(), Some("i64"), "x.wrapping_shr(1)").expect("i64 shr");
     assert!(shr.contains("arith div"), "{shr}");
 }
 
@@ -1208,8 +1173,7 @@ fn variable_u8_rotate_left_encodes() {
             ty: "u32".into(),
         },
     ];
-    let i64r =
-        try_ir_from_rust_body("I", &pi, Some("i64"), "x.rotate_left(n)").expect("i64 rot");
+    let i64r = try_ir_from_rust_body("I", &pi, Some("i64"), "x.rotate_left(n)").expect("i64 rot");
     assert!(
         i64r.contains("cmp eq") && i64r.contains("arith mul"),
         "{i64r}"
@@ -1246,8 +1210,7 @@ fn unsigned_wrapping_shl_const_encodes() {
         name: "x".into(),
         ty: "i8".into(),
     }];
-    let srot =
-        try_ir_from_rust_body("Sr", &pi8, Some("i8"), "x.rotate_left(1)").expect("i8 rotl");
+    let srot = try_ir_from_rust_body("Sr", &pi8, Some("i8"), "x.rotate_left(1)").expect("i8 rotl");
     assert!(
         srot.contains("cmp gt") && srot.contains("arith mod"),
         "{srot}"
@@ -1324,9 +1287,7 @@ fn variable_i64_wrapping_shl_encodes() {
     ];
     let ir = try_ir_from_rust_body("S", &p, Some("i64"), "x.wrapping_shl(n)").expect("i64");
     assert!(
-        ir.contains("cmp eq")
-            && ir.contains("const 4294967296")
-            && ir.contains("const 2147483648"),
+        ir.contains("cmp eq") && ir.contains("const 4294967296") && ir.contains("const 2147483648"),
         "{ir}"
     );
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
@@ -1334,8 +1295,7 @@ fn variable_i64_wrapping_shl_encodes() {
     assert!(shr.contains("arith div") && shr.contains("cmp eq"), "{shr}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&shr, "R").expect("parse");
     // const shift by 63 now encodes (2^63 = 2^32*2^31)
-    let c63 =
-        try_ir_from_rust_body("C", &px(), Some("i64"), "x.wrapping_shl(63)").expect("shl63");
+    let c63 = try_ir_from_rust_body("C", &px(), Some("i64"), "x.wrapping_shl(63)").expect("shl63");
     assert!(c63.contains("const 2147483648"), "{c63}");
 }
 
@@ -1360,8 +1320,7 @@ fn variable_u64_wrapping_shl_encodes() {
     let shr = try_ir_from_rust_body("R", &p, Some("u64"), "x.wrapping_shr(n)").expect("shr");
     assert!(shr.contains("arith div") && shr.contains("cmp eq"), "{shr}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&shr, "R").expect("parse");
-    let c1 =
-        try_ir_from_rust_body("C", &p[..1], Some("u64"), "x.wrapping_shl(1)").expect("const1");
+    let c1 = try_ir_from_rust_body("C", &p[..1], Some("u64"), "x.wrapping_shl(1)").expect("const1");
     assert!(
         c1.contains("arith mul") && c1.contains("const 4294967296"),
         "{c1}"
@@ -1377,8 +1336,7 @@ fn variable_u64_wrapping_shl_encodes() {
             ty: "u32".into(),
         },
     ];
-    let us =
-        try_ir_from_rust_body("U", &pu, Some("usize"), "x.wrapping_shl(n)").expect("usize");
+    let us = try_ir_from_rust_body("U", &pu, Some("usize"), "x.wrapping_shl(n)").expect("usize");
     assert!(us.contains("const 4294967296"), "{us}");
 }
 
@@ -1394,8 +1352,7 @@ fn signed_wrapping_shl_const_encodes() {
         "{ir}"
     );
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
-    let i8shr =
-        try_ir_from_rust_body("R", &pi8, Some("i8"), "x.wrapping_shr(1)").expect("i8 shr");
+    let i8shr = try_ir_from_rust_body("R", &pi8, Some("i8"), "x.wrapping_shr(1)").expect("i8 shr");
     assert!(i8shr.contains("arith div"), "{i8shr}");
     let i64ir =
         try_ir_from_rust_body("L", &px(), Some("i64"), "x.wrapping_shl(1)").expect("i64 shl");
@@ -1445,8 +1402,6 @@ fn signum_method_chains_and_neg_encode() {
     assert!(neg.contains("arith sub"), "{neg}");
     let mul = try_ir_from_rust_body("M", &px(), Some("i64"), "x.signum() * x").expect("mul");
     assert!(mul.contains("arith mul"), "{mul}");
-    let notz =
-        try_ir_from_rust_body("Z", &px(), Some("bool"), "!x.is_zero()").expect("not zero");
+    let notz = try_ir_from_rust_body("Z", &px(), Some("bool"), "!x.is_zero()").expect("not zero");
     assert!(notz.contains("cmp eq"), "{notz}");
 }
-
