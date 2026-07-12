@@ -9,7 +9,9 @@ pub(super) fn is_u64_width_bounds(lo: i64, hi: i64) -> bool {
 
 /// Integer range for a Rust primitive type name, or `None` if unsupported.
 pub(super) fn rust_int_bounds(ty: &str) -> Option<(i64, i64)> {
-    match ty {
+    // Strip path prefixes: `std::num::NonZeroU8` → `NonZeroU8`
+    let base = ty.rsplit("::").next().unwrap_or(ty).trim();
+    match base {
         "i8" => Some((i8::MIN as i64, i8::MAX as i64)),
         "i16" => Some((i16::MIN as i64, i16::MAX as i64)),
         "i32" => Some((i32::MIN as i64, i32::MAX as i64)),
@@ -19,6 +21,12 @@ pub(super) fn rust_int_bounds(ty: &str) -> Option<(i64, i64)> {
         "u32" => Some((0, u32::MAX as i64)),
         // u64 max exceeds i64; use sentinel for synthetic 2^64 (#1160)
         "u64" | "usize" => Some((0, -1)),
+        // Positive-only divisors for rem_euclid / div_euclid / next_multiple_of
+        "NonZeroU8" => Some((1, u8::MAX as i64)),
+        "NonZeroU16" => Some((1, u16::MAX as i64)),
+        "NonZeroU32" => Some((1, u32::MAX as i64)),
+        // hi=-1 sentinel unused for NonZeroU64; modulus not needed for divisor path
+        "NonZeroU64" | "NonZeroUsize" => Some((1, i64::MAX)),
         _ => None,
     }
 }
@@ -183,7 +191,10 @@ pub(super) fn path_param_bounds(expr: &syn::Expr) -> Option<(i64, i64)> {
             return path_param_bounds(&u.expr);
         }
         syn::Expr::MethodCall(m)
-            if m.args.is_empty() && is_identity_peel_method(&m.method.to_string()) =>
+            if m.args.is_empty()
+                && (is_identity_peel_method(&m.method.to_string())
+                    // NonZero*::get() preserves the path-param integer bounds
+                    || m.method == "get") =>
         {
             return path_param_bounds(&m.receiver);
         }

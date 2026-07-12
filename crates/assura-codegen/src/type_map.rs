@@ -131,11 +131,18 @@ pub fn rust_type_to_assura(rust_type: &str) -> String {
 
 /// Map a simple (non-generic) Rust type to Assura.
 fn map_simple_rust_type(ty: &str) -> &str {
+    // Strip path prefixes so `std::num::NonZeroU8` matches.
+    let ty = ty.rsplit("::").next().unwrap_or(ty).trim();
     match ty {
         // Signed integers -> Int
         "i8" | "i16" | "i32" | "i64" | "i128" | "isize" => "Int",
         // Unsigned integers -> Nat
         "u8" | "u16" | "u32" | "u64" | "u128" | "usize" => "Nat",
+        // NonZero* (std::num) — positive integer wrappers
+        "NonZeroU8" | "NonZeroU16" | "NonZeroU32" | "NonZeroU64" | "NonZeroU128"
+        | "NonZeroUsize" => "Nat",
+        "NonZeroI8" | "NonZeroI16" | "NonZeroI32" | "NonZeroI64" | "NonZeroI128"
+        | "NonZeroIsize" => "Int",
         // Floats
         "f32" | "f64" => "Float",
         // Bool
@@ -296,6 +303,29 @@ mod tests {
         for ty in &["u8", "u16", "u32", "u64", "u128", "usize"] {
             assert_eq!(rust_type_to_assura(ty), "Nat", "failed for {ty}");
         }
+    }
+
+    #[test]
+    fn nonzero_integers_map_to_int_or_nat() {
+        for ty in &[
+            "NonZeroU8",
+            "NonZeroU16",
+            "NonZeroU32",
+            "NonZeroU64",
+            "NonZeroUsize",
+        ] {
+            assert_eq!(rust_type_to_assura(ty), "Nat", "failed for {ty}");
+        }
+        for ty in &[
+            "NonZeroI8",
+            "NonZeroI16",
+            "NonZeroI32",
+            "NonZeroI64",
+            "NonZeroIsize",
+        ] {
+            assert_eq!(rust_type_to_assura(ty), "Int", "failed for {ty}");
+        }
+        assert_eq!(rust_type_to_assura("std::num::NonZeroU8"), "Nat");
     }
 
     #[test]

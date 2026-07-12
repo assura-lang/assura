@@ -922,7 +922,14 @@ pub(crate) fn clause_to_json(
 
 /// Inclusive bounds for fixed-width signed Rust integer types used as params.
 fn rust_int_range_bounds(rust_ty: &str) -> Option<(&'static str, &'static str)> {
-    match rust_ty.trim() {
+    // Strip path prefixes / syn spacing: `std :: num :: NonZeroU32` → `NonZeroU32`
+    let base = rust_ty
+        .rsplit("::")
+        .next()
+        .unwrap_or(rust_ty)
+        .split_whitespace()
+        .collect::<String>();
+    match base.as_str() {
         "i8" => Some(("-128", "127")),
         "i16" => Some(("-32768", "32767")),
         "i32" => Some(("-2147483648", "2147483647")),
@@ -930,6 +937,9 @@ fn rust_int_range_bounds(rust_ty: &str) -> Option<(&'static str, &'static str)> 
         "u8" => Some(("0", "255")),
         "u16" => Some(("0", "65535")),
         "u32" => Some(("0", "4294967295")),
+        "NonZeroU8" => Some(("1", "255")),
+        "NonZeroU16" => Some(("1", "65535")),
+        "NonZeroU32" => Some(("1", "4294967295")),
         // u64 max does not fit i64 IR const path; skip range inject for now
         _ => None,
     }
