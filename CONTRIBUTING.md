@@ -171,15 +171,21 @@ cargo test -p <crate> --locked --lib
 ### `check-rust` body proof
 
 `assura check-rust` proves `/// @ensures` against either a co-located
-`{Name}.ir` sidecar or a **encoded** Rust body (int/bool arith, if/else,
-match literals and identity guards, multi-let folds,
-abs/min/max/clamp/signum/saturating/abs_diff, &&/||, is_multiple_of, into/as,
-PartialOrd/borrow/deref/pow/default). `signum` is nestable in arith (clamp to
-[-1, 1]). Top-level `wrapping_neg` expands to multi-block if (MIN stays MIN).
-Known gaps: `wrapping_add`/`sub`/`mul` (#1010), nested wrapping, `is_power_of_two`
-(#1034). Bodies that cannot be modeled report `body_not_modeled` and exit **1**
-(including SMT skipped/checked soft passes). Do not treat empty/skipped SMT as
-proof.
+`{Name}.ir` sidecar or a **encoded** Rust body. Encoded surface includes
+int/bool arith, if/else/match, multi-let, abs/min/max/clamp/signum/saturating/
+abs_diff, &&/||, is_multiple_of, into/as, PartialOrd/borrow/deref/pow/default,
+fixed-width wrapping_* (incl. nested width fallback), variable wrapping_shl/shr
+and rotate through 64 bits, BitAnd/Or/Xor (const mask and both-var signed/
+unsigned ≤32), variable bitwise `!x` ≤32, pot `is_power_of_two` through u64,
+and variable `ilog2`/`ilog10` for unsigned path params ≤32. `signum` is
+nestable in arith (clamp to [-1, 1]). Top-level `wrapping_neg` expands to
+multi-block if (MIN stays MIN).
+
+Residual `body_not_modeled` (still intentional): const-mask bitops and
+bitwise `!x` for i64/u64 (width >32 IR cost); panic paths (`/0`, `%0`,
+`is_multiple_of(0)`, literal `0.ilog2()`). Bodies that cannot be modeled
+report `body_not_modeled` and exit **1** (including SMT skipped/checked
+soft passes). Do not treat empty/skipped SMT as proof.
 
 Implementation: `crates/assura-cli/src/check/rust_body_ir.rs` (syn extract +
 IR text) and `should_mark_body_not_modeled` in `check_rust.rs`. Multi-block

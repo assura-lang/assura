@@ -1621,7 +1621,7 @@ fn encode_syn_expr(
                     return Some(slot);
                 }
             }
-            // Variable BitAnd/Or/Xor: const mask (signed/unsigned) or both-var unsigned.
+            // Variable BitAnd/Or/Xor: const mask (signed/unsigned) or both-var ≤32.
             if let Some(kind) = match &b.op {
                 syn::BinOp::BitAnd(_) => Some(BitOpKind::And),
                 syn::BinOp::BitOr(_) => Some(BitOpKind::Or),
@@ -3546,6 +3546,25 @@ fn f(x: i64) -> i64 {
         let sxor = try_ir_from_rust_body("Sx", &pxyi, Some("i8"), "x ^ y").expect("i8 xor");
         assert!(sxor.contains("arith mul"), "{sxor}");
         assura_smt::LoadedVerifyExtras::from_ir_text(&sxor, "Sx").expect("parse");
+        // i16 / i32 both-var signed (#1171 acceptance surface)
+        for (ty, name) in [("i16", "Si16"), ("i32", "Si32")] {
+            let p = vec![
+                ParamInfo {
+                    name: "x".into(),
+                    ty: ty.into(),
+                },
+                ParamInfo {
+                    name: "y".into(),
+                    ty: ty.into(),
+                },
+            ];
+            let ir = try_ir_from_rust_body(name, &p, Some(ty), "x & y").expect(ty);
+            assert!(
+                ir.contains("cmp gt") && ir.contains("arith mul"),
+                "{ty}: {ir}"
+            );
+            assura_smt::LoadedVerifyExtras::from_ir_text(&ir, name).expect(ty);
+        }
     }
 
     #[test]
