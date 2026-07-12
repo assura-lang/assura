@@ -1679,14 +1679,10 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = cmp eq ${rem} ${z} : Bool"));
                     Some(slot)
                 }
-                // div_ceil for non-neg receiver + positive const divisor: (a+b-1)/b.
-                // Requires unsigned/Nat param bounds (or const non-neg lit receiver).
+                // div_ceil for non-neg receiver + positive divisor: (a+b-1)/b.
+                // Divisor: positive const or NonZeroU* path param (lo >= 1).
+                // Receiver must be non-negative: path param with lo>=0, or non-neg lit.
                 ("div_ceil", 1) => {
-                    let b_val = lit_int_i64(&m.args[0])?;
-                    if b_val <= 0 {
-                        return None;
-                    }
-                    // Receiver must be non-negative: path param with lo>=0, or non-neg lit.
                     let nonneg = if let Some(v) = lit_int_i64(&m.receiver) {
                         v >= 0
                     } else if let Some((lo, _)) = path_param_bounds(&m.receiver) {
@@ -1698,9 +1694,7 @@ fn encode_syn_expr(
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
-                    let b = *next;
-                    *next += 1;
-                    lines.push(format!("${b} = const {b_val} : Int"));
+                    let b = encode_positive_divisor(&m.args[0], param_names, lines, next)?;
                     let one = *next;
                     *next += 1;
                     lines.push(format!("${one} = const 1 : Int"));
