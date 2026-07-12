@@ -189,8 +189,8 @@ non-neg receiver). `signum` is nestable in arith (clamp to [-1, 1]). Top-level
 Residual `body_not_modeled` (still intentional): panic paths (`/0`, `%0`,
 `is_multiple_of(0)`, literal `0.ilog2()`); some width>32 both-variable
 bitops; `u64` `next_power_of_two`; `isqrt` for widths >16; signed `ilog2`;
-`rem_euclid`/`div_euclid`/`next_multiple_of` with non-positive or zero-
-including divisors (use a positive const or `NonZeroU*` param). Bodies that
+`rem_euclid`/`div_euclid`/`div_ceil`/`next_multiple_of` with non-positive or
+zero-including divisors (use a positive const or `NonZeroU*` param). Bodies that
 cannot be modeled report `body_not_modeled` and exit **1** (including SMT
 skipped/checked soft passes). Do not treat empty/skipped SMT as proof.
 
