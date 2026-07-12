@@ -6965,6 +6965,58 @@ fn s(x: u16) -> u16 { x.swap_bytes() }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Wrong signed swap_bytes ensures must CE (bit-pattern map is live).
+#[test]
+fn check_rust_i16_swap_bytes_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_i16_swap_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn s(x: i16) -> i16 { x.swap_bytes() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
+/// Wrong rem_euclid with NonZero divisor must CE (variable positive path live).
+#[test]
+fn check_rust_rem_euclid_nonzero_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_rem_nz_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+use std::num::NonZeroU32;
+
+/// @ensures result == 0
+fn r(x: u32, d: NonZeroU32) -> u32 { x.rem_euclid(d.get()) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Wrong reverse_bits ensures must CE.
 #[test]
 fn check_rust_u8_reverse_bits_wrong_ce() {
