@@ -1125,6 +1125,12 @@ fn typed_reverse_bits_and_swap_bytes_peep() {
     let sq = try_ir_from_rust_body("Sq", &px(), Some("u32"), "10u32.isqrt()").expect("isqrt");
     assert!(sq.contains("const 3 : Int"), "{sq}");
     assert!(try_ir_from_rust_body("Neg", &px(), Some("i64"), "(-1i64).isqrt()").is_none());
+    // Variable unsigned path ≤16 (#1187 follow-on / MPI encode)
+    let vsq = try_ir_from_rust_body("Vsq", &pu8(), Some("u8"), "x.isqrt()").expect("var isqrt");
+    assert!(vsq.contains("cmp ge") && vsq.contains("const 15"), "{vsq}");
+    assura_smt::LoadedVerifyExtras::from_ir_text(&vsq, "Vsq").expect("parse");
+    // u32 path stays BNM (ladder too large)
+    assert!(try_ir_from_rust_body("U32", &pu32(), Some("u32"), "x.isqrt()").is_none());
     let l10 = try_ir_from_rust_body("L10", &px(), Some("u32"), "100u32.ilog10()").expect("ilog10");
     assert!(l10.contains("const 2 : Int"), "{l10}");
     let ua = try_ir_from_rust_body("Ua", &px(), Some("i64"), "x.unsigned_abs()").expect("uabs");

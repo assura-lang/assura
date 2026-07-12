@@ -276,6 +276,60 @@ pub(super) fn encode_unsigned_bitop_var_var(
     Some(u)
 }
 
+/// Integer square root for unsigned `a` with width `bits` (bits ≤16 for IR size).
+/// Ladder over `r` in `0..=floor(sqrt(2^bits-1))`: select `r` when `r*r <= a < (r+1)^2`.
+pub(super) fn encode_unsigned_isqrt(
+    a: usize,
+    bits: u32,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> Option<usize> {
+    if bits == 0 || bits > 16 {
+        return None;
+    }
+    let max_val = (1u64 << bits) - 1;
+    let max_root = (max_val as f64).sqrt().floor() as u32;
+    let zero = *next;
+    *next += 1;
+    lines.push(format!("${zero} = const 0 : Int"));
+    let mut acc = zero;
+    for r in 0..=max_root {
+        let lo_sq = (r as u64) * (r as u64);
+        let hi_sq = ((r as u64) + 1) * ((r as u64) + 1);
+        let r_c = *next;
+        *next += 1;
+        lines.push(format!("${r_c} = const {r} : Int"));
+        let lo = *next;
+        *next += 1;
+        lines.push(format!("${lo} = const {lo_sq} : Int"));
+        let ge = *next;
+        *next += 1;
+        lines.push(format!("${ge} = cmp ge ${a} ${lo} : Bool"));
+        let sel = if hi_sq > max_val {
+            ge
+        } else {
+            let hi = *next;
+            *next += 1;
+            lines.push(format!("${hi} = const {hi_sq} : Int"));
+            let lt = *next;
+            *next += 1;
+            lines.push(format!("${lt} = cmp lt ${a} ${hi} : Bool"));
+            let s = *next;
+            *next += 1;
+            lines.push(format!("${s} = arith mul ${ge} ${lt} : Bool"));
+            s
+        };
+        let term = *next;
+        *next += 1;
+        lines.push(format!("${term} = arith mul ${sel} ${r_c} : Int"));
+        let sum = *next;
+        *next += 1;
+        lines.push(format!("${sum} = arith add ${acc} ${term} : Int"));
+        acc = sum;
+    }
+    Some(acc)
+}
+
 /// `next_power_of_two` for unsigned `a` with width `bits`.
 /// Ladder: for pot `2^k` (k=0..bits-1), select when `a` is in `(prev, pot]`.
 /// When `a > 2^(bits-1)`, result is 0 (Rust non-wrapping panics; wrapping wraps).
