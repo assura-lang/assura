@@ -355,6 +355,19 @@ fn div_ceil_const_divisor_encodes() {
     let ir = try_ir_from_rust_body("D", &pu8, Some("u8"), "x.div_ceil(3)").expect("div_ceil");
     assert!(ir.contains("arith div") && ir.contains("const 3"), "{ir}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "D").expect("parse");
+    // NonZeroU8 divisor
+    let nzd = vec![
+        ParamInfo {
+            name: "x".into(),
+            ty: "u8".into(),
+        },
+        ParamInfo {
+            name: "d".into(),
+            ty: "NonZeroU8".into(),
+        },
+    ];
+    let v = try_ir_from_rust_body("V", &nzd, Some("u8"), "x.div_ceil(d)").expect("var div_ceil");
+    assert!(v.contains("arith div") && v.contains("load"), "{v}");
     // signed i64 path stays BNM (may be negative)
     assert!(try_ir_from_rust_body("S", &px(), Some("i64"), "x.div_ceil(3)").is_none());
     // const non-neg lit

@@ -6469,6 +6469,32 @@ fn r(x: u32, d: NonZeroU32) -> u32 { x.rem_euclid(d.get()) }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// div_ceil with NonZeroU32 divisor (lo >= 1).
+#[test]
+fn check_rust_encodes_div_ceil_nonzero() {
+    let tmp = unique_temp("assura_check_rust_div_ceil_nz");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+use std::num::NonZeroU32;
+
+/// @ensures result >= x
+fn d(x: u32, n: NonZeroU32) -> u32 { x.div_ceil(n.get()) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Wrong rem_euclid ensures must CE.
 #[test]
 fn check_rust_rem_euclid_wrong_ce() {
