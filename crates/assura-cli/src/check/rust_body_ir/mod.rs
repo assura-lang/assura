@@ -656,6 +656,32 @@ pub(crate) fn is_identity_peel_method(name: &str) -> bool {
     )
 }
 
+/// Positive divisor for rem_euclid / div_euclid / next_multiple_of.
+/// Accepts a positive const lit, or a path param with lower bound ≥ 1
+/// (so zero and negative divisors stay BNM; they panic or are undefined
+/// for rem_euclid in the unsigned encoding we use).
+fn encode_positive_divisor(
+    expr: &syn::Expr,
+    param_names: &[&str],
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> Option<usize> {
+    if let Some(v) = lit_int_i64(expr) {
+        if v <= 0 {
+            return None;
+        }
+        let slot = *next;
+        *next += 1;
+        lines.push(format!("${slot} = const {v} : Int"));
+        return Some(slot);
+    }
+    let (lo, _hi) = path_param_bounds(expr)?;
+    if lo < 1 {
+        return None;
+    }
+    encode_syn_expr(expr, param_names, lines, next)
+}
+
 /// Encode `expr` into IR lines; returns the slot holding the value.
 fn encode_syn_expr(
     expr: &syn::Expr,
@@ -1557,6 +1583,14 @@ fn encode_syn_expr(
                 (name, 0) if is_identity_peel_method(name) => {
                     encode_syn_expr(&m.receiver, param_names, lines, next)
                 }
+                // NonZeroU*/I*::get() unwraps to the positive integer (lo >= 1).
+                ("get", 0) => {
+                    let (lo, _) = path_param_bounds(&m.receiver)?;
+                    if lo < 1 {
+                        return None;
+                    }
+                    encode_syn_expr(&m.receiver, param_names, lines, next)
+                }
                 ("not", 0) => {
                     let zero = *next;
                     *next += 1;
@@ -1630,17 +1664,12 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = arith div ${sum} ${b} : Int"));
                     Some(slot)
                 }
-                // rem_euclid with positive const divisor: ((a mod b) + b) mod b
-                // (works for signed; non-neg reduces to a mod b).
+                // rem_euclid with positive divisor: ((a mod b) + b) mod b
+                // (works for signed a; non-neg reduces to a mod b).
+                // Divisor: positive const, or path param with lo >= 1.
                 ("rem_euclid", 1) => {
-                    let b_val = lit_int_i64(&m.args[0])?;
-                    if b_val <= 0 {
-                        return None;
-                    }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
-                    let b = *next;
-                    *next += 1;
-                    lines.push(format!("${b} = const {b_val} : Int"));
+                    let b = encode_positive_divisor(&m.args[0], param_names, lines, next)?;
                     let t1 = *next;
                     *next += 1;
                     lines.push(format!("${t1} = arith mod ${a} ${b} : Int"));
@@ -1652,32 +1681,20 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = arith mod ${t2} ${b} : Int"));
                     Some(slot)
                 }
-                // div_euclid with positive const divisor ≡ floor div (SMT Int).
+                // div_euclid with positive divisor ≡ floor div (SMT Int).
                 ("div_euclid", 1) => {
-                    let b_val = lit_int_i64(&m.args[0])?;
-                    if b_val <= 0 {
-                        return None;
-                    }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
-                    let b = *next;
-                    *next += 1;
-                    lines.push(format!("${b} = const {b_val} : Int"));
+                    let b = encode_positive_divisor(&m.args[0], param_names, lines, next)?;
                     let slot = *next;
                     *next += 1;
                     lines.push(format!("${slot} = arith div ${a} ${b} : Int"));
                     Some(slot)
                 }
-                // next_multiple_of with positive const m: a - rem + m*[rem!=0]
+                // next_multiple_of with positive m: a - rem + m*[rem!=0]
                 // where rem = rem_euclid(a,m). Works for signed a.
                 ("next_multiple_of", 1) => {
-                    let m_val = lit_int_i64(&m.args[0])?;
-                    if m_val <= 0 {
-                        return None;
-                    }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
-                    let mv = *next;
-                    *next += 1;
-                    lines.push(format!("${mv} = const {m_val} : Int"));
+                    let mv = encode_positive_divisor(&m.args[0], param_names, lines, next)?;
                     // rem = ((a mod m) + m) mod m
                     let t1 = *next;
                     *next += 1;

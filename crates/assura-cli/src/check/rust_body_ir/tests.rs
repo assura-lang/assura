@@ -307,6 +307,43 @@ fn signed_rem_euclid_encodes() {
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "R").expect("parse");
     let de = try_ir_from_rust_body("D", &px(), Some("i64"), "x.div_euclid(3)").expect("de");
     assert!(de.contains("arith div"), "{de}");
+    // u8 divisor includes 0 → BNM
+    let u8d = vec![
+        ParamInfo {
+            name: "x".into(),
+            ty: "i64".into(),
+        },
+        ParamInfo {
+            name: "d".into(),
+            ty: "u8".into(),
+        },
+    ];
+    assert!(
+        try_ir_from_rust_body("Z", &u8d, Some("i64"), "x.rem_euclid(d)").is_none(),
+        "u8 divisor includes 0"
+    );
+    // NonZeroU8 divisor: lo >= 1 → encodes
+    let nzd = vec![
+        ParamInfo {
+            name: "x".into(),
+            ty: "i32".into(),
+        },
+        ParamInfo {
+            name: "d".into(),
+            ty: "NonZeroU8".into(),
+        },
+    ];
+    let vre = try_ir_from_rust_body("V", &nzd, Some("i32"), "x.rem_euclid(d)").expect("var re");
+    assert!(vre.contains("arith mod") && vre.contains("load"), "{vre}");
+    assura_smt::LoadedVerifyExtras::from_ir_text(&vre, "V").expect("parse");
+    let vde = try_ir_from_rust_body("Vd", &nzd, Some("i32"), "x.div_euclid(d)").expect("var de");
+    assert!(vde.contains("arith div"), "{vde}");
+    let vnmo =
+        try_ir_from_rust_body("Vn", &nzd, Some("i32"), "x.next_multiple_of(d)").expect("var nmo");
+    assert!(
+        vnmo.contains("arith mod") && vnmo.contains("cmp eq"),
+        "{vnmo}"
+    );
 }
 
 #[test]
@@ -1469,4 +1506,21 @@ fn signum_method_chains_and_neg_encode() {
     assert!(mul.contains("arith mul"), "{mul}");
     let notz = try_ir_from_rust_body("Z", &px(), Some("bool"), "!x.is_zero()").expect("not zero");
     assert!(notz.contains("cmp eq"), "{notz}");
+}
+
+#[test]
+fn rem_euclid_nonzero_get_peel() {
+    let nzd = vec![
+        ParamInfo {
+            name: "x".into(),
+            ty: "u32".into(),
+        },
+        ParamInfo {
+            name: "d".into(),
+            ty: "NonZeroU32".into(),
+        },
+    ];
+    let ir =
+        try_ir_from_rust_body("G", &nzd, Some("u32"), "x.rem_euclid(d.get())").expect("get peel");
+    assert!(ir.contains("arith mod"), "{ir}");
 }
