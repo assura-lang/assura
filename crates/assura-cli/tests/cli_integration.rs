@@ -3715,6 +3715,32 @@ fn id_as(x: i64) -> i64 { x as i64 }
     assert!(v["verified"].as_u64().unwrap_or(0) >= 5, "{stdout}");
 }
 
+/// is_multiple_of with NonZeroU32 divisor (zero-including paths stay BNM).
+#[test]
+fn check_rust_encodes_is_multiple_of_nonzero() {
+    let tmp = unique_temp("assura_check_rust_imo_nz");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+use std::num::NonZeroU32;
+
+/// @ensures result == true || result == false
+fn m(x: u32, d: NonZeroU32) -> bool { x.is_multiple_of(d.get()) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// abs_diff and ref/deref encode and verify.
 #[test]
 fn check_rust_encodes_abs_diff_ref() {
