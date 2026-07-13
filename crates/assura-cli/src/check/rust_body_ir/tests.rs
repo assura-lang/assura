@@ -1297,8 +1297,13 @@ fn variable_u8_trailing_zeros_encodes() {
         "{ir}"
     );
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "T").expect("parse");
-    // unbounded i64 path stays BNM
-    assert!(try_ir_from_rust_body("S", &px(), Some("u32"), "x.trailing_zeros()").is_none());
+    // i64 path-param trailing_zeros: synthetic 2^64 bit-pattern map
+    let i64tz =
+        try_ir_from_rust_body("S", &px(), Some("u32"), "x.trailing_zeros()").expect("i64 tz");
+    assert!(
+        i64tz.contains("4294967296") || i64tz.contains("arith mul"),
+        "{i64tz}"
+    );
     // signed ≤32 via bit-pattern map
     let pi8 = vec![ParamInfo {
         name: "x".into(),
@@ -1376,6 +1381,24 @@ fn typed_leading_zeros_peep() {
 }
 
 #[test]
+fn variable_i64_bit_peels_use_synthetic_2_64() {
+    // Full i64 signed path: wrap_width modulus is None → synthetic 2^64
+    let ir = try_ir_from_rust_body("R", &px(), Some("i64"), "x.reverse_bits()").expect("i64 rev");
+    assert!(
+        ir.contains("4294967296") || ir.contains("arith mul"),
+        "i64 reverse needs synthetic 2^64: {ir}"
+    );
+    assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "R").expect("parse rev");
+    let sw = try_ir_from_rust_body("S", &px(), Some("i64"), "x.swap_bytes()").expect("i64 sw");
+    assert!(sw.contains("256") || sw.contains("arith"), "{sw}");
+    assura_smt::LoadedVerifyExtras::from_ir_text(&sw, "S").expect("parse sw");
+    let tz = try_ir_from_rust_body("T", &px(), Some("i64"), "x.trailing_zeros()").expect("tz");
+    assert!(tz.contains("arith") || tz.contains("const"), "{tz}");
+    let lo = try_ir_from_rust_body("L", &px(), Some("i64"), "x.leading_ones()").expect("lo");
+    assert!(lo.contains("arith") || lo.contains("const"), "{lo}");
+}
+
+#[test]
 fn variable_u8_reverse_bits_encodes() {
     let pu8 = vec![ParamInfo {
         name: "x".into(),
@@ -1443,8 +1466,13 @@ fn typed_reverse_bits_and_swap_bytes_peep() {
     // 0x1234u16.swap_bytes() → 0x3412 = 13330
     let sw = try_ir_from_rust_body("S", &px(), Some("u16"), "0x1234u16.swap_bytes()").expect("sw");
     assert!(sw.contains("const 13330 : Int"), "{sw}");
-    // unbounded path (no fixed width) stays BNM
-    assert!(try_ir_from_rust_body("V", &px(), Some("u8"), "x.reverse_bits()").is_none());
+    // i64 path-param reverse_bits: synthetic 2^64 bit-pattern map (was BNM)
+    let i64rev =
+        try_ir_from_rust_body("V", &px(), Some("i64"), "x.reverse_bits()").expect("i64 rev");
+    assert!(
+        i64rev.contains("4294967296") || i64rev.contains("arith mul"),
+        "{i64rev}"
+    );
     let ig = try_ir_from_rust_body("I", &px(), Some("u32"), "8u32.ilog2()").expect("ilog");
     assert!(ig.contains("const 3 : Int"), "{ig}");
     assert!(try_ir_from_rust_body("Z", &px(), Some("u32"), "0u32.ilog2()").is_none());

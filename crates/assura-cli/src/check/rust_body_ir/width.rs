@@ -141,6 +141,22 @@ pub(super) fn emit_synthetic_2_64(lines: &mut Vec<String>, next: &mut usize) -> 
     two64
 }
 
+/// Signed bit-pattern modulus slot: concrete `2^w`, or synthetic `2^64` for i64.
+pub(super) fn emit_signed_modulus_slot(
+    modulus_i64: Option<i64>,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> usize {
+    if let Some(modulus) = modulus_i64 {
+        let m = *next;
+        *next += 1;
+        lines.push(format!("${m} = const {modulus} : Int"));
+        m
+    } else {
+        emit_synthetic_2_64(lines, next)
+    }
+}
+
 /// Emit IR for `u64::MAX = 2^64 - 1`.
 pub(super) fn emit_u64_max(lines: &mut Vec<String>, next: &mut usize) -> usize {
     let two64 = emit_synthetic_2_64(lines, next);

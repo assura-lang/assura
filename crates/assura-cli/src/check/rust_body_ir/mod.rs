@@ -1634,15 +1634,7 @@ fn encode_syn_expr(
                     return None;
                 }
                 let a = encode_syn_expr(&u.expr, param_names, lines, next)?;
-                let mslot = if modulus_i64.is_none() {
-                    emit_synthetic_2_64(lines, next)
-                } else {
-                    let modulus = modulus_i64?;
-                    let m = *next;
-                    *next += 1;
-                    lines.push(format!("${m} = const {modulus} : Int"));
-                    m
-                };
+                let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                 let one = *next;
                 *next += 1;
                 lines.push(format!("${one} = const 1 : Int"));
@@ -2015,15 +2007,7 @@ fn encode_syn_expr(
                     if !signed {
                         return encode_bit_sum_count_ones(a, bits, lines, next);
                     }
-                    // Signed i64: synthetic 2^64 modulus for bit-pattern map
-                    let mslot = if let Some(modulus) = modulus_i64 {
-                        let m = *next;
-                        *next += 1;
-                        lines.push(format!("${m} = const {modulus} : Int"));
-                        m
-                    } else {
-                        emit_synthetic_2_64(lines, next)
-                    };
+                    let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                     let u_in = emit_to_unsigned_bits(a, mslot, lines, next);
                     encode_bit_sum_count_ones(u_in, bits, lines, next)
                 }
@@ -2058,10 +2042,7 @@ fn encode_syn_expr(
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let u_in = if signed {
-                        let modulus = modulus_i64?;
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                         emit_to_unsigned_bits(a, mslot, lines, next)
                     } else {
                         a
@@ -2096,10 +2077,7 @@ fn encode_syn_expr(
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let u_in = if signed {
-                        let modulus = modulus_i64?;
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                         emit_to_unsigned_bits(a, mslot, lines, next)
                     } else {
                         a
@@ -2128,14 +2106,7 @@ fn encode_syn_expr(
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let u_in = if signed {
-                        let mslot = if let Some(modulus) = modulus_i64 {
-                            let m = *next;
-                            *next += 1;
-                            lines.push(format!("${m} = const {modulus} : Int"));
-                            m
-                        } else {
-                            emit_synthetic_2_64(lines, next)
-                        };
+                        let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                         emit_to_unsigned_bits(a, mslot, lines, next)
                     } else {
                         a
@@ -2182,10 +2153,7 @@ fn encode_syn_expr(
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let u_in = if signed {
-                        let modulus = modulus_i64?;
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                         emit_to_unsigned_bits(a, mslot, lines, next)
                     } else {
                         a
@@ -2219,18 +2187,15 @@ fn encode_syn_expr(
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let u_in = if signed {
-                        let modulus = modulus_i64?;
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                         emit_to_unsigned_bits(a, mslot, lines, next)
                     } else {
                         a
                     };
                     encode_unsigned_leading_zeros(u_in, bits, lines, next)
                 }
-                // Typed lit (incl. signed) or path-param bit reverse (≤32;
-                // signed via bit-pattern map + reinterpret).
+                // Typed lit (incl. signed) or path-param bit reverse (≤64;
+                // signed via bit-pattern map + reinterpret; i64 synthetic 2^64).
                 ("reverse_bits", 0) => {
                     if let Some((v, bits, signed)) = lit_int_i64_bits_signed(&m.receiver) {
                         let rev = match (bits, signed) {
@@ -2257,10 +2222,7 @@ fn encode_syn_expr(
                     if !signed {
                         return encode_unsigned_reverse_bits(a, bits, lines, next);
                     }
-                    let modulus = modulus_i64?;
-                    let mslot = *next;
-                    *next += 1;
-                    lines.push(format!("${mslot} = const {modulus} : Int"));
+                    let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                     let u_in = emit_to_unsigned_bits(a, mslot, lines, next);
                     let u_out = encode_unsigned_reverse_bits(u_in, bits, lines, next)?;
                     Some(emit_from_unsigned_bits(u_out, mslot, hi, lines, next))
@@ -2293,10 +2255,7 @@ fn encode_syn_expr(
                         return Some(a); // i8/u8 identity
                     }
                     let (u_in, mslot) = if signed {
-                        let modulus = modulus_i64?;
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                         (emit_to_unsigned_bits(a, mslot, lines, next), Some(mslot))
                     } else {
                         (a, None)
@@ -2739,7 +2698,6 @@ fn encode_syn_expr(
                     }
                     let (lo, hi) = wrap_bounds_for(&m.receiver)?;
                     let (_bits, modulus_i64, signed) = wrap_width(lo, hi)?;
-                    let use_synthetic_2_64 = modulus_i64.is_none();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     if exp == 0 {
                         let slot = *next;
@@ -2747,15 +2705,7 @@ fn encode_syn_expr(
                         lines.push(format!("${slot} = const 1 : Int"));
                         return Some(slot);
                     }
-                    let mslot = if use_synthetic_2_64 {
-                        emit_synthetic_2_64(lines, next)
-                    } else {
-                        let modulus = modulus_i64?;
-                        let m = *next;
-                        *next += 1;
-                        lines.push(format!("${m} = const {modulus} : Int"));
-                        m
-                    };
+                    let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                     let base_u = if signed {
                         emit_to_unsigned_bits(a, mslot, lines, next)
                     } else {
@@ -2931,7 +2881,6 @@ fn encode_syn_expr(
                 ("wrapping_shl" | "wrapping_shr", 1) => {
                     let (lo, hi) = wrap_bounds_for(&m.receiver)?;
                     let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
-                    let use_synthetic_2_64 = modulus_i64.is_none();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     // Const shift amount (fast path)
                     if let Some(k) = lit_int_i64(&m.args[0]) {
@@ -2952,15 +2901,7 @@ fn encode_syn_expr(
                         let raw = *next;
                         *next += 1;
                         lines.push(format!("${raw} = arith mul ${a} ${f} : Int"));
-                        let mslot = if use_synthetic_2_64 {
-                            emit_synthetic_2_64(lines, next)
-                        } else {
-                            let modulus = modulus_i64?;
-                            let mslot = *next;
-                            *next += 1;
-                            lines.push(format!("${mslot} = const {modulus} : Int"));
-                            mslot
-                        };
+                        let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                         let t1 = *next;
                         *next += 1;
                         lines.push(format!("${t1} = arith mod ${raw} ${mslot} : Int"));
@@ -3011,15 +2952,7 @@ fn encode_syn_expr(
                     let k_eff = *next;
                     *next += 1;
                     lines.push(format!("${k_eff} = arith mod ${t2} ${bits_c} : Int"));
-                    let mslot = if use_synthetic_2_64 {
-                        emit_synthetic_2_64(lines, next)
-                    } else {
-                        let modulus = modulus_i64?;
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = const {modulus} : Int"));
-                        mslot
-                    };
+                    let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                     let zero = *next;
                     *next += 1;
                     lines.push(format!("${zero} = const 0 : Int"));
@@ -3085,17 +3018,8 @@ fn encode_syn_expr(
                 ("rotate_left" | "rotate_right", 1) => {
                     let (lo, hi) = wrap_bounds_for(&m.receiver)?;
                     let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
-                    let use_synthetic_2_64 = modulus_i64.is_none();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
-                    let mslot = if use_synthetic_2_64 {
-                        emit_synthetic_2_64(lines, next)
-                    } else {
-                        let modulus = modulus_i64?;
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = const {modulus} : Int"));
-                        mslot
-                    };
+                    let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                     let wrap = RotWrap {
                         bits,
                         mslot,
@@ -3202,7 +3126,6 @@ fn encode_syn_expr(
                     // uses like `x.wrapping_add(1).is_power_of_two()` (bool return).
                     let (lo, hi) = wrap_bounds_for(&m.receiver)?;
                     let (_bits, modulus_i64, signed) = wrap_width(lo, hi)?;
-                    let use_synthetic_2_64 = modulus_i64.is_none();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
                     let raw = *next;
@@ -3214,16 +3137,7 @@ fn encode_syn_expr(
                         _ => return None,
                     };
                     lines.push(format!("${raw} = arith {op} ${a} ${b} : Int"));
-                    let mslot = if use_synthetic_2_64 {
-                        // 2^32 fits in i64; product is 2^64 in SMT Int
-                        emit_synthetic_2_64(lines, next)
-                    } else {
-                        let modulus = modulus_i64?;
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = const {modulus} : Int"));
-                        mslot
-                    };
+                    let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                     // ((raw mod m) + m) mod m → [0, m) for any raw (truncating or Euclidean)
                     let t1 = *next;
                     *next += 1;
@@ -3257,7 +3171,6 @@ fn encode_syn_expr(
                 ("wrapping_neg", 0) => {
                     let (lo, hi) = wrap_bounds_for(&m.receiver)?;
                     let (_bits, modulus_i64, signed) = wrap_width(lo, hi)?;
-                    let use_synthetic_2_64 = modulus_i64.is_none();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let zero = *next;
                     *next += 1;
@@ -3265,15 +3178,7 @@ fn encode_syn_expr(
                     let raw = *next;
                     *next += 1;
                     lines.push(format!("${raw} = arith sub ${zero} ${a} : Int"));
-                    let mslot = if use_synthetic_2_64 {
-                        emit_synthetic_2_64(lines, next)
-                    } else {
-                        let modulus = modulus_i64?;
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = const {modulus} : Int"));
-                        mslot
-                    };
+                    let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                     // rem_euclid into [0, m)
                     let t1 = *next;
                     *next += 1;

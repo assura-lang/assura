@@ -195,10 +195,12 @@ gaps):
 
 | Shape | Reason |
 |-------|--------|
-| Panic paths (`/0`, `%0`, `/`/`%` with zero-including path divisors, `is_multiple_of(0)`, literal `0.ilog2()`) | Honesty: do not encode panic as free SMT div/mod |
-| `rem_euclid`/`div_euclid`/`div_ceil`/`next_multiple_of` with non-positive or zero-including divisors | Same honesty; use a positive const or `NonZeroU*` param |
+| Panic paths (`/0`, `%0`, `/`/`%` with zero-including path divisors, `is_multiple_of(0)`, literal `0.ilog2()`) | Soundness: do not encode panic as free SMT div/mod |
+| `rem_euclid`/`div_euclid`/`div_ceil`/`next_multiple_of` with non-positive or zero-including divisors | Same soundness rule; use a positive const or `NonZeroU*` param |
 | `let mut y = x; y += 1; y` (reassignment) | Pure `let mut` fold only (#1343); mutation/SSA not modeled |
-| `x.reverse_bits()` on full i64 (signed 64-bit path without fixed mid-width) | `wrap_width` / modulus footgun for signed 64-bit bit-pattern map |
+
+Signed path-param `reverse_bits`/`swap_bytes`/`count_*`/`trailing_*`/`leading_*`
+use synthetic `2^64` bit-pattern map for full i64 (same as `count_ones`).
 
 Bodies that cannot be modeled report `body_not_modeled` and exit **1**
 (including SMT skipped/checked soft passes). Do not treat empty/skipped SMT as
