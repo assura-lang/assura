@@ -1297,8 +1297,13 @@ fn variable_u8_trailing_zeros_encodes() {
         "{ir}"
     );
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "T").expect("parse");
-    // unbounded i64 path stays BNM
-    assert!(try_ir_from_rust_body("S", &px(), Some("u32"), "x.trailing_zeros()").is_none());
+    // i64 path-param trailing_zeros: synthetic 2^64 bit-pattern map
+    let i64tz =
+        try_ir_from_rust_body("S", &px(), Some("u32"), "x.trailing_zeros()").expect("i64 tz");
+    assert!(
+        i64tz.contains("4294967296") || i64tz.contains("arith mul"),
+        "{i64tz}"
+    );
     // signed ≤32 via bit-pattern map
     let pi8 = vec![ParamInfo {
         name: "x".into(),
