@@ -22,10 +22,10 @@
 //! synthetic 2^64 modulus; 2^63 factor is 2^32*2^31). Variable rotate_left/right
 //! case-sum for bits≤64 (same budget as wrapping_shl/shr). Variable BitAnd/Or/Xor:
 //! const mask (unsigned/signed ≤64; signed via bit-pattern map) or both-variable
-//! signed/unsigned ≤32. Variable bitwise `!x` for fixed-width ints ≤64
+//! signed/unsigned ≤64. Variable bitwise `!x` for fixed-width ints ≤64
 //! (`(2^w-1)-u`, synthetic 2^64 for i64/u64). Variable is_power_of_two via pot
 //! enum (≤64 exponents incl. u64/usize). Variable `ilog2`/`ilog10` and
-//! `next_power_of_two` for unsigned path params ≤32. Literal `/0`, `%0`,
+//! `next_power_of_two` for unsigned path params ≤64. Literal `/0`, `%0`,
 //! `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
 //! rem_euclid/div_euclid/next_multiple_of with positive const or NonZeroU*
 //! path-param divisor (`.get()` peels; signed Euclidean).
@@ -844,7 +844,7 @@ fn encode_syn_expr(
                     return Some(slot);
                 }
             }
-            // Variable BitAnd/Or/Xor: const mask (signed/unsigned) or both-var ≤32.
+            // Variable BitAnd/Or/Xor: const mask (signed/unsigned) or both-var ≤64.
             if let Some(kind) = match &b.op {
                 syn::BinOp::BitAnd(_) => Some(BitOpKind::And),
                 syn::BinOp::BitOr(_) => Some(BitOpKind::Or),
@@ -900,19 +900,19 @@ fn encode_syn_expr(
                         return Some(emit_from_unsigned_bits(u_out, mslot, hi, lines, next));
                     }
                 } else if lit_int_i64(&b.left).is_none() && lit_int_i64(&b.right).is_none() {
-                    // Both variable: unsigned or signed (bit-pattern map) for bits ≤32.
+                    // Both variable: unsigned or signed (bit-pattern map) for bits ≤64.
+                    // Signed i64 (no concrete modulus) stays BNM (too heavy).
                     let info = path_param_bounds(&b.left)
                         .or_else(|| path_param_bounds(&b.right))
                         .or_else(|| SAT_BOUNDS.get())
                         .and_then(|(lo, hi)| {
                             let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
-                            if bits == 0 || bits > 32 {
+                            if bits == 0 || bits > 64 {
                                 return None;
                             }
-                            let modulus = modulus_i64?;
-                            Some((bits, modulus, signed, hi))
+                            Some((bits, modulus_i64, signed, hi))
                         });
-                    if let Some((bits, modulus, signed, hi)) = info {
+                    if let Some((bits, modulus_i64, signed, hi)) = info {
                         let lhs = encode_syn_expr(&b.left, param_names, lines, next)?;
                         let rhs = encode_syn_expr(&b.right, param_names, lines, next)?;
                         if !signed {
@@ -921,6 +921,9 @@ fn encode_syn_expr(
                             );
                         }
                         // Signed: map both to unsigned bit patterns, bitop, reinterpret.
+                        let Some(modulus) = modulus_i64 else {
+                            return None; // signed i64 both-var: BNM
+                        };
                         let mslot = *next;
                         *next += 1;
                         lines.push(format!("${mslot} = const {modulus} : Int"));

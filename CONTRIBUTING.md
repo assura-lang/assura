@@ -176,7 +176,7 @@ int/bool arith, if/else/match, multi-let, abs/min/max/clamp/signum/saturating/
 abs_diff, &&/||, is_multiple_of, into/as, PartialOrd/borrow/deref/pow/default,
 fixed-width wrapping_* (incl. nested width fallback), variable wrapping_shl/shr
 and rotate through 64 bits, BitAnd/Or/Xor (const mask ≤64; both-var signed/
-unsigned ≤32), variable bitwise `!x` ≤64, pot `is_power_of_two` through u64,
+unsigned ≤64), variable bitwise `!x` ≤64, pot `is_power_of_two` through u64,
 variable `ilog2`/`ilog10`/`next_power_of_two` for unsigned path params ≤64
 (and signed `ilog2`/`ilog10` ≤32 with `a>0` math log; `a<=0` modeled as 0),
 variable `isqrt` for unsigned path params ≤16, signed/unsigned path-param
@@ -188,8 +188,7 @@ non-neg receiver). `signum` is nestable in arith (clamp to [-1, 1]). Top-level
 `wrapping_neg` expands to multi-block if (MIN stays MIN).
 
 Residual `body_not_modeled` (still intentional): panic paths (`/0`, `%0`, `/`/`%` with zero-including path divisors,
-`is_multiple_of(0)` / zero-including path divisors, literal `0.ilog2()`); some width>32 both-variable
-bitops; `isqrt` for widths >16;
+`is_multiple_of(0)` / zero-including path divisors, literal `0.ilog2()`); `isqrt` for widths >16;
 `rem_euclid`/`div_euclid`/`div_ceil`/`next_multiple_of` with non-positive or
 zero-including divisors (use a positive const or `NonZeroU*` param). Bodies that
 cannot be modeled report `body_not_modeled` and exit **1** (including SMT

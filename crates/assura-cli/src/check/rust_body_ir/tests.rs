@@ -595,6 +595,19 @@ fn variable_bitop_const_mask_encodes() {
     assura_smt::LoadedVerifyExtras::from_ir_text(&sand, "Sa").expect("parse i8");
     let sxor = try_ir_from_rust_body("Sx", &pi8, Some("i8"), "x ^ -1").expect("i8 xor -1");
     assert!(sxor.contains("arith sub"), "{sxor}");
+    let pxy64 = vec![
+        ParamInfo {
+            name: "x".into(),
+            ty: "u64".into(),
+        },
+        ParamInfo {
+            name: "y".into(),
+            ty: "u64".into(),
+        },
+    ];
+    let and64 = try_ir_from_rust_body("A64", &pxy64, Some("u64"), "x & y").expect("u64 and");
+    assert!(and64.contains("arith mul"), "{and64}");
+    assura_smt::LoadedVerifyExtras::from_ir_text(&and64, "A64").expect("parse u64 and");
 }
 
 #[test]
