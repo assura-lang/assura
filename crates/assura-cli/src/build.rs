@@ -2144,4 +2144,97 @@ mod tests {
         assert!(!src.contains("output("));
         assert!(src.ends_with("}\n"));
     }
+
+    // ---------------------------------------------------------------
+    // default_value_for_type
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn default_value_for_integer_types() {
+        assert_eq!(default_value_for_type("i64"), "42");
+        assert_eq!(default_value_for_type("u64"), "42");
+        assert_eq!(default_value_for_type("i128"), "42_i128");
+        assert_eq!(default_value_for_type("u128"), "42_u128");
+    }
+
+    #[test]
+    fn default_value_for_float_types() {
+        assert_eq!(default_value_for_type("f64"), "1.0");
+        assert_eq!(default_value_for_type("f32"), "1.0");
+    }
+
+    #[test]
+    fn default_value_for_string_and_bool() {
+        assert_eq!(default_value_for_type("bool"), "true");
+        assert!(default_value_for_type("String").contains("String::from"));
+    }
+
+    #[test]
+    fn default_value_for_collection_types() {
+        assert!(default_value_for_type("Vec<u8>").contains("vec!"));
+        assert!(default_value_for_type("Vec<i64>").contains("Vec::new()"));
+        assert!(default_value_for_type("BTreeMap<String, i64>").contains("BTreeMap::new()"));
+        assert_eq!(default_value_for_type("Option<i64>"), "None");
+    }
+
+    #[test]
+    fn default_value_for_unknown_type_falls_back() {
+        assert_eq!(default_value_for_type("MyCustomType"), "Default::default()");
+    }
+
+    // ---------------------------------------------------------------
+    // inject_bin_main (via pipeline)
+    // ---------------------------------------------------------------
+
+    /// Helper: compile source, codegen, inject --bin main, return the main.rs content.
+    fn bin_main_for(source: &str) -> String {
+        let config = assura_config::CompilerConfig::default();
+        let output = assura_pipeline::compile(source, "test.assura", &config);
+        assert!(!output.has_errors, "source should compile without errors");
+        let typed = output.typed.as_ref().expect("typed should be present");
+        let mut project = assura_codegen::codegen(typed);
+        inject_bin_main(&mut project, typed, Verbosity::Quiet, OutputMode::Human);
+        project
+            .files
+            .iter()
+            .find(|(name, _)| name == "src/main.rs")
+            .map(|(_, content)| content.clone())
+            .expect("should have src/main.rs")
+    }
+
+    #[test]
+    fn bin_main_contract_generates_correct_call_path() {
+        let main_rs = bin_main_for(
+            "contract SafeDivision {\n  input(a: Int, b: Int)\n  requires { b != 0 }\n  ensures { result == a / b }\n}",
+        );
+        assert!(main_rs.contains("contract_safedivision::check("), "got: {main_rs}");
+        assert!(main_rs.contains("let a: i64 = 42;"), "got: {main_rs}");
+        assert!(main_rs.contains("let b: i64 = 42;"), "got: {main_rs}");
+    }
+
+    #[test]
+    fn bin_main_fn_decl_generates_direct_call() {
+        let main_rs = bin_main_for(
+            "fn add(x: Int, y: Int) -> Int {\n  requires { x >= 0 }\n  ensures { result == x + y }\n}",
+        );
+        assert!(main_rs.contains("add("), "got: {main_rs}");
+        assert!(!main_rs.contains("contract_"), "fn decl should not use contract_ module, got: {main_rs}");
+    }
+
+    #[test]
+    fn bin_main_prefers_contract_over_fn() {
+        let main_rs = bin_main_for(
+            "fn helper(x: Int) -> Int {\n  requires { x >= 0 }\n  ensures { result >= 0 }\n}\n\ncontract Verify {\n  input(n: Int)\n  requires { n > 0 }\n  ensures { result > 0 }\n}",
+        );
+        assert!(main_rs.contains("contract_verify::check("), "should prefer contract, got: {main_rs}");
+    }
+
+    #[test]
+    fn bin_main_float_param_uses_f64_default() {
+        let main_rs = bin_main_for(
+            "contract Temperature {\n  input(celsius: Float)\n  requires { celsius > -273.15 }\n  ensures { result > 0.0 }\n}",
+        );
+        assert!(main_rs.contains("f64"), "Float param should map to f64, got: {main_rs}");
+        assert!(main_rs.contains("1.0"), "Float default should be 1.0, got: {main_rs}");
+    }
 }

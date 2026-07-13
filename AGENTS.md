@@ -278,6 +278,28 @@ still use explicit matches; do not add new match blocks without justification.
     code. `guards.sh` section 12 checks this automatically.
     This drift caused 12 keywords across 7 features to be unreachable
     (#716-#722).
+19. **Codegen numeric widening: `i128::from()` wrapping and Float exception**:
+    Generated Rust code wraps numeric comparisons and arithmetic in
+    `i128::from(lhs) op i128::from(rhs)` to prevent mixed-type errors when
+    contracts combine `Int` (i64) and `Nat` (u64) inputs. Two exceptions
+    exist where `i128::from()` must NOT be applied:
+    - **u128 literals**: `u128::MAX` and similar values that exceed i128
+      range. These use `(lhs as u128) op (rhs as u128)` instead.
+      Checked by `has_u128_literal()`.
+    - **Float (f64) expressions**: `f64` does not implement `Into<i128>`.
+      Any comparison or arithmetic where either operand is a Float literal
+      or a variable typed as Float must skip `i128::from()` and emit
+      direct `f64` operations. Checked by `has_float_expr()`.
+
+    When adding codegen for a new declaration type (contract, fn, extern,
+    bind) that processes clause bodies, collect float-typed parameter names
+    and pass them via `expr_to_rust_with_floats()` instead of plain
+    `expr_to_rust()`. See `contract.rs`, `decl.rs` for the pattern.
+
+    The if-branch consistency rule also respects floats: when one if-branch
+    contains `i128::from()` arithmetic and the other is a plain variable,
+    both branches are normalized to `i128::from()`, but only when neither
+    branch involves Float expressions.
 
 ### Crate map (where to edit)
 
