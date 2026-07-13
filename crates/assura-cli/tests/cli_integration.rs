@@ -3870,6 +3870,55 @@ fn a(x: u64, y: u64) -> u64 { x.saturating_add(y) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Nested u64 saturating chain encodes.
+#[test]
+fn check_rust_encodes_u64_nested_saturating() {
+    let tmp = unique_temp("assura_check_rust_u64_nested_sat");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn n(x: u64, y: u64) -> u64 { x.saturating_add(y).saturating_mul(2) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong nested saturating ensures must CE.
+#[test]
+fn check_rust_u64_nested_saturating_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_u64_nested_sat_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn n(x: u64, y: u64) -> u64 { x.saturating_add(y).saturating_mul(2) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Wrong u64 clamp ensures must CE.
 #[test]
 fn check_rust_u64_clamp_wrong_ce() {
