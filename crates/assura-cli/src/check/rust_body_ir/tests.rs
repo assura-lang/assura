@@ -212,6 +212,26 @@ if x > 0 {
 }
 
 #[test]
+fn let_binding_if_rhs_extracts_and_encodes() {
+    // Direct parenthesized form (after let-fold + paren + distribute).
+    let ir = try_ir_from_rust_body("F", &px(), Some("i64"), "(if x > 5 { x } else { 5 }) + 1")
+        .expect("direct");
+    assert!(ir.contains("then #") && ir.contains("arith add"), "{ir}");
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let y = if x > 5 { x } else { 5 };
+    y + 1
+}
+"#;
+    let body = extract_body_return(src, "f").expect("extract");
+    let ir2 = try_ir_from_rust_body("F2", &px(), Some("i64"), &body).expect("encode extract");
+    assert!(
+        ir2.contains("then #") && ir2.contains("arith add"),
+        "body={body}\nir={ir2}"
+    );
+}
+
+#[test]
 fn simple_match_body_ir() {
     let ir = try_ir_from_rust_body("Sign", &px(), Some("i64"), "match x { 0 => 0, _ => 1 }")
         .expect("match ir");
