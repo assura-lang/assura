@@ -7479,6 +7479,114 @@ fn z(x: u8) -> u32 { x.count_zeros() }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Variable u16 count_ones/count_zeros for path params.
+#[test]
+fn check_rust_encodes_u16_count_ones() {
+    let tmp = unique_temp("assura_check_rust_u16_count_ones");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+/// @ensures result <= 16
+fn c(x: u16) -> u32 { x.count_ones() }
+
+/// @ensures result >= 0
+/// @ensures result <= 16
+fn z(x: u16) -> u32 { x.count_zeros() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Variable u32 count_ones/count_zeros for path params.
+#[test]
+fn check_rust_encodes_u32_count_ones() {
+    let tmp = unique_temp("assura_check_rust_u32_count_ones");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+/// @ensures result <= 32
+fn c(x: u32) -> u32 { x.count_ones() }
+
+/// @ensures result >= 0
+/// @ensures result <= 32
+fn z(x: u32) -> u32 { x.count_zeros() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong u16 count_ones ensures must CE.
+#[test]
+fn check_rust_u16_count_ones_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_u16_count_ones_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn c(x: u16) -> u32 { x.count_ones() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
+/// Wrong u32 count_ones ensures must CE.
+#[test]
+fn check_rust_u32_count_ones_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_u32_count_ones_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn c(x: u32) -> u32 { x.count_ones() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Unsigned path-param trailing_zeros/leading_zeros encode via bit products.
 #[test]
 fn check_rust_encodes_u8_trailing_zeros() {
