@@ -3769,6 +3769,85 @@ fn m(x: u64) -> u64 { u64::MAX }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// usize isqrt and usize::MAX encode (same width path as u64).
+#[test]
+fn check_rust_encodes_usize_isqrt_max() {
+    let tmp = unique_temp("assura_check_rust_usize_isqrt");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn s(x: usize) -> usize { x.isqrt() }
+
+/// @ensures result >= 0
+fn m(x: usize) -> usize { usize::MAX }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong usize isqrt ensures must CE.
+#[test]
+fn check_rust_usize_isqrt_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_usize_isqrt_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn s(x: usize) -> usize { x.isqrt() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
+/// Wrong u64 NonZeroU64 div_euclid ensures must CE.
+#[test]
+fn check_rust_u64_div_euclid_nonzero_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_u64_de_nz_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+use std::num::NonZeroU64;
+
+/// @ensures result == 0
+fn d(x: u64, n: NonZeroU64) -> u64 { x.div_euclid(n.get()) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// u64 min/max/signum/pow path params encode.
 #[test]
 fn check_rust_encodes_u64_min_max_signum_pow() {
