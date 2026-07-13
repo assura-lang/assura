@@ -1648,7 +1648,7 @@ fn encode_syn_expr(
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     encode_unsigned_next_power_of_two(a, bits, lines, next)
                 }
-                // Const peep; variable unsigned path ≤16 (IR ladder size).
+                // Const peep; variable unsigned path ≤32 (ladder ≤16; binsearch 17..=32).
                 ("isqrt", 0) => {
                     if let Some(v) = lit_int_i64(&m.receiver) {
                         if v < 0 {

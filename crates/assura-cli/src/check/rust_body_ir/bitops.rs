@@ -285,16 +285,20 @@ pub(super) fn encode_unsigned_bitop_var_var(
     Some(u)
 }
 
-/// Integer square root for unsigned `a` with width `bits` (bits ≤16 for IR size).
-/// Ladder over `r` in `0..=floor(sqrt(2^bits-1))`: select `r` when `r*r <= a < (r+1)^2`.
+/// Integer square root for unsigned `a` with width `bits`.
+/// bits ≤16: dense ladder over `r` in `0..=floor(sqrt(2^bits-1))`.
+/// bits 17..=32: unrolled binary search (16 iterations; `mid*mid` fits in i64).
 pub(super) fn encode_unsigned_isqrt(
     a: usize,
     bits: u32,
     lines: &mut Vec<String>,
     next: &mut usize,
 ) -> Option<usize> {
-    if bits == 0 || bits > 16 {
+    if bits == 0 || bits > 32 {
         return None;
+    }
+    if bits > 16 {
+        return encode_unsigned_isqrt_binsearch(a, bits, lines, next);
     }
     let max_val = (1u64 << bits) - 1;
     let max_root = (max_val as f64).sqrt().floor() as u32;
@@ -337,6 +341,83 @@ pub(super) fn encode_unsigned_isqrt(
         acc = sum;
     }
     Some(acc)
+}
+
+/// Unrolled binary search isqrt for bits in 17..=32.
+fn encode_unsigned_isqrt_binsearch(
+    a: usize,
+    bits: u32,
+    lines: &mut Vec<String>,
+    next: &mut usize,
+) -> Option<usize> {
+    if !(17..=32).contains(&bits) {
+        return None;
+    }
+    let max_val = (1u64 << bits) - 1;
+    let max_root = (max_val as f64).sqrt().floor() as i64;
+    let zero = *next;
+    *next += 1;
+    lines.push(format!("${zero} = const 0 : Int"));
+    let one = *next;
+    *next += 1;
+    lines.push(format!("${one} = const 1 : Int"));
+    let two = *next;
+    *next += 1;
+    lines.push(format!("${two} = const 2 : Int"));
+    let hi0 = *next;
+    *next += 1;
+    lines.push(format!("${hi0} = const {max_root} : Int"));
+    let mut lo = zero;
+    let mut hi = hi0;
+    // 16 iterations suffice for roots ≤ 65535
+    for _ in 0..16 {
+        // mid = lo + (hi - lo) / 2
+        let diff = *next;
+        *next += 1;
+        lines.push(format!("${diff} = arith sub ${hi} ${lo} : Int"));
+        let half = *next;
+        *next += 1;
+        lines.push(format!("${half} = arith div ${diff} ${two} : Int"));
+        let mid = *next;
+        *next += 1;
+        lines.push(format!("${mid} = arith add ${lo} ${half} : Int"));
+        // mid2 = mid * mid
+        let mid2 = *next;
+        *next += 1;
+        lines.push(format!("${mid2} = arith mul ${mid} ${mid} : Int"));
+        // le = mid2 <= a
+        let le = *next;
+        *next += 1;
+        lines.push(format!("${le} = cmp le ${mid2} ${a} : Bool"));
+        // lo' = lo + (mid - lo) * le
+        let dlo = *next;
+        *next += 1;
+        lines.push(format!("${dlo} = arith sub ${mid} ${lo} : Int"));
+        let dlo_s = *next;
+        *next += 1;
+        lines.push(format!("${dlo_s} = arith mul ${dlo} ${le} : Int"));
+        let lo_new = *next;
+        *next += 1;
+        lines.push(format!("${lo_new} = arith add ${lo} ${dlo_s} : Int"));
+        // hi' = (mid - 1) + (hi - (mid - 1)) * le
+        // when le: hi' = hi; when !le: hi' = mid - 1
+        let mid_m1 = *next;
+        *next += 1;
+        lines.push(format!("${mid_m1} = arith sub ${mid} ${one} : Int"));
+        let dhi = *next;
+        *next += 1;
+        lines.push(format!("${dhi} = arith sub ${hi} ${mid_m1} : Int"));
+        let dhi_s = *next;
+        *next += 1;
+        lines.push(format!("${dhi_s} = arith mul ${dhi} ${le} : Int"));
+        let hi_new = *next;
+        *next += 1;
+        lines.push(format!("${hi_new} = arith add ${mid_m1} ${dhi_s} : Int"));
+        lo = lo_new;
+        hi = hi_new;
+    }
+    let _ = hi;
+    Some(lo)
 }
 
 /// `next_power_of_two` for unsigned `a` with width `bits` (≤64).
