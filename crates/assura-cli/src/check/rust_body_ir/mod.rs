@@ -1143,6 +1143,8 @@ fn expand_checked_binop_unwrap_or(expr: &syn::Expr) -> Option<syn::Expr> {
         "checked_add" => "add",
         "checked_sub" => "sub",
         "checked_mul" => "mul",
+        "checked_div" => "div",
+        "checked_rem" => "rem",
         _ => return None,
     };
     if inner.args.len() != 1 {
@@ -1208,6 +1210,28 @@ fn expand_checked_binop_unwrap_or(expr: &syn::Expr) -> Option<syn::Expr> {
                 )
             } else {
                 return None;
+            }
+        }
+        "div" | "rem" => {
+            // Div/rem by zero always fails → alt. MIN / -1 (or %) overflows signed.
+            if c == 0 {
+                format!("({alt})")
+            } else if c == -1 && lo < 0 {
+                let lo_src = if lo == i64::MIN {
+                    format!("-{} - 1", i64::MAX)
+                } else {
+                    lo.to_string()
+                };
+                if op == "div" {
+                    format!("if {recv} == ({lo_src}) {{ {alt} }} else {{ -({recv}) }}")
+                } else {
+                    // rem of ±1 is always 0 when defined
+                    format!("if {recv} == ({lo_src}) {{ {alt} }} else {{ 0 }}")
+                }
+            } else if op == "div" {
+                format!("{recv} / ({c})")
+            } else {
+                format!("{recv} % ({c})")
             }
         }
         _ => return None,
