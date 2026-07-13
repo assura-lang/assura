@@ -1159,6 +1159,52 @@ fn expand_checked_binop_unwrap_or(expr: &syn::Expr) -> Option<syn::Expr> {
         let tree = format!("-({recv})");
         return syn::parse_str(&tree).ok();
     }
+    // checked_pow(const) for small exponents
+    if method == "checked_pow" && inner.args.len() == 1 {
+        let exp = lit_int_i64(&inner.args[0])?;
+        if !(0..=4).contains(&exp) {
+            return None;
+        }
+        let (lo, hi) = SAT_BOUNDS.get()?;
+        let recv = expr_source(&inner.receiver);
+        let alt = expr_source(&outer.args[0]);
+        let tree = match exp {
+            0 => "1".to_string(),
+            1 => format!("({recv})"),
+            2 => {
+                let thr_hi = hi / 2;
+                let thr_lo = lo / 2;
+                format!(
+                    "if {recv} > ({thr_hi}) || {recv} < ({thr_lo}) {{ {alt} }} else {{ {recv} * {recv} }}"
+                )
+            }
+            3 | 4 => {
+                // Conservative: only non-negative recv with thr for hi^(1/exp)
+                let thr = match exp {
+                    3 => {
+                        // cube root of hi approx; use small thr for safety
+                        if hi >= i64::MAX / 2 {
+                            1290i64
+                        } else {
+                            ((hi as f64).cbrt().floor() as i64).max(1)
+                        }
+                    }
+                    _ => {
+                        if hi >= i64::MAX / 2 {
+                            215i64
+                        } else {
+                            ((hi as f64).sqrt().sqrt().floor() as i64).max(1)
+                        }
+                    }
+                };
+                format!(
+                    "if {recv} > ({thr}) || {recv} < 0 {{ {alt} }} else {{ {recv}.wrapping_pow({exp}) }}"
+                )
+            }
+            _ => return None,
+        };
+        return syn::parse_str(&tree).ok();
+    }
     let op = match method.as_str() {
         "checked_add" => "add",
         "checked_sub" => "sub",

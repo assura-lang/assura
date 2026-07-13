@@ -2023,3 +2023,13 @@ fn checked_neg_unwrap_or_encodes() {
         .expect("checked_neg");
     assert!(ir.contains("then #") || ir.contains("arith"), "{ir}");
 }
+
+#[test]
+fn checked_pow_unwrap_or_encodes() {
+    let p0 = try_ir_from_rust_body("P0", &px(), Some("i64"), "x.checked_pow(0).unwrap_or(0)")
+        .expect("pow0");
+    assert!(p0.contains("const 1") || p0.contains("1"), "{p0}");
+    let p2 = try_ir_from_rust_body("P2", &px(), Some("i64"), "x.checked_pow(2).unwrap_or(0)")
+        .expect("pow2");
+    assert!(p2.contains("then #") || p2.contains("arith mul"), "{p2}");
+}
