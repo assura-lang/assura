@@ -5544,6 +5544,62 @@ fn ig(x: i8) -> u32 { x.ilog2() }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Signed path-param ilog10 (positivity gate; a<=0 models as 0).
+#[test]
+fn check_rust_encodes_signed_ilog10() {
+    let tmp = unique_temp("assura_check_rust_signed_ilog10");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn l8(x: i8) -> u32 { x.ilog10() }
+
+/// @ensures result >= 0
+fn l16(x: i16) -> u32 { x.ilog10() }
+
+/// @ensures result >= 0
+/// @ensures result <= 9
+fn l32(x: i32) -> u32 { x.ilog10() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong signed ilog10 ensures must CE.
+#[test]
+fn check_rust_signed_ilog10_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_signed_ilog10_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn l(x: i8) -> u32 { x.ilog10() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Variable next_power_of_two for unsigned path params (#1185).
 #[test]
 fn check_rust_encodes_variable_next_power_of_two() {

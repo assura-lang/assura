@@ -1315,6 +1315,12 @@ fn typed_reverse_bits_and_swap_bytes_peep() {
         "{silog}"
     );
     assura_smt::LoadedVerifyExtras::from_ir_text(&silog, "Si").expect("parse signed ilog");
+    let silog10 =
+        try_ir_from_rust_body("Si10", &pi8, Some("u32"), "x.ilog10()").expect("i8 ilog10");
+    assert!(
+        silog10.contains("call max") && silog10.contains("cmp ge"),
+        "{silog10}"
+    );
     let np =
         try_ir_from_rust_body("Np", &px(), Some("u32"), "3u32.next_power_of_two()").expect("np");
     assert!(np.contains("const 4 : Int"), "{np}");

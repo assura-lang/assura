@@ -1530,7 +1530,8 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = arith mul ${gt} ${raw} : Int"));
                     Some(slot)
                 }
-                // Const peep; variable unsigned path ≤32 via threshold sum.
+                // Const peep; variable unsigned path ≤32 via threshold sum;
+                // signed path with a>0 math log (a<=0 modeled as 0).
                 ("ilog10", 0) => {
                     if let Some(v) = lit_int_i64(&m.receiver) {
                         if v <= 0 {
@@ -1543,11 +1544,31 @@ fn encode_syn_expr(
                         return Some(slot);
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
-                    if lo != 0 || is_u64_width_bounds(lo, hi) || hi <= 0 {
+                    if is_u64_width_bounds(lo, hi) || hi <= 0 {
                         return None;
                     }
+                    let signed = lo != 0;
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
-                    encode_unsigned_ilog10(a, hi, lines, next)
+                    if !signed {
+                        return encode_unsigned_ilog10(a, hi, lines, next);
+                    }
+                    let zero = *next;
+                    *next += 1;
+                    lines.push(format!("${zero} = const 0 : Int"));
+                    let one = *next;
+                    *next += 1;
+                    lines.push(format!("${one} = const 1 : Int"));
+                    let a_pos = *next;
+                    *next += 1;
+                    lines.push(format!("${a_pos} = call max (${a}, ${one}) : Int"));
+                    let raw = encode_unsigned_ilog10(a_pos, hi, lines, next)?;
+                    let gt = *next;
+                    *next += 1;
+                    lines.push(format!("${gt} = cmp gt ${a} ${zero} : Bool"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = arith mul ${gt} ${raw} : Int"));
+                    Some(slot)
                 }
                 // Const peep; variable unsigned path ≤32 (overflow → 0, like wrap).
                 ("next_power_of_two", 0) => {
