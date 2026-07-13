@@ -582,7 +582,7 @@ pub(super) fn encode_bit_sum_count_ones(
     lines: &mut Vec<String>,
     next: &mut usize,
 ) -> Option<usize> {
-    if bits == 0 || bits > 32 {
+    if bits == 0 || bits > 64 {
         return None;
     }
     let two = *next;
@@ -590,10 +590,7 @@ pub(super) fn encode_bit_sum_count_ones(
     lines.push(format!("${two} = const 2 : Int"));
     let mut acc: Option<usize> = None;
     for i in 0..bits {
-        let factor = 1i64 << i;
-        let f = *next;
-        *next += 1;
-        lines.push(format!("${f} = const {factor} : Int"));
+        let f = emit_pow2_factor(i, lines, next)?;
         let shifted = *next;
         *next += 1;
         lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
