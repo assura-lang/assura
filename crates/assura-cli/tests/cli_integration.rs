@@ -6415,6 +6415,9 @@ fn check_rust_encodes_signed_swap_bytes() {
         r#"
 /// @ensures result == 1 || result != 1
 fn s(x: i16) -> i16 { x.swap_bytes() }
+
+/// @ensures result == 0 || result != 0
+fn s32(x: i32) -> i32 { x.swap_bytes() }
 "#,
     )
     .unwrap();
@@ -8320,6 +8323,31 @@ fn check_rust_i16_swap_bytes_wrong_ce() {
         r#"
 /// @ensures result == 0
 fn s(x: i16) -> i16 { x.swap_bytes() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
+/// Wrong i32 swap_bytes ensures must CE.
+#[test]
+fn check_rust_i32_swap_bytes_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_i32_swap_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn s(x: i32) -> i32 { x.swap_bytes() }
 "#,
     )
     .unwrap();
