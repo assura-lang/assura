@@ -1376,7 +1376,12 @@ fn typed_reverse_bits_and_swap_bytes_peep() {
     assert!(vsq.contains("cmp ge") && vsq.contains("const 15"), "{vsq}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&vsq, "Vsq").expect("parse");
     // u32 path stays BNM (ladder too large)
-    assert!(try_ir_from_rust_body("U32", &pu32(), Some("u32"), "x.isqrt()").is_none());
+    let vsq32 = try_ir_from_rust_body("U32", &pu32(), Some("u32"), "x.isqrt()").expect("u32 isqrt");
+    assert!(
+        vsq32.contains("arith mul") && vsq32.contains("cmp le"),
+        "{vsq32}"
+    );
+    assura_smt::LoadedVerifyExtras::from_ir_text(&vsq32, "U32").expect("parse u32 isqrt");
     let l10 = try_ir_from_rust_body("L10", &px(), Some("u32"), "100u32.ilog10()").expect("ilog10");
     assert!(l10.contains("const 2 : Int"), "{l10}");
     let ua = try_ir_from_rust_body("Ua", &px(), Some("i64"), "x.unsigned_abs()").expect("uabs");
