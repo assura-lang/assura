@@ -198,6 +198,8 @@ gaps):
 | Panic paths (`/0`, `%0`, `/`/`%` with zero-including path divisors, `is_multiple_of(0)`, literal `0.ilog2()`) | Soundness: do not encode panic as free SMT div/mod |
 | `rem_euclid`/`div_euclid`/`div_ceil`/`next_multiple_of` with non-positive or zero-including divisors | Same soundness rule; use a positive const or `NonZeroU*` param |
 | `let mut y = x; y += 1; y` (reassignment) | Pure `let mut` fold only (#1343); mutation/SSA not modeled |
+| Bare `checked_*` / `overflowing_*` without peel (Option or `(T, bool)` return) | Use `.unwrap_or` / `.is_some()` / `.0` peels; full Option/tuple encode not modeled |
+| `overflowing_*(…).1` (overflow flag) | Not yet peeled; use `checked_*(…).is_none()` for the dual when available |
 
 Signed path-param `reverse_bits`/`swap_bytes`/`count_*`/`trailing_*`/`leading_*`
 use synthetic `2^64` bit-pattern map for full i64 (same as `count_ones`).
