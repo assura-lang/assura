@@ -4,31 +4,33 @@
 //! is_positive/negative/zero, `is_multiple_of`, PartialOrd methods, logical `&&`/`||`,
 //! unary `-`/`!`/`*`/`&`, identity ops (`into`/`as` lossless/`clone`/`copied`/`as_ref`/
 //! `not`), `default` and integer MIN/MAX, small `pow`, multi-let (incl. ref/cast folds),
-//! if/match (incl. guards), and Bool comparisons. Body text via `syn` (co-publish-safe).
+//! if/match (incl. guards and plain ident binds rewritten as `_` + scrutinee
+//! subst), and Bool comparisons. Body text via `syn` (co-publish-safe).
 //!
 //! Peeps: wrapping `+0`/`-0`/`*1`/`*0`/`sub(x,x)`; shift/rotate by 0;
 //! `is_multiple_of(±1)`; same-path `abs_diff`/`min`/`max`/`clamp(_,y,y)`;
 //! `abs`/`saturating_abs` `.is_negative()` → false; const `is_power_of_two` /
 //! `count_ones` / `count_zeros` / `trailing_zeros` / `leading_zeros` /
 //! `trailing_ones` / `leading_ones` / `reverse_bits` / `swap_bytes` for
-//! unsigned and signed path params ≤32 (signed via bit-pattern map;
+//! unsigned and signed path params ≤64 (signed via bit-pattern map;
 //! ones via NOT+zeros product; bit products for reverse/swap).
 //! Unsigned wrapping_* / shl/shr/rotate via mod 2^w (#1010). Signed
 //! wrapping_add/sub/mul and wrapping_shl via double-mod+reinterpret for i8..i64
-//! (i64 modulus is synthetic `(2^32)*(2^32)`). Signed rotate via bit-pattern map.
-//! Signed wrapping_shr via floor div by 2^k. Top-level signed `wrapping_neg`
-//! (multi-block if); nested signed via modular (0-x) mod 2^w + reinterpret.
-//! Variable wrapping_shl/shr case-sum for bits≤64 (i64 and u64/usize use
-//! synthetic 2^64 modulus; 2^63 factor is 2^32*2^31). Variable rotate_left/right
-//! case-sum for bits≤64 (same budget as wrapping_shl/shr). Variable BitAnd/Or/Xor:
+//! (i64 modulus is synthetic `(2^32)*(2^32)`). `wrapping_pow` const exp ≤4.
+//! Signed rotate via bit-pattern map. Signed wrapping_shr via floor div by 2^k.
+//! Top-level signed `wrapping_neg` (multi-block if); nested signed via modular
+//! (0-x) mod 2^w + reinterpret. Variable wrapping_shl/shr case-sum for bits≤64
+//! (i64 and u64/usize use synthetic 2^64 modulus; 2^63 factor is 2^32*2^31).
+//! Variable rotate_left/right case-sum for bits≤64. Variable BitAnd/Or/Xor:
 //! const mask (unsigned/signed ≤64; signed via bit-pattern map) or both-variable
 //! signed/unsigned ≤64. Variable bitwise `!x` for fixed-width ints ≤64
 //! (`(2^w-1)-u`, synthetic 2^64 for i64/u64). Variable is_power_of_two via pot
-//! enum (≤64 exponents incl. u64/usize). Variable `ilog2`/`ilog10` and
-//! `next_power_of_two` for unsigned path params ≤64. Literal `/0`, `%0`,
-//! `is_multiple_of(0)` BNM. `signum` nestable clamp (#1032).
-//! rem_euclid/div_euclid/next_multiple_of with positive const or NonZeroU*
-//! path-param divisor (`.get()` peels; signed Euclidean).
+//! enum (≤64 exponents incl. u64/usize). Variable `ilog2`/`ilog10`,
+//! `next_power_of_two`, and `isqrt` for unsigned path params ≤64. `u64`/`usize`
+//! `MAX`/`MIN` associated consts. Saturating ops clamp to width (u64 via
+//! synthetic max). Literal `/0`, `%0`, `is_multiple_of(0)` BNM. `signum`
+//! nestable clamp (#1032). rem_euclid/div_euclid/div_ceil/next_multiple_of with
+//! positive const or NonZeroU* path-param divisor (`.get()` peels; signed Euclidean).
 //!
 //! Multi-block if IR must use **unique temp slots across sibling blocks**.
 //! `eval_ir_block` clones parent slots into each block; reusing `$1`/`$2` for
