@@ -627,20 +627,7 @@ fn emit_sat_clamp(val: usize, lines: &mut Vec<String>, next: &mut usize) -> Opti
     *next += 1;
     lines.push(format!("${lo} = const {lo_v} : Int"));
     let hi = if is_u64_width_bounds(lo_v, hi_v) {
-        // 2^64 = 2^32 * 2^32; max = 2^64 - 1 (same pattern as bitops mask)
-        let half = *next;
-        *next += 1;
-        lines.push(format!("${half} = const 4294967296 : Int"));
-        let two64 = *next;
-        *next += 1;
-        lines.push(format!("${two64} = arith mul ${half} ${half} : Int"));
-        let one = *next;
-        *next += 1;
-        lines.push(format!("${one} = const 1 : Int"));
-        let h = *next;
-        *next += 1;
-        lines.push(format!("${h} = arith sub ${two64} ${one} : Int"));
-        h
+        emit_u64_max(lines, next)
     } else {
         let h = *next;
         *next += 1;
@@ -723,19 +710,7 @@ fn encode_syn_expr(
             let ty = path.path.segments[0].ident.to_string();
             let name = path.path.segments[1].ident.to_string();
             if matches!(ty.as_str(), "u64" | "usize") && name == "MAX" {
-                let half = *next;
-                *next += 1;
-                lines.push(format!("${half} = const 4294967296 : Int"));
-                let two64 = *next;
-                *next += 1;
-                lines.push(format!("${two64} = arith mul ${half} ${half} : Int"));
-                let one = *next;
-                *next += 1;
-                lines.push(format!("${one} = const 1 : Int"));
-                let slot = *next;
-                *next += 1;
-                lines.push(format!("${slot} = arith sub ${two64} ${one} : Int"));
-                return Some(slot);
+                return Some(emit_u64_max(lines, next));
             }
             let val: Option<i64> = match (ty.as_str(), name.as_str()) {
                 ("i8", "MIN") => Some(i8::MIN as i64),
@@ -814,13 +789,7 @@ fn encode_syn_expr(
                 }
                 let a = encode_syn_expr(&u.expr, param_names, lines, next)?;
                 let mslot = if modulus_i64.is_none() {
-                    let half = *next;
-                    *next += 1;
-                    lines.push(format!("${half} = const 4294967296 : Int"));
-                    let m = *next;
-                    *next += 1;
-                    lines.push(format!("${m} = arith mul ${half} ${half} : Int"));
-                    m
+                    emit_synthetic_2_64(lines, next)
                 } else {
                     let modulus = modulus_i64?;
                     let m = *next;
@@ -910,12 +879,7 @@ fn encode_syn_expr(
                         // Signed: map to unsigned bit pattern, bitop, reinterpret.
                         let Some(modulus) = modulus_i64 else {
                             // i64: synthetic 2^64 modulus
-                            let half = *next;
-                            *next += 1;
-                            lines.push(format!("${half} = const 4294967296 : Int"));
-                            let mslot = *next;
-                            *next += 1;
-                            lines.push(format!("${mslot} = arith mul ${half} ${half} : Int"));
+                            let mslot = emit_synthetic_2_64(lines, next);
                             let u_in = emit_to_unsigned_bits(a, mslot, lines, next);
                             let u_out = encode_unsigned_bitop_var_const(
                                 u_in, mask, kind, bits, lines, next,
@@ -1212,13 +1176,7 @@ fn encode_syn_expr(
                         lines.push(format!("${m} = const {modulus} : Int"));
                         m
                     } else {
-                        let half = *next;
-                        *next += 1;
-                        lines.push(format!("${half} = const 4294967296 : Int"));
-                        let m = *next;
-                        *next += 1;
-                        lines.push(format!("${m} = arith mul ${half} ${half} : Int"));
-                        m
+                        emit_synthetic_2_64(lines, next)
                     };
                     let u_in = emit_to_unsigned_bits(a, mslot, lines, next);
                     encode_bit_sum_count_ones(u_in, bits, lines, next)
@@ -1330,13 +1288,7 @@ fn encode_syn_expr(
                             lines.push(format!("${m} = const {modulus} : Int"));
                             m
                         } else {
-                            let half = *next;
-                            *next += 1;
-                            lines.push(format!("${half} = const 4294967296 : Int"));
-                            let m = *next;
-                            *next += 1;
-                            lines.push(format!("${m} = arith mul ${half} ${half} : Int"));
-                            m
+                            emit_synthetic_2_64(lines, next)
                         };
                         emit_to_unsigned_bits(a, mslot, lines, next)
                     } else {
@@ -1950,13 +1902,7 @@ fn encode_syn_expr(
                         return Some(slot);
                     }
                     let mslot = if use_synthetic_2_64 {
-                        let half = *next;
-                        *next += 1;
-                        lines.push(format!("${half} = const 4294967296 : Int"));
-                        let m = *next;
-                        *next += 1;
-                        lines.push(format!("${m} = arith mul ${half} ${half} : Int"));
-                        m
+                        emit_synthetic_2_64(lines, next)
                     } else {
                         let modulus = modulus_i64?;
                         let m = *next;
@@ -2161,13 +2107,7 @@ fn encode_syn_expr(
                         *next += 1;
                         lines.push(format!("${raw} = arith mul ${a} ${f} : Int"));
                         let mslot = if use_synthetic_2_64 {
-                            let half = *next;
-                            *next += 1;
-                            lines.push(format!("${half} = const 4294967296 : Int"));
-                            let mslot = *next;
-                            *next += 1;
-                            lines.push(format!("${mslot} = arith mul ${half} ${half} : Int"));
-                            mslot
+                            emit_synthetic_2_64(lines, next)
                         } else {
                             let modulus = modulus_i64?;
                             let mslot = *next;
@@ -2226,13 +2166,7 @@ fn encode_syn_expr(
                     *next += 1;
                     lines.push(format!("${k_eff} = arith mod ${t2} ${bits_c} : Int"));
                     let mslot = if use_synthetic_2_64 {
-                        let half = *next;
-                        *next += 1;
-                        lines.push(format!("${half} = const 4294967296 : Int"));
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = arith mul ${half} ${half} : Int"));
-                        mslot
+                        emit_synthetic_2_64(lines, next)
                     } else {
                         let modulus = modulus_i64?;
                         let mslot = *next;
@@ -2308,13 +2242,7 @@ fn encode_syn_expr(
                     let use_synthetic_2_64 = modulus_i64.is_none();
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let mslot = if use_synthetic_2_64 {
-                        let half = *next;
-                        *next += 1;
-                        lines.push(format!("${half} = const 4294967296 : Int"));
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = arith mul ${half} ${half} : Int"));
-                        mslot
+                        emit_synthetic_2_64(lines, next)
                     } else {
                         let modulus = modulus_i64?;
                         let mslot = *next;
@@ -2442,13 +2370,7 @@ fn encode_syn_expr(
                     lines.push(format!("${raw} = arith {op} ${a} ${b} : Int"));
                     let mslot = if use_synthetic_2_64 {
                         // 2^32 fits in i64; product is 2^64 in SMT Int
-                        let half = *next;
-                        *next += 1;
-                        lines.push(format!("${half} = const 4294967296 : Int"));
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = arith mul ${half} ${half} : Int"));
-                        mslot
+                        emit_synthetic_2_64(lines, next)
                     } else {
                         let modulus = modulus_i64?;
                         let mslot = *next;
@@ -2498,13 +2420,7 @@ fn encode_syn_expr(
                     *next += 1;
                     lines.push(format!("${raw} = arith sub ${zero} ${a} : Int"));
                     let mslot = if use_synthetic_2_64 {
-                        let half = *next;
-                        *next += 1;
-                        lines.push(format!("${half} = const 4294967296 : Int"));
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = arith mul ${half} ${half} : Int"));
-                        mslot
+                        emit_synthetic_2_64(lines, next)
                     } else {
                         let modulus = modulus_i64?;
                         let mslot = *next;

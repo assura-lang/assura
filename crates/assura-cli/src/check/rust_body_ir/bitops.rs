@@ -1,5 +1,5 @@
 //! Bit products, bitops, bit counts, ilog, next_power_of_two IR helpers.
-use super::emit_pow2_factor;
+use super::{emit_pow2_factor, emit_synthetic_2_64, emit_u64_max};
 
 /// Const mask as unsigned bit pattern in `bits` width (two's complement for negatives).
 pub(super) fn mask_bits_u64(m: i64, bits: u32) -> u64 {
@@ -102,18 +102,7 @@ pub(super) fn encode_unsigned_bitop_var_const(
                     lines.push(format!("${slot} = const {mask} : Int"));
                     return Some(slot);
                 }
-                let half = *next;
-                *next += 1;
-                lines.push(format!("${half} = const 4294967296 : Int"));
-                let m = *next;
-                *next += 1;
-                lines.push(format!("${m} = arith mul ${half} ${half} : Int"));
-                let one = *next;
-                *next += 1;
-                lines.push(format!("${one} = const 1 : Int"));
-                let slot = *next;
-                *next += 1;
-                lines.push(format!("${slot} = arith sub ${m} ${one} : Int"));
+                let slot = emit_u64_max(lines, next);
                 return Some(slot);
             }
             BitOpKind::Xor => { /* fall through: bitwise not */ }
@@ -259,13 +248,7 @@ pub(super) fn encode_unsigned_bitop_var_var(
     // unconstrained Int models (helps range ensures like result <= 255).
     let mslot = if bits == 64 {
         // synthetic 2^64 = 2^32 * 2^32
-        let half = *next;
-        *next += 1;
-        lines.push(format!("${half} = const 4294967296 : Int"));
-        let m = *next;
-        *next += 1;
-        lines.push(format!("${m} = arith mul ${half} ${half} : Int"));
-        m
+        emit_synthetic_2_64(lines, next)
     } else {
         let modulus = 1i64 << bits;
         let m = *next;
@@ -634,19 +617,7 @@ pub(super) fn encode_unsigned_bitnot(
     }
     // mask = 2^bits - 1 (synthetic 2^64 - 1 for u64)
     let m = if bits == 64 {
-        let half = *next;
-        *next += 1;
-        lines.push(format!("${half} = const 4294967296 : Int"));
-        let two64 = *next;
-        *next += 1;
-        lines.push(format!("${two64} = arith mul ${half} ${half} : Int"));
-        let one = *next;
-        *next += 1;
-        lines.push(format!("${one} = const 1 : Int"));
-        let mask = *next;
-        *next += 1;
-        lines.push(format!("${mask} = arith sub ${two64} ${one} : Int"));
-        mask
+        emit_u64_max(lines, next)
     } else {
         let mask_v = (1i64 << bits) - 1;
         let mask = *next;
