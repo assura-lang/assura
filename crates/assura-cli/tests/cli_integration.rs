@@ -3723,6 +3723,64 @@ fn f(x: i64) -> bool { x.is_zero() }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Mid-width is_positive/is_negative/is_zero for path params.
+#[test]
+fn check_rust_encodes_mid_width_sign_predicates() {
+    let tmp = unique_temp("assura_check_rust_mid_sign_pred");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == true || result == false
+fn p(x: i16) -> bool { x.is_positive() }
+
+/// @ensures result == true || result == false
+fn n(x: i16) -> bool { x.is_negative() }
+
+/// @ensures result == true || result == false
+fn z(x: i16) -> bool { x.is_zero() }
+
+/// @ensures result == true || result == false
+fn p32(x: i32) -> bool { x.is_positive() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong mid-width is_positive ensures must CE.
+#[test]
+fn check_rust_mid_width_is_positive_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_mid_is_pos_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == true
+fn p(x: i16) -> bool { x.is_positive() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// clone/to_owned on ints encode as identity.
 #[test]
 fn check_rust_encodes_clone() {
