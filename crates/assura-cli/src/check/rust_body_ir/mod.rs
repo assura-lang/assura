@@ -397,10 +397,25 @@ fn emit_value_blocks(
                 if arm.guard.is_some() {
                     return None;
                 }
-                let pat = match_pattern_ir(&arm.pat)?;
-                let body_expr = match arm.body.as_ref() {
-                    syn::Expr::Block(b) => block_as_expr_owned(&b.block)?,
-                    other => other.clone(),
+                // Plain `n => body`: rewrite as `_ => body[n:=scrut]` (IR match has no binds).
+                let (pat, body_expr) = if let syn::Pat::Ident(id) = &arm.pat {
+                    if id.by_ref.is_some() || id.mutability.is_some() || id.subpat.is_some() {
+                        return None;
+                    }
+                    let name = id.ident.to_string();
+                    let raw_body = match arm.body.as_ref() {
+                        syn::Expr::Block(b) => block_as_expr_owned(&b.block)?,
+                        other => other.clone(),
+                    };
+                    let body = substitute_ident_expr(raw_body, &name, m.expr.as_ref());
+                    ("_".into(), body)
+                } else {
+                    let pat = match_pattern_ir(&arm.pat)?;
+                    let body = match arm.body.as_ref() {
+                        syn::Expr::Block(b) => block_as_expr_owned(&b.block)?,
+                        other => other.clone(),
+                    };
+                    (pat, body)
                 };
                 let arm_id = emit_value_blocks(
                     &body_expr,
