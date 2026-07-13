@@ -1142,6 +1142,7 @@ fn expand_checked_binop_unwrap_or(expr: &syn::Expr) -> Option<syn::Expr> {
     let op = match inner.method.to_string().as_str() {
         "checked_add" => "add",
         "checked_sub" => "sub",
+        "checked_mul" => "mul",
         _ => return None,
     };
     if inner.args.len() != 1 {
@@ -1152,31 +1153,64 @@ fn expand_checked_binop_unwrap_or(expr: &syn::Expr) -> Option<syn::Expr> {
     let recv = expr_source(&inner.receiver);
     let alt = expr_source(&outer.args[0]);
     // Overflow thresholds for x ⊕ c within [lo, hi].
-    let tree = if op == "add" {
-        if c == 0 {
-            format!("({recv})")
-        } else if c > 0 {
-            // overflow when x > hi - c
-            let thr = hi.checked_sub(c)?;
-            format!("if {recv} > ({thr}) {{ {alt} }} else {{ {recv} + ({c}) }}")
-        } else {
-            // c < 0: overflow when x < lo - c
-            let thr = lo.checked_sub(c)?;
-            format!("if {recv} < ({thr}) {{ {alt} }} else {{ {recv} + ({c}) }}")
+    let tree = match op {
+        "add" => {
+            if c == 0 {
+                format!("({recv})")
+            } else if c > 0 {
+                // overflow when x > hi - c
+                let thr = hi.checked_sub(c)?;
+                format!("if {recv} > ({thr}) {{ {alt} }} else {{ {recv} + ({c}) }}")
+            } else {
+                // c < 0: overflow when x < lo - c
+                let thr = lo.checked_sub(c)?;
+                format!("if {recv} < ({thr}) {{ {alt} }} else {{ {recv} + ({c}) }}")
+            }
         }
-    } else {
-        // checked_sub(c): x - c
-        if c == 0 {
-            format!("({recv})")
-        } else if c > 0 {
-            // underflow when x < lo + c
-            let thr = lo.checked_add(c)?;
-            format!("if {recv} < ({thr}) {{ {alt} }} else {{ {recv} - ({c}) }}")
-        } else {
-            // c < 0: x - c = x + |c|; overflow when x > hi + c (c negative)
-            let thr = hi.checked_add(c)?;
-            format!("if {recv} > ({thr}) {{ {alt} }} else {{ {recv} - ({c}) }}")
+        "sub" => {
+            // checked_sub(c): x - c
+            if c == 0 {
+                format!("({recv})")
+            } else if c > 0 {
+                // underflow when x < lo + c
+                let thr = lo.checked_add(c)?;
+                format!("if {recv} < ({thr}) {{ {alt} }} else {{ {recv} - ({c}) }}")
+            } else {
+                // c < 0: x - c = x + |c|; overflow when x > hi + c (c negative)
+                let thr = hi.checked_add(c)?;
+                format!("if {recv} > ({thr}) {{ {alt} }} else {{ {recv} - ({c}) }}")
+            }
         }
+        "mul" => {
+            // Conservative: only const |c| <= 1 (identity/zero/neg) or c == 2 with mid bound.
+            if c == 0 {
+                "0".to_string()
+            } else if c == 1 {
+                format!("({recv})")
+            } else if c == -1 {
+                // overflow only at MIN for signed
+                if lo < 0 {
+                    let lo_src = if lo == i64::MIN {
+                        format!("-{} - 1", i64::MAX)
+                    } else {
+                        lo.to_string()
+                    };
+                    format!("if {recv} == ({lo_src}) {{ {alt} }} else {{ -({recv}) }}")
+                } else {
+                    format!("-({recv})")
+                }
+            } else if c == 2 {
+                // overflow when x > hi/2 or x < ceil(lo/2) (avoid lo-1 when lo==MIN)
+                let thr_hi = hi / 2;
+                let thr_lo = lo / 2; // floor; exact for even lo (MIN is even)
+                format!(
+                    "if {recv} > ({thr_hi}) || {recv} < ({thr_lo}) {{ {alt} }} else {{ {recv} * 2 }}"
+                )
+            } else {
+                return None;
+            }
+        }
+        _ => return None,
     };
     syn::parse_str(&tree).ok()
 }

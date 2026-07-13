@@ -1980,3 +1980,13 @@ fn overflowing_add_tuple0_encodes() {
         .expect("overflowing_neg.0");
     assert!(n.contains("then #") || n.contains("arith"), "{n}");
 }
+
+#[test]
+fn checked_mul_unwrap_or_encodes() {
+    let ir = try_ir_from_rust_body("M", &px(), Some("i64"), "x.checked_mul(2).unwrap_or(0)")
+        .expect("mul2");
+    assert!(ir.contains("then #") || ir.contains("arith mul"), "{ir}");
+    let z = try_ir_from_rust_body("Z", &px(), Some("i64"), "x.checked_mul(0).unwrap_or(x)")
+        .expect("mul0");
+    assert!(z.contains("const 0") || z.contains("$result"), "{z}");
+}
