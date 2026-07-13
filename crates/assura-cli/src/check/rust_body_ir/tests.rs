@@ -2147,3 +2147,19 @@ fn overflowing_pow_tuple0_encodes() {
     // exp > 4 stays unencoded (wrapping_pow limit)
     assert!(try_ir_from_rust_body("P5", &pu8(), Some("u8"), "x.overflowing_pow(5).0").is_none());
 }
+
+#[test]
+fn overflowing_shl_shr_tuple0_encodes() {
+    let shl = try_ir_from_rust_body("S", &pu8(), Some("u8"), "x.overflowing_shl(1).0")
+        .expect("overflowing_shl.0");
+    assert!(
+        shl.contains("arith mul") || shl.contains("mod") || shl.contains("const"),
+        "{shl}"
+    );
+    let shr = try_ir_from_rust_body("R", &pu8(), Some("u8"), "x.overflowing_shr(1).0")
+        .expect("overflowing_shr.0");
+    assert!(
+        shr.contains("arith div") || shr.contains("mod") || shr.contains("const"),
+        "{shr}"
+    );
+}

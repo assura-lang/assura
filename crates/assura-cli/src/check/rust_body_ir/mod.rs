@@ -28,7 +28,8 @@
 //! enum (≤64 exponents incl. u64/usize). Variable `ilog2`/`ilog10`,
 //! `next_power_of_two`, and `isqrt` for unsigned path params ≤64.
 //! `checked_next_power_of_two`/`checked_shl`/`checked_shr`(const).`unwrap_or` and
-//! `overflowing_pow(…).0` → wrapping_pow (const exp ≤4). `u64`/`usize`
+//! `overflowing_{add,sub,mul,neg,shl,shr,pow}(…).0` → wrapping_* (pow const exp ≤4).
+//! `u64`/`usize`
 //! `MAX`/`MIN` associated consts. Saturating ops clamp to width (u64 via
 //! synthetic max). Literal `/0`, `%0`, `is_multiple_of(0)` BNM. `signum`
 //! nestable clamp (#1032). rem_euclid/div_euclid/div_ceil/next_multiple_of with
@@ -1100,7 +1101,7 @@ fn block_as_expr_owned(block: &syn::Block) -> Option<syn::Expr> {
     }
 }
 
-/// `x.overflowing_add(y).0` → `x.wrapping_add(y)` (same for sub/mul/neg).
+/// `x.overflowing_add(y).0` → `x.wrapping_add(y)` (same for sub/mul/neg/shl/shr/pow).
 fn expand_overflowing_binop_tuple0(expr: &syn::Expr) -> Option<syn::Expr> {
     let syn::Expr::Field(f) = expr else {
         return None;
@@ -1119,6 +1120,8 @@ fn expand_overflowing_binop_tuple0(expr: &syn::Expr) -> Option<syn::Expr> {
         "overflowing_sub" if m.args.len() == 1 => "wrapping_sub",
         "overflowing_mul" if m.args.len() == 1 => "wrapping_mul",
         "overflowing_neg" if m.args.is_empty() => "wrapping_neg",
+        "overflowing_shl" if m.args.len() == 1 => "wrapping_shl",
+        "overflowing_shr" if m.args.len() == 1 => "wrapping_shr",
         // wrapping_pow supports const exp ≤4; larger exp stays BNM downstream.
         "overflowing_pow" if m.args.len() == 1 => "wrapping_pow",
         _ => return None,
