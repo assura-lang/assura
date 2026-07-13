@@ -172,8 +172,9 @@ cargo test -p <crate> --locked --lib
 
 `assura check-rust` proves `/// @ensures` against either a co-located
 `{Name}.ir` sidecar or a **encoded** Rust body. Encoded surface includes
-int/bool arith, if/else/match, multi-let (incl. `let y = if/match …; y + n`), if/match-over-binary (both sides),
+int/bool arith, if/else/match, multi-let / pure `let mut` (incl. `let y = if/match …; y + n`), if/match-over-binary (both sides),
 unary-neg, cast-of-if, method-on-if receivers, single if method-arg via distribute; peel `&`/`*` outer layers; `checked_add`/`checked_sub`/`checked_mul`({0,±1,2})/`checked_div`/`checked_rem`(const).`unwrap_or`; `overflowing_{add,sub,mul,neg}(…).0` → wrapping_*, abs/min/max/clamp/signum/saturating (incl. u64 via synthetic max)/
+
 abs_diff, &&/||, is_multiple_of, into/as, PartialOrd/borrow/deref/pow/default,
 fixed-width wrapping_* (incl. nested width fallback and `wrapping_pow` with
 const exp ≤4), variable wrapping_shl/shr

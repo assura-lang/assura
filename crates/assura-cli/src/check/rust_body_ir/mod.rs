@@ -93,7 +93,8 @@ fn body_return_from_block(block: &syn::Block) -> Option<String> {
 }
 
 /// Fold `let a = e1; let b = a + 1; b` (or `return b`) into a single expression.
-/// Only simple `Pat::Ident` bindings without type ascriptions/mut; final stmt is
+/// Only simple `Pat::Ident` bindings without type ascriptions; `mut` is allowed
+/// when the binding is never reassigned (pure fold). Final stmt is
 /// path/return/expression that may reference prior binds.
 fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<syn::Expr> {
     if stmts.len() < 2 {
@@ -106,8 +107,9 @@ fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<syn::Expr> {
         let syn::Stmt::Local(local) = stmt else {
             return None;
         };
+        // Reject any later assignment to mut bindings (fold is pure substitute).
         let name = match &local.pat {
-            syn::Pat::Ident(id) if id.by_ref.is_none() && id.mutability.is_none() => {
+            syn::Pat::Ident(id) if id.by_ref.is_none() && id.subpat.is_none() => {
                 id.ident.to_string()
             }
             _ => return None,
