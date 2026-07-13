@@ -1486,7 +1486,8 @@ fn encode_syn_expr(
                         Some(acc)
                     }
                 }
-                // Const peep (ilog2(0) panics → BNM). Variable: unsigned path ≤32.
+                // Const peep (ilog2(0) panics → BNM). Variable: unsigned path ≤32;
+                // signed path ≤32 with a>0 math log (a<=0 modeled as 0; Rust panics).
                 ("ilog2", 0) => {
                     if let Some(v) = lit_int_i64(&m.receiver) {
                         if v <= 0 {
@@ -1499,22 +1500,35 @@ fn encode_syn_expr(
                         return Some(slot);
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
-                    if lo != 0 {
-                        return None; // signed / non-unsigned
-                    }
                     if is_u64_width_bounds(lo, hi) {
                         return None; // u64: 64-bit product too large for now
                     }
-                    let modulus_u = (hi as u64).checked_add(1)?;
-                    if !modulus_u.is_power_of_two() {
-                        return None;
-                    }
-                    let bits = modulus_u.trailing_zeros();
+                    let (bits, _, signed) = wrap_width(lo, hi)?;
                     if bits == 0 || bits > 32 {
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
-                    encode_unsigned_ilog2(a, bits, lines, next)
+                    if !signed {
+                        return encode_unsigned_ilog2(a, bits, lines, next);
+                    }
+                    // Math log for a>0. Non-positive: model 0 (panic honesty, like 0u.ilog2).
+                    let zero = *next;
+                    *next += 1;
+                    lines.push(format!("${zero} = const 0 : Int"));
+                    let one = *next;
+                    *next += 1;
+                    lines.push(format!("${one} = const 1 : Int"));
+                    let a_pos = *next;
+                    *next += 1;
+                    lines.push(format!("${a_pos} = call max (${a}, ${one}) : Int"));
+                    let raw = encode_unsigned_ilog2(a_pos, bits, lines, next)?;
+                    let gt = *next;
+                    *next += 1;
+                    lines.push(format!("${gt} = cmp gt ${a} ${zero} : Bool"));
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = arith mul ${gt} ${raw} : Int"));
+                    Some(slot)
                 }
                 // Const peep; variable unsigned path ≤32 via threshold sum.
                 ("ilog10", 0) => {
