@@ -28,7 +28,8 @@
 //! (`(2^w-1)-u`, synthetic 2^64 for i64/u64). Variable is_power_of_two via pot
 //! enum (≤64 exponents incl. u64/usize). Variable `ilog2`/`ilog10`,
 //! `next_power_of_two`, and `isqrt` for unsigned path params ≤64.
-//! `checked_next_power_of_two`/`checked_shl`/`checked_shr`(const).`unwrap_or` and
+//! `checked_next_power_of_two`/`checked_shl`/`checked_shr`(const).`unwrap_or` /
+//! `unwrap_or_default` (→ `unwrap_or(0)`) and
 //! `checked_{add,sub,mul,div,rem,neg,abs,ilog*,npot,pow,shl,shr}(…).is_some()`/`.is_none()`
 //! → overflow-bound bools;
 //! `overflowing_{add,sub,mul,neg,shl,shr,pow}(…).0` → wrapping_* (pow const exp ≤4);
@@ -1359,10 +1360,17 @@ fn expand_overflowing_binop_tuple1(expr: &syn::Expr) -> Option<syn::Expr> {
 
 /// `x.checked_add(c).unwrap_or(alt)` → overflow-guarded if-tree (needs SAT_BOUNDS).
 /// Const `c` only. Same for `checked_sub`.
+/// `unwrap_or_default()` rewrites to `unwrap_or(0)` (integer Option default).
 fn expand_checked_binop_unwrap_or(expr: &syn::Expr) -> Option<syn::Expr> {
     let syn::Expr::MethodCall(outer) = expr else {
         return None;
     };
+    // Integer Option::default is 0; rewrite then fall through to unwrap_or path.
+    if outer.method == "unwrap_or_default" && outer.args.is_empty() {
+        let tree = format!("{}.unwrap_or(0)", expr_source(&outer.receiver));
+        let rewritten: syn::Expr = syn::parse_str(&tree).ok()?;
+        return expand_checked_binop_unwrap_or(&rewritten);
+    }
     if outer.method != "unwrap_or" || outer.args.len() != 1 {
         return None;
     }

@@ -173,7 +173,7 @@ cargo test -p <crate> --locked --lib
 `assura check-rust` proves `/// @ensures` against either a co-located
 `{Name}.ir` sidecar or a **encoded** Rust body. Encoded surface includes
 int/bool arith, if/else/match, multi-let / pure `let mut` (incl. `let y = if/match …; y + n`), if/match-over-binary (both sides),
-unary-neg, cast-of-if, method-on-if receivers, single if method-arg via distribute; peel `&`/`*` outer layers; `checked_add`/`checked_sub`/`checked_mul`({0,±1,2})/`checked_div`/`checked_rem`(const)/`checked_neg()`/`checked_abs()`/`checked_ilog2`/`checked_ilog10`/`checked_pow`(0..=4)/`checked_next_power_of_two`(unsigned)/`checked_shl`/`checked_shr`(const n).`unwrap_or`; `checked_{add,sub,mul,div,rem,neg,abs,ilog2,ilog10,next_power_of_two,pow,shl,shr}(…).is_some()`/`.is_none()` → overflow-bound bools; `overflowing_{add,sub,mul,neg,shl,shr,pow}(…).0` → wrapping_* (pow const exp ≤4); `overflowing_*(…).1` → overflow flag (dual of `checked_*(…).is_none()`, const where required), abs/min/max/clamp/signum/saturating (incl. u64 via synthetic max)/
+unary-neg, cast-of-if, method-on-if receivers, single if method-arg via distribute; peel `&`/`*` outer layers; `checked_add`/`checked_sub`/`checked_mul`({0,±1,2})/`checked_div`/`checked_rem`(const)/`checked_neg()`/`checked_abs()`/`checked_ilog2`/`checked_ilog10`/`checked_pow`(0..=4)/`checked_next_power_of_two`(unsigned)/`checked_shl`/`checked_shr`(const n).`unwrap_or` / `.unwrap_or_default` (→ 0); `checked_{add,sub,mul,div,rem,neg,abs,ilog2,ilog10,next_power_of_two,pow,shl,shr}(…).is_some()`/`.is_none()` → overflow-bound bools; `overflowing_{add,sub,mul,neg,shl,shr,pow}(…).0` → wrapping_* (pow const exp ≤4); `overflowing_*(…).1` → overflow flag (dual of `checked_*(…).is_none()`, const where required), abs/min/max/clamp/signum/saturating (incl. u64 via synthetic max)/
 
 abs_diff, &&/||, is_multiple_of, into/as, PartialOrd/borrow/deref/pow/default,
 fixed-width wrapping_* (incl. nested width fallback, `wrapping_pow` with
@@ -198,7 +198,7 @@ gaps):
 | Panic paths (`/0`, `%0`, `/`/`%` with zero-including path divisors, `is_multiple_of(0)`, literal `0.ilog2()`) | Soundness: do not encode panic as free SMT div/mod |
 | `rem_euclid`/`div_euclid`/`div_ceil`/`next_multiple_of` with non-positive or zero-including divisors | Same soundness rule; use a positive const or `NonZeroU*` param |
 | `let mut y = x; y += 1; y` (reassignment) | Pure `let mut` fold only (#1343); mutation/SSA not modeled |
-| Bare `checked_*` / `overflowing_*` without peel (Option or `(T, bool)` return as the result type) | Intentional: peel with `.unwrap_or` / `.is_some()` / `.is_none()` / `.0` / `.1`; full Option/tuple values are not IR types |
+| Bare `checked_*` / `overflowing_*` without peel (Option or `(T, bool)` return as the result type) | Intentional: peel with `.unwrap_or` / `.unwrap_or_default` / `.is_some()` / `.is_none()` / `.0` / `.1`; full Option/tuple values are not IR types |
 
 Signed path-param `reverse_bits`/`swap_bytes`/`count_*`/`trailing_*`/`leading_*`
 use synthetic `2^64` bit-pattern map for full i64 (same as `count_ones`).

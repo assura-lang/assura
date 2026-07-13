@@ -2007,6 +2007,18 @@ fn checked_add_unwrap_or_encodes() {
     let sub = try_ir_from_rust_body("S", &px(), Some("i64"), "x.checked_sub(1).unwrap_or(x)")
         .expect("checked_sub");
     assert!(sub.contains("then #") || sub.contains("arith sub"), "{sub}");
+    // unwrap_or_default → unwrap_or(0)
+    let def = try_ir_from_rust_body(
+        "D",
+        &pu8(),
+        Some("u8"),
+        "x.checked_add(1).unwrap_or_default()",
+    )
+    .expect("unwrap_or_default");
+    assert!(
+        def.contains("then #") || def.contains("arith add") || def.contains("const"),
+        "{def}"
+    );
 }
 
 #[test]

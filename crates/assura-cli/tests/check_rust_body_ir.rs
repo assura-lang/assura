@@ -1664,6 +1664,61 @@ fn f(x: i64) -> i64 {
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// checked_*(…).unwrap_or_default() peels as unwrap_or(0).
+#[test]
+fn check_rust_encodes_checked_unwrap_or_default() {
+    let tmp = unique_temp("assura_check_rust_unwrap_or_default");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn a(x: u8) -> u8 { x.checked_add(1).unwrap_or_default() }
+
+/// @ensures result >= 0
+fn s(x: u8) -> u8 { x.checked_sub(1).unwrap_or_default() }
+
+/// @ensures result == 0
+fn oob(x: u8) -> u8 { x.checked_shl(8).unwrap_or_default() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong checked unwrap_or_default ensures must CE.
+#[test]
+fn check_rust_checked_unwrap_or_default_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_unwrap_or_default_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn a(x: u8) -> u8 { x.checked_add(1).unwrap_or_default() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// overflowing_add(c).0 encodes as wrapping_add.
 #[test]
 fn check_rust_encodes_overflowing_add() {
