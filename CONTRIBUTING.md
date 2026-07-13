@@ -177,8 +177,8 @@ unary-neg, cast-of-if, method-on-if receivers, single if method-arg via distribu
 
 abs_diff, &&/||, is_multiple_of, into/as, PartialOrd/borrow/deref/pow/default,
 fixed-width wrapping_* (incl. nested width fallback, `wrapping_pow` with
-const exp ≤4, and `wrapping_{add,sub}_{signed,unsigned}`), variable wrapping_shl/shr
-and rotate through 64 bits, BitAnd/Or/Xor (const mask ≤64; both-var signed/
+const exp ≤4, `wrapping_abs`, and `wrapping_{add,sub}_{signed,unsigned}`),
+variable wrapping_shl/shr and rotate through 64 bits, BitAnd/Or/Xor (const mask ≤64; both-var signed/
 unsigned ≤64), variable bitwise `!x` ≤64, pot `is_power_of_two` through u64,
 variable `ilog2`/`ilog10`/`next_power_of_two` for unsigned path params ≤64
 (and signed `ilog2`/`ilog10` ≤64 with `a>0` math log; `a<=0` modeled as 0),

@@ -2254,6 +2254,21 @@ fn checked_is_some_none_encodes() {
 }
 
 #[test]
+fn wrapping_abs_encodes() {
+    let ir = try_ir_from_rust_body("A", &px(), Some("i64"), "x.wrapping_abs()").expect("wabs");
+    // expands to if >=0 / wrapping_neg branch
+    assert!(
+        ir.contains("then #") || ir.contains("call abs") || ir.contains("arith sub"),
+        "{ir}"
+    );
+    let u = try_ir_from_rust_body("U", &pu8(), Some("u8"), "x.wrapping_abs()").expect("u8 wabs");
+    assert!(
+        u.contains("then #") || u.contains("param") || u.contains("load") || u.contains("mod"),
+        "{u}"
+    );
+}
+
+#[test]
 fn wrapping_add_sub_signed_unsigned_encodes() {
     // u8.wrapping_add_signed / wrapping_sub_signed
     let add_s = try_ir_from_rust_body("As", &pu8(), Some("u8"), "x.wrapping_add_signed(1)")
