@@ -1960,3 +1960,13 @@ fn ref_and_deref_if_encodes() {
         .expect("peel & if");
     assert!(ir2.contains("then #"), "{ir2}");
 }
+
+#[test]
+fn checked_add_unwrap_or_encodes() {
+    let ir = try_ir_from_rust_body("C", &px(), Some("i64"), "x.checked_add(1).unwrap_or(x)")
+        .expect("checked_add");
+    assert!(ir.contains("then #") || ir.contains("arith add"), "{ir}");
+    let sub = try_ir_from_rust_body("S", &px(), Some("i64"), "x.checked_sub(1).unwrap_or(x)")
+        .expect("checked_sub");
+    assert!(sub.contains("then #") || sub.contains("arith sub"), "{sub}");
+}

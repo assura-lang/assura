@@ -776,6 +776,9 @@ pub(crate) fn try_ir_from_rust_body(
     if let Some(e) = expand_wrapping_neg_method(&expr) {
         expr = e;
     }
+    if let Some(e) = expand_checked_binop_unwrap_or(&expr) {
+        expr = e;
+    }
     // `(if c { a } else { b }) + 1` → `if c { a + 1 } else { b + 1 }` for multi-block.
     expr = distribute_if_binary(paren_if_match_operands(expr));
     // `expr_source` parenthesizes top-level if/match; strip so multi-block match hits.
@@ -1088,6 +1091,60 @@ fn block_as_expr_owned(block: &syn::Block) -> Option<syn::Expr> {
         [syn::Stmt::Expr(e, _)] => Some(e.clone()),
         stmts => fold_simple_lets(stmts),
     }
+}
+
+/// `x.checked_add(c).unwrap_or(alt)` → overflow-guarded if-tree (needs SAT_BOUNDS).
+/// Const `c` only. Same for `checked_sub`.
+fn expand_checked_binop_unwrap_or(expr: &syn::Expr) -> Option<syn::Expr> {
+    let syn::Expr::MethodCall(outer) = expr else {
+        return None;
+    };
+    if outer.method != "unwrap_or" || outer.args.len() != 1 {
+        return None;
+    }
+    let syn::Expr::MethodCall(inner) = outer.receiver.as_ref() else {
+        return None;
+    };
+    let op = match inner.method.to_string().as_str() {
+        "checked_add" => "add",
+        "checked_sub" => "sub",
+        _ => return None,
+    };
+    if inner.args.len() != 1 {
+        return None;
+    }
+    let c = lit_int_i64(&inner.args[0])?;
+    let (lo, hi) = SAT_BOUNDS.get()?;
+    let recv = expr_source(&inner.receiver);
+    let alt = expr_source(&outer.args[0]);
+    // Overflow thresholds for x ⊕ c within [lo, hi].
+    let tree = if op == "add" {
+        if c == 0 {
+            format!("({recv})")
+        } else if c > 0 {
+            // overflow when x > hi - c
+            let thr = hi.checked_sub(c)?;
+            format!("if {recv} > ({thr}) {{ {alt} }} else {{ {recv} + ({c}) }}")
+        } else {
+            // c < 0: overflow when x < lo - c
+            let thr = lo.checked_sub(c)?;
+            format!("if {recv} < ({thr}) {{ {alt} }} else {{ {recv} + ({c}) }}")
+        }
+    } else {
+        // checked_sub(c): x - c
+        if c == 0 {
+            format!("({recv})")
+        } else if c > 0 {
+            // underflow when x < lo + c
+            let thr = lo.checked_add(c)?;
+            format!("if {recv} < ({thr}) {{ {alt} }} else {{ {recv} - ({c}) }}")
+        } else {
+            // c < 0: x - c = x + |c|; overflow when x > hi + c (c negative)
+            let thr = hi.checked_add(c)?;
+            format!("if {recv} > ({thr}) {{ {alt} }} else {{ {recv} - ({c}) }}")
+        }
+    };
+    syn::parse_str(&tree).ok()
 }
 
 /// `x.wrapping_neg()` → if x == MIN { MIN } else { -x } (needs SAT_BOUNDS).
