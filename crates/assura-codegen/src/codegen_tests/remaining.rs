@@ -490,11 +490,11 @@ contract AllPositive {
     );
     let lib = &project.files[0].1;
     assert!(
-        lib.contains(".iter().all("),
-        "forall in ensures should generate .iter().all(): {lib}"
+        lib.contains(".iter().copied().all("),
+        "forall in ensures should generate .iter().copied().all(): {lib}"
     );
     assert!(
-        lib.contains(&format!("{RESULT_VAR}.iter().all(")),
+        lib.contains(&format!("{RESULT_VAR}.iter().copied().all(")),
         "result in forall ensures should map to result var: {lib}"
     );
 }
@@ -511,8 +511,8 @@ contract HasPositive {
     );
     let lib = &project.files[0].1;
     assert!(
-        lib.contains(".iter().any("),
-        "exists in ensures should generate .iter().any(): {lib}"
+        lib.contains(".iter().copied().any("),
+        "exists in ensures should generate .iter().copied().any(): {lib}"
     );
 }
 
@@ -525,8 +525,8 @@ fn raw_forall_tokens_converted() {
         .collect();
     let result = raw_tokens_to_rust(&tokens);
     assert!(
-        result.contains(".iter().all("),
-        "raw forall tokens should produce .iter().all(): {result}"
+        result.contains(".iter().copied().all("),
+        "raw forall tokens should produce .iter().copied().all(): {result}"
     );
     assert!(result.contains("|v|"), "should bind variable v: {result}");
 }
@@ -539,8 +539,8 @@ fn raw_exists_tokens_converted() {
         .collect();
     let result = raw_tokens_to_rust(&tokens);
     assert!(
-        result.contains(".iter().any("),
-        "raw exists tokens should produce .iter().any(): {result}"
+        result.contains(".iter().copied().any("),
+        "raw exists tokens should produce .iter().copied().any(): {result}"
     );
 }
 
@@ -2221,7 +2221,7 @@ fn expr_to_rust_index() {
         expr: Box::new(Spanned::no_span(Expr::Ident("arr".into()))),
         index: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
     });
-    assert_eq!(expr_to_rust(&e), "arr[0]");
+    assert_eq!(expr_to_rust(&e), "arr[(0) as usize]");
 }
 
 #[test]
@@ -2231,7 +2231,7 @@ fn expr_to_rust_arithmetic() {
         op: BinOp::Add,
         rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
     });
-    assert_eq!(expr_to_rust(&e), "(a + b)");
+    assert_eq!(expr_to_rust(&e), "(i128::from(a) + i128::from(b))");
 }
 
 #[test]
@@ -2289,13 +2289,13 @@ fn expr_to_rust_numeric_comparison_casts() {
 
 #[test]
 fn expr_to_rust_equality_no_cast() {
-    // Equality doesn't get i128 casts
+    // Equality on numeric idents now also gets i128 casts (prevents mixed-type errors)
     let e = Spanned::no_span(Expr::BinOp {
         lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         op: BinOp::Eq,
         rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
     });
-    assert_eq!(expr_to_rust(&e), "(a == b)");
+    assert_eq!(expr_to_rust(&e), "(i128::from(a) == i128::from(b))");
 }
 
 #[test]
@@ -2336,7 +2336,7 @@ fn expr_to_rust_forall() {
         })),
     });
     let result = expr_to_rust(&e);
-    assert!(result.contains(".iter().all(|x|"), "got: {result}");
+    assert!(result.contains(".iter().copied().all(|x|"), "got: {result}");
 }
 
 #[test]
@@ -2351,7 +2351,7 @@ fn expr_to_rust_exists() {
         })),
     });
     let result = expr_to_rust(&e);
-    assert!(result.contains(".iter().any(|x|"), "got: {result}");
+    assert!(result.contains(".iter().copied().any(|x|"), "got: {result}");
 }
 
 #[test]

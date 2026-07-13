@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use super::*;
 use assura_ast::Spanned;
 use assura_ast::*;
@@ -183,7 +185,7 @@ fn expr_to_rust_index() {
         expr: Box::new(Spanned::no_span(Expr::Ident("arr".into()))),
         index: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
     });
-    assert_eq!(expr_to_rust(&e), "arr[0]");
+    assert_eq!(expr_to_rust(&e), "arr[(0) as usize]");
 }
 
 #[test]
@@ -193,7 +195,7 @@ fn expr_to_rust_binop_add() {
         op: BinOp::Add,
         rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
     });
-    assert_eq!(expr_to_rust(&e), "(a + b)");
+    assert_eq!(expr_to_rust(&e), "(i128::from(a) + i128::from(b))");
 }
 
 #[test]
@@ -248,13 +250,13 @@ fn expr_to_rust_numeric_cmp_casts_i128() {
 
 #[test]
 fn expr_to_rust_eq_no_cast() {
-    // Equality does not cast to i128
+    // Equality on numeric idents casts to i128 (prevents mixed-type errors)
     let e = Spanned::no_span(Expr::BinOp {
         lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         op: BinOp::Eq,
         rhs: Box::new(Spanned::no_span(Expr::Ident("y".into()))),
     });
-    assert_eq!(expr_to_rust(&e), "(x == y)");
+    assert_eq!(expr_to_rust(&e), "(i128::from(x) == i128::from(y))");
 }
 
 #[test]
@@ -295,7 +297,7 @@ fn expr_to_rust_forall() {
         })),
     });
     let result = expr_to_rust(&e);
-    assert!(result.contains("iter().all(|x|"));
+    assert!(result.contains("iter().copied().all(|x|"));
 }
 
 #[test]
@@ -305,7 +307,7 @@ fn expr_to_rust_exists() {
         domain: Box::new(Spanned::no_span(Expr::Ident("xs".into()))),
         body: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
     });
-    assert!(expr_to_rust(&e).contains("iter().any(|x|"));
+    assert!(expr_to_rust(&e).contains("iter().copied().any(|x|"));
 }
 
 #[test]
@@ -438,7 +440,7 @@ fn raw_tokens_forall_quantifier() {
         .map(String::from)
         .collect();
     let result = raw_tokens_to_rust(&tokens);
-    assert!(result.contains(".iter().all(|x|"), "got: {result}");
+    assert!(result.contains(".iter().copied().all(|x|"), "got: {result}");
 }
 
 #[test]
@@ -448,7 +450,7 @@ fn raw_tokens_exists_quantifier() {
         .map(String::from)
         .collect();
     let result = raw_tokens_to_rust(&tokens);
-    assert!(result.contains(".iter().any(|x|"), "got: {result}");
+    assert!(result.contains(".iter().copied().any(|x|"), "got: {result}");
 }
 
 #[test]
@@ -709,4 +711,126 @@ fn ordering_relaxed() {
 fn ordering_unknown() {
     let e = Spanned::no_span(Expr::Ident("garbage".into()));
     assert_eq!(resolve_ordering_variant(&e), None);
+}
+
+// ---- has_float_expr ----
+
+#[test]
+fn has_float_expr_literal() {
+    let e = Spanned::no_span(Expr::Literal(Literal::Float("3.14".into())));
+    assert!(has_float_expr(&e, &HashSet::new()));
+}
+
+#[test]
+fn has_float_expr_ident_in_set() {
+    let vars: HashSet<String> = ["x".into()].into_iter().collect();
+    let e = Spanned::no_span(Expr::Ident("x".into()));
+    assert!(has_float_expr(&e, &vars));
+}
+
+#[test]
+fn has_float_expr_ident_not_in_set() {
+    let e = Spanned::no_span(Expr::Ident("x".into()));
+    assert!(!has_float_expr(&e, &HashSet::new()));
+}
+
+#[test]
+fn has_float_expr_binop_with_float_literal() {
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        op: BinOp::Add,
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+            "1.0".into(),
+        )))),
+    });
+    assert!(has_float_expr(&e, &HashSet::new()));
+}
+
+#[test]
+fn has_float_expr_nested_method_call() {
+    let vars: HashSet<String> = ["x".into()].into_iter().collect();
+    let e = Spanned::no_span(Expr::MethodCall {
+        receiver: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+        method: "abs".into(),
+        args: vec![],
+    });
+    assert!(has_float_expr(&e, &vars));
+}
+
+#[test]
+fn has_float_expr_int_only() {
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+        op: BinOp::Add,
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("2".into())))),
+    });
+    assert!(!has_float_expr(&e, &HashSet::new()));
+}
+
+// ---- expr_to_rust_with_floats ----
+
+#[test]
+fn float_binop_skips_i128_wrapping() {
+    let vars: HashSet<String> = ["x".into(), "y".into()].into_iter().collect();
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+        op: BinOp::Lt,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("y".into()))),
+    });
+    let result = expr_to_rust_with_floats(&e, vars);
+    assert!(
+        !result.contains("i128::from"),
+        "Float vars must not use i128::from, got: {result}"
+    );
+    assert!(result.contains("x") && result.contains("y"));
+}
+
+#[test]
+fn float_literal_binop_skips_i128_wrapping() {
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+            "1.5".into(),
+        )))),
+        op: BinOp::Add,
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+            "2.5".into(),
+        )))),
+    });
+    let result = expr_to_rust_with_floats(&e, HashSet::new());
+    assert!(
+        !result.contains("i128::from"),
+        "Float literals must not use i128::from, got: {result}"
+    );
+}
+
+#[test]
+fn non_float_binop_still_uses_i128() {
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        op: BinOp::Add,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
+    // No float vars, should use i128::from as before
+    let result = expr_to_rust_with_floats(&e, HashSet::new());
+    assert!(
+        result.contains("i128::from"),
+        "Non-float must use i128::from, got: {result}"
+    );
+}
+
+#[test]
+fn mixed_float_and_int_in_if_skips_i128() {
+    let vars: HashSet<String> = ["x".into()].into_iter().collect();
+    let e = Spanned::no_span(Expr::If {
+        cond: Box::new(Spanned::no_span(Expr::Ident("c".into()))),
+        then_branch: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+        else_branch: Some(Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+            "0.0".into(),
+        ))))),
+    });
+    let result = expr_to_rust_with_floats(&e, vars);
+    assert!(
+        !result.contains("i128::from"),
+        "Float if-branches must not use i128::from, got: {result}"
+    );
 }

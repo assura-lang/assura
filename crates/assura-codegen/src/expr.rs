@@ -2,6 +2,8 @@
 //!
 //! Translates Assura AST expressions into Rust source code strings.
 
+use std::collections::HashSet;
+
 use super::*;
 use assura_ast::{ExprFolder, fold_arg_list, fold_joined, literal_to_string};
 
@@ -13,6 +15,62 @@ pub(crate) const RESULT_VAR: &str = "__assura_result";
 
 /// Prefix for `old(expr)` pre-state snapshot variables in generated Rust.
 pub(crate) const OLD_VAR_PREFIX: &str = "__assura_old_";
+
+/// Returns true if the expression contains a literal that exceeds i128 range
+/// (e.g. u128::MAX). Such literals cannot be wrapped in `i128::from(...)`.
+fn has_u128_literal(expr: &SpExpr) -> bool {
+    match &expr.node {
+        Expr::Literal(Literal::Int(s)) => s.parse::<i128>().is_err() && s.parse::<u128>().is_ok(),
+        Expr::BinOp { lhs, rhs, .. } => has_u128_literal(lhs) || has_u128_literal(rhs),
+        Expr::UnaryOp { expr: e, .. }
+        | Expr::Old(e)
+        | Expr::Cast { expr: e, .. }
+        | Expr::Field(e, _) => has_u128_literal(e),
+        _ => false,
+    }
+}
+
+/// Returns true if the expression tree contains a Float literal or references
+/// a variable known to be float-typed. Used to skip `i128::from()` wrapping
+/// since `f64` does not implement `Into<i128>`.
+fn has_float_expr(expr: &SpExpr, float_vars: &HashSet<String>) -> bool {
+    match &expr.node {
+        Expr::Literal(Literal::Float(_)) => true,
+        Expr::Ident(name) => float_vars.contains(name.as_str()),
+        Expr::BinOp { lhs, rhs, .. } => {
+            has_float_expr(lhs, float_vars) || has_float_expr(rhs, float_vars)
+        }
+        Expr::UnaryOp { expr: e, .. }
+        | Expr::Old(e)
+        | Expr::Cast { expr: e, .. }
+        | Expr::Field(e, _) => has_float_expr(e, float_vars),
+        Expr::MethodCall { receiver, args, .. } => {
+            has_float_expr(receiver, float_vars)
+                || args.iter().any(|a| has_float_expr(a, float_vars))
+        }
+        Expr::Call { args, .. } => args.iter().any(|a| has_float_expr(a, float_vars)),
+        Expr::Let { body, .. } => has_float_expr(body, float_vars),
+        Expr::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            has_float_expr(then_branch, float_vars)
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|e| has_float_expr(e, float_vars))
+        }
+        _ => false,
+    }
+}
+
+/// Returns true if the folded Rust string already contains i128 widening.
+/// Used to detect branch type mismatches in if/match expressions where
+/// one branch gets i128::from() from arithmetic widening but the other
+/// stays as a plain variable (i64).
+fn has_inner_i128(folded: &str) -> bool {
+    folded.contains("i128::from(") || folded.contains("_i128")
+}
 
 /// Heuristic: returns true if the expression is likely a numeric value
 /// (variable, constant, literal, or arithmetic). Used to decide whether to
@@ -46,6 +104,39 @@ pub(crate) fn is_numeric_expr(expr: &SpExpr) -> bool {
     }
 }
 
+/// Returns true if the domain expression is a range (`a..b` via `BinOp::Range`).
+///
+/// Ranges in Rust implement `IntoIterator` but not `iter()` directly, so
+/// quantifiers over ranges must use `.into_iter()` instead of `.iter().copied()`.
+fn is_range_domain(expr: &SpExpr) -> bool {
+    matches!(
+        &expr.node,
+        Expr::BinOp {
+            op: BinOp::Range,
+            ..
+        }
+    )
+}
+
+/// Returns true if the domain expression is an abstract mathematical type
+/// identifier (Int, Nat, Float, Bool, String) that cannot be iterated at runtime.
+///
+/// Quantifiers like `forall x in Int: ...` are verification-only; at runtime
+/// they are emitted as `true` with a comment.
+fn is_abstract_type_domain(expr: &SpExpr) -> bool {
+    match &expr.node {
+        Expr::Ident(name) => matches!(
+            name.as_str(),
+            "Int" | "Nat" | "Float" | "Bool" | "String" | "Bytes" | "Unit"
+        ),
+        Expr::Raw(tokens) if tokens.len() == 1 => matches!(
+            tokens[0].as_str(),
+            "Int" | "Nat" | "Float" | "Bool" | "String" | "Bytes" | "Unit"
+        ),
+        _ => false,
+    }
+}
+
 /// Resolve an ordering clause body to a Rust `std::sync::atomic::Ordering` variant name.
 pub(crate) fn resolve_ordering_variant(body: &SpExpr) -> Option<&'static str> {
     use assura_ast::MemoryOrdering;
@@ -66,6 +157,18 @@ pub(crate) fn resolve_ordering_variant(body: &SpExpr) -> Option<&'static str> {
 pub(crate) fn expr_to_rust(expr: &SpExpr) -> String {
     RustCodegenFolder {
         static_context: false,
+        float_vars: HashSet::new(),
+    }
+    .fold_expr(expr)
+}
+
+/// Like [`expr_to_rust`] but with knowledge of which variables are float-typed.
+/// Comparisons and arithmetic involving these variables use direct `f64`
+/// operations instead of `i128::from()` widening.
+pub(crate) fn expr_to_rust_with_floats(expr: &SpExpr, float_vars: HashSet<String>) -> String {
+    RustCodegenFolder {
+        static_context: false,
+        float_vars,
     }
     .fold_expr(expr)
 }
@@ -82,6 +185,7 @@ pub(crate) fn expr_to_rust(expr: &SpExpr) -> String {
 pub fn expr_to_rust_static(expr: &SpExpr) -> String {
     RustCodegenFolder {
         static_context: true,
+        float_vars: HashSet::new(),
     }
     .fold_expr(expr)
 }
@@ -94,13 +198,37 @@ pub fn expr_to_rust_static(expr: &SpExpr) -> String {
 /// const/static contexts.
 struct RustCodegenFolder {
     static_context: bool,
+    /// Names of variables known to be `Float` (`f64` in Rust). When a
+    /// comparison or arithmetic involves a float variable or literal,
+    /// `i128::from()` wrapping is skipped (f64 does not implement `Into<i128>`).
+    float_vars: HashSet<String>,
 }
 
 impl ExprFolder for RustCodegenFolder {
     type Output = String;
 
     fn fold_literal(&mut self, lit: &Literal) -> String {
-        literal_to_string(lit)
+        match lit {
+            // Suffix large integer literals so they are not inferred as i32
+            // inside `i128::from(...)` wrappings. Values within i32 range
+            // are emitted without a suffix. Values in i64 range get `_i64`.
+            // Values exceeding i64 range get `_i128`.
+            Literal::Int(s) => {
+                if let Ok(v) = s.parse::<i128>() {
+                    if v > i128::from(i64::MAX) || v < i128::from(i64::MIN) {
+                        return format!("{s}_i128");
+                    }
+                    if v > i128::from(i32::MAX) || v < i128::from(i32::MIN) {
+                        return format!("{s}_i64");
+                    }
+                } else if s.parse::<u128>().is_ok() {
+                    // Value exceeds i128 range (e.g. u128::MAX); emit as u128.
+                    return format!("{s}_u128");
+                }
+                s.clone()
+            }
+            _ => literal_to_string(lit),
+        }
     }
 
     fn fold_ident(&mut self, name: &str) -> String {
@@ -153,7 +281,15 @@ impl ExprFolder for RustCodegenFolder {
     }
 
     fn fold_index(&mut self, base: &SpExpr, index: &SpExpr) -> String {
-        format!("{}[{}]", self.fold_expr(base), self.fold_expr(index))
+        let idx = self.fold_expr(index);
+        if !self.static_context && is_numeric_expr(index) {
+            // Array/slice indexing requires usize. Assura Int maps to i64/i128
+            // in codegen, and numeric expressions may be widened. Cast the index
+            // to usize to satisfy Rust's indexing requirements.
+            format!("{}[({idx}) as usize]", self.fold_expr(base))
+        } else {
+            format!("{}[{idx}]", self.fold_expr(base))
+        }
     }
 
     fn fold_binop(&mut self, lhs: &SpExpr, op: &BinOp, rhs: &SpExpr) -> String {
@@ -183,7 +319,26 @@ impl ExprFolder for RustCodegenFolder {
                 _ => {}
             }
             let op_s = op.as_rust_str();
-            if op.is_ordering_comparison() && is_numeric_expr(lhs) && is_numeric_expr(rhs) {
+            // Widen all numeric comparisons and arithmetic to i128 to prevent
+            // mixed-type errors (e.g. i64 + u64, u64 == i128) in generated
+            // code when contracts mix Int and Nat typed inputs.
+            // Skip i128 wrapping when either side has a u128-scale literal
+            // (e.g. u128::MAX) since i128::from(u128) does not exist.
+            // Also skip when either side involves Float (f64 does not
+            // implement Into<i128>).
+            if (op.is_comparison() || op.is_arithmetic())
+                && is_numeric_expr(lhs)
+                && is_numeric_expr(rhs)
+                && !has_float_expr(lhs, &self.float_vars)
+                && !has_float_expr(rhs, &self.float_vars)
+            {
+                if has_u128_literal(lhs) || has_u128_literal(rhs) {
+                    return format!(
+                        "(({} as u128) {op_s} ({} as u128))",
+                        self.fold_expr(lhs),
+                        self.fold_expr(rhs)
+                    );
+                }
                 return format!(
                     "(i128::from({}) {op_s} i128::from({}))",
                     self.fold_expr(lhs),
@@ -218,13 +373,19 @@ impl ExprFolder for RustCodegenFolder {
     }
 
     fn fold_forall(&mut self, var: &str, domain: &SpExpr, body: &SpExpr) -> String {
-        if self.static_context {
+        if self.static_context || is_abstract_type_domain(domain) {
             let d = self.fold_expr(domain);
             let b = self.fold_expr(body);
             format!("/* forall {var} in {d}: {b} */ true")
+        } else if is_range_domain(domain) {
+            format!(
+                "({}).into_iter().all(|{var}| {})",
+                self.fold_expr(domain),
+                self.fold_expr(body)
+            )
         } else {
             format!(
-                "{}.iter().all(|{var}| {})",
+                "{}.iter().copied().all(|{var}| {})",
                 self.fold_expr(domain),
                 self.fold_expr(body)
             )
@@ -232,13 +393,19 @@ impl ExprFolder for RustCodegenFolder {
     }
 
     fn fold_exists(&mut self, var: &str, domain: &SpExpr, body: &SpExpr) -> String {
-        if self.static_context {
+        if self.static_context || is_abstract_type_domain(domain) {
             let d = self.fold_expr(domain);
             let b = self.fold_expr(body);
             format!("/* exists {var} in {d}: {b} */ true")
+        } else if is_range_domain(domain) {
+            format!(
+                "({}).into_iter().any(|{var}| {})",
+                self.fold_expr(domain),
+                self.fold_expr(body)
+            )
         } else {
             format!(
-                "{}.iter().any(|{var}| {})",
+                "{}.iter().copied().any(|{var}| {})",
                 self.fold_expr(domain),
                 self.fold_expr(body)
             )
@@ -247,12 +414,39 @@ impl ExprFolder for RustCodegenFolder {
 
     fn fold_if(&mut self, cond: &SpExpr, then_br: &SpExpr, else_br: Option<&SpExpr>) -> String {
         match else_br {
-            Some(eb) => format!(
-                "if {} {{ {} }} else {{ {} }}",
-                self.fold_expr(cond),
-                self.fold_expr(then_br),
-                self.fold_expr(eb)
-            ),
+            Some(eb) => {
+                let then_s = self.fold_expr(then_br);
+                let else_s = self.fold_expr(eb);
+                // In runtime context, if either branch contains i128 arithmetic
+                // but the other is a plain ident/literal, the branches produce
+                // incompatible types. Normalize both to i128::from() when both
+                // are numeric to ensure type consistency.
+                if !self.static_context
+                    && is_numeric_expr(then_br)
+                    && is_numeric_expr(eb)
+                    && (has_inner_i128(&then_s) || has_inner_i128(&else_s))
+                    && !has_float_expr(then_br, &self.float_vars)
+                    && !has_float_expr(eb, &self.float_vars)
+                {
+                    let t = if has_inner_i128(&then_s) {
+                        then_s
+                    } else {
+                        format!("i128::from({then_s})")
+                    };
+                    let e = if has_inner_i128(&else_s) {
+                        else_s
+                    } else {
+                        format!("i128::from({else_s})")
+                    };
+                    return format!("if {} {{ {} }} else {{ {} }}", self.fold_expr(cond), t, e);
+                }
+                format!(
+                    "if {} {{ {} }} else {{ {} }}",
+                    self.fold_expr(cond),
+                    then_s,
+                    else_s
+                )
+            }
             None => format!(
                 "if {} {{ {} }}",
                 self.fold_expr(cond),
@@ -430,7 +624,7 @@ pub(crate) fn raw_tokens_to_rust(tokens: &[String]) -> String {
             let body = raw_tokens_to_rust(body_tokens);
 
             let method = if first == "forall" { "all" } else { "any" };
-            return format!("{domain}.iter().{method}(|{var}| {body})");
+            return format!("{domain}.iter().copied().{method}(|{var}| {body})");
         }
     }
 

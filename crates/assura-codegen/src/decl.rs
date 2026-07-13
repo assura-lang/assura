@@ -1,5 +1,7 @@
 //! Bind, extern, and function definition code generation.
 
+use std::collections::HashSet;
+
 use super::*;
 
 // ---------------------------------------------------------------------------
@@ -40,6 +42,13 @@ pub(crate) fn generate_bind(b: &BindDecl, code: &mut String) {
 
     let rust_path = &b.target_path;
 
+    // Collect float-typed parameter names to skip i128::from() wrapping.
+    let float_vars: HashSet<String> = params
+        .iter()
+        .filter(|p| matches!(&p.ty, RustType::Raw(t) if t == "f64"))
+        .map(|p| p.name.clone())
+        .collect();
+
     let mut body: Vec<RustStmt> = Vec::new();
 
     // Collect old() expressions from ensures clauses and save pre-state values
@@ -51,14 +60,14 @@ pub(crate) fn generate_bind(b: &BindDecl, code: &mut String) {
                     "let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();"
                 )));
             }
-            ensures_exprs.push(expr_to_rust(&clause.body));
+            ensures_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
         }
     }
 
     // Requires assertions
     for clause in &b.clauses {
         if clause.kind == ClauseKind::Requires {
-            let expr = expr_to_rust(&clause.body);
+            let expr = expr_to_rust_with_floats(&clause.body, float_vars.clone());
             body.push(RustStmt::Assert {
                 cond: expr,
                 label: "requires".into(),
@@ -133,6 +142,13 @@ pub(crate) fn generate_extern(ex: &ExternDecl, code: &mut String) {
         .iter()
         .any(|c| c.kind == ClauseKind::Requires || c.kind == ClauseKind::Ensures);
 
+    // Collect float-typed parameter names to skip i128::from() wrapping.
+    let float_vars: HashSet<String> = params
+        .iter()
+        .filter(|p| matches!(&p.ty, RustType::Raw(t) if t == "f64"))
+        .map(|p| p.name.clone())
+        .collect();
+
     let mut body: Vec<RustStmt> = Vec::new();
 
     // SEC.2 compile-time: untrusted externs without contracts emit compile_error!
@@ -153,14 +169,14 @@ pub(crate) fn generate_extern(ex: &ExternDecl, code: &mut String) {
                     "let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();"
                 )));
             }
-            ensures_exprs.push(expr_to_rust(&clause.body));
+            ensures_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
         }
     }
 
     // Requires assertions
     for clause in &ex.clauses {
         if clause.kind == ClauseKind::Requires {
-            let expr = expr_to_rust(&clause.body);
+            let expr = expr_to_rust_with_floats(&clause.body, float_vars.clone());
             body.push(RustStmt::Assert {
                 cond: expr,
                 label: "requires".into(),
@@ -253,6 +269,13 @@ pub(crate) fn generate_fn_def(
         Some(RustType::Raw(return_type))
     };
 
+    // Collect float-typed parameter names to skip i128::from() wrapping.
+    let float_vars: HashSet<String> = params
+        .iter()
+        .filter(|p| matches!(&p.ty, RustType::Raw(t) if t == "f64"))
+        .map(|p| p.name.clone())
+        .collect();
+
     let mut body: Vec<RustStmt> = Vec::new();
 
     // Collect old() expressions from ensures clauses and save pre-state values
@@ -264,14 +287,14 @@ pub(crate) fn generate_fn_def(
                     "let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();"
                 )));
             }
-            ensures_exprs.push(expr_to_rust(&clause.body));
+            ensures_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
         }
     }
 
     // Requires assertions
     for clause in &f.clauses {
         if clause.kind == ClauseKind::Requires {
-            let expr = expr_to_rust(&clause.body);
+            let expr = expr_to_rust_with_floats(&clause.body, float_vars.clone());
             body.push(RustStmt::Assert {
                 cond: expr,
                 label: "requires".into(),
@@ -387,7 +410,10 @@ mod tests {
         };
         let mut code = String::new();
         generate_bind(&b, &mut code);
-        assert!(code.contains("debug_assert!((b != 0)"));
+        assert!(
+            code.contains("debug_assert!((i128::from(b) != i128::from(0))"),
+            "bind requires: {code}"
+        );
     }
 
     #[test]
@@ -553,7 +579,10 @@ mod tests {
         };
         let mut code = String::new();
         generate_fn_def(&f, &mut code, None);
-        assert!(code.contains("debug_assert!((b != 0)"), "requires b != 0");
+        assert!(
+            code.contains("debug_assert!((i128::from(b) != i128::from(0))"),
+            "requires b != 0: {code}"
+        );
         assert!(code.contains(RESULT_VAR), "result variable");
         assert!(code.contains("ensures"), "ensures assertion");
     }

@@ -1,5 +1,6 @@
 //! Contract, enum, proptest, and error type code generation.
 
+use std::collections::HashSet;
 use std::fmt::Write;
 
 use super::*;
@@ -18,6 +19,101 @@ pub(crate) fn generate_enum_def(e: &EnumDef, code: &mut String) {
 // ---------------------------------------------------------------------------
 // Contract declarations
 // ---------------------------------------------------------------------------
+
+/// Collect free identifier names from an expression tree.
+///
+/// Walks the expression recursively and collects all `Expr::Ident` names,
+/// excluding `result` (handled separately by codegen) and quantifier-bound
+/// variables. Used to synthesize input parameters for contracts that reference
+/// free variables without an explicit `input()` clause.
+fn collect_free_idents(expr: &SpExpr, idents: &mut HashSet<String>) {
+    match &expr.node {
+        Expr::Ident(name) if name != "result" && name != "true" && name != "false" => {
+            idents.insert(name.clone());
+        }
+        Expr::Ident(_) => {}
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_free_idents(lhs, idents);
+            collect_free_idents(rhs, idents);
+        }
+        Expr::UnaryOp { expr: inner, .. }
+        | Expr::Old(inner)
+        | Expr::Ghost(inner)
+        | Expr::Cast { expr: inner, .. } => collect_free_idents(inner, idents),
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_free_idents(cond, idents);
+            collect_free_idents(then_branch, idents);
+            if let Some(e) = else_branch {
+                collect_free_idents(e, idents);
+            }
+        }
+        Expr::Forall {
+            var, body, domain, ..
+        }
+        | Expr::Exists {
+            var, body, domain, ..
+        } => {
+            collect_free_idents(body, idents);
+            collect_free_idents(domain, idents);
+            idents.remove(var);
+        }
+        Expr::Call { args, .. } => {
+            for arg in args {
+                collect_free_idents(arg, idents);
+            }
+        }
+        Expr::Field(receiver, _) => collect_free_idents(receiver, idents),
+        Expr::MethodCall { receiver, args, .. } => {
+            collect_free_idents(receiver, idents);
+            for arg in args {
+                collect_free_idents(arg, idents);
+            }
+        }
+        Expr::Index { expr, index } => {
+            collect_free_idents(expr, idents);
+            collect_free_idents(index, idents);
+        }
+        Expr::Let { value, body, .. } => {
+            collect_free_idents(value, idents);
+            collect_free_idents(body, idents);
+        }
+        Expr::Match { scrutinee, arms } => {
+            collect_free_idents(scrutinee, idents);
+            for arm in arms {
+                collect_free_idents(&arm.body, idents);
+            }
+        }
+        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
+            for item in items {
+                collect_free_idents(item, idents);
+            }
+        }
+        Expr::Apply { args, .. } => {
+            for arg in args {
+                collect_free_idents(arg, idents);
+            }
+        }
+        Expr::Literal(_) => {}
+        Expr::Raw(tokens) => {
+            for tok in tokens {
+                if tok
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_alphabetic() || c == '_')
+                    && tok != "result"
+                    && tok != "true"
+                    && tok != "false"
+                {
+                    idents.insert(tok.clone());
+                }
+            }
+        }
+    }
+}
 
 /// Generate the body of a contract as standalone module contents (no `pub mod`
 /// wrapper). Used in multi-file mode where each contract gets its own `.rs` file.
@@ -70,6 +166,8 @@ pub(crate) fn generate_contract_contents_opts(
     let mut modifies: Vec<String> = Vec::new();
     let mut invariants: Vec<String> = Vec::new();
 
+    // First pass: collect input params and output type so we know which
+    // variables are float-typed before converting clause bodies.
     for clause in &c.clauses {
         match &clause.kind {
             ClauseKind::Input => extract_input_params(&clause.body, &mut input_params),
@@ -77,18 +175,76 @@ pub(crate) fn generate_contract_contents_opts(
                 output_type = extract_output_type(&clause.body);
                 output_name = extract_output_name(&clause.body);
             }
-            ClauseKind::Requires => requires_exprs.push(expr_to_rust(&clause.body)),
-            ClauseKind::Ensures => ensures_exprs.push(expr_to_rust(&clause.body)),
+            _ => {}
+        }
+    }
+
+    // Collect float-typed parameter names so the expression folder skips
+    // i128::from() wrapping for them (f64 does not implement Into<i128>).
+    let float_vars: HashSet<String> = input_params
+        .iter()
+        .filter(|(_, ty)| ty == "f64")
+        .map(|(name, _)| name.clone())
+        .collect();
+
+    // Second pass: convert clause bodies to Rust expressions.
+    for clause in &c.clauses {
+        match &clause.kind {
+            ClauseKind::Requires => {
+                requires_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()))
+            }
+            ClauseKind::Ensures => {
+                ensures_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()))
+            }
             ClauseKind::Effects => effects.push(expr_to_rust(&clause.body)),
             ClauseKind::Modifies => modifies.push(expr_to_rust(&clause.body)),
-            ClauseKind::Invariant => invariants.push(expr_to_rust(&clause.body)),
-            ClauseKind::Errors
+            ClauseKind::Invariant => {
+                invariants.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()))
+            }
+            ClauseKind::Input
+            | ClauseKind::Output
+            | ClauseKind::Errors
             | ClauseKind::Rule
             | ClauseKind::DataFlow
             | ClauseKind::MustNot
             | ClauseKind::Decreases
             | ClauseKind::Ordering
             | ClauseKind::Other(_) => {}
+        }
+    }
+
+    // Infer output type when no output() clause exists but ensures/invariant
+    // clauses reference `result`. Without this, codegen produces
+    // `let __assura_result: () = todo!(...)` and then `i128::from(())` or
+    // `() == true` which fails to compile.
+    if output_type == "()" {
+        let refs_result = c.clauses.iter().any(|cl| {
+            matches!(cl.kind, ClauseKind::Ensures | ClauseKind::Invariant)
+                && assura_ast::expr_references_result(&cl.body)
+        });
+        if refs_result {
+            output_type = infer_result_type_from_clauses(&c.clauses);
+        }
+    }
+
+    // Synthesize input parameters from free variables when no input() clause
+    // exists. Contracts like `requires { x > 0 } ensures { x > 0 }` reference
+    // `x` as a free variable; without this, codegen produces `fn check()` with
+    // no parameters and the generated Rust fails to compile.
+    if input_params.is_empty() {
+        let mut free = HashSet::new();
+        for clause in &c.clauses {
+            match &clause.kind {
+                ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Invariant => {
+                    collect_free_idents(&clause.body, &mut free);
+                }
+                _ => {}
+            }
+        }
+        let mut sorted: Vec<String> = free.into_iter().collect();
+        sorted.sort();
+        for name in sorted {
+            input_params.push((name, "i64".to_string()));
         }
     }
 
@@ -684,7 +840,7 @@ pub(crate) fn generate_interface_trait_from_contract(c: &ContractDecl, code: &mu
 ///
 /// Uses the shared `extract_clause_params` from assura-parser, then maps
 /// Assura type tokens to Rust types via `map_type_token`/`map_type_tokens`.
-pub(crate) fn extract_input_params(body: &SpExpr, params: &mut Vec<(String, String)>) {
+pub fn extract_input_params(body: &SpExpr, params: &mut Vec<(String, String)>) {
     use assura_ast::extract_clause_params;
     for param in extract_clause_params(body) {
         let rust_ty = if param.ty.is_none() {
@@ -711,6 +867,135 @@ pub(crate) fn extract_input_params(body: &SpExpr, params: &mut Vec<(String, Stri
             }
         };
         params.push((param.name, rust_ty));
+    }
+}
+
+/// Collect the effective input parameters for a contract declaration.
+///
+/// First tries to extract explicit `input()` clause params. If none exist,
+/// synthesizes params from free variables in requires/ensures/invariant
+/// clauses (all typed as `i64`). This mirrors the logic in
+/// `generate_contract_contents_opts` so callers like `--bin` main.rs
+/// generation see the same signature as the generated `check()` function.
+pub fn collect_contract_params(c: &ContractDecl) -> Vec<(String, String)> {
+    let mut params = Vec::new();
+    for clause in &c.clauses {
+        if clause.kind == ClauseKind::Input {
+            extract_input_params(&clause.body, &mut params);
+        }
+    }
+    if params.is_empty() {
+        let mut free = HashSet::new();
+        for clause in &c.clauses {
+            match &clause.kind {
+                ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Invariant => {
+                    collect_free_idents(&clause.body, &mut free);
+                }
+                _ => {}
+            }
+        }
+        let mut sorted: Vec<String> = free.into_iter().collect();
+        sorted.sort();
+        for name in sorted {
+            params.push((name, "i64".to_string()));
+        }
+    }
+    params
+}
+
+/// Infer the result type from ensures/invariant clauses when no output() exists.
+///
+/// Walks ensures/invariant clause bodies looking for how `result` is used:
+/// - `result == true` or `result == false` -> `bool`
+/// - `result > x` or numeric comparison -> `i64`
+/// - `result.length()` (string/bytes method) -> `String`
+/// - fallback -> `i64` (most common in math contracts)
+fn infer_result_type_from_clauses(clauses: &[Clause]) -> String {
+    for clause in clauses {
+        if !matches!(clause.kind, ClauseKind::Ensures | ClauseKind::Invariant) {
+            continue;
+        }
+        if let Some(ty) = infer_result_type_from_expr(&clause.body) {
+            return ty;
+        }
+    }
+    // Default: numeric contracts are the most common case
+    "i64".to_string()
+}
+
+/// Walk an expression to infer what type `result` should be based on usage.
+fn infer_result_type_from_expr(expr: &SpExpr) -> Option<String> {
+    match &expr.node {
+        Expr::BinOp { lhs, op, rhs } => {
+            // `result == true` / `result == false` -> bool
+            if matches!(op, BinOp::Eq | BinOp::Neq) {
+                if is_result_ident(lhs) && is_bool_literal(rhs) {
+                    return Some("bool".to_string());
+                }
+                if is_result_ident(rhs) && is_bool_literal(lhs) {
+                    return Some("bool".to_string());
+                }
+            }
+            // `result > x` or `result >= x` etc -> i64 (numeric)
+            if (op.is_comparison() || op.is_arithmetic())
+                && (is_result_ident(lhs) || is_result_ident(rhs))
+            {
+                return Some("i64".to_string());
+            }
+            // Recurse into both sides (e.g. `result > x && result < y`)
+            if let Some(ty) = infer_result_type_from_expr(lhs) {
+                return Some(ty);
+            }
+            infer_result_type_from_expr(rhs)
+        }
+        Expr::MethodCall {
+            receiver, method, ..
+        } => {
+            // `result.length()` -> String
+            if is_result_ident(receiver) && matches!(method.as_str(), "length" | "len" | "size") {
+                return Some("String".to_string());
+            }
+            infer_result_type_from_expr(receiver)
+        }
+        Expr::UnaryOp { expr: inner, .. }
+        | Expr::Old(inner)
+        | Expr::Ghost(inner)
+        | Expr::Cast { expr: inner, .. } => infer_result_type_from_expr(inner),
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            if let Some(ty) = infer_result_type_from_expr(cond) {
+                return Some(ty);
+            }
+            if let Some(ty) = infer_result_type_from_expr(then_branch) {
+                return Some(ty);
+            }
+            if let Some(eb) = else_branch {
+                return infer_result_type_from_expr(eb);
+            }
+            None
+        }
+        Expr::Forall { body, domain, .. } | Expr::Exists { body, domain, .. } => {
+            if let Some(ty) = infer_result_type_from_expr(domain) {
+                return Some(ty);
+            }
+            infer_result_type_from_expr(body)
+        }
+        _ => None,
+    }
+}
+
+fn is_result_ident(expr: &SpExpr) -> bool {
+    matches!(&expr.node, Expr::Ident(name) if name == "result")
+}
+
+fn is_bool_literal(expr: &SpExpr) -> bool {
+    match &expr.node {
+        Expr::Literal(Literal::Bool(_)) => true,
+        Expr::Ident(name) => matches!(name.as_str(), "true" | "false"),
+        _ => false,
     }
 }
 
