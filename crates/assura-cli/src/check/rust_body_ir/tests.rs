@@ -1123,8 +1123,13 @@ fn variable_u8_count_ones_encodes() {
         "{s}"
     );
     assura_smt::LoadedVerifyExtras::from_ir_text(&s, "S").expect("parse i8");
-    // i64 width >32 stays BNM
-    assert!(try_ir_from_rust_body("I", &px(), Some("u32"), "x.count_ones()").is_none());
+    // i64/u64 path: 64-bit popcount via synthetic 2^64 map / bit-sum
+    let i64_ones =
+        try_ir_from_rust_body("I", &px(), Some("u32"), "x.count_ones()").expect("i64 ones");
+    assert!(
+        i64_ones.contains("arith add") || i64_ones.contains("arith mul"),
+        "{i64_ones}"
+    );
     let c16 =
         try_ir_from_rust_body("C16", &pu16(), Some("u32"), "x.count_ones()").expect("u16 ones");
     assert!(
@@ -1136,6 +1141,12 @@ fn variable_u8_count_ones_encodes() {
     assert!(
         c32.contains("arith add") || c32.contains("arith mul"),
         "{c32}"
+    );
+    let c64 =
+        try_ir_from_rust_body("C64", &pu64(), Some("u32"), "x.count_ones()").expect("u64 ones");
+    assert!(
+        c64.contains("arith add") || c64.contains("arith mul"),
+        "{c64}"
     );
     // signed count_zeros = bits - ones
     let z = try_ir_from_rust_body("Z", &pi8, Some("u32"), "x.count_zeros()").expect("i8 zeros");
@@ -1213,8 +1224,10 @@ fn const_count_ones_and_trailing_zeros_peep() {
     assert!(cz.contains("const 30 : Int"), "{cz}");
     let tz = try_ir_from_rust_body("T", &px(), Some("u32"), "12u32.trailing_zeros()").expect("tz");
     assert!(tz.contains("const 2 : Int"), "{tz}");
-    // Variable receivers stay BNM
-    assert!(try_ir_from_rust_body("V", &px(), Some("u32"), "x.count_ones()").is_none());
+    // Variable i64 receivers encode (64-bit popcount)
+    let vones =
+        try_ir_from_rust_body("V", &px(), Some("u32"), "x.count_ones()").expect("var i64 ones");
+    assert!(vones.contains("arith"), "{vones}");
     // Typed 0.trailing_zeros() == bit width
     let z0 = try_ir_from_rust_body("Z", &px(), Some("u32"), "0u32.trailing_zeros()").expect("0tz");
     assert!(z0.contains("const 32 : Int"), "{z0}");

@@ -1140,7 +1140,7 @@ fn encode_syn_expr(
                     }
                     acc
                 }
-                // count_ones: const peep, or path-param bit-sum (≤32; signed via bit pattern).
+                // count_ones: const peep, or path-param bit-sum (≤64; signed via bit pattern).
                 ("count_ones", 0) => {
                     if let Some(v) = lit_int_i64(&m.receiver) {
                         // Signed and unsigned lits: use two's complement width from suffix when present.
@@ -1167,17 +1167,28 @@ fn encode_syn_expr(
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
                     let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
-                    if bits == 0 || bits > 32 {
+                    if bits == 0 || bits > 64 {
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     if !signed {
                         return encode_bit_sum_count_ones(a, bits, lines, next);
                     }
-                    let modulus = modulus_i64?;
-                    let mslot = *next;
-                    *next += 1;
-                    lines.push(format!("${mslot} = const {modulus} : Int"));
+                    // Signed i64: synthetic 2^64 modulus for bit-pattern map
+                    let mslot = if let Some(modulus) = modulus_i64 {
+                        let m = *next;
+                        *next += 1;
+                        lines.push(format!("${m} = const {modulus} : Int"));
+                        m
+                    } else {
+                        let half = *next;
+                        *next += 1;
+                        lines.push(format!("${half} = const 4294967296 : Int"));
+                        let m = *next;
+                        *next += 1;
+                        lines.push(format!("${m} = arith mul ${half} ${half} : Int"));
+                        m
+                    };
                     let u_in = emit_to_unsigned_bits(a, mslot, lines, next);
                     encode_bit_sum_count_ones(u_in, bits, lines, next)
                 }
@@ -1261,7 +1272,7 @@ fn encode_syn_expr(
                     encode_unsigned_leading_ones(u_in, bits, lines, next)
                 }
                 // Typed width: count_zeros = bits - count_ones.
-                // Path params ≤32: unsigned direct; signed via bit-pattern map.
+                // Path params ≤64: unsigned direct; signed via bit-pattern map.
                 ("count_zeros", 0) => {
                     if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
                         let mask = if bits >= 64 {
@@ -1277,15 +1288,25 @@ fn encode_syn_expr(
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
                     let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
-                    if bits == 0 || bits > 32 {
+                    if bits == 0 || bits > 64 {
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     let u_in = if signed {
-                        let modulus = modulus_i64?;
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        let mslot = if let Some(modulus) = modulus_i64 {
+                            let m = *next;
+                            *next += 1;
+                            lines.push(format!("${m} = const {modulus} : Int"));
+                            m
+                        } else {
+                            let half = *next;
+                            *next += 1;
+                            lines.push(format!("${half} = const 4294967296 : Int"));
+                            let m = *next;
+                            *next += 1;
+                            lines.push(format!("${m} = arith mul ${half} ${half} : Int"));
+                            m
+                        };
                         emit_to_unsigned_bits(a, mslot, lines, next)
                     } else {
                         a
