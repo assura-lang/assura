@@ -1195,10 +1195,7 @@ fn inject_bin_main(
                 // Extract input params using the same helper codegen uses.
                 for clause in &c.clauses {
                     if clause.kind == ClauseKind::Input {
-                        assura_codegen::extract_input_params(
-                            &clause.body,
-                            &mut param_types,
-                        );
+                        assura_codegen::extract_input_params(&clause.body, &mut param_types);
                     }
                 }
                 break;
@@ -1207,18 +1204,17 @@ fn inject_bin_main(
                 primary_name = Some(f.name.clone());
                 is_contract = false;
                 for p in &f.params {
-                    let ty = p
-                        .ty
-                        .as_ref()
-                        .map(|t| {
-                            let tokens = t.to_tokens();
-                            if tokens.len() == 1 {
-                                assura_codegen::map_type_token(&tokens[0]).to_string()
-                            } else {
-                                "i64".to_string()
-                            }
-                        })
-                        .unwrap_or_else(|| "i64".to_string());
+                    let ty =
+                        p.ty.as_ref()
+                            .map(|t| {
+                                let tokens = t.to_tokens();
+                                if tokens.len() == 1 {
+                                    assura_codegen::map_type_token(&tokens[0]).to_string()
+                                } else {
+                                    "i64".to_string()
+                                }
+                            })
+                            .unwrap_or_else(|| "i64".to_string());
                     param_types.push((p.name.clone(), ty));
                 }
                 break;

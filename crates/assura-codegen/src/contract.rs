@@ -188,6 +188,20 @@ pub(crate) fn generate_contract_contents_opts(
         }
     }
 
+    // Infer output type when no output() clause exists but ensures/invariant
+    // clauses reference `result`. Without this, codegen produces
+    // `let __assura_result: () = todo!(...)` and then `i128::from(())` or
+    // `() == true` which fails to compile.
+    if output_type == "()" {
+        let refs_result = c.clauses.iter().any(|cl| {
+            matches!(cl.kind, ClauseKind::Ensures | ClauseKind::Invariant)
+                && assura_ast::expr_references_result(&cl.body)
+        });
+        if refs_result {
+            output_type = infer_result_type_from_clauses(&c.clauses);
+        }
+    }
+
     // Synthesize input parameters from free variables when no input() clause
     // exists. Contracts like `requires { x > 0 } ensures { x > 0 }` reference
     // `x` as a free variable; without this, codegen produces `fn check()` with
@@ -828,6 +842,102 @@ pub fn extract_input_params(body: &SpExpr, params: &mut Vec<(String, String)>) {
             }
         };
         params.push((param.name, rust_ty));
+    }
+}
+
+/// Infer the result type from ensures/invariant clauses when no output() exists.
+///
+/// Walks ensures/invariant clause bodies looking for how `result` is used:
+/// - `result == true` or `result == false` -> `bool`
+/// - `result > x` or numeric comparison -> `i64`
+/// - `result.length()` (string/bytes method) -> `String`
+/// - fallback -> `i64` (most common in math contracts)
+fn infer_result_type_from_clauses(clauses: &[Clause]) -> String {
+    for clause in clauses {
+        if !matches!(clause.kind, ClauseKind::Ensures | ClauseKind::Invariant) {
+            continue;
+        }
+        if let Some(ty) = infer_result_type_from_expr(&clause.body) {
+            return ty;
+        }
+    }
+    // Default: numeric contracts are the most common case
+    "i64".to_string()
+}
+
+/// Walk an expression to infer what type `result` should be based on usage.
+fn infer_result_type_from_expr(expr: &SpExpr) -> Option<String> {
+    match &expr.node {
+        Expr::BinOp { lhs, op, rhs } => {
+            // `result == true` / `result == false` -> bool
+            if matches!(op, BinOp::Eq | BinOp::Neq) {
+                if is_result_ident(lhs) && is_bool_literal(rhs) {
+                    return Some("bool".to_string());
+                }
+                if is_result_ident(rhs) && is_bool_literal(lhs) {
+                    return Some("bool".to_string());
+                }
+            }
+            // `result > x` or `result >= x` etc -> i64 (numeric)
+            if (op.is_comparison() || op.is_arithmetic())
+                && (is_result_ident(lhs) || is_result_ident(rhs))
+            {
+                return Some("i64".to_string());
+            }
+            // Recurse into both sides (e.g. `result > x && result < y`)
+            if let Some(ty) = infer_result_type_from_expr(lhs) {
+                return Some(ty);
+            }
+            infer_result_type_from_expr(rhs)
+        }
+        Expr::MethodCall {
+            receiver, method, ..
+        } => {
+            // `result.length()` -> String
+            if is_result_ident(receiver) && matches!(method.as_str(), "length" | "len" | "size") {
+                return Some("String".to_string());
+            }
+            infer_result_type_from_expr(receiver)
+        }
+        Expr::UnaryOp { expr: inner, .. }
+        | Expr::Old(inner)
+        | Expr::Ghost(inner)
+        | Expr::Cast { expr: inner, .. } => infer_result_type_from_expr(inner),
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            if let Some(ty) = infer_result_type_from_expr(cond) {
+                return Some(ty);
+            }
+            if let Some(ty) = infer_result_type_from_expr(then_branch) {
+                return Some(ty);
+            }
+            if let Some(eb) = else_branch {
+                return infer_result_type_from_expr(eb);
+            }
+            None
+        }
+        Expr::Forall { body, domain, .. } | Expr::Exists { body, domain, .. } => {
+            if let Some(ty) = infer_result_type_from_expr(domain) {
+                return Some(ty);
+            }
+            infer_result_type_from_expr(body)
+        }
+        _ => None,
+    }
+}
+
+fn is_result_ident(expr: &SpExpr) -> bool {
+    matches!(&expr.node, Expr::Ident(name) if name == "result")
+}
+
+fn is_bool_literal(expr: &SpExpr) -> bool {
+    match &expr.node {
+        Expr::Literal(Literal::Bool(_)) => true,
+        Expr::Ident(name) => matches!(name.as_str(), "true" | "false"),
+        _ => false,
     }
 }
 

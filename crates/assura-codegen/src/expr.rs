@@ -68,6 +68,39 @@ pub(crate) fn is_numeric_expr(expr: &SpExpr) -> bool {
     }
 }
 
+/// Returns true if the domain expression is a range (`a..b` via `BinOp::Range`).
+///
+/// Ranges in Rust implement `IntoIterator` but not `iter()` directly, so
+/// quantifiers over ranges must use `.into_iter()` instead of `.iter().copied()`.
+fn is_range_domain(expr: &SpExpr) -> bool {
+    matches!(
+        &expr.node,
+        Expr::BinOp {
+            op: BinOp::Range,
+            ..
+        }
+    )
+}
+
+/// Returns true if the domain expression is an abstract mathematical type
+/// identifier (Int, Nat, Float, Bool, String) that cannot be iterated at runtime.
+///
+/// Quantifiers like `forall x in Int: ...` are verification-only; at runtime
+/// they are emitted as `true` with a comment.
+fn is_abstract_type_domain(expr: &SpExpr) -> bool {
+    match &expr.node {
+        Expr::Ident(name) => matches!(
+            name.as_str(),
+            "Int" | "Nat" | "Float" | "Bool" | "String" | "Bytes" | "Unit"
+        ),
+        Expr::Raw(tokens) if tokens.len() == 1 => matches!(
+            tokens[0].as_str(),
+            "Int" | "Nat" | "Float" | "Bool" | "String" | "Bytes" | "Unit"
+        ),
+        _ => false,
+    }
+}
+
 /// Resolve an ordering clause body to a Rust `std::sync::atomic::Ordering` variant name.
 pub(crate) fn resolve_ordering_variant(body: &SpExpr) -> Option<&'static str> {
     use assura_ast::MemoryOrdering;
@@ -195,7 +228,15 @@ impl ExprFolder for RustCodegenFolder {
     }
 
     fn fold_index(&mut self, base: &SpExpr, index: &SpExpr) -> String {
-        format!("{}[{}]", self.fold_expr(base), self.fold_expr(index))
+        let idx = self.fold_expr(index);
+        if !self.static_context && is_numeric_expr(index) {
+            // Array/slice indexing requires usize. Assura Int maps to i64/i128
+            // in codegen, and numeric expressions may be widened. Cast the index
+            // to usize to satisfy Rust's indexing requirements.
+            format!("{}[({idx}) as usize]", self.fold_expr(base))
+        } else {
+            format!("{}[{idx}]", self.fold_expr(base))
+        }
     }
 
     fn fold_binop(&mut self, lhs: &SpExpr, op: &BinOp, rhs: &SpExpr) -> String {
@@ -275,10 +316,16 @@ impl ExprFolder for RustCodegenFolder {
     }
 
     fn fold_forall(&mut self, var: &str, domain: &SpExpr, body: &SpExpr) -> String {
-        if self.static_context {
+        if self.static_context || is_abstract_type_domain(domain) {
             let d = self.fold_expr(domain);
             let b = self.fold_expr(body);
             format!("/* forall {var} in {d}: {b} */ true")
+        } else if is_range_domain(domain) {
+            format!(
+                "({}).into_iter().all(|{var}| {})",
+                self.fold_expr(domain),
+                self.fold_expr(body)
+            )
         } else {
             format!(
                 "{}.iter().copied().all(|{var}| {})",
@@ -289,10 +336,16 @@ impl ExprFolder for RustCodegenFolder {
     }
 
     fn fold_exists(&mut self, var: &str, domain: &SpExpr, body: &SpExpr) -> String {
-        if self.static_context {
+        if self.static_context || is_abstract_type_domain(domain) {
             let d = self.fold_expr(domain);
             let b = self.fold_expr(body);
             format!("/* exists {var} in {d}: {b} */ true")
+        } else if is_range_domain(domain) {
+            format!(
+                "({}).into_iter().any(|{var}| {})",
+                self.fold_expr(domain),
+                self.fold_expr(body)
+            )
         } else {
             format!(
                 "{}.iter().copied().any(|{var}| {})",

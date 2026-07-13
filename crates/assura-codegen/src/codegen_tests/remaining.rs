@@ -2221,7 +2221,7 @@ fn expr_to_rust_index() {
         expr: Box::new(Spanned::no_span(Expr::Ident("arr".into()))),
         index: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
     });
-    assert_eq!(expr_to_rust(&e), "arr[0]");
+    assert_eq!(expr_to_rust(&e), "arr[(0) as usize]");
 }
 
 #[test]
