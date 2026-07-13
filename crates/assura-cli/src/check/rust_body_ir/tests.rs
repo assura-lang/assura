@@ -1834,3 +1834,118 @@ fn rem_euclid_nonzero_get_peel() {
         try_ir_from_rust_body("G", &nzd, Some("u32"), "x.rem_euclid(d.get())").expect("get peel");
     assert!(ir.contains("arith mod"), "{ir}");
 }
+
+#[test]
+fn if_on_right_of_binary_encodes() {
+    let ir = try_ir_from_rust_body("F", &px(), Some("i64"), "1 + (if x > 5 { x } else { 5 })")
+        .expect("if on right");
+    assert!(ir.contains("then #") && ir.contains("arith add"), "{ir}");
+}
+
+#[test]
+fn let_match_plus_one_encodes() {
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let y = match x { 0 => 1, _ => x };
+    y + 1
+}
+"#;
+    let body = extract_body_return(src, "f").expect("extract");
+    let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
+    assert!(
+        ir.contains("then #") || ir.contains("arith add"),
+        "body={body}\nir={ir}"
+    );
+}
+
+#[test]
+fn both_if_operands_encode() {
+    let pxy = vec![
+        ParamInfo {
+            name: "x".into(),
+            ty: "i64".into(),
+        },
+        ParamInfo {
+            name: "y".into(),
+            ty: "i64".into(),
+        },
+    ];
+    let ir = try_ir_from_rust_body(
+        "F",
+        &pxy,
+        Some("i64"),
+        "(if x > 0 { x } else { 0 }) + (if y > 0 { y } else { 0 })",
+    )
+    .expect("both if");
+    assert!(ir.contains("then #") && ir.contains("arith add"), "{ir}");
+}
+
+#[test]
+fn simple_nested_if_in_then() {
+    let ir = try_ir_from_rust_body(
+        "N",
+        &px(),
+        Some("i64"),
+        "if x > 0 { if x > 5 { x } else { 1 } } else { 0 }",
+    )
+    .expect("nested");
+    assert!(ir.contains("then #"), "{ir}");
+}
+
+#[test]
+fn unary_neg_if_encodes() {
+    let ir = try_ir_from_rust_body("U", &px(), Some("i64"), "-(if x > 0 { x } else { 1 })");
+    assert!(ir.is_some(), "unary if");
+}
+
+#[test]
+fn method_on_if_encodes() {
+    let ir = try_ir_from_rust_body("M", &px(), Some("i64"), "(if x > 0 { x } else { 1 }).abs()");
+    assert!(ir.is_some(), "method on if");
+}
+
+#[test]
+fn multi_let_if_chain_encodes() {
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let a = if x > 0 { x } else { 0 };
+    let b = a + 1;
+    b * 2
+}
+"#;
+    let body = extract_body_return(src, "f").expect("extract");
+    let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
+    assert!(ir.contains("then #"), "body={body}\nir={ir}");
+}
+
+#[test]
+fn cast_of_if_encodes() {
+    let ir = try_ir_from_rust_body(
+        "C",
+        &px(),
+        Some("i64"),
+        "(if x > 0 { x } else { 0 }) as i64",
+    );
+    assert!(ir.is_some(), "cast of if");
+}
+
+#[test]
+fn if_as_method_arg_encodes() {
+    let pxy = vec![
+        ParamInfo {
+            name: "x".into(),
+            ty: "i64".into(),
+        },
+        ParamInfo {
+            name: "y".into(),
+            ty: "i64".into(),
+        },
+    ];
+    let ir = try_ir_from_rust_body(
+        "A",
+        &pxy,
+        Some("i64"),
+        "x.saturating_add(if y > 0 { 1 } else { 0 })",
+    );
+    assert!(ir.is_some(), "if as method arg: {ir:?}");
+}
