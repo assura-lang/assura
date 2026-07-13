@@ -2040,3 +2040,18 @@ fn checked_abs_unwrap_or_encodes() {
         .expect("checked_abs");
     assert!(ir.contains("then #") || ir.contains("abs"), "{ir}");
 }
+
+#[test]
+fn checked_ilog_unwrap_or_encodes() {
+    let ir = try_ir_from_rust_body("L", &pu32(), Some("u32"), "x.checked_ilog2().unwrap_or(0)")
+        .expect("ilog2");
+    assert!(ir.contains("then #") || ir.contains("ilog"), "{ir}");
+    let ir10 = try_ir_from_rust_body(
+        "L10",
+        &pu32(),
+        Some("u32"),
+        "x.checked_ilog10().unwrap_or(0)",
+    )
+    .expect("ilog10");
+    assert!(ir10.contains("then #") || ir10.contains("ilog"), "{ir10}");
+}
