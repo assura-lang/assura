@@ -26,7 +26,9 @@
 //! signed/unsigned ≤64. Variable bitwise `!x` for fixed-width ints ≤64
 //! (`(2^w-1)-u`, synthetic 2^64 for i64/u64). Variable is_power_of_two via pot
 //! enum (≤64 exponents incl. u64/usize). Variable `ilog2`/`ilog10`,
-//! `next_power_of_two`, and `isqrt` for unsigned path params ≤64. `u64`/`usize`
+//! `next_power_of_two`, and `isqrt` for unsigned path params ≤64.
+//! `checked_next_power_of_two`/`checked_shl`/`checked_shr`(const).`unwrap_or` and
+//! `overflowing_pow(…).0` → wrapping_pow (const exp ≤4). `u64`/`usize`
 //! `MAX`/`MIN` associated consts. Saturating ops clamp to width (u64 via
 //! synthetic max). Literal `/0`, `%0`, `is_multiple_of(0)` BNM. `signum`
 //! nestable clamp (#1032). rem_euclid/div_euclid/div_ceil/next_multiple_of with
@@ -1117,6 +1119,8 @@ fn expand_overflowing_binop_tuple0(expr: &syn::Expr) -> Option<syn::Expr> {
         "overflowing_sub" if m.args.len() == 1 => "wrapping_sub",
         "overflowing_mul" if m.args.len() == 1 => "wrapping_mul",
         "overflowing_neg" if m.args.is_empty() => "wrapping_neg",
+        // wrapping_pow supports const exp ≤4; larger exp stays BNM downstream.
+        "overflowing_pow" if m.args.len() == 1 => "wrapping_pow",
         _ => return None,
     };
     let recv = expr_source(&m.receiver);
@@ -1167,6 +1171,46 @@ fn expand_checked_binop_unwrap_or(expr: &syn::Expr) -> Option<syn::Expr> {
         } else {
             format!("({recv})")
         };
+        return syn::parse_str(&tree).ok();
+    }
+    // checked_next_power_of_two (unsigned only): None when pot overflows width.
+    // Encoded next_power_of_two returns 0 on overflow (a > 2^(bits-1)); a==0 → 1.
+    if method == "checked_next_power_of_two" && inner.args.is_empty() {
+        let (lo, hi) = SAT_BOUNDS.get()?;
+        if lo != 0 {
+            return None;
+        }
+        let (bits, _, _) = wrap_width(lo, hi)?;
+        if bits == 0 || bits > 64 {
+            return None;
+        }
+        let recv = expr_source(&inner.receiver);
+        let alt = expr_source(&outer.args[0]);
+        let tree = format!(
+            "if ({recv}).next_power_of_two() == 0 {{ {alt} }} else {{ ({recv}).next_power_of_two() }}"
+        );
+        return syn::parse_str(&tree).ok();
+    }
+    // checked_shl/shr(const n): None only when n >= bit width (not value overflow).
+    if matches!(method.as_str(), "checked_shl" | "checked_shr") && inner.args.len() == 1 {
+        let n = lit_int_i64(&inner.args[0])?;
+        if n < 0 {
+            return None;
+        }
+        let (lo, hi) = SAT_BOUNDS.get()?;
+        let (bits, _, _) = wrap_width(lo, hi)?;
+        let recv = expr_source(&inner.receiver);
+        let alt = expr_source(&outer.args[0]);
+        if (n as u64) >= u64::from(bits) {
+            let tree = format!("({alt})");
+            return syn::parse_str(&tree).ok();
+        }
+        let wrap = if method == "checked_shl" {
+            "wrapping_shl"
+        } else {
+            "wrapping_shr"
+        };
+        let tree = format!("({recv}).{wrap}({n})");
         return syn::parse_str(&tree).ok();
     }
     // checked_ilog2 / checked_ilog10: None only for 0 (and nonpos for signed).
