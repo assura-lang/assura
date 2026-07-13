@@ -9504,6 +9504,89 @@ fn r(x: u64) -> u64 { x.rem_euclid(3) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// u64 path-param div_ceil / next_multiple_of with positive const divisor.
+#[test]
+fn check_rust_encodes_u64_div_ceil_next_multiple_of() {
+    let tmp = unique_temp("assura_check_rust_u64_dc_nmo");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn d(x: u64) -> u64 { x.div_ceil(3) }
+
+/// @ensures result >= 0
+fn n(x: u64) -> u64 { x.next_multiple_of(4) }
+
+/// @ensures result == 4
+fn c(x: u64) -> u64 { 10u64.div_ceil(3) }
+
+/// @ensures result == 12
+fn nmoc(x: u64) -> u64 { 10u64.next_multiple_of(4) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong u64 div_ceil ensures must CE.
+#[test]
+fn check_rust_u64_div_ceil_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_u64_dc_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn d(x: u64) -> u64 { x.div_ceil(3) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
+/// Wrong u64 next_multiple_of ensures must CE.
+#[test]
+fn check_rust_u64_next_multiple_of_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_u64_nmo_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn n(x: u64) -> u64 { x.next_multiple_of(4) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Wrong mid-width rem_euclid ensures must CE.
 #[test]
 fn check_rust_mid_width_rem_euclid_wrong_ce() {

@@ -398,6 +398,20 @@ fn div_ceil_const_divisor_encodes() {
         "{nmo}"
     );
     assura_smt::LoadedVerifyExtras::from_ir_text(&nmo, "N").expect("parse");
+    // u64 path: const-divisor div_ceil / next_multiple_of (e2e parity with rem/div_euclid)
+    let d64 = try_ir_from_rust_body("D64", &pu64(), Some("u64"), "x.div_ceil(3)").expect("u64 dc");
+    assert!(
+        d64.contains("arith div") && d64.contains("const 3"),
+        "{d64}"
+    );
+    assura_smt::LoadedVerifyExtras::from_ir_text(&d64, "D64").expect("parse u64 div_ceil");
+    let n64 = try_ir_from_rust_body("N64", &pu64(), Some("u64"), "x.next_multiple_of(4)")
+        .expect("u64 nmo");
+    assert!(
+        n64.contains("arith mod") && n64.contains("cmp eq") && n64.contains("arith mul"),
+        "{n64}"
+    );
+    assura_smt::LoadedVerifyExtras::from_ir_text(&n64, "N64").expect("parse u64 nmo");
 }
 
 #[test]
