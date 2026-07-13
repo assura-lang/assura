@@ -1142,8 +1142,8 @@ fn expand_checked_binop_unwrap_or(expr: &syn::Expr) -> Option<syn::Expr> {
         return None;
     };
     let method = inner.method.to_string();
-    // checked_neg() is zero-arg
-    if method == "checked_neg" && inner.args.is_empty() {
+    // checked_neg() / checked_abs() are zero-arg
+    if matches!(method.as_str(), "checked_neg" | "checked_abs") && inner.args.is_empty() {
         let (lo, _) = SAT_BOUNDS.get()?;
         let recv = expr_source(&inner.receiver);
         let alt = expr_source(&outer.args[0]);
@@ -1153,10 +1153,20 @@ fn expand_checked_binop_unwrap_or(expr: &syn::Expr) -> Option<syn::Expr> {
             } else {
                 lo.to_string()
             };
-            let tree = format!("if {recv} == ({lo_src}) {{ {alt} }} else {{ -({recv}) }}");
+            let ok_body = if method == "checked_neg" {
+                format!("-({recv})")
+            } else {
+                format!("({recv}).abs()")
+            };
+            let tree = format!("if {recv} == ({lo_src}) {{ {alt} }} else {{ {ok_body} }}");
             return syn::parse_str(&tree).ok();
         }
-        let tree = format!("-({recv})");
+        // unsigned / nonneg: abs is id; neg still works
+        let tree = if method == "checked_neg" {
+            format!("-({recv})")
+        } else {
+            format!("({recv})")
+        };
         return syn::parse_str(&tree).ok();
     }
     // checked_pow(const) for small exponents
