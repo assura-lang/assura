@@ -173,7 +173,7 @@ cargo test -p <crate> --locked --lib
 `assura check-rust` proves `/// @ensures` against either a co-located
 `{Name}.ir` sidecar or a **encoded** Rust body. Encoded surface includes
 int/bool arith, if/else/match, multi-let / pure `let mut` (incl. `let y = if/match …; y + n`), if/match-over-binary (both sides),
-unary-neg, cast-of-if, method-on-if receivers, single if method-arg via distribute; peel `&`/`*` outer layers; `checked_add`/`checked_sub`/`checked_mul`({0,±1,2})/`checked_div`/`checked_rem`(const)/`checked_neg()`/`checked_abs()`/`checked_ilog2`/`checked_ilog10`/`checked_pow`(0..=4).`unwrap_or`; `overflowing_{add,sub,mul,neg}(…).0` → wrapping_*, abs/min/max/clamp/signum/saturating (incl. u64 via synthetic max)/
+unary-neg, cast-of-if, method-on-if receivers, single if method-arg via distribute; peel `&`/`*` outer layers; `checked_add`/`checked_sub`/`checked_mul`({0,±1,2})/`checked_div`/`checked_rem`(const)/`checked_neg()`/`checked_abs()`/`checked_ilog2`/`checked_ilog10`/`checked_pow`(0..=4)/`checked_next_power_of_two`(unsigned)/`checked_shl`/`checked_shr`(const n).`unwrap_or`; `overflowing_{add,sub,mul,neg,pow}(…).0` → wrapping_* (pow const exp ≤4), abs/min/max/clamp/signum/saturating (incl. u64 via synthetic max)/
 
 abs_diff, &&/||, is_multiple_of, into/as, PartialOrd/borrow/deref/pow/default,
 fixed-width wrapping_* (incl. nested width fallback and `wrapping_pow` with
@@ -190,12 +190,19 @@ const or `NonZeroU*` path-param divisor (`.get()` peels; `div_ceil` needs a
 non-neg receiver). `signum` is nestable in arith (clamp to [-1, 1]). Top-level
 `wrapping_neg` expands to multi-block if (MIN stays MIN).
 
-Residual `body_not_modeled` (still intentional): panic paths (`/0`, `%0`, `/`/`%` with zero-including path divisors,
-`is_multiple_of(0)` / zero-including path divisors, literal `0.ilog2()`);
-`rem_euclid`/`div_euclid`/`div_ceil`/`next_multiple_of` with non-positive or
-zero-including divisors (use a positive const or `NonZeroU*` param). Bodies that
-cannot be modeled report `body_not_modeled` and exit **1** (including SMT
-skipped/checked soft passes). Do not treat empty/skipped SMT as proof.
+Residual `body_not_modeled` (intentional or hard; do not re-discover as unknown
+gaps):
+
+| Shape | Reason |
+|-------|--------|
+| Panic paths (`/0`, `%0`, `/`/`%` with zero-including path divisors, `is_multiple_of(0)`, literal `0.ilog2()`) | Honesty: do not encode panic as free SMT div/mod |
+| `rem_euclid`/`div_euclid`/`div_ceil`/`next_multiple_of` with non-positive or zero-including divisors | Same honesty; use a positive const or `NonZeroU*` param |
+| `let mut y = x; y += 1; y` (reassignment) | Pure `let mut` fold only (#1343); mutation/SSA not modeled |
+| `x.reverse_bits()` on full i64 (signed 64-bit path without fixed mid-width) | `wrap_width` / modulus footgun for signed 64-bit bit-pattern map |
+
+Bodies that cannot be modeled report `body_not_modeled` and exit **1**
+(including SMT skipped/checked soft passes). Do not treat empty/skipped SMT as
+proof.
 
 Implementation: `crates/assura-cli/src/check/rust_body_ir/` (`mod` +
 `bitops` + `width` + tests) and `should_mark_body_not_modeled` in

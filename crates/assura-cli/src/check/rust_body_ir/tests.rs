@@ -2055,3 +2055,57 @@ fn checked_ilog_unwrap_or_encodes() {
     .expect("ilog10");
     assert!(ir10.contains("then #") || ir10.contains("ilog"), "{ir10}");
 }
+
+#[test]
+fn checked_next_power_of_two_unwrap_or_encodes() {
+    let ir = try_ir_from_rust_body(
+        "Np",
+        &pu8(),
+        Some("u8"),
+        "x.checked_next_power_of_two().unwrap_or(1)",
+    )
+    .expect("checked_npot");
+    assert!(
+        ir.contains("then #") || ir.contains("const 1") || ir.contains("const 2"),
+        "{ir}"
+    );
+    // signed return is not a valid API for checked_next_power_of_two
+    assert!(
+        try_ir_from_rust_body(
+            "Bad",
+            &px(),
+            Some("i64"),
+            "x.checked_next_power_of_two().unwrap_or(1)",
+        )
+        .is_none()
+    );
+}
+
+#[test]
+fn checked_shl_shr_unwrap_or_encodes() {
+    let shl = try_ir_from_rust_body("S", &pu8(), Some("u8"), "x.checked_shl(1).unwrap_or(0)")
+        .expect("checked_shl");
+    assert!(
+        shl.contains("arith mul") || shl.contains("mod") || shl.contains("const"),
+        "{shl}"
+    );
+    let shr = try_ir_from_rust_body("R", &pu8(), Some("u8"), "x.checked_shr(1).unwrap_or(0)")
+        .expect("checked_shr");
+    assert!(
+        shr.contains("arith div") || shr.contains("mod") || shr.contains("const"),
+        "{shr}"
+    );
+    // n >= width → always alt
+    let oob = try_ir_from_rust_body("O", &pu8(), Some("u8"), "x.checked_shl(8).unwrap_or(7)")
+        .expect("shl oob");
+    assert!(oob.contains("const 7") || oob.contains("7"), "{oob}");
+}
+
+#[test]
+fn overflowing_pow_tuple0_encodes() {
+    let ir = try_ir_from_rust_body("P", &pu8(), Some("u8"), "x.overflowing_pow(2).0")
+        .expect("overflowing_pow.0");
+    assert!(ir.contains("arith mul") || ir.contains("mod"), "{ir}");
+    // exp > 4 stays unencoded (wrapping_pow limit)
+    assert!(try_ir_from_rust_body("P5", &pu8(), Some("u8"), "x.overflowing_pow(5).0").is_none());
+}
