@@ -1105,6 +1105,18 @@ fn variable_u8_count_ones_encodes() {
     assura_smt::LoadedVerifyExtras::from_ir_text(&s, "S").expect("parse i8");
     // i64 width >32 stays BNM
     assert!(try_ir_from_rust_body("I", &px(), Some("u32"), "x.count_ones()").is_none());
+    let c16 =
+        try_ir_from_rust_body("C16", &pu16(), Some("u32"), "x.count_ones()").expect("u16 ones");
+    assert!(
+        c16.contains("arith add") || c16.contains("arith mul"),
+        "{c16}"
+    );
+    let c32 =
+        try_ir_from_rust_body("C32", &pu32(), Some("u32"), "x.count_ones()").expect("u32 ones");
+    assert!(
+        c32.contains("arith add") || c32.contains("arith mul"),
+        "{c32}"
+    );
     // signed count_zeros = bits - ones
     let z = try_ir_from_rust_body("Z", &pi8, Some("u32"), "x.count_zeros()").expect("i8 zeros");
     assert!(z.contains("arith sub"), "{z}");
