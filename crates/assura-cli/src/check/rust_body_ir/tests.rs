@@ -1917,3 +1917,35 @@ fn f(x: i64) -> i64 {
     let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
     assert!(ir.contains("then #"), "body={body}\nir={ir}");
 }
+
+#[test]
+fn cast_of_if_encodes() {
+    let ir = try_ir_from_rust_body(
+        "C",
+        &px(),
+        Some("i64"),
+        "(if x > 0 { x } else { 0 }) as i64",
+    );
+    assert!(ir.is_some(), "cast of if");
+}
+
+#[test]
+fn if_as_method_arg_encodes() {
+    let pxy = vec![
+        ParamInfo {
+            name: "x".into(),
+            ty: "i64".into(),
+        },
+        ParamInfo {
+            name: "y".into(),
+            ty: "i64".into(),
+        },
+    ];
+    let ir = try_ir_from_rust_body(
+        "A",
+        &pxy,
+        Some("i64"),
+        "x.saturating_add(if y > 0 { 1 } else { 0 })",
+    );
+    assert!(ir.is_some(), "if as method arg: {ir:?}");
+}
