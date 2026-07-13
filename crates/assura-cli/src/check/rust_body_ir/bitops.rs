@@ -183,7 +183,7 @@ pub(super) fn encode_unsigned_bitop_var_var(
     lines: &mut Vec<String>,
     next: &mut usize,
 ) -> Option<usize> {
-    if bits == 0 || bits > 32 {
+    if bits == 0 || bits > 64 {
         return None;
     }
     let two = *next;
@@ -197,10 +197,7 @@ pub(super) fn encode_unsigned_bitop_var_var(
     lines.push(format!("${zero} = const 0 : Int"));
     let mut acc = zero;
     for i in 0..bits {
-        let factor = 1i64 << i;
-        let f = *next;
-        *next += 1;
-        lines.push(format!("${f} = const {factor} : Int"));
+        let f = emit_pow2_factor(i, lines, next)?;
         let sa = *next;
         *next += 1;
         lines.push(format!("${sa} = arith div ${a} ${f} : Int"));
@@ -260,10 +257,22 @@ pub(super) fn encode_unsigned_bitop_var_var(
     }
     // Defense: keep result in [0, 2^bits) even if bit extraction is off for
     // unconstrained Int models (helps range ensures like result <= 255).
-    let modulus = 1i64 << bits;
-    let mslot = *next;
-    *next += 1;
-    lines.push(format!("${mslot} = const {modulus} : Int"));
+    let mslot = if bits == 64 {
+        // synthetic 2^64 = 2^32 * 2^32
+        let half = *next;
+        *next += 1;
+        lines.push(format!("${half} = const 4294967296 : Int"));
+        let m = *next;
+        *next += 1;
+        lines.push(format!("${m} = arith mul ${half} ${half} : Int"));
+        m
+    } else {
+        let modulus = 1i64 << bits;
+        let m = *next;
+        *next += 1;
+        lines.push(format!("${m} = const {modulus} : Int"));
+        m
+    };
     let t1 = *next;
     *next += 1;
     lines.push(format!("${t1} = arith mod ${acc} ${mslot} : Int"));
