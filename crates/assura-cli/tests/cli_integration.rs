@@ -2639,6 +2639,35 @@ fn clap_missing_arg_json() {
     );
 }
 
+/// `assura --json mcp` with closed stdin must emit JSON on stdout (not bare stderr).
+#[test]
+fn mcp_json_error_on_closed_stdin_is_parseable() {
+    use std::process::Stdio;
+
+    let out = Command::new(assura_bin())
+        .args(["--json", "mcp"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run assura --json mcp");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "mcp with null stdin should fail");
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("mcp --json must be JSON on stdout: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert!(
+        v["error"].as_str().is_some() || v["message"].as_str().is_some(),
+        "need error/message fields: {v}"
+    );
+    assert!(
+        !stderr.contains("MCP server error:"),
+        "human MCP error must not leak under --json: {stderr}"
+    );
+}
+
 /// Global `--json` with invalid `--format` must emit JSON (coverage/audit/diff).
 #[test]
 fn coverage_invalid_format_json() {

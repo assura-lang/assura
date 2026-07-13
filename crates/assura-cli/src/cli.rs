@@ -102,11 +102,11 @@ enum Commands {
 
     /// Verify inline contract annotations in Rust source files
     ///
-    /// Proves `/// @requires` / `@ensures` against a co-located `.ir` sidecar or a
-    /// simple encoded body (arith, if/match, wrapping/bitops/rotate ≤64,
-    /// is_power_of_two, ilog2/10, abs/min/max/clamp/signum/saturating, …).
-    /// Ensures without a body model exit non-zero as `body_not_modeled`
-    /// (not a soft pass).
+    /// Proves `/// @requires` / `@ensures` against a co-located `.ir` sidecar or an
+    /// encoded Rust body. Encoded surface includes arith, if/match, wrapping/bitops,
+    /// checked_*/overflowing_* peels, is_power_of_two, ilog*, abs/min/max/clamp, …
+    /// Full list: CONTRIBUTING.md "check-rust body proof". Ensures without a body
+    /// model exit non-zero as `body_not_modeled` (not a soft pass).
     CheckRust {
         /// Rust source file or directory to check
         path: String,
@@ -716,10 +716,34 @@ pub fn run() {
             verify,
         } => run_doc(&file, output.as_deref(), verify, output_mode, verbosity),
         Commands::Mcp => {
-            let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    if output_mode == OutputMode::Json {
+                        let report = serde_json::json!({
+                            "ok": false,
+                            "error": "runtime_init_failed",
+                            "message": format!("failed to create tokio runtime: {e}"),
+                        });
+                        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                    } else {
+                        eprintln!("Error: failed to create tokio runtime: {e}");
+                    }
+                    std::process::exit(1);
+                }
+            };
             rt.block_on(async {
                 if let Err(e) = assura_mcp::run_mcp_server().await {
-                    eprintln!("MCP server error: {e}");
+                    if output_mode == OutputMode::Json {
+                        let report = serde_json::json!({
+                            "ok": false,
+                            "error": "mcp_server_error",
+                            "message": format!("{e}"),
+                        });
+                        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                    } else {
+                        eprintln!("MCP server error: {e}");
+                    }
                     std::process::exit(1);
                 }
             });
