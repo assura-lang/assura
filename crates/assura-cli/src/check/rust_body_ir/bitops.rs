@@ -287,14 +287,14 @@ pub(super) fn encode_unsigned_bitop_var_var(
 
 /// Integer square root for unsigned `a` with width `bits`.
 /// bits ≤16: dense ladder over `r` in `0..=floor(sqrt(2^bits-1))`.
-/// bits 17..=32: unrolled binary search (16 iterations; `mid*mid` fits in i64).
+/// bits 17..=64: unrolled binary search (SMT Int mul; 32 iters for roots ≤ 2^32-1).
 pub(super) fn encode_unsigned_isqrt(
     a: usize,
     bits: u32,
     lines: &mut Vec<String>,
     next: &mut usize,
 ) -> Option<usize> {
-    if bits == 0 || bits > 32 {
+    if bits == 0 || bits > 64 {
         return None;
     }
     if bits > 16 {
@@ -343,18 +343,25 @@ pub(super) fn encode_unsigned_isqrt(
     Some(acc)
 }
 
-/// Unrolled binary search isqrt for bits in 17..=32.
+/// Unrolled binary search isqrt for bits in 17..=64.
+/// mid² uses unbounded SMT Int (not i64); max_root for u64 is 2^32-1.
 fn encode_unsigned_isqrt_binsearch(
     a: usize,
     bits: u32,
     lines: &mut Vec<String>,
     next: &mut usize,
 ) -> Option<usize> {
-    if !(17..=32).contains(&bits) {
+    if !(17..=64).contains(&bits) {
         return None;
     }
-    let max_val = (1u64 << bits) - 1;
-    let max_root = (max_val as f64).sqrt().floor() as i64;
+    let max_val = if bits == 64 {
+        u64::MAX
+    } else {
+        (1u64 << bits) - 1
+    };
+    let max_root = max_val.isqrt() as i64;
+    // log2(max_root)+1 iters; 32 covers roots through 2^32-1 (u64 isqrt)
+    let iters = if bits > 32 { 32 } else { 16 };
     let zero = *next;
     *next += 1;
     lines.push(format!("${zero} = const 0 : Int"));
@@ -369,8 +376,7 @@ fn encode_unsigned_isqrt_binsearch(
     lines.push(format!("${hi0} = const {max_root} : Int"));
     let mut lo = zero;
     let mut hi = hi0;
-    // 16 iterations suffice for roots ≤ 65535
-    for _ in 0..16 {
+    for _ in 0..iters {
         // mid = lo + (hi - lo) / 2
         let diff = *next;
         *next += 1;

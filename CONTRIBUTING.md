@@ -179,7 +179,7 @@ and rotate through 64 bits, BitAnd/Or/Xor (const mask ≤64; both-var signed/
 unsigned ≤64), variable bitwise `!x` ≤64, pot `is_power_of_two` through u64,
 variable `ilog2`/`ilog10`/`next_power_of_two` for unsigned path params ≤64
 (and signed `ilog2`/`ilog10` ≤64 with `a>0` math log; `a<=0` modeled as 0),
-variable `isqrt` for unsigned path params ≤32, signed/unsigned path-param
+variable `isqrt` for unsigned path params ≤64, signed/unsigned path-param
 `count_ones`/`count_zeros` (≤64; signed via bit-pattern map),
 `trailing_zeros`/`leading_zeros`/`trailing_ones`/`leading_ones`/`reverse_bits`/`swap_bytes` (≤64; signed fixed-width via bit-pattern map;
 ones via NOT+zeros), and `rem_euclid`/`div_euclid`/`div_ceil`/`next_multiple_of` with a positive
