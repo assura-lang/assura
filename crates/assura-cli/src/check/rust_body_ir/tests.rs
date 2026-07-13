@@ -2016,3 +2016,10 @@ fn f(x: i64) -> i64 {
     let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
     assert!(ir.contains("arith add"), "body={body}\nir={ir}");
 }
+
+#[test]
+fn checked_neg_unwrap_or_encodes() {
+    let ir = try_ir_from_rust_body("N", &px(), Some("i64"), "x.checked_neg().unwrap_or(0)")
+        .expect("checked_neg");
+    assert!(ir.contains("then #") || ir.contains("arith"), "{ir}");
+}

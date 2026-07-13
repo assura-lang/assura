@@ -1141,7 +1141,25 @@ fn expand_checked_binop_unwrap_or(expr: &syn::Expr) -> Option<syn::Expr> {
     let syn::Expr::MethodCall(inner) = outer.receiver.as_ref() else {
         return None;
     };
-    let op = match inner.method.to_string().as_str() {
+    let method = inner.method.to_string();
+    // checked_neg() is zero-arg
+    if method == "checked_neg" && inner.args.is_empty() {
+        let (lo, _) = SAT_BOUNDS.get()?;
+        let recv = expr_source(&inner.receiver);
+        let alt = expr_source(&outer.args[0]);
+        if lo < 0 {
+            let lo_src = if lo == i64::MIN {
+                format!("-{} - 1", i64::MAX)
+            } else {
+                lo.to_string()
+            };
+            let tree = format!("if {recv} == ({lo_src}) {{ {alt} }} else {{ -({recv}) }}");
+            return syn::parse_str(&tree).ok();
+        }
+        let tree = format!("-({recv})");
+        return syn::parse_str(&tree).ok();
+    }
+    let op = match method.as_str() {
         "checked_add" => "add",
         "checked_sub" => "sub",
         "checked_mul" => "mul",
