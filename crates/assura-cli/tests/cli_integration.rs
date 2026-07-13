@@ -4266,6 +4266,58 @@ fn m(x: u64, y: u64) -> u64 { x.max(y) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Nested max/min chain encodes (clamp-like).
+#[test]
+fn check_rust_encodes_nested_min_max() {
+    let tmp = unique_temp("assura_check_rust_nested_min_max");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn c(x: u64) -> u64 { x.max(1).min(10) }
+
+/// @ensures result >= 0
+fn a(x: i64) -> i64 { x.abs().min(10) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong nested min/max ensures must CE.
+#[test]
+fn check_rust_nested_min_max_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_nested_min_max_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn c(x: u64) -> u64 { x.max(1).min(10) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// wrapping_pow with small const exp encodes (mod 2^w).
 #[test]
 fn check_rust_encodes_wrapping_pow() {
