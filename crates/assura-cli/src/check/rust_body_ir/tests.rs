@@ -2185,6 +2185,30 @@ fn checked_is_some_none_encodes() {
         oob.contains("const 0") || oob.contains("const false") || oob.contains("false"),
         "{oob}"
     );
+    // Family completion: mul/div/ilog/npot/pow
+    let mul = try_ir_from_rust_body("M", &pu8(), Some("bool"), "x.checked_mul(2).is_some()")
+        .expect("mul is_some");
+    assert!(mul.contains("cmp") || mul.contains("const"), "{mul}");
+    let div0 = try_ir_from_rust_body("D0", &px(), Some("bool"), "x.checked_div(0).is_some()")
+        .expect("div0");
+    assert!(div0.contains("const 0") || div0.contains("false"), "{div0}");
+    let ilog = try_ir_from_rust_body("L", &pu32(), Some("bool"), "x.checked_ilog2().is_some()")
+        .expect("ilog");
+    assert!(ilog.contains("cmp") || ilog.contains("const"), "{ilog}");
+    let npot = try_ir_from_rust_body(
+        "P",
+        &pu8(),
+        Some("bool"),
+        "x.checked_next_power_of_two().is_some()",
+    )
+    .expect("npot");
+    assert!(
+        npot.contains("ne") || npot.contains("cmp") || npot.contains("const"),
+        "{npot}"
+    );
+    let pow = try_ir_from_rust_body("Pw", &pu8(), Some("bool"), "x.checked_pow(2).is_some()")
+        .expect("pow");
+    assert!(pow.contains("cmp") || pow.contains("const"), "{pow}");
 }
 
 #[test]

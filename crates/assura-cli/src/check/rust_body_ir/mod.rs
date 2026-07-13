@@ -29,7 +29,8 @@
 //! enum (≤64 exponents incl. u64/usize). Variable `ilog2`/`ilog10`,
 //! `next_power_of_two`, and `isqrt` for unsigned path params ≤64.
 //! `checked_next_power_of_two`/`checked_shl`/`checked_shr`(const).`unwrap_or` and
-//! `checked_{add,sub,neg,shl,shr}(…).is_some()`/`.is_none()` → overflow-bound bools;
+//! `checked_{add,sub,mul,div,rem,neg,abs,ilog*,npot,pow,shl,shr}(…).is_some()`/`.is_none()`
+//! → overflow-bound bools;
 //! `overflowing_{add,sub,mul,neg,shl,shr,pow}(…).0` → wrapping_* (pow const exp ≤4).
 //! `u64`/`usize`
 //! `MAX`/`MIN` associated consts. Saturating ops clamp to width (u64 via
@@ -1106,8 +1107,8 @@ fn block_as_expr_owned(block: &syn::Block) -> Option<syn::Expr> {
     }
 }
 
-/// `x.checked_add(c).is_some()` / `.is_none()` → overflow-bound bool (const `c` only).
-/// Same thresholds as `unwrap_or` expansion; also `checked_neg`/`checked_shl`/`checked_shr`.
+/// `x.checked_*(…).is_some()` / `.is_none()` → overflow-bound bool.
+/// Mirrors `unwrap_or` thresholds for the same checked surface (const where required).
 /// Bounds come from the receiver (return type is often `bool`, so SAT_BOUNDS is empty).
 fn expand_checked_is_some_none(expr: &syn::Expr) -> Option<syn::Expr> {
     let syn::Expr::MethodCall(outer) = expr else {
@@ -1137,9 +1138,22 @@ fn expand_checked_is_some_none(expr: &syn::Expr) -> Option<syn::Expr> {
             // None only at MIN for signed checked_neg/abs.
             format!("{recv} != ({lo_src})")
         } else {
-            // unsigned: always Some
             "true".to_string()
         }
+    } else if matches!(method.as_str(), "checked_ilog2" | "checked_ilog10") && inner.args.is_empty()
+    {
+        // None for non-positive (matches unwrap_or peep).
+        format!("{recv} > 0")
+    } else if method == "checked_next_power_of_two" && inner.args.is_empty() {
+        // Unsigned only; pot encode returns 0 on overflow.
+        if lo != 0 {
+            return None;
+        }
+        let (bits, _, _) = wrap_width(lo, hi)?;
+        if bits == 0 || bits > 64 {
+            return None;
+        }
+        format!("({recv}).next_power_of_two() != 0")
     } else if matches!(method.as_str(), "checked_shl" | "checked_shr") && inner.args.len() == 1 {
         let n = lit_int_i64(&inner.args[0])?;
         if n < 0 {
@@ -1151,7 +1165,16 @@ fn expand_checked_is_some_none(expr: &syn::Expr) -> Option<syn::Expr> {
         } else {
             "true".to_string()
         }
-    } else if matches!(method.as_str(), "checked_add" | "checked_sub") && inner.args.len() == 1 {
+    } else if matches!(
+        method.as_str(),
+        "checked_add"
+            | "checked_sub"
+            | "checked_mul"
+            | "checked_div"
+            | "checked_rem"
+            | "checked_pow"
+    ) && inner.args.len() == 1
+    {
         let c = lit_int_i64(&inner.args[0])?;
         match method.as_str() {
             "checked_add" => {
@@ -1174,6 +1197,75 @@ fn expand_checked_is_some_none(expr: &syn::Expr) -> Option<syn::Expr> {
                 } else {
                     let thr = hi.checked_add(c)?;
                     format!("{recv} <= ({thr})")
+                }
+            }
+            "checked_mul" => {
+                if c == 0 || c == 1 {
+                    "true".to_string()
+                } else if c == -1 {
+                    if lo < 0 {
+                        let lo_src = if lo == i64::MIN {
+                            format!("-{} - 1", i64::MAX)
+                        } else {
+                            lo.to_string()
+                        };
+                        format!("{recv} != ({lo_src})")
+                    } else {
+                        "true".to_string()
+                    }
+                } else if c == 2 {
+                    let thr_hi = hi / 2;
+                    let thr_lo = lo / 2;
+                    format!("{recv} <= ({thr_hi}) && {recv} >= ({thr_lo})")
+                } else {
+                    return None;
+                }
+            }
+            "checked_div" | "checked_rem" => {
+                if c == 0 {
+                    "false".to_string()
+                } else if c == -1 && lo < 0 {
+                    let lo_src = if lo == i64::MIN {
+                        format!("-{} - 1", i64::MAX)
+                    } else {
+                        lo.to_string()
+                    };
+                    format!("{recv} != ({lo_src})")
+                } else {
+                    "true".to_string()
+                }
+            }
+            "checked_pow" => {
+                if !(0..=4).contains(&c) {
+                    return None;
+                }
+                match c {
+                    0 | 1 => "true".to_string(),
+                    2 => {
+                        let thr_hi = hi / 2;
+                        let thr_lo = lo / 2;
+                        format!("{recv} <= ({thr_hi}) && {recv} >= ({thr_lo})")
+                    }
+                    3 | 4 => {
+                        let thr = match c {
+                            3 => {
+                                if hi >= i64::MAX / 2 {
+                                    1290i64
+                                } else {
+                                    ((hi as f64).cbrt().floor() as i64).max(1)
+                                }
+                            }
+                            _ => {
+                                if hi >= i64::MAX / 2 {
+                                    215i64
+                                } else {
+                                    ((hi as f64).sqrt().sqrt().floor() as i64).max(1)
+                                }
+                            }
+                        };
+                        format!("{recv} <= ({thr}) && {recv} >= 0")
+                    }
+                    _ => return None,
                 }
             }
             _ => return None,
