@@ -2149,6 +2149,36 @@ fn overflowing_pow_tuple0_encodes() {
 }
 
 #[test]
+fn overflowing_tuple1_flag_encodes() {
+    // .1 is the overflow flag; dual of checked_*.is_none()
+    let add =
+        try_ir_from_rust_body("A", &pu8(), Some("bool"), "x.overflowing_add(1).1").expect("add.1");
+    assert!(
+        add.contains("cmp") || add.contains("const") || add.contains("not"),
+        "{add}"
+    );
+    let neg =
+        try_ir_from_rust_body("N", &px(), Some("bool"), "x.overflowing_neg().1").expect("neg.1");
+    assert!(
+        neg.contains("eq") || neg.contains("ne") || neg.contains("const"),
+        "{neg}"
+    );
+    let shl_oob =
+        try_ir_from_rust_body("S", &pu8(), Some("bool"), "x.overflowing_shl(8).1").expect("shl.1");
+    // n >= width → always overflow (true); IR may be `true` or `eq(false,false)`.
+    assert!(
+        shl_oob.contains("const") || shl_oob.contains("cmp") || shl_oob.contains("true"),
+        "{shl_oob}"
+    );
+    let mul =
+        try_ir_from_rust_body("M", &pu8(), Some("bool"), "x.overflowing_mul(2).1").expect("mul.1");
+    assert!(
+        mul.contains("cmp") || mul.contains("const") || mul.contains("not"),
+        "{mul}"
+    );
+}
+
+#[test]
 fn overflowing_shl_shr_tuple0_encodes() {
     let shl = try_ir_from_rust_body("S", &pu8(), Some("u8"), "x.overflowing_shl(1).0")
         .expect("overflowing_shl.0");
