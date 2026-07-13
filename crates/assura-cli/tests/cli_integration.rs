@@ -3778,6 +3778,67 @@ fn m(x: u64) -> u64 { match x { 0 => 1, n => n } }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Multi-literal match + bind arm encodes.
+#[test]
+fn check_rust_encodes_u64_match_multi_lit() {
+    let tmp = unique_temp("assura_check_rust_u64_match_multi");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn m(x: u64) -> u64 {
+    match x {
+        0 => 10,
+        1 => 20,
+        n => n,
+    }
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong multi-lit match ensures must CE.
+#[test]
+fn check_rust_u64_match_multi_lit_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_u64_match_multi_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn m(x: u64) -> u64 {
+    match x {
+        0 => 10,
+        1 => 20,
+        n => n,
+    }
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// u64 path-param + * encode (Nat-range nonneg).
 #[test]
 fn check_rust_encodes_u64_arith() {
