@@ -4078,6 +4078,58 @@ fn m(x: usize) -> usize { usize::MAX }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// usize div_ceil / rem_euclid encode (u64 width alias).
+#[test]
+fn check_rust_encodes_usize_div_ceil_rem() {
+    let tmp = unique_temp("assura_check_rust_usize_div");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn d(x: usize) -> usize { x.div_ceil(3) }
+
+/// @ensures result >= 0
+fn r(x: usize) -> usize { x.rem_euclid(3) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong usize div_ceil ensures must CE.
+#[test]
+fn check_rust_usize_div_ceil_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_usize_dc_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn d(x: usize) -> usize { x.div_ceil(3) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Wrong usize isqrt ensures must CE.
 #[test]
 fn check_rust_usize_isqrt_wrong_ce() {
