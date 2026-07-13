@@ -3714,6 +3714,90 @@ fn c(x: u64) -> u64 { x.clamp(1, 10) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// u64 min/max/signum/pow path params encode.
+#[test]
+fn check_rust_encodes_u64_min_max_signum_pow() {
+    let tmp = unique_temp("assura_check_rust_u64_min_max_pow");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn mn(x: u64, y: u64) -> u64 { x.min(y) }
+
+/// @ensures result >= 0
+fn mx(x: u64, y: u64) -> u64 { x.max(y) }
+
+/// @ensures result >= 0
+/// @ensures result <= 1
+fn sg(x: u64) -> u64 { x.signum() }
+
+/// @ensures result >= 0
+fn p(x: u64) -> u64 { x.pow(2) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong u64 min ensures must CE.
+#[test]
+fn check_rust_u64_min_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_u64_min_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn m(x: u64, y: u64) -> u64 { x.min(y) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
+/// Wrong u64 max ensures must CE.
+#[test]
+fn check_rust_u64_max_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_u64_max_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn m(x: u64, y: u64) -> u64 { x.max(y) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// u32 saturating_add with unsigned range requires.
 #[test]
 fn check_rust_u32_saturating_add() {
