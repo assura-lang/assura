@@ -779,6 +779,9 @@ pub(crate) fn try_ir_from_rust_body(
     if let Some(e) = expand_checked_binop_unwrap_or(&expr) {
         expr = e;
     }
+    if let Some(e) = expand_overflowing_binop_tuple0(&expr) {
+        expr = e;
+    }
     // `(if c { a } else { b }) + 1` → `if c { a + 1 } else { b + 1 }` for multi-block.
     expr = distribute_if_binary(paren_if_match_operands(expr));
     // `expr_source` parenthesizes top-level if/match; strip so multi-block match hits.
@@ -1091,6 +1094,37 @@ fn block_as_expr_owned(block: &syn::Block) -> Option<syn::Expr> {
         [syn::Stmt::Expr(e, _)] => Some(e.clone()),
         stmts => fold_simple_lets(stmts),
     }
+}
+
+/// `x.overflowing_add(y).0` → `x.wrapping_add(y)` (same for sub/mul/neg).
+fn expand_overflowing_binop_tuple0(expr: &syn::Expr) -> Option<syn::Expr> {
+    let syn::Expr::Field(f) = expr else {
+        return None;
+    };
+    let syn::Member::Unnamed(idx) = &f.member else {
+        return None;
+    };
+    if idx.index != 0 {
+        return None;
+    }
+    let syn::Expr::MethodCall(m) = f.base.as_ref() else {
+        return None;
+    };
+    let wrap = match m.method.to_string().as_str() {
+        "overflowing_add" if m.args.len() == 1 => "wrapping_add",
+        "overflowing_sub" if m.args.len() == 1 => "wrapping_sub",
+        "overflowing_mul" if m.args.len() == 1 => "wrapping_mul",
+        "overflowing_neg" if m.args.is_empty() => "wrapping_neg",
+        _ => return None,
+    };
+    let recv = expr_source(&m.receiver);
+    let tree = if m.args.is_empty() {
+        format!("{recv}.{wrap}()")
+    } else {
+        let arg = expr_source(&m.args[0]);
+        format!("{recv}.{wrap}({arg})")
+    };
+    syn::parse_str(&tree).ok()
 }
 
 /// `x.checked_add(c).unwrap_or(alt)` → overflow-guarded if-tree (needs SAT_BOUNDS).

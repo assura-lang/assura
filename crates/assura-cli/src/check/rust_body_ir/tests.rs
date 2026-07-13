@@ -1970,3 +1970,13 @@ fn checked_add_unwrap_or_encodes() {
         .expect("checked_sub");
     assert!(sub.contains("then #") || sub.contains("arith sub"), "{sub}");
 }
+
+#[test]
+fn overflowing_add_tuple0_encodes() {
+    let ir = try_ir_from_rust_body("O", &px(), Some("i64"), "x.overflowing_add(1).0")
+        .expect("overflowing_add.0");
+    assert!(ir.contains("arith add") || ir.contains("mod"), "{ir}");
+    let n = try_ir_from_rust_body("N", &px(), Some("i64"), "x.overflowing_neg().0")
+        .expect("overflowing_neg.0");
+    assert!(n.contains("then #") || n.contains("arith"), "{n}");
+}
