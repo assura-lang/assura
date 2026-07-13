@@ -166,6 +166,8 @@ pub(crate) fn generate_contract_contents_opts(
     let mut modifies: Vec<String> = Vec::new();
     let mut invariants: Vec<String> = Vec::new();
 
+    // First pass: collect input params and output type so we know which
+    // variables are float-typed before converting clause bodies.
     for clause in &c.clauses {
         match &clause.kind {
             ClauseKind::Input => extract_input_params(&clause.body, &mut input_params),
@@ -173,12 +175,32 @@ pub(crate) fn generate_contract_contents_opts(
                 output_type = extract_output_type(&clause.body);
                 output_name = extract_output_name(&clause.body);
             }
-            ClauseKind::Requires => requires_exprs.push(expr_to_rust(&clause.body)),
-            ClauseKind::Ensures => ensures_exprs.push(expr_to_rust(&clause.body)),
+            _ => {}
+        }
+    }
+
+    // Collect float-typed parameter names so the expression folder skips
+    // i128::from() wrapping for them (f64 does not implement Into<i128>).
+    let float_vars: HashSet<String> = input_params
+        .iter()
+        .filter(|(_, ty)| ty == "f64")
+        .map(|(name, _)| name.clone())
+        .collect();
+
+    // Second pass: convert clause bodies to Rust expressions.
+    for clause in &c.clauses {
+        match &clause.kind {
+            ClauseKind::Requires => requires_exprs
+                .push(expr_to_rust_with_floats(&clause.body, float_vars.clone())),
+            ClauseKind::Ensures => ensures_exprs
+                .push(expr_to_rust_with_floats(&clause.body, float_vars.clone())),
             ClauseKind::Effects => effects.push(expr_to_rust(&clause.body)),
             ClauseKind::Modifies => modifies.push(expr_to_rust(&clause.body)),
-            ClauseKind::Invariant => invariants.push(expr_to_rust(&clause.body)),
-            ClauseKind::Errors
+            ClauseKind::Invariant => invariants
+                .push(expr_to_rust_with_floats(&clause.body, float_vars.clone())),
+            ClauseKind::Input
+            | ClauseKind::Output
+            | ClauseKind::Errors
             | ClauseKind::Rule
             | ClauseKind::DataFlow
             | ClauseKind::MustNot

@@ -2,6 +2,8 @@
 //!
 //! Translates Assura AST expressions into Rust source code strings.
 
+use std::collections::HashSet;
+
 use super::*;
 use assura_ast::{ExprFolder, fold_arg_list, fold_joined, literal_to_string};
 
@@ -24,6 +26,42 @@ fn has_u128_literal(expr: &SpExpr) -> bool {
         | Expr::Old(e)
         | Expr::Cast { expr: e, .. }
         | Expr::Field(e, _) => has_u128_literal(e),
+        _ => false,
+    }
+}
+
+/// Returns true if the expression tree contains a Float literal or references
+/// a variable known to be float-typed. Used to skip `i128::from()` wrapping
+/// since `f64` does not implement `Into<i128>`.
+fn has_float_expr(expr: &SpExpr, float_vars: &HashSet<String>) -> bool {
+    match &expr.node {
+        Expr::Literal(Literal::Float(_)) => true,
+        Expr::Ident(name) => float_vars.contains(name.as_str()),
+        Expr::BinOp { lhs, rhs, .. } => {
+            has_float_expr(lhs, float_vars) || has_float_expr(rhs, float_vars)
+        }
+        Expr::UnaryOp { expr: e, .. }
+        | Expr::Old(e)
+        | Expr::Cast { expr: e, .. }
+        | Expr::Field(e, _) => has_float_expr(e, float_vars),
+        Expr::MethodCall {
+            receiver, args, ..
+        } => {
+            has_float_expr(receiver, float_vars)
+                || args.iter().any(|a| has_float_expr(a, float_vars))
+        }
+        Expr::Call { args, .. } => args.iter().any(|a| has_float_expr(a, float_vars)),
+        Expr::Let { body, .. } => has_float_expr(body, float_vars),
+        Expr::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            has_float_expr(then_branch, float_vars)
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|e| has_float_expr(e, float_vars))
+        }
         _ => false,
     }
 }
@@ -121,6 +159,21 @@ pub(crate) fn resolve_ordering_variant(body: &SpExpr) -> Option<&'static str> {
 pub(crate) fn expr_to_rust(expr: &SpExpr) -> String {
     RustCodegenFolder {
         static_context: false,
+        float_vars: HashSet::new(),
+    }
+    .fold_expr(expr)
+}
+
+/// Like [`expr_to_rust`] but with knowledge of which variables are float-typed.
+/// Comparisons and arithmetic involving these variables use direct `f64`
+/// operations instead of `i128::from()` widening.
+pub(crate) fn expr_to_rust_with_floats(
+    expr: &SpExpr,
+    float_vars: HashSet<String>,
+) -> String {
+    RustCodegenFolder {
+        static_context: false,
+        float_vars,
     }
     .fold_expr(expr)
 }
@@ -137,6 +190,7 @@ pub(crate) fn expr_to_rust(expr: &SpExpr) -> String {
 pub fn expr_to_rust_static(expr: &SpExpr) -> String {
     RustCodegenFolder {
         static_context: true,
+        float_vars: HashSet::new(),
     }
     .fold_expr(expr)
 }
@@ -149,6 +203,10 @@ pub fn expr_to_rust_static(expr: &SpExpr) -> String {
 /// const/static contexts.
 struct RustCodegenFolder {
     static_context: bool,
+    /// Names of variables known to be `Float` (`f64` in Rust). When a
+    /// comparison or arithmetic involves a float variable or literal,
+    /// `i128::from()` wrapping is skipped (f64 does not implement `Into<i128>`).
+    float_vars: HashSet<String>,
 }
 
 impl ExprFolder for RustCodegenFolder {
@@ -271,9 +329,13 @@ impl ExprFolder for RustCodegenFolder {
             // code when contracts mix Int and Nat typed inputs.
             // Skip i128 wrapping when either side has a u128-scale literal
             // (e.g. u128::MAX) since i128::from(u128) does not exist.
+            // Also skip when either side involves Float (f64 does not
+            // implement Into<i128>).
             if (op.is_comparison() || op.is_arithmetic())
                 && is_numeric_expr(lhs)
                 && is_numeric_expr(rhs)
+                && !has_float_expr(lhs, &self.float_vars)
+                && !has_float_expr(rhs, &self.float_vars)
             {
                 if has_u128_literal(lhs) || has_u128_literal(rhs) {
                     return format!(
@@ -368,6 +430,8 @@ impl ExprFolder for RustCodegenFolder {
                     && is_numeric_expr(then_br)
                     && is_numeric_expr(eb)
                     && (has_inner_i128(&then_s) || has_inner_i128(&else_s))
+                    && !has_float_expr(then_br, &self.float_vars)
+                    && !has_float_expr(eb, &self.float_vars)
                 {
                     let t = if has_inner_i128(&then_s) {
                         then_s
