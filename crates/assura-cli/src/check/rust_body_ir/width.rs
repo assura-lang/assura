@@ -21,12 +21,16 @@ pub(super) fn rust_int_bounds(ty: &str) -> Option<(i64, i64)> {
         "u32" => Some((0, u32::MAX as i64)),
         // u64 max exceeds i64; use sentinel for synthetic 2^64 (#1160)
         "u64" | "usize" => Some((0, -1)),
+        // u128/i128 map to Nat/Int without fitting machine bounds; use nonneg / full i64
+        // sentinel for divisor peels and nonneg path-param encoding only.
+        "u128" => Some((0, -1)),
+        "i128" => Some((i64::MIN, i64::MAX)),
         // Positive-only divisors for rem_euclid / div_euclid / next_multiple_of
         "NonZeroU8" => Some((1, u8::MAX as i64)),
         "NonZeroU16" => Some((1, u16::MAX as i64)),
         "NonZeroU32" => Some((1, u32::MAX as i64)),
-        // hi=-1 sentinel unused for NonZeroU64; modulus not needed for divisor path
-        "NonZeroU64" | "NonZeroUsize" => Some((1, i64::MAX)),
+        // hi unused for divisor path (only lo>=1 gates encode_positive_divisor)
+        "NonZeroU64" | "NonZeroUsize" | "NonZeroU128" => Some((1, i64::MAX)),
         _ => None,
     }
 }

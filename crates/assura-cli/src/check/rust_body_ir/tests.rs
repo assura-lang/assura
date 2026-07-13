@@ -391,6 +391,23 @@ fn signed_rem_euclid_encodes() {
         "{nmo64}"
     );
     assura_smt::LoadedVerifyExtras::from_ir_text(&nmo64, "N64").expect("parse u64 nz nmo");
+    // NonZeroU128 divisor path (lo>=1 only)
+    let nz128 = vec![
+        ParamInfo {
+            name: "x".into(),
+            ty: "u128".into(),
+        },
+        ParamInfo {
+            name: "d".into(),
+            ty: "NonZeroU128".into(),
+        },
+    ];
+    let d128 = try_ir_from_rust_body("D128", &nz128, Some("u128"), "x / d").expect("u128 div");
+    assert!(
+        d128.contains("arith div") && d128.contains("load"),
+        "{d128}"
+    );
+    assura_smt::LoadedVerifyExtras::from_ir_text(&d128, "D128").expect("parse u128 nz div");
 }
 
 #[test]
