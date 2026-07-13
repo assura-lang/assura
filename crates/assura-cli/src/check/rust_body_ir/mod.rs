@@ -127,7 +127,136 @@ fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<syn::Expr> {
     for (name, init) in env.into_iter().rev() {
         final_expr = substitute_ident_expr(final_expr, &name, &init);
     }
-    Some(final_expr)
+    // Lift if out of binary operands: `(if c { a } else { b }) + 1` →
+    // `if c { a + 1 } else { b + 1 }` so multi-block encode works.
+    Some(distribute_if_binary(paren_if_match_operands(final_expr)))
+}
+
+/// Rewrite binary with if-on-left into if of binaries (single-level).
+fn distribute_if_binary(expr: syn::Expr) -> syn::Expr {
+    match expr {
+        syn::Expr::Binary(b) => {
+            let left = distribute_if_binary(*b.left);
+            let right = distribute_if_binary(*b.right);
+            // (if c { t } else { e }) ⊕ r  →  if c { t ⊕ r } else { e ⊕ r }
+            let left = match left {
+                syn::Expr::Paren(p) => *p.expr,
+                other => other,
+            };
+            if let syn::Expr::If(mut if_e) = left {
+                if let Some((else_tok, else_box)) = if_e.else_branch.take() {
+                    let then_inner = block_as_expr_owned(&if_e.then_branch).unwrap_or_else(|| {
+                        syn::Expr::Block(syn::ExprBlock {
+                            attrs: Vec::new(),
+                            label: None,
+                            block: if_e.then_branch.clone(),
+                        })
+                    });
+                    let else_inner = match else_box.as_ref() {
+                        syn::Expr::Block(eb) => block_as_expr_owned(&eb.block)
+                            .unwrap_or_else(|| else_box.as_ref().clone()),
+                        other => other.clone(),
+                    };
+                    let then_bin = syn::Expr::Binary(syn::ExprBinary {
+                        attrs: Vec::new(),
+                        left: Box::new(then_inner),
+                        op: b.op,
+                        right: Box::new(right.clone()),
+                    });
+                    let else_bin = syn::Expr::Binary(syn::ExprBinary {
+                        attrs: Vec::new(),
+                        left: Box::new(else_inner),
+                        op: b.op,
+                        right: Box::new(right),
+                    });
+                    let then_block = expr_as_block(then_bin);
+                    let else_expr = syn::Expr::Block(syn::ExprBlock {
+                        attrs: Vec::new(),
+                        label: None,
+                        block: expr_as_block(else_bin),
+                    });
+                    if_e.then_branch = then_block;
+                    if_e.else_branch = Some((else_tok, Box::new(else_expr)));
+                    return syn::Expr::If(if_e);
+                }
+                return syn::Expr::Binary(syn::ExprBinary {
+                    attrs: b.attrs,
+                    left: Box::new(syn::Expr::If(if_e)),
+                    op: b.op,
+                    right: Box::new(right),
+                });
+            }
+            syn::Expr::Binary(syn::ExprBinary {
+                attrs: b.attrs,
+                left: Box::new(left),
+                op: b.op,
+                right: Box::new(right),
+            })
+        }
+        syn::Expr::Paren(mut p) => {
+            *p.expr = distribute_if_binary(*p.expr);
+            syn::Expr::Paren(p)
+        }
+        other => other,
+    }
+}
+
+fn expr_as_block(expr: syn::Expr) -> syn::Block {
+    syn::Block {
+        brace_token: Default::default(),
+        stmts: vec![syn::Stmt::Expr(expr, None)],
+    }
+}
+
+/// Wrap if/match subexpressions that appear as operands so `expr_source` round-trips.
+fn paren_if_match_operands(expr: syn::Expr) -> syn::Expr {
+    match expr {
+        syn::Expr::Binary(mut b) => {
+            *b.left = paren_if_match_leaf(paren_if_match_operands(*b.left));
+            *b.right = paren_if_match_leaf(paren_if_match_operands(*b.right));
+            syn::Expr::Binary(b)
+        }
+        syn::Expr::Unary(mut u) => {
+            *u.expr = paren_if_match_leaf(paren_if_match_operands(*u.expr));
+            syn::Expr::Unary(u)
+        }
+        syn::Expr::MethodCall(mut m) => {
+            *m.receiver = paren_if_match_leaf(paren_if_match_operands(*m.receiver));
+            let args: Vec<syn::Expr> = m
+                .args
+                .into_iter()
+                .map(|a| paren_if_match_leaf(paren_if_match_operands(a)))
+                .collect();
+            m.args = args.into_iter().collect();
+            syn::Expr::MethodCall(m)
+        }
+        syn::Expr::Call(mut c) => {
+            *c.func = paren_if_match_operands(*c.func);
+            let args: Vec<syn::Expr> = c
+                .args
+                .into_iter()
+                .map(|a| paren_if_match_leaf(paren_if_match_operands(a)))
+                .collect();
+            c.args = args.into_iter().collect();
+            syn::Expr::Call(c)
+        }
+        syn::Expr::Paren(mut p) => {
+            *p.expr = paren_if_match_operands(*p.expr);
+            syn::Expr::Paren(p)
+        }
+        other => other,
+    }
+}
+
+fn paren_if_match_leaf(expr: syn::Expr) -> syn::Expr {
+    match expr {
+        syn::Expr::If(_) | syn::Expr::Match(_) => syn::Expr::Paren(syn::ExprParen {
+            attrs: Vec::new(),
+            paren_token: Default::default(),
+            expr: Box::new(expr),
+        }),
+        other => other,
+    }
 }
 
 /// Replace free path `name` with `replacement` (structural, supported expr kinds).
@@ -190,11 +319,19 @@ fn substitute_ident_expr(expr: syn::Expr, name: &str, replacement: &syn::Expr) -
 }
 
 fn expr_source(expr: &syn::Expr) -> String {
-    expr.to_token_stream()
+    // Parenthesize if/match so `if c { a } else { b } + 1` re-parses as binary
+    // after let-fold (ToTokens does not insert precedence parens).
+    let raw = expr
+        .to_token_stream()
         .to_string()
         .split_whitespace()
         .collect::<Vec<_>>()
-        .join(" ")
+        .join(" ");
+    if matches!(expr, syn::Expr::If(_) | syn::Expr::Match(_)) {
+        format!("({raw})")
+    } else {
+        raw
+    }
 }
 
 /// Build IR text for a function if `body_return` is a simple supported shape.
@@ -242,6 +379,12 @@ pub(crate) fn try_ir_from_rust_body(
     // modular encode in the method arm (same bit pattern).
     if let Some(e) = expand_wrapping_neg_method(&expr) {
         expr = e;
+    }
+    // `(if c { a } else { b }) + 1` → `if c { a + 1 } else { b + 1 }` for multi-block.
+    expr = distribute_if_binary(paren_if_match_operands(expr));
+    // `expr_source` parenthesizes top-level if/match; strip so multi-block match hits.
+    while let syn::Expr::Paren(p) = expr {
+        expr = *p.expr;
     }
 
     let mut sig_parts = Vec::new();
