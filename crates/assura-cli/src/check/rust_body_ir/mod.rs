@@ -132,8 +132,8 @@ fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<syn::Expr> {
     Some(distribute_if_binary(paren_if_match_operands(final_expr)))
 }
 
-/// Lift if/match out of binary operands so multi-block encode can fire.
-/// `(if c { a } else { b }) ⊕ r` → `if c { a ⊕ r } else { b ⊕ r }` (and right/match).
+/// Lift if/match out of binary/unary/method so multi-block encode can fire.
+/// `(if c { a } else { b }) ⊕ r` → `if c { a ⊕ r } else { b ⊕ r }` (and right/match/unary).
 fn distribute_if_binary(expr: syn::Expr) -> syn::Expr {
     match expr {
         syn::Expr::Binary(b) => {
@@ -159,6 +159,57 @@ fn distribute_if_binary(expr: syn::Expr) -> syn::Expr {
                 left: Box::new(left),
                 op: b.op,
                 right: Box::new(right),
+            })
+        }
+        // -(if c { t } else { e }) → if c { -t } else { -e }
+        syn::Expr::Unary(u) => {
+            let inner = unwrap_paren(distribute_if_binary(*u.expr));
+            if let Some(lifted) = try_lift_if_unary(u.op, inner.clone()) {
+                return distribute_if_binary(lifted);
+            }
+            if let Some(lifted) = try_lift_match_unary(u.op, inner.clone()) {
+                return distribute_if_binary(lifted);
+            }
+            syn::Expr::Unary(syn::ExprUnary {
+                attrs: u.attrs,
+                op: u.op,
+                expr: Box::new(inner),
+            })
+        }
+        // (if c { t } else { e }).abs() → if c { t.abs() } else { e.abs() }
+        syn::Expr::MethodCall(m) => {
+            let recv = unwrap_paren(distribute_if_binary(*m.receiver));
+            let args: Vec<syn::Expr> = m
+                .args
+                .into_iter()
+                .map(distribute_if_binary)
+                .collect();
+            if let Some(lifted) = try_lift_if_method(
+                recv.clone(),
+                m.method.clone(),
+                &args,
+                &m.turbofish,
+                m.attrs.clone(),
+            ) {
+                return distribute_if_binary(lifted);
+            }
+            if let Some(lifted) = try_lift_match_method(
+                recv.clone(),
+                m.method.clone(),
+                &args,
+                &m.turbofish,
+                m.attrs.clone(),
+            ) {
+                return distribute_if_binary(lifted);
+            }
+            syn::Expr::MethodCall(syn::ExprMethodCall {
+                attrs: m.attrs,
+                receiver: Box::new(recv),
+                dot_token: m.dot_token,
+                method: m.method,
+                turbofish: m.turbofish,
+                paren_token: m.paren_token,
+                args: args.into_iter().collect(),
             })
         }
         syn::Expr::If(mut if_e) => {
@@ -297,6 +348,132 @@ fn try_lift_match_right(left: syn::Expr, op: syn::BinOp, right: syn::Expr) -> Op
                 other => other.clone(),
             };
             arm.body = Box::new(make_binary(left.clone(), op, body));
+            arm
+        })
+        .collect();
+    Some(syn::Expr::Match(m))
+}
+
+fn make_unary(op: syn::UnOp, expr: syn::Expr) -> syn::Expr {
+    syn::Expr::Unary(syn::ExprUnary {
+        attrs: Vec::new(),
+        op,
+        expr: Box::new(expr),
+    })
+}
+
+fn try_lift_if_unary(op: syn::UnOp, inner: syn::Expr) -> Option<syn::Expr> {
+    let syn::Expr::If(mut if_e) = inner else {
+        return None;
+    };
+    let (else_tok, else_box) = if_e.else_branch.take()?;
+    let then_inner = block_inner_expr(&if_e.then_branch);
+    let else_inner = else_inner_expr(&else_box);
+    if_e.then_branch = expr_as_block(make_unary(op, then_inner));
+    if_e.else_branch = Some((
+        else_tok,
+        Box::new(syn::Expr::Block(syn::ExprBlock {
+            attrs: Vec::new(),
+            label: None,
+            block: expr_as_block(make_unary(op, else_inner)),
+        })),
+    ));
+    Some(syn::Expr::If(if_e))
+}
+
+fn try_lift_match_unary(op: syn::UnOp, inner: syn::Expr) -> Option<syn::Expr> {
+    let syn::Expr::Match(mut m) = inner else {
+        return None;
+    };
+    m.arms = m
+        .arms
+        .into_iter()
+        .map(|mut arm| {
+            let body = match arm.body.as_ref() {
+                syn::Expr::Block(eb) => block_inner_expr(&eb.block),
+                other => other.clone(),
+            };
+            arm.body = Box::new(make_unary(op, body));
+            arm
+        })
+        .collect();
+    Some(syn::Expr::Match(m))
+}
+
+fn make_method(
+    recv: syn::Expr,
+    method: syn::Ident,
+    args: &[syn::Expr],
+    turbofish: &Option<syn::AngleBracketedGenericArguments>,
+    attrs: Vec<syn::Attribute>,
+) -> syn::Expr {
+    syn::Expr::MethodCall(syn::ExprMethodCall {
+        attrs,
+        receiver: Box::new(recv),
+        dot_token: Default::default(),
+        method,
+        turbofish: turbofish.clone(),
+        paren_token: Default::default(),
+        args: args.iter().cloned().collect(),
+    })
+}
+
+fn try_lift_if_method(
+    recv: syn::Expr,
+    method: syn::Ident,
+    args: &[syn::Expr],
+    turbofish: &Option<syn::AngleBracketedGenericArguments>,
+    attrs: Vec<syn::Attribute>,
+) -> Option<syn::Expr> {
+    let syn::Expr::If(mut if_e) = recv else {
+        return None;
+    };
+    let (else_tok, else_box) = if_e.else_branch.take()?;
+    let then_inner = block_inner_expr(&if_e.then_branch);
+    let else_inner = else_inner_expr(&else_box);
+    if_e.then_branch = expr_as_block(make_method(
+        then_inner,
+        method.clone(),
+        args,
+        turbofish,
+        attrs.clone(),
+    ));
+    if_e.else_branch = Some((
+        else_tok,
+        Box::new(syn::Expr::Block(syn::ExprBlock {
+            attrs: Vec::new(),
+            label: None,
+            block: expr_as_block(make_method(else_inner, method, args, turbofish, attrs)),
+        })),
+    ));
+    Some(syn::Expr::If(if_e))
+}
+
+fn try_lift_match_method(
+    recv: syn::Expr,
+    method: syn::Ident,
+    args: &[syn::Expr],
+    turbofish: &Option<syn::AngleBracketedGenericArguments>,
+    attrs: Vec<syn::Attribute>,
+) -> Option<syn::Expr> {
+    let syn::Expr::Match(mut m) = recv else {
+        return None;
+    };
+    m.arms = m
+        .arms
+        .into_iter()
+        .map(|mut arm| {
+            let body = match arm.body.as_ref() {
+                syn::Expr::Block(eb) => block_inner_expr(&eb.block),
+                other => other.clone(),
+            };
+            arm.body = Box::new(make_method(
+                body,
+                method.clone(),
+                args,
+                turbofish,
+                attrs.clone(),
+            ));
             arm
         })
         .collect();

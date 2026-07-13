@@ -1891,3 +1891,29 @@ fn simple_nested_if_in_then() {
     .expect("nested");
     assert!(ir.contains("then #"), "{ir}");
 }
+
+#[test]
+fn unary_neg_if_encodes() {
+    let ir = try_ir_from_rust_body("U", &px(), Some("i64"), "-(if x > 0 { x } else { 1 })");
+    assert!(ir.is_some(), "unary if");
+}
+
+#[test]
+fn method_on_if_encodes() {
+    let ir = try_ir_from_rust_body("M", &px(), Some("i64"), "(if x > 0 { x } else { 1 }).abs()");
+    assert!(ir.is_some(), "method on if");
+}
+
+#[test]
+fn multi_let_if_chain_encodes() {
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let a = if x > 0 { x } else { 0 };
+    let b = a + 1;
+    b * 2
+}
+"#;
+    let body = extract_body_return(src, "f").expect("extract");
+    let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
+    assert!(ir.contains("then #"), "body={body}\nir={ir}");
+}
