@@ -4177,6 +4177,9 @@ fn p8(x: u8) -> u8 { x.wrapping_pow(2) }
 /// @ensures result >= 0
 fn p64(x: u64) -> u64 { x.wrapping_pow(3) }
 
+/// @ensures result == 16
+fn c(x: u8) -> u8 { 2u8.wrapping_pow(4) }
+
 /// @ensures result == 1
 fn z(x: u32) -> u32 { x.wrapping_pow(0) }
 "#,
