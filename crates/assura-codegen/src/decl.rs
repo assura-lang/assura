@@ -60,10 +60,7 @@ pub(crate) fn generate_bind(b: &BindDecl, code: &mut String) {
                     "let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();"
                 )));
             }
-            ensures_exprs.push(expr_to_rust_with_floats(
-                &clause.body,
-                float_vars.clone(),
-            ));
+            ensures_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
         }
     }
 
@@ -172,10 +169,7 @@ pub(crate) fn generate_extern(ex: &ExternDecl, code: &mut String) {
                     "let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();"
                 )));
             }
-            ensures_exprs.push(expr_to_rust_with_floats(
-                &clause.body,
-                float_vars.clone(),
-            ));
+            ensures_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
         }
     }
 
@@ -293,10 +287,7 @@ pub(crate) fn generate_fn_def(
                     "let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();"
                 )));
             }
-            ensures_exprs.push(expr_to_rust_with_floats(
-                &clause.body,
-                float_vars.clone(),
-            ));
+            ensures_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
         }
     }
 

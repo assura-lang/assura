@@ -44,9 +44,7 @@ fn has_float_expr(expr: &SpExpr, float_vars: &HashSet<String>) -> bool {
         | Expr::Old(e)
         | Expr::Cast { expr: e, .. }
         | Expr::Field(e, _) => has_float_expr(e, float_vars),
-        Expr::MethodCall {
-            receiver, args, ..
-        } => {
+        Expr::MethodCall { receiver, args, .. } => {
             has_float_expr(receiver, float_vars)
                 || args.iter().any(|a| has_float_expr(a, float_vars))
         }
@@ -167,10 +165,7 @@ pub(crate) fn expr_to_rust(expr: &SpExpr) -> String {
 /// Like [`expr_to_rust`] but with knowledge of which variables are float-typed.
 /// Comparisons and arithmetic involving these variables use direct `f64`
 /// operations instead of `i128::from()` widening.
-pub(crate) fn expr_to_rust_with_floats(
-    expr: &SpExpr,
-    float_vars: HashSet<String>,
-) -> String {
+pub(crate) fn expr_to_rust_with_floats(expr: &SpExpr, float_vars: HashSet<String>) -> String {
     RustCodegenFolder {
         static_context: false,
         float_vars,

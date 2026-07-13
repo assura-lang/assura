@@ -190,14 +190,17 @@ pub(crate) fn generate_contract_contents_opts(
     // Second pass: convert clause bodies to Rust expressions.
     for clause in &c.clauses {
         match &clause.kind {
-            ClauseKind::Requires => requires_exprs
-                .push(expr_to_rust_with_floats(&clause.body, float_vars.clone())),
-            ClauseKind::Ensures => ensures_exprs
-                .push(expr_to_rust_with_floats(&clause.body, float_vars.clone())),
+            ClauseKind::Requires => {
+                requires_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()))
+            }
+            ClauseKind::Ensures => {
+                ensures_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()))
+            }
             ClauseKind::Effects => effects.push(expr_to_rust(&clause.body)),
             ClauseKind::Modifies => modifies.push(expr_to_rust(&clause.body)),
-            ClauseKind::Invariant => invariants
-                .push(expr_to_rust_with_floats(&clause.body, float_vars.clone())),
+            ClauseKind::Invariant => {
+                invariants.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()))
+            }
             ClauseKind::Input
             | ClauseKind::Output
             | ClauseKind::Errors

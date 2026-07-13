@@ -739,7 +739,9 @@ fn has_float_expr_binop_with_float_literal() {
     let e = Spanned::no_span(Expr::BinOp {
         lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         op: BinOp::Add,
-        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float("1.0".into())))),
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+            "1.0".into(),
+        )))),
     });
     assert!(has_float_expr(&e, &HashSet::new()));
 }
@@ -776,19 +778,29 @@ fn float_binop_skips_i128_wrapping() {
         rhs: Box::new(Spanned::no_span(Expr::Ident("y".into()))),
     });
     let result = expr_to_rust_with_floats(&e, vars);
-    assert!(!result.contains("i128::from"), "Float vars must not use i128::from, got: {result}");
+    assert!(
+        !result.contains("i128::from"),
+        "Float vars must not use i128::from, got: {result}"
+    );
     assert!(result.contains("x") && result.contains("y"));
 }
 
 #[test]
 fn float_literal_binop_skips_i128_wrapping() {
     let e = Spanned::no_span(Expr::BinOp {
-        lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float("1.5".into())))),
+        lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+            "1.5".into(),
+        )))),
         op: BinOp::Add,
-        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float("2.5".into())))),
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+            "2.5".into(),
+        )))),
     });
     let result = expr_to_rust_with_floats(&e, HashSet::new());
-    assert!(!result.contains("i128::from"), "Float literals must not use i128::from, got: {result}");
+    assert!(
+        !result.contains("i128::from"),
+        "Float literals must not use i128::from, got: {result}"
+    );
 }
 
 #[test]
@@ -800,7 +812,10 @@ fn non_float_binop_still_uses_i128() {
     });
     // No float vars, should use i128::from as before
     let result = expr_to_rust_with_floats(&e, HashSet::new());
-    assert!(result.contains("i128::from"), "Non-float must use i128::from, got: {result}");
+    assert!(
+        result.contains("i128::from"),
+        "Non-float must use i128::from, got: {result}"
+    );
 }
 
 #[test]
@@ -809,8 +824,13 @@ fn mixed_float_and_int_in_if_skips_i128() {
     let e = Spanned::no_span(Expr::If {
         cond: Box::new(Spanned::no_span(Expr::Ident("c".into()))),
         then_branch: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
-        else_branch: Some(Box::new(Spanned::no_span(Expr::Literal(Literal::Float("0.0".into()))))),
+        else_branch: Some(Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+            "0.0".into(),
+        ))))),
     });
     let result = expr_to_rust_with_floats(&e, vars);
-    assert!(!result.contains("i128::from"), "Float if-branches must not use i128::from, got: {result}");
+    assert!(
+        !result.contains("i128::from"),
+        "Float if-branches must not use i128::from, got: {result}"
+    );
 }
