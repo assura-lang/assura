@@ -878,6 +878,17 @@ fn associated_min_max_body_ir() {
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "M").expect("parse");
     let free = try_ir_from_rust_body("F", &px(), Some("i64"), "min(x, x)").expect("free min");
     assert!(free.contains("$result = load $0"), "{free}");
+    // u64::MAX = synthetic 2^64 - 1
+    let u64m = try_ir_from_rust_body("U", &pu64(), Some("u64"), "u64::MAX").expect("u64 max");
+    assert!(
+        u64m.contains("const 4294967296")
+            && u64m.contains("arith mul")
+            && u64m.contains("arith sub"),
+        "{u64m}"
+    );
+    assura_smt::LoadedVerifyExtras::from_ir_text(&u64m, "U").expect("parse u64 max");
+    let u64n = try_ir_from_rust_body("Um", &pu64(), Some("u64"), "u64::MIN").expect("u64 min");
+    assert!(u64n.contains("const 0 : Int"), "{u64n}");
 }
 
 #[test]

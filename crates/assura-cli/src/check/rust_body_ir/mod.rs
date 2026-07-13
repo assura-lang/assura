@@ -717,10 +717,26 @@ fn encode_syn_expr(
             let name = path.path.segments[0].ident.to_string();
             param_names.iter().position(|n| *n == name)
         }
-        // i64::MIN / i64::MAX / u8::MAX (fits i64) as Int consts
+        // i64::MIN / i64::MAX / u8::MAX (fits i64) as Int consts;
+        // u64/usize::MAX = synthetic 2^64 - 1 (does not fit i64).
         syn::Expr::Path(path) if path.path.segments.len() == 2 => {
             let ty = path.path.segments[0].ident.to_string();
             let name = path.path.segments[1].ident.to_string();
+            if matches!(ty.as_str(), "u64" | "usize") && name == "MAX" {
+                let half = *next;
+                *next += 1;
+                lines.push(format!("${half} = const 4294967296 : Int"));
+                let two64 = *next;
+                *next += 1;
+                lines.push(format!("${two64} = arith mul ${half} ${half} : Int"));
+                let one = *next;
+                *next += 1;
+                lines.push(format!("${one} = const 1 : Int"));
+                let slot = *next;
+                *next += 1;
+                lines.push(format!("${slot} = arith sub ${two64} ${one} : Int"));
+                return Some(slot);
+            }
             let val: Option<i64> = match (ty.as_str(), name.as_str()) {
                 ("i8", "MIN") => Some(i8::MIN as i64),
                 ("i8", "MAX") => Some(i8::MAX as i64),
@@ -733,7 +749,7 @@ fn encode_syn_expr(
                 ("u8", "MAX") => Some(u8::MAX as i64),
                 ("u16", "MAX") => Some(u16::MAX as i64),
                 ("u32", "MAX") => Some(u32::MAX as i64),
-                ("u8" | "u16" | "u32", "MIN") => Some(0),
+                ("u8" | "u16" | "u32" | "u64" | "usize", "MIN") => Some(0),
                 _ => None,
             };
             let v = val?;
