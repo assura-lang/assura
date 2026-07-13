@@ -49,7 +49,7 @@ pub(crate) fn run_ir(
         }
     };
 
-    if verbosity == Verbosity::Verbose {
+    if verbosity == Verbosity::Verbose && output_mode != OutputMode::Json {
         eprintln!(
             "Parsed IR module `{}`: {} function(s)",
             module.name,
@@ -181,12 +181,29 @@ pub(crate) fn run_ir(
                     let out = Path::new(out_path);
                     if let Some(parent) = out.parent() {
                         fs::create_dir_all(parent).unwrap_or_else(|e| {
-                            eprintln!("Error: cannot create directory {}: {e}", parent.display());
+                            let report = serde_json::json!({
+                                "ok": false,
+                                "status": "error",
+                                "file": ir_file,
+                                "output": out_path,
+                                "error": format!(
+                                    "cannot create directory {}: {e}",
+                                    parent.display()
+                                ),
+                            });
+                            println!("{}", serde_json::to_string_pretty(&report).unwrap());
                             process::exit(1);
                         });
                     }
                     fs::write(out, &rust_code).unwrap_or_else(|e| {
-                        eprintln!("Error: cannot write {out_path}: {e}");
+                        let report = serde_json::json!({
+                            "ok": false,
+                            "status": "error",
+                            "file": ir_file,
+                            "output": out_path,
+                            "error": format!("cannot write {out_path}: {e}"),
+                        });
+                        println!("{}", serde_json::to_string_pretty(&report).unwrap());
                         process::exit(1);
                     });
                 }

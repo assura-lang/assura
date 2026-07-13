@@ -20,7 +20,8 @@
 //! synthetic `(2^32)*(2^32)`). `wrapping_pow` const exp ≤4.
 //! Signed rotate via bit-pattern map. Signed wrapping_shr via floor div by 2^k.
 //! Top-level signed `wrapping_neg` (multi-block if); nested signed via modular
-//! (0-x) mod 2^w + reinterpret. Variable wrapping_shl/shr case-sum for bits≤64
+//! (0-x) mod 2^w + reinterpret. `wrapping_abs` → `if x >= 0 { x } else { wrapping_neg }`.
+//! Variable wrapping_shl/shr case-sum for bits≤64
 //! (i64 and u64/usize use synthetic 2^64 modulus; 2^63 factor is 2^32*2^31).
 //! Variable rotate_left/right case-sum for bits≤64. Variable BitAnd/Or/Xor:
 //! const mask (unsigned/signed ≤64; signed via bit-pattern map) or both-variable
@@ -781,6 +782,10 @@ pub(crate) fn try_ir_from_rust_body(
     }
 
     let mut expr: syn::Expr = syn::parse_str(body_return).ok()?;
+    // wrapping_abs → if >=0 id else wrapping_neg (before wrapping_neg expand).
+    if let Some(e) = expand_wrapping_abs_method(&expr) {
+        expr = e;
+    }
     // Top-level wrapping_neg → multi-block if (MIN stays MIN). Nested signed uses
     // modular encode in the method arm (same bit pattern).
     if let Some(e) = expand_wrapping_neg_method(&expr) {
@@ -1600,6 +1605,19 @@ fn expand_checked_binop_unwrap_or(expr: &syn::Expr) -> Option<syn::Expr> {
         }
         _ => return None,
     };
+    syn::parse_str(&tree).ok()
+}
+
+/// `x.wrapping_abs()` → `if x >= 0 { x } else { x.wrapping_neg() }` (MIN stays MIN).
+fn expand_wrapping_abs_method(expr: &syn::Expr) -> Option<syn::Expr> {
+    let syn::Expr::MethodCall(m) = expr else {
+        return None;
+    };
+    if m.method != "wrapping_abs" || !m.args.is_empty() {
+        return None;
+    }
+    let recv = expr_source(&m.receiver);
+    let tree = format!("if {recv} >= 0 {{ {recv} }} else {{ ({recv}).wrapping_neg() }}");
     syn::parse_str(&tree).ok()
 }
 

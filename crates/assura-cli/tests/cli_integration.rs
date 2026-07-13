@@ -3050,3 +3050,47 @@ fn check_dump_smt_mkdir_fail_json() {
     assert_eq!(v["ok"], false);
     assert_eq!(v["error"], "dump_smt_mkdir_failed");
 }
+
+/// `ir --json -o` write failure (unwritable path) must emit JSON, not bare stderr.
+#[test]
+fn ir_json_write_fail_is_parseable() {
+    let tmp = unique_temp("assura_ir_json_write");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let ir_path = tmp.join("ok.ir");
+    std::fs::write(
+        &ir_path,
+        r#"module M {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $result = load $0 : Int
+  }
+}
+"#,
+    )
+    .unwrap();
+    // Parent path that cannot be created on Unix/macOS.
+    let bad_out = "/no/such/assura_ir_out/lib.rs";
+    let out = Command::new(assura_bin())
+        .args(["--json", "ir", ir_path.to_str().unwrap(), "-o", bad_out])
+        .output()
+        .expect("failed to run assura --json ir -o");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "write fail should exit non-zero");
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("ir --json write fail must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert!(
+        v["error"].as_str().unwrap_or("").contains("cannot")
+            || v["error"].as_str().unwrap_or("").contains("write")
+            || v["error"].as_str().unwrap_or("").contains("directory"),
+        "expected write/mkdir error: {v}"
+    );
+    assert!(
+        !stderr.contains("Error: cannot"),
+        "human write error must not leak under --json: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
