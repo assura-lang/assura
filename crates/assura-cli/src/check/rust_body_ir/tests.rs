@@ -30,6 +30,13 @@ fn pu32() -> Vec<ParamInfo> {
     }]
 }
 
+fn pu64() -> Vec<ParamInfo> {
+    vec![ParamInfo {
+        name: "x".into(),
+        ty: "u64".into(),
+    }]
+}
+
 #[test]
 fn extract_identity_and_add() {
     let src = r#"
@@ -1332,6 +1339,10 @@ fn typed_reverse_bits_and_swap_bytes_peep() {
         try_ir_from_rust_body("Vnp", &pu8(), Some("u8"), "x.next_power_of_two()").expect("vnp");
     assert!(vnp.contains("cmp le") && vnp.contains("const 128"), "{vnp}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&vnp, "Vnp").expect("parse");
+    let vnp64 = try_ir_from_rust_body("V64", &pu64(), Some("u64"), "x.next_power_of_two()")
+        .expect("u64 npot");
+    assert!(vnp64.contains("cmp le"), "{vnp64}");
+    assura_smt::LoadedVerifyExtras::from_ir_text(&vnp64, "V64").expect("parse u64 npot");
     let wvar = try_ir_from_rust_body("Wv", &pu8(), Some("u8"), "x.wrapping_next_power_of_two()")
         .expect("wvar");
     assert!(wvar.contains("cmp le"), "{wvar}");
