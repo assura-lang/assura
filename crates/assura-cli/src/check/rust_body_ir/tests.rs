@@ -1224,8 +1224,10 @@ fn const_count_ones_and_trailing_zeros_peep() {
     assert!(cz.contains("const 30 : Int"), "{cz}");
     let tz = try_ir_from_rust_body("T", &px(), Some("u32"), "12u32.trailing_zeros()").expect("tz");
     assert!(tz.contains("const 2 : Int"), "{tz}");
-    // Variable receivers stay BNM
-    assert!(try_ir_from_rust_body("V", &px(), Some("u32"), "x.count_ones()").is_none());
+    // Variable i64 receivers encode (64-bit popcount)
+    let vones =
+        try_ir_from_rust_body("V", &px(), Some("u32"), "x.count_ones()").expect("var i64 ones");
+    assert!(vones.contains("arith"), "{vones}");
     // Typed 0.trailing_zeros() == bit width
     let z0 = try_ir_from_rust_body("Z", &px(), Some("u32"), "0u32.trailing_zeros()").expect("0tz");
     assert!(z0.contains("const 32 : Int"), "{z0}");
