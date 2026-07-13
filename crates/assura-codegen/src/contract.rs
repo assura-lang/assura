@@ -845,6 +845,39 @@ pub fn extract_input_params(body: &SpExpr, params: &mut Vec<(String, String)>) {
     }
 }
 
+/// Collect the effective input parameters for a contract declaration.
+///
+/// First tries to extract explicit `input()` clause params. If none exist,
+/// synthesizes params from free variables in requires/ensures/invariant
+/// clauses (all typed as `i64`). This mirrors the logic in
+/// `generate_contract_contents_opts` so callers like `--bin` main.rs
+/// generation see the same signature as the generated `check()` function.
+pub fn collect_contract_params(c: &ContractDecl) -> Vec<(String, String)> {
+    let mut params = Vec::new();
+    for clause in &c.clauses {
+        if clause.kind == ClauseKind::Input {
+            extract_input_params(&clause.body, &mut params);
+        }
+    }
+    if params.is_empty() {
+        let mut free = HashSet::new();
+        for clause in &c.clauses {
+            match &clause.kind {
+                ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Invariant => {
+                    collect_free_idents(&clause.body, &mut free);
+                }
+                _ => {}
+            }
+        }
+        let mut sorted: Vec<String> = free.into_iter().collect();
+        sorted.sort();
+        for name in sorted {
+            params.push((name, "i64".to_string()));
+        }
+    }
+    params
+}
+
 /// Infer the result type from ensures/invariant clauses when no output() exists.
 ///
 /// Walks ensures/invariant clause bodies looking for how `result` is used:

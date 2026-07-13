@@ -26,9 +26,9 @@ pub mod metadata;
 mod service;
 mod types_gen;
 
-pub use contract::extract_input_params;
+pub use contract::{collect_contract_params, extract_input_params};
 pub use expr::expr_to_rust_static;
-pub use types_gen::map_type_token;
+pub use types_gen::{map_type_token, map_type_tokens};
 
 use block::*;
 use contract::*;

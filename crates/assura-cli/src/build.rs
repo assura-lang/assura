@@ -1181,45 +1181,58 @@ fn inject_bin_main(
     verbosity: Verbosity,
     output_mode: OutputMode,
 ) {
-    // Find the first contract or fn declaration.
+    // Find the first contract or fn declaration. Prefer contracts over fn
+    // declarations because contracts always have defaultable params (either
+    // from input() clauses or synthesized as i64 from free variables). Fn
+    // declarations may have reference or custom types that can't be defaulted
+    // in a standalone main.rs.
     let source = &typed.resolved.source;
     let mut primary_name: Option<String> = None;
     let mut is_contract = false;
     let mut param_types: Vec<(String, String)> = Vec::new();
 
+    // Pass 1: look for contracts
     for decl in &source.decls {
-        match &decl.node {
-            Decl::Contract(c) => {
-                primary_name = Some(c.name.clone());
-                is_contract = true;
-                // Extract input params using the same helper codegen uses.
-                for clause in &c.clauses {
-                    if clause.kind == ClauseKind::Input {
-                        assura_codegen::extract_input_params(&clause.body, &mut param_types);
-                    }
+        if let Decl::Contract(c) = &decl.node {
+            primary_name = Some(c.name.clone());
+            is_contract = true;
+            param_types = assura_codegen::collect_contract_params(c);
+            break;
+        }
+    }
+
+    // Pass 2: if no contract, look for a fn with defaultable params
+    if primary_name.is_none() {
+        for decl in &source.decls {
+            if let Decl::FnDef(f) = &decl.node {
+                if f.is_ghost || f.is_lemma {
+                    continue;
                 }
-                break;
-            }
-            Decl::FnDef(f) if !f.is_ghost && !f.is_lemma => {
-                primary_name = Some(f.name.clone());
-                is_contract = false;
+                let mut fn_params = Vec::new();
+                let mut has_undefaultable = false;
                 for p in &f.params {
-                    let ty =
-                        p.ty.as_ref()
-                            .map(|t| {
-                                let tokens = t.to_tokens();
-                                if tokens.len() == 1 {
-                                    assura_codegen::map_type_token(&tokens[0]).to_string()
-                                } else {
-                                    "i64".to_string()
-                                }
-                            })
-                            .unwrap_or_else(|| "i64".to_string());
-                    param_types.push((p.name.clone(), ty));
+                    let ty = p
+                        .ty
+                        .as_ref()
+                        .map(|t| {
+                            let tokens = t.to_tokens();
+                            assura_codegen::map_type_tokens(&tokens)
+                        })
+                        .unwrap_or_else(|| "i64".to_string());
+                    // Skip fn declarations with reference or custom types
+                    if ty.contains('&') || ty == "()" {
+                        has_undefaultable = true;
+                        break;
+                    }
+                    fn_params.push((p.name.clone(), ty));
                 }
-                break;
+                if !has_undefaultable {
+                    primary_name = Some(f.name.clone());
+                    is_contract = false;
+                    param_types = fn_params;
+                    break;
+                }
             }
-            _ => {}
         }
     }
 
@@ -1322,6 +1335,10 @@ fn default_value_for_type(ty: &str) -> &'static str {
         "bool" => "true",
         "String" => "String::from(\"test\")",
         "Vec<u8>" => "vec![0u8; 16]",
+        _ if ty.starts_with("Vec<") => "Vec::new()",
+        _ if ty.starts_with("BTreeMap<") => "std::collections::BTreeMap::new()",
+        _ if ty.starts_with("Option<") => "None",
+        _ if ty.starts_with("Result<") => "Ok(Default::default())",
         _ => "Default::default()",
     }
 }

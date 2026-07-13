@@ -113,7 +113,7 @@ pub fn map_type_token(tok: &str) -> &str {
 /// - Taint annotations: `T @ taint : label` -> just `T`
 /// - Union error types: `T | E` -> `Result<T, E>`
 /// - Smart joining: `Vec < i64 >` -> `Vec<i64>`
-pub(crate) fn map_type_tokens(tokens: &[String]) -> String {
+pub fn map_type_tokens(tokens: &[String]) -> String {
     if tokens.is_empty() {
         return "()".to_string();
     }
