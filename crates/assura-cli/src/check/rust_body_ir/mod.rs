@@ -1510,8 +1510,8 @@ fn encode_syn_expr(
                         Some(acc)
                     }
                 }
-                // Const peep (ilog2(0) panics → BNM). Variable: unsigned path ≤32;
-                // signed path ≤32 with a>0 math log (a<=0 modeled as 0; Rust panics).
+                // Const peep (ilog2(0) panics → BNM). Variable: unsigned path ≤64;
+                // signed path ≤64 with a>0 math log (a<=0 modeled as 0; Rust panics).
                 ("ilog2", 0) => {
                     if let Some(v) = lit_int_i64(&m.receiver) {
                         if v <= 0 {
@@ -1524,11 +1524,8 @@ fn encode_syn_expr(
                         return Some(slot);
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
-                    if is_u64_width_bounds(lo, hi) {
-                        return None; // u64: 64-bit product too large for now
-                    }
                     let (bits, _, signed) = wrap_width(lo, hi)?;
-                    if bits == 0 || bits > 32 {
+                    if bits == 0 || bits > 64 {
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
