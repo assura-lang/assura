@@ -330,7 +330,7 @@ pub(super) fn encode_unsigned_isqrt(
     Some(acc)
 }
 
-/// `next_power_of_two` for unsigned `a` with width `bits`.
+/// `next_power_of_two` for unsigned `a` with width `bits` (≤64).
 /// Ladder: for pot `2^k` (k=0..bits-1), select when `a` is in `(prev, pot]`.
 /// When `a > 2^(bits-1)`, result is 0 (Rust non-wrapping panics; wrapping wraps).
 pub(super) fn encode_unsigned_next_power_of_two(
@@ -339,7 +339,7 @@ pub(super) fn encode_unsigned_next_power_of_two(
     lines: &mut Vec<String>,
     next: &mut usize,
 ) -> Option<usize> {
-    if bits == 0 || bits > 32 {
+    if bits == 0 || bits > 64 {
         return None;
     }
     let zero = *next;
@@ -348,10 +348,8 @@ pub(super) fn encode_unsigned_next_power_of_two(
     let mut acc = zero;
     let mut prev: Option<usize> = None;
     for k in 0..bits {
-        let pot_v = 1i64 << k;
-        let pot = *next;
-        *next += 1;
-        lines.push(format!("${pot} = const {pot_v} : Int"));
+        // 2^k via emit_pow2_factor (handles 2^63; no 2^64 in ladder).
+        let pot = emit_pow2_factor(k, lines, next)?;
         let le = *next;
         *next += 1;
         lines.push(format!("${le} = cmp le ${a} ${pot} : Bool"));

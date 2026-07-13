@@ -1570,7 +1570,7 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = arith mul ${gt} ${raw} : Int"));
                     Some(slot)
                 }
-                // Const peep; variable unsigned path ≤32 (overflow → 0, like wrap).
+                // Const peep; variable unsigned path ≤64 (overflow → 0, like wrap).
                 ("next_power_of_two", 0) => {
                     if let Some(v) = lit_int_i64(&m.receiver) {
                         if v < 0 {
@@ -1587,18 +1587,22 @@ fn encode_syn_expr(
                         return Some(slot);
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
-                    if lo != 0 || is_u64_width_bounds(lo, hi) {
+                    if lo != 0 {
                         return None;
                     }
-                    let modulus_u = (hi as u64).checked_add(1)?;
-                    if !modulus_u.is_power_of_two() {
-                        return None;
-                    }
-                    let bits = modulus_u.trailing_zeros();
+                    let bits = if is_u64_width_bounds(lo, hi) {
+                        64
+                    } else {
+                        let modulus_u = (hi as u64).checked_add(1)?;
+                        if !modulus_u.is_power_of_two() {
+                            return None;
+                        }
+                        modulus_u.trailing_zeros()
+                    };
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     encode_unsigned_next_power_of_two(a, bits, lines, next)
                 }
-                // Const peep or variable unsigned path ≤32 (overflow → 0).
+                // Const peep or variable unsigned path ≤64 (overflow → 0).
                 // Manual: stable API; unstable wrapping_next_power_of_two not used.
                 ("wrapping_next_power_of_two", 0) => {
                     if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
@@ -1626,14 +1630,18 @@ fn encode_syn_expr(
                         return Some(slot);
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
-                    if lo != 0 || is_u64_width_bounds(lo, hi) {
+                    if lo != 0 {
                         return None;
                     }
-                    let modulus_u = (hi as u64).checked_add(1)?;
-                    if !modulus_u.is_power_of_two() {
-                        return None;
-                    }
-                    let bits = modulus_u.trailing_zeros();
+                    let bits = if is_u64_width_bounds(lo, hi) {
+                        64
+                    } else {
+                        let modulus_u = (hi as u64).checked_add(1)?;
+                        if !modulus_u.is_power_of_two() {
+                            return None;
+                        }
+                        modulus_u.trailing_zeros()
+                    };
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
                     encode_unsigned_next_power_of_two(a, bits, lines, next)
                 }
