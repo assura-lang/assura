@@ -3771,6 +3771,64 @@ fn f(x: i64) -> i64 { x.signum() }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Mid-width signum for path params.
+#[test]
+fn check_rust_encodes_mid_width_signum() {
+    let tmp = unique_temp("assura_check_rust_mid_signum");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= -1
+/// @ensures result <= 1
+fn s8(x: i8) -> i8 { x.signum() }
+
+/// @ensures result >= -1
+/// @ensures result <= 1
+fn s16(x: i16) -> i16 { x.signum() }
+
+/// @ensures result >= -1
+/// @ensures result <= 1
+fn s32(x: i32) -> i32 { x.signum() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong i16 signum ensures must CE.
+#[test]
+fn check_rust_i16_signum_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_i16_signum_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn s(x: i16) -> i16 { x.signum() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Nested signum in arith encodes (#1032); proves result in {-1,0,1,2}.
 #[test]
 fn check_rust_encodes_nested_signum() {
