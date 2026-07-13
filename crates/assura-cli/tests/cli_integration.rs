@@ -6081,6 +6081,89 @@ fn l(x: i8) -> u32 { x.leading_zeros() }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Signed i16/i32 trailing_zeros/leading_zeros for path params.
+#[test]
+fn check_rust_encodes_i16_i32_trailing_leading_zeros() {
+    let tmp = unique_temp("assura_check_rust_i16_i32_tz_lz");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn t16(x: i16) -> u32 { x.trailing_zeros() }
+
+/// @ensures result >= 0
+fn l16(x: i16) -> u32 { x.leading_zeros() }
+
+/// @ensures result >= 0
+fn t32(x: i32) -> u32 { x.trailing_zeros() }
+
+/// @ensures result >= 0
+fn l32(x: i32) -> u32 { x.leading_zeros() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong i16 trailing_zeros ensures must CE.
+#[test]
+fn check_rust_i16_trailing_zeros_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_i16_tz_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn t(x: i16) -> u32 { x.trailing_zeros() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
+/// Wrong i32 leading_zeros ensures must CE.
+#[test]
+fn check_rust_i32_leading_zeros_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_i32_lz_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn l(x: i32) -> u32 { x.leading_zeros() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Path-param trailing_ones / leading_ones via NOT + zeros product.
 #[test]
 fn check_rust_encodes_trailing_leading_ones() {
