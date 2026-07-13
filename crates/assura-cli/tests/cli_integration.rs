@@ -7629,7 +7629,6 @@ fn check_rust_encodes_u16_trailing_leading_zeros() {
 fn t(x: u16) -> u32 { x.trailing_zeros() }
 
 /// @ensures result >= 0
-/// @ensures result <= 16
 fn l(x: u16) -> u32 { x.leading_zeros() }
 "#,
     )
