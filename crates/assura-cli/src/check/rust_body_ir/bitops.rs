@@ -530,16 +530,21 @@ pub(super) fn encode_unsigned_ilog2(
 
 /// `ilog10` for unsigned `a` with max value `hi` (path-param bound).
 /// `sum_{k=1..floor(log10(hi))} (a >= 10^k)`. When `a==0`, result is 0.
+/// For full u64 domain pass `hi = -1` (sentinel): thresholds through 10^19.
 pub(super) fn encode_unsigned_ilog10(
     a: usize,
     hi: i64,
     lines: &mut Vec<String>,
     next: &mut usize,
 ) -> Option<usize> {
-    if hi <= 0 {
+    let max_k = if hi == -1 {
+        // u64 path-param domain
+        19u32
+    } else if hi <= 0 {
         return None;
-    }
-    let max_k = (hi as u64).ilog10();
+    } else {
+        (hi as u64).ilog10()
+    };
     if max_k == 0 {
         // hi < 10: always 0
         let slot = *next;
@@ -550,19 +555,23 @@ pub(super) fn encode_unsigned_ilog10(
     let zero = *next;
     *next += 1;
     lines.push(format!("${zero} = const 0 : Int"));
+    let ten = *next;
+    *next += 1;
+    lines.push(format!("${ten} = const 10 : Int"));
     let mut acc = zero;
-    let mut thr: u64 = 1;
-    for _k in 1..=max_k {
-        thr = thr.checked_mul(10)?;
-        if thr > i64::MAX as u64 {
-            return None;
+    // thr starts at 10^1 = 10
+    let mut thr_slot = ten;
+    for k in 1..=max_k {
+        if k > 1 {
+            // thr *= 10 (works past i64::MAX via successive mul)
+            let next_thr = *next;
+            *next += 1;
+            lines.push(format!("${next_thr} = arith mul ${thr_slot} ${ten} : Int"));
+            thr_slot = next_thr;
         }
-        let t = *next;
-        *next += 1;
-        lines.push(format!("${t} = const {thr} : Int"));
         let ge = *next;
         *next += 1;
-        lines.push(format!("${ge} = cmp ge ${a} ${t} : Bool"));
+        lines.push(format!("${ge} = cmp ge ${a} ${thr_slot} : Bool"));
         let sum = *next;
         *next += 1;
         lines.push(format!("${sum} = arith add ${acc} ${ge} : Int"));
