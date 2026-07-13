@@ -1338,7 +1338,10 @@ fn typed_reverse_bits_and_swap_bytes_peep() {
     assert!(vilog10_32.contains("cmp ge"), "{vilog10_32}");
     // i64 path encodes with positivity gate (64-bit ladder)
     let si64 = try_ir_from_rust_body("S", &px(), Some("u32"), "x.ilog2()").expect("i64 ilog2");
-    assert!(si64.contains("call max") && si64.contains("cmp gt"), "{si64}");
+    assert!(
+        si64.contains("call max") && si64.contains("cmp gt"),
+        "{si64}"
+    );
     let pi8 = vec![ParamInfo {
         name: "x".into(),
         ty: "i8".into(),
