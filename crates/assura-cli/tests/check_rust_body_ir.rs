@@ -151,7 +151,7 @@ fn regular(x: i32) -> i32 {
 /// Ensures without co-located IR must not print "check passed" / "ensures …
 /// verified" before body_not_modeled (MPI End User / Observability).
 #[test]
-fn check_rust_body_not_modeled_human_is_honest() {
+fn check_rust_body_not_modeled_human_message() {
     let tmp = unique_temp("assura_check_rust_bnm");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
@@ -2340,6 +2340,60 @@ fn check_rust_i64_reverse_bits_wrong_ce() {
 /// @ensures result == x
 fn r(x: i64) -> i64 {
     x.reverse_bits()
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
+/// Full i64 both-variable bitops via synthetic 2^64 bit-pattern map.
+#[test]
+fn check_rust_encodes_i64_both_var_bitops() {
+    let tmp = unique_temp("assura_check_rust_i64_both_var");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 0 || result != 0
+fn band(x: i64, y: i64) -> i64 { x & y }
+
+/// @ensures result == 0 || result != 0
+fn bor(x: i64, y: i64) -> i64 { x | y }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong i64 both-var bitop ensures must CE.
+#[test]
+fn check_rust_i64_both_var_bitops_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_i64_both_var_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn a(x: i64, y: i64) -> i64 {
+    x & y
 }
 "#,
     )

@@ -504,13 +504,13 @@ For full test coverage use `cargo test --workspace --locked` (local machine or e
 Inside an agent tool with timeouts, use targeted verification instead:
 `cargo test -p <crate> --locked --lib`, `cargo check -p <crate> --locked`.
 
-**Important for changes touching the main executable or cli_integration:**
-After edits to cli_integration.rs, temp dir handling, or anything that affects
-the `assura` binary build (CARGO_BIN_EXE_assura), always run the *full*
-`cargo test --workspace --locked` (not just the targeted integration test) before
-committing or declaring done. The targeted test only exercises part of the
-suite; the workspace run validates all crates + the complete executable with
-every dependency enabled. See issues #328.
+**Important for changes touching the main executable or CLI integration tests:**
+After edits to `cli_integration.rs`, `check_rust_body_ir.rs`, temp dir handling, or
+anything that affects the `assura` binary build (CARGO_BIN_EXE_assura), always run
+the *full* `cargo test --workspace --locked` (not just one targeted integration test)
+before committing or declaring done. Targeted: `cargo test -p assura --test
+check_rust_body_ir` and/or `--test cli_integration`. The workspace run validates all
+crates + the complete executable with every dependency enabled. See issues #328.
 
 ## Coding Conventions
 
@@ -906,7 +906,7 @@ When the user's question is reflective, audit-style, or meta ("during the sessio
 
 Implementation, reproduction, or "make this green" questions are the only time targeted `cargo ... -p <crate> --locked` commands are appropriate.
 
-**After any change that could affect cli_integration races or the main
+**After any change that could affect cli_integration / check_rust_body_ir races or the main
 executable (see #328), run the full checks + explicitly `cargo test --workspace --locked`
 before the end of the session / before pushing the final commit.**
 
@@ -958,7 +958,7 @@ A task in MASTER-PLAN.md is done when ALL of these are true:
 1. The code compiles: `cargo build`
 2. All tests pass: `cargo test --workspace --locked` (on local machine or via full gate).
    Inside an agent tool, targeted tests + `--locked` are acceptable substitutes for the full run.
-   **Exception:** changes that touch `cli_integration`, temp-dir code, or the
+   **Exception:** changes that touch `cli_integration` / `check_rust_body_ir`, temp-dir code, or the
    main `assura` executable (all crates) require a real full `cargo test --workspace --locked`
    (see #328 and the "Build and Test" section).
 3. No warnings: `cargo clippy --workspace -- -D warnings`

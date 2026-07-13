@@ -564,7 +564,7 @@ fn const_bitops_fold() {
     let si = try_ir_from_rust_body("Si", &pxyi, Some("i8"), "x & y").expect("i8 x&y");
     assert!(si.contains("cmp gt") && si.contains("arith mul"), "{si}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&si, "Si").expect("parse i8");
-    // i64 both-var still BNM (bits>32)
+    // i64 both-var: synthetic 2^64 bit-pattern map
     let p64 = vec![
         ParamInfo {
             name: "x".into(),
@@ -575,7 +575,14 @@ fn const_bitops_fold() {
             ty: "i64".into(),
         },
     ];
-    assert!(try_ir_from_rust_body("I", &p64, Some("i64"), "x & y").is_none());
+    let i64and = try_ir_from_rust_body("I", &p64, Some("i64"), "x & y").expect("i64 x&y");
+    assert!(
+        i64and.contains("4294967296") || i64and.contains("arith mul"),
+        "{i64and}"
+    );
+    assura_smt::LoadedVerifyExtras::from_ir_text(&i64and, "I").expect("parse i64 and");
+    let i64or = try_ir_from_rust_body("Io", &p64, Some("i64"), "x | y").expect("i64 x|y");
+    assert!(i64or.contains("arith") || i64or.contains("const"), "{i64or}");
 }
 
 #[test]
