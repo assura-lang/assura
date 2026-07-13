@@ -1714,9 +1714,8 @@ fn encode_syn_expr(
                         // (i64 via synthetic 2^64).
                         let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                         let u_in = emit_to_unsigned_bits(a, mslot, lines, next);
-                        let u_out = encode_unsigned_bitop_var_const(
-                            u_in, mask, kind, bits, lines, next,
-                        )?;
+                        let u_out =
+                            encode_unsigned_bitop_var_const(u_in, mask, kind, bits, lines, next)?;
                         return Some(emit_from_unsigned_bits(u_out, mslot, hi, lines, next));
                     }
                 } else if lit_int_i64(&b.left).is_none() && lit_int_i64(&b.right).is_none() {

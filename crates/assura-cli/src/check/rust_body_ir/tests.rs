@@ -582,7 +582,10 @@ fn const_bitops_fold() {
     );
     assura_smt::LoadedVerifyExtras::from_ir_text(&i64and, "I").expect("parse i64 and");
     let i64or = try_ir_from_rust_body("Io", &p64, Some("i64"), "x | y").expect("i64 x|y");
-    assert!(i64or.contains("arith") || i64or.contains("const"), "{i64or}");
+    assert!(
+        i64or.contains("arith") || i64or.contains("const"),
+        "{i64or}"
+    );
 }
 
 #[test]
