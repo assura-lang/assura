@@ -126,6 +126,29 @@ pub(super) fn emit_rotl_bits(
     Some(slot)
 }
 
+/// Emit IR for synthetic `2^64 = (2^32)*(2^32)` (does not fit in i64 const).
+pub(super) fn emit_synthetic_2_64(lines: &mut Vec<String>, next: &mut usize) -> usize {
+    let half = *next;
+    *next += 1;
+    lines.push(format!("${half} = const 4294967296 : Int"));
+    let two64 = *next;
+    *next += 1;
+    lines.push(format!("${two64} = arith mul ${half} ${half} : Int"));
+    two64
+}
+
+/// Emit IR for `u64::MAX = 2^64 - 1`.
+pub(super) fn emit_u64_max(lines: &mut Vec<String>, next: &mut usize) -> usize {
+    let two64 = emit_synthetic_2_64(lines, next);
+    let one = *next;
+    *next += 1;
+    lines.push(format!("${one} = const 1 : Int"));
+    let slot = *next;
+    *next += 1;
+    lines.push(format!("${slot} = arith sub ${two64} ${one} : Int"));
+    slot
+}
+
 /// Emit IR for `2^e` as an Int slot (`e` in 0..=63).
 /// `2^63` does not fit in a positive i64 const; build it as `2^32 * 2^31`.
 pub(super) fn emit_pow2_factor(e: u32, lines: &mut Vec<String>, next: &mut usize) -> Option<usize> {
