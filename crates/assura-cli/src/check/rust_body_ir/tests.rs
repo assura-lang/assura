@@ -2033,3 +2033,10 @@ fn checked_pow_unwrap_or_encodes() {
         .expect("pow2");
     assert!(p2.contains("then #") || p2.contains("arith mul"), "{p2}");
 }
+
+#[test]
+fn checked_abs_unwrap_or_encodes() {
+    let ir = try_ir_from_rust_body("A", &px(), Some("i64"), "x.checked_abs().unwrap_or(0)")
+        .expect("checked_abs");
+    assert!(ir.contains("then #") || ir.contains("abs"), "{ir}");
+}
