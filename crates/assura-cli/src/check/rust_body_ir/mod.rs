@@ -15,8 +15,9 @@
 //! unsigned and signed path params ≤64 (signed via bit-pattern map;
 //! ones via NOT+zeros product; bit products for reverse/swap).
 //! Unsigned wrapping_* / shl/shr/rotate via mod 2^w (#1010). Signed
-//! wrapping_add/sub/mul and wrapping_shl via double-mod+reinterpret for i8..i64
-//! (i64 modulus is synthetic `(2^32)*(2^32)`). `wrapping_pow` const exp ≤4.
+//! wrapping_add/sub/mul (and `wrapping_{add,sub}_{signed,unsigned}` aliases)
+//! and wrapping_shl via double-mod+reinterpret for i8..i64 (i64 modulus is
+//! synthetic `(2^32)*(2^32)`). `wrapping_pow` const exp ≤4.
 //! Signed rotate via bit-pattern map. Signed wrapping_shr via floor div by 2^k.
 //! Top-level signed `wrapping_neg` (multi-block if); nested signed via modular
 //! (0-x) mod 2^w + reinterpret. Variable wrapping_shl/shr case-sum for bits≤64
@@ -2826,10 +2827,21 @@ fn encode_syn_expr(
                 // wrapping_* peeps for identity constants (before general mod 2^w path):
                 // wrapping_add(x, 0) / wrapping_sub(x, 0) ≡ x; wrapping_mul(x, 1) ≡ x;
                 // wrapping_mul(x, 0) ≡ 0; wrapping_sub(x, x) ≡ 0.
-                ("wrapping_add" | "wrapping_sub", 1) if is_lit_int_zero(&m.args[0]) => {
+                // Same for wrapping_{add,sub}_{signed,unsigned} (modular Int is sign-agnostic).
+                (
+                    "wrapping_add"
+                    | "wrapping_sub"
+                    | "wrapping_add_signed"
+                    | "wrapping_sub_signed"
+                    | "wrapping_add_unsigned"
+                    | "wrapping_sub_unsigned",
+                    1,
+                ) if is_lit_int_zero(&m.args[0]) => {
                     encode_syn_expr(&m.receiver, param_names, lines, next)
                 }
-                ("wrapping_sub", 1) if expr_same_simple_path(&m.receiver, &m.args[0]) => {
+                ("wrapping_sub" | "wrapping_sub_signed" | "wrapping_sub_unsigned", 1)
+                    if expr_same_simple_path(&m.receiver, &m.args[0]) =>
+                {
                     let slot = *next;
                     *next += 1;
                     lines.push(format!("${slot} = const 0 : Int"));
@@ -3106,9 +3118,20 @@ fn encode_syn_expr(
                 // Double-mod ((raw mod m) + m) mod m works for large |raw| (signed mul)
                 // without a 2^(2w-1) offset that may not fit in i64.
                 // i64 modulus is 2^64: emit as (2^32)*(2^32) (const 2^64 is not i64).
-                ("wrapping_add" | "wrapping_sub" | "wrapping_mul", 1) => {
+                (
+                    "wrapping_add"
+                    | "wrapping_sub"
+                    | "wrapping_mul"
+                    | "wrapping_add_signed"
+                    | "wrapping_sub_signed"
+                    | "wrapping_add_unsigned"
+                    | "wrapping_sub_unsigned",
+                    1,
+                ) => {
                     // Prefer return-type bounds; fall back to receiver width for nested
                     // uses like `x.wrapping_add(1).is_power_of_two()` (bool return).
+                    // wrapping_{add,sub}_{signed,unsigned} are the same modular add/sub
+                    // in SMT Int (arg sign is only a Rust type-system distinction).
                     let (lo, hi) = wrap_bounds_for(&m.receiver)?;
                     let (_bits, modulus_i64, signed) = wrap_width(lo, hi)?;
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -3116,8 +3139,8 @@ fn encode_syn_expr(
                     let raw = *next;
                     *next += 1;
                     let op = match method.as_str() {
-                        "wrapping_add" => "add",
-                        "wrapping_sub" => "sub",
+                        "wrapping_add" | "wrapping_add_signed" | "wrapping_add_unsigned" => "add",
+                        "wrapping_sub" | "wrapping_sub_signed" | "wrapping_sub_unsigned" => "sub",
                         "wrapping_mul" => "mul",
                         _ => return None,
                     };
