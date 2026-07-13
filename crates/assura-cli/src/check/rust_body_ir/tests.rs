@@ -2165,6 +2165,29 @@ fn overflowing_shl_shr_tuple0_encodes() {
 }
 
 #[test]
+fn checked_is_some_none_encodes() {
+    let s = try_ir_from_rust_body("S", &pu8(), Some("bool"), "x.checked_add(1).is_some()")
+        .expect("add is_some");
+    assert!(
+        s.contains("cmp le") || s.contains("cmp lt") || s.contains("const"),
+        "{s}"
+    );
+    let n = try_ir_from_rust_body("N", &pu8(), Some("bool"), "x.checked_add(1).is_none()")
+        .expect("add is_none");
+    assert!(n.contains("not") || n.contains("cmp"), "{n}");
+    let neg = try_ir_from_rust_body("Ng", &px(), Some("bool"), "x.checked_neg().is_some()")
+        .expect("neg is_some");
+    assert!(neg.contains("ne") || neg.contains("const"), "{neg}");
+    // shl out of range: always false
+    let oob = try_ir_from_rust_body("O", &pu8(), Some("bool"), "x.checked_shl(8).is_some()")
+        .expect("shl oob");
+    assert!(
+        oob.contains("const 0") || oob.contains("const false") || oob.contains("false"),
+        "{oob}"
+    );
+}
+
+#[test]
 fn wrapping_add_sub_signed_unsigned_encodes() {
     // u8.wrapping_add_signed / wrapping_sub_signed
     let add_s = try_ir_from_rust_body("As", &pu8(), Some("u8"), "x.wrapping_add_signed(1)")

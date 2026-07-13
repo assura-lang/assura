@@ -29,6 +29,7 @@
 //! enum (≤64 exponents incl. u64/usize). Variable `ilog2`/`ilog10`,
 //! `next_power_of_two`, and `isqrt` for unsigned path params ≤64.
 //! `checked_next_power_of_two`/`checked_shl`/`checked_shr`(const).`unwrap_or` and
+//! `checked_{add,sub,neg,shl,shr}(…).is_some()`/`.is_none()` → overflow-bound bools;
 //! `overflowing_{add,sub,mul,neg,shl,shr,pow}(…).0` → wrapping_* (pow const exp ≤4).
 //! `u64`/`usize`
 //! `MAX`/`MIN` associated consts. Saturating ops clamp to width (u64 via
@@ -785,6 +786,9 @@ pub(crate) fn try_ir_from_rust_body(
     if let Some(e) = expand_checked_binop_unwrap_or(&expr) {
         expr = e;
     }
+    if let Some(e) = expand_checked_is_some_none(&expr) {
+        expr = e;
+    }
     if let Some(e) = expand_overflowing_binop_tuple0(&expr) {
         expr = e;
     }
@@ -1100,6 +1104,90 @@ fn block_as_expr_owned(block: &syn::Block) -> Option<syn::Expr> {
         [syn::Stmt::Expr(e, _)] => Some(e.clone()),
         stmts => fold_simple_lets(stmts),
     }
+}
+
+/// `x.checked_add(c).is_some()` / `.is_none()` → overflow-bound bool (const `c` only).
+/// Same thresholds as `unwrap_or` expansion; also `checked_neg`/`checked_shl`/`checked_shr`.
+/// Bounds come from the receiver (return type is often `bool`, so SAT_BOUNDS is empty).
+fn expand_checked_is_some_none(expr: &syn::Expr) -> Option<syn::Expr> {
+    let syn::Expr::MethodCall(outer) = expr else {
+        return None;
+    };
+    let want_some = match outer.method.to_string().as_str() {
+        "is_some" if outer.args.is_empty() => true,
+        "is_none" if outer.args.is_empty() => false,
+        _ => return None,
+    };
+    let syn::Expr::MethodCall(inner) = outer.receiver.as_ref() else {
+        return None;
+    };
+    let method = inner.method.to_string();
+    let (lo, hi) = wrap_bounds_for(&inner.receiver)?;
+    let recv = expr_source(&inner.receiver);
+
+    let some_tree = if matches!(method.as_str(), "checked_neg" | "checked_abs")
+        && inner.args.is_empty()
+    {
+        if lo < 0 {
+            let lo_src = if lo == i64::MIN {
+                format!("-{} - 1", i64::MAX)
+            } else {
+                lo.to_string()
+            };
+            // None only at MIN for signed checked_neg/abs.
+            format!("{recv} != ({lo_src})")
+        } else {
+            // unsigned: always Some
+            "true".to_string()
+        }
+    } else if matches!(method.as_str(), "checked_shl" | "checked_shr") && inner.args.len() == 1 {
+        let n = lit_int_i64(&inner.args[0])?;
+        if n < 0 {
+            return None;
+        }
+        let (bits, _, _) = wrap_width(lo, hi)?;
+        if (n as u64) >= u64::from(bits) {
+            "false".to_string()
+        } else {
+            "true".to_string()
+        }
+    } else if matches!(method.as_str(), "checked_add" | "checked_sub") && inner.args.len() == 1 {
+        let c = lit_int_i64(&inner.args[0])?;
+        match method.as_str() {
+            "checked_add" => {
+                if c == 0 {
+                    "true".to_string()
+                } else if c > 0 {
+                    let thr = hi.checked_sub(c)?;
+                    format!("{recv} <= ({thr})")
+                } else {
+                    let thr = lo.checked_sub(c)?;
+                    format!("{recv} >= ({thr})")
+                }
+            }
+            "checked_sub" => {
+                if c == 0 {
+                    "true".to_string()
+                } else if c > 0 {
+                    let thr = lo.checked_add(c)?;
+                    format!("{recv} >= ({thr})")
+                } else {
+                    let thr = hi.checked_add(c)?;
+                    format!("{recv} <= ({thr})")
+                }
+            }
+            _ => return None,
+        }
+    } else {
+        return None;
+    };
+
+    let tree = if want_some {
+        some_tree
+    } else {
+        format!("!({some_tree})")
+    };
+    syn::parse_str(&tree).ok()
 }
 
 /// `x.overflowing_add(y).0` → `x.wrapping_add(y)` (same for sub/mul/neg/shl/shr/pow).
