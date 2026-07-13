@@ -4063,6 +4063,61 @@ fn pos(x: i64) -> bool { x.gt(&0) }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Mid-width min/max for path params.
+#[test]
+fn check_rust_encodes_mid_width_min_max() {
+    let tmp = unique_temp("assura_check_rust_mid_minmax");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 0 || result != 0
+fn mn(x: u16, y: u16) -> u16 { x.min(y) }
+
+/// @ensures result == 0 || result != 0
+fn mx(x: u16, y: u16) -> u16 { x.max(y) }
+
+/// @ensures result == 0 || result != 0
+fn smn(x: i16, y: i16) -> i16 { x.min(y) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong mid-width min ensures must CE.
+#[test]
+fn check_rust_mid_width_min_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_mid_min_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn mn(x: u16, y: u16) -> u16 { x.min(y) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// i64::default / i64::MAX encode as const bodies.
 #[test]
 fn check_rust_encodes_default_minmax() {
