@@ -5581,6 +5581,55 @@ fn wnp(x: u16) -> u16 { x.wrapping_next_power_of_two() }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Variable wrapping_next_power_of_two for u32 path params.
+#[test]
+fn check_rust_encodes_wrapping_next_power_of_two_u32() {
+    let tmp = unique_temp("assura_check_rust_wnp_u32");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn wnp(x: u32) -> u32 { x.wrapping_next_power_of_two() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong u32 wrapping_next_power_of_two ensures must CE.
+#[test]
+fn check_rust_wrapping_next_power_of_two_u32_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_wnp_u32_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn wnp(x: u32) -> u32 { x.wrapping_next_power_of_two() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Wrong variable next_power_of_two ensures must CE (#1185).
 #[test]
 fn check_rust_variable_next_power_of_two_wrong_ce() {
