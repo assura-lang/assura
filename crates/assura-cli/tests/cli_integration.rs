@@ -3417,6 +3417,58 @@ fn f(x: i32) -> i32 { x.saturating_add(1) }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Mid-width saturating_mul for path params.
+#[test]
+fn check_rust_encodes_mid_width_saturating_mul() {
+    let tmp = unique_temp("assura_check_rust_mid_sat_mul");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 0 || result != 0
+fn s16(x: i16) -> i16 { x.saturating_mul(2) }
+
+/// @ensures result == 0 || result != 0
+fn u16s(x: u16) -> u16 { x.saturating_mul(2) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong i16 saturating_mul ensures must CE.
+#[test]
+fn check_rust_i16_saturating_mul_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_i16_sat_mul_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn s(x: i16) -> i16 { x.saturating_mul(2) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Mid-width saturating_sub for path params.
 #[test]
 fn check_rust_encodes_mid_width_saturating_sub() {
