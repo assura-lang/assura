@@ -248,8 +248,14 @@ fn match_guard_non_identity_body_encodes() {
 }
 
 #[test]
-fn match_plain_binding_still_none() {
-    assert!(try_ir_from_rust_body("B", &px(), Some("i64"), "match x { n => n, _ => 0 }").is_none());
+fn match_plain_binding_encodes() {
+    // Ident bind arms rewrite to `_` with scrutinee substitution.
+    let ir =
+        try_ir_from_rust_body("B", &px(), Some("i64"), "match x { 0 => 1, n => n }").expect("bind");
+    assert!(ir.contains("match") && ir.contains("=>"), "{ir}");
+    assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "B").expect("parse");
+    let id = try_ir_from_rust_body("I", &px(), Some("i64"), "match x { n => n }").expect("id");
+    assert!(id.contains("match") || id.contains("load"), "{id}");
 }
 
 fn pab() -> Vec<ParamInfo> {
