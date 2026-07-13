@@ -1169,6 +1169,12 @@ fn variable_u8_trailing_zeros_encodes() {
     assura_smt::LoadedVerifyExtras::from_ir_text(&lo, "Lo").expect("parse lo");
     let sto = try_ir_from_rust_body("Sto", &pi8, Some("u32"), "x.trailing_ones()").expect("i8 to");
     assert!(sto.contains("arith sub"), "{sto}");
+    let to16 =
+        try_ir_from_rust_body("To16", &pu16(), Some("u32"), "x.trailing_ones()").expect("u16 to");
+    assert!(to16.contains("arith sub"), "{to16}");
+    let lo32 =
+        try_ir_from_rust_body("Lo32", &pu32(), Some("u32"), "x.leading_ones()").expect("u32 lo");
+    assert!(lo32.contains("arith sub"), "{lo32}");
 }
 
 #[test]
