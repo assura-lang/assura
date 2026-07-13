@@ -493,10 +493,7 @@ pub(super) fn encode_unsigned_ilog2(
     let mut higher_zero = one;
     let mut acc = zero;
     for i in (0..bits).rev() {
-        let factor = 1i64 << i;
-        let f = *next;
-        *next += 1;
-        lines.push(format!("${f} = const {factor} : Int"));
+        let f = emit_pow2_factor(i, lines, next)?;
         let shifted = *next;
         *next += 1;
         lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
@@ -617,13 +614,31 @@ pub(super) fn encode_unsigned_bitnot(
     lines: &mut Vec<String>,
     next: &mut usize,
 ) -> Option<usize> {
-    if bits == 0 || bits > 32 {
+    if bits == 0 || bits > 64 {
         return None;
     }
-    let mask = (1i64 << bits) - 1;
-    let m = *next;
-    *next += 1;
-    lines.push(format!("${m} = const {mask} : Int"));
+    // mask = 2^bits - 1 (synthetic 2^64 - 1 for u64)
+    let m = if bits == 64 {
+        let half = *next;
+        *next += 1;
+        lines.push(format!("${half} = const 4294967296 : Int"));
+        let two64 = *next;
+        *next += 1;
+        lines.push(format!("${two64} = arith mul ${half} ${half} : Int"));
+        let one = *next;
+        *next += 1;
+        lines.push(format!("${one} = const 1 : Int"));
+        let mask = *next;
+        *next += 1;
+        lines.push(format!("${mask} = arith sub ${two64} ${one} : Int"));
+        mask
+    } else {
+        let mask_v = (1i64 << bits) - 1;
+        let mask = *next;
+        *next += 1;
+        lines.push(format!("${mask} = const {mask_v} : Int"));
+        mask
+    };
     let slot = *next;
     *next += 1;
     lines.push(format!("${slot} = arith sub ${m} ${a} : Int"));
@@ -660,7 +675,7 @@ pub(super) fn encode_unsigned_trailing_zeros(
     lines: &mut Vec<String>,
     next: &mut usize,
 ) -> Option<usize> {
-    if bits == 0 || bits > 32 {
+    if bits == 0 || bits > 64 {
         return None;
     }
     let two = *next;
@@ -676,10 +691,7 @@ pub(super) fn encode_unsigned_trailing_zeros(
     let mut prod = one;
     let mut acc = zero;
     for i in 0..bits {
-        let factor = 1i64 << i;
-        let f = *next;
-        *next += 1;
-        lines.push(format!("${f} = const {factor} : Int"));
+        let f = emit_pow2_factor(i, lines, next)?;
         let shifted = *next;
         *next += 1;
         lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
@@ -732,7 +744,7 @@ pub(super) fn encode_unsigned_leading_zeros(
     lines: &mut Vec<String>,
     next: &mut usize,
 ) -> Option<usize> {
-    if bits == 0 || bits > 32 {
+    if bits == 0 || bits > 64 {
         return None;
     }
     let two = *next;
@@ -747,10 +759,7 @@ pub(super) fn encode_unsigned_leading_zeros(
     let mut still = one;
     let mut acc = zero;
     for i in (0..bits).rev() {
-        let factor = 1i64 << i;
-        let f = *next;
-        *next += 1;
-        lines.push(format!("${f} = const {factor} : Int"));
+        let f = emit_pow2_factor(i, lines, next)?;
         let shifted = *next;
         *next += 1;
         lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
@@ -782,7 +791,7 @@ pub(super) fn encode_unsigned_reverse_bits(
     lines: &mut Vec<String>,
     next: &mut usize,
 ) -> Option<usize> {
-    if bits == 0 || bits > 32 {
+    if bits == 0 || bits > 64 {
         return None;
     }
     let two = *next;
@@ -793,20 +802,14 @@ pub(super) fn encode_unsigned_reverse_bits(
     lines.push(format!("${zero} = const 0 : Int"));
     let mut acc = zero;
     for i in 0..bits {
-        let factor = 1i64 << i;
-        let rev_factor = 1i64 << (bits - 1 - i);
-        let f = *next;
-        *next += 1;
-        lines.push(format!("${f} = const {factor} : Int"));
+        let f = emit_pow2_factor(i, lines, next)?;
         let shifted = *next;
         *next += 1;
         lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
         let bit = *next;
         *next += 1;
         lines.push(format!("${bit} = arith mod ${shifted} ${two} : Int"));
-        let rf = *next;
-        *next += 1;
-        lines.push(format!("${rf} = const {rev_factor} : Int"));
+        let rf = emit_pow2_factor(bits - 1 - i, lines, next)?;
         let term = *next;
         *next += 1;
         lines.push(format!("${term} = arith mul ${bit} ${rf} : Int"));

@@ -1192,7 +1192,7 @@ fn encode_syn_expr(
                     let u_in = emit_to_unsigned_bits(a, mslot, lines, next);
                     encode_bit_sum_count_ones(u_in, bits, lines, next)
                 }
-                // trailing_ones: const peep, or path ≤32 via NOT + trailing_zeros.
+                // trailing_ones: const peep, or path ≤64 via NOT + trailing_zeros.
                 ("trailing_ones", 0) => {
                     if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
                         let mask = if bits >= 64 {
@@ -1218,7 +1218,7 @@ fn encode_syn_expr(
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
                     let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
-                    if bits == 0 || bits > 32 {
+                    if bits == 0 || bits > 64 {
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -1233,7 +1233,7 @@ fn encode_syn_expr(
                     };
                     encode_unsigned_trailing_ones(u_in, bits, lines, next)
                 }
-                // leading_ones: typed lit or path ≤32 via NOT + leading_zeros.
+                // leading_ones: typed lit or path ≤64 via NOT + leading_zeros.
                 ("leading_ones", 0) => {
                     if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
                         let mask = if bits >= 64 {
@@ -1256,7 +1256,7 @@ fn encode_syn_expr(
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
                     let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
-                    if bits == 0 || bits > 32 {
+                    if bits == 0 || bits > 64 {
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -1320,7 +1320,7 @@ fn encode_syn_expr(
                     lines.push(format!("${slot} = arith sub ${bits_c} ${ones} : Int"));
                     Some(slot)
                 }
-                // Typed width lit (incl. negative via mask); path params ≤32
+                // Typed width lit (incl. negative via mask); path params ≤64
                 // unsigned direct or signed via bit-pattern map.
                 ("trailing_zeros", 0) => {
                     if let Some((v, bits)) = lit_int_i64_bits(&m.receiver) {
@@ -1348,7 +1348,7 @@ fn encode_syn_expr(
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
                     let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
-                    if bits == 0 || bits > 32 {
+                    if bits == 0 || bits > 64 {
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -1385,7 +1385,7 @@ fn encode_syn_expr(
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
                     let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
-                    if bits == 0 || bits > 32 {
+                    if bits == 0 || bits > 64 {
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -1421,7 +1421,7 @@ fn encode_syn_expr(
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
                     let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
-                    if bits == 0 || bits > 32 {
+                    if bits == 0 || bits > 64 {
                         return None;
                     }
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
@@ -1455,7 +1455,7 @@ fn encode_syn_expr(
                     // Path params ≤32: reverse byte order; signed via bit-pattern map.
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
                     let (bits, modulus_i64, signed) = wrap_width(lo, hi)?;
-                    if bits == 0 || bits > 32 || !bits.is_multiple_of(8) {
+                    if bits == 0 || bits > 64 || !bits.is_multiple_of(8) {
                         return None;
                     }
                     let nbytes = bits / 8;
