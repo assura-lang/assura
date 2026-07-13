@@ -5540,6 +5540,58 @@ fn w(x: u16, y: u16) -> u16 { x.wrapping_sub(y) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Mid-width both-variable wrapping_mul for path params.
+#[test]
+fn check_rust_encodes_mid_width_wrapping_mul_both_var() {
+    let tmp = unique_temp("assura_check_rust_mid_wmul_both");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 0 || result != 0
+fn w(x: u16, y: u16) -> u16 { x.wrapping_mul(y) }
+
+/// @ensures result == 0 || result != 0
+fn s(x: i16, y: i16) -> i16 { x.wrapping_mul(y) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong mid-width both-var wrapping_mul ensures must CE.
+#[test]
+fn check_rust_mid_width_wrapping_mul_both_var_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_mid_wmul_both_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn w(x: u16, y: u16) -> u16 { x.wrapping_mul(y) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Signed wrapping_shl by const encodes via mul+double-mod+reinterpret.
 #[test]
 fn check_rust_encodes_signed_wrapping_shl() {
