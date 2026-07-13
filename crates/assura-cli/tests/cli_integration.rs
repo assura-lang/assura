@@ -7874,6 +7874,134 @@ fn r(x: u8) -> u8 { x.reverse_bits() }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Variable u16/u32 reverse_bits for path params.
+#[test]
+fn check_rust_encodes_u16_u32_reverse_bits() {
+    let tmp = unique_temp("assura_check_rust_rev_u16_u32");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 0 || result != 0
+fn r16(x: u16) -> u16 { x.reverse_bits() }
+
+/// @ensures result == 0 || result != 0
+fn r32(x: u32) -> u32 { x.reverse_bits() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Signed i16/i32 reverse_bits via bit-pattern map.
+#[test]
+fn check_rust_encodes_i16_i32_reverse_bits() {
+    let tmp = unique_temp("assura_check_rust_rev_i16_i32");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 0 || result != 0
+fn r16(x: i16) -> i16 { x.reverse_bits() }
+
+/// @ensures result == 0 || result != 0
+fn r32(x: i32) -> i32 { x.reverse_bits() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Variable u32 swap_bytes for path params.
+#[test]
+fn check_rust_encodes_u32_swap_bytes() {
+    let tmp = unique_temp("assura_check_rust_sw_u32");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 0 || result != 0
+fn s(x: u32) -> u32 { x.swap_bytes() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong u16 reverse_bits ensures must CE.
+#[test]
+fn check_rust_u16_reverse_bits_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_rev_u16_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn r(x: u16) -> u16 { x.reverse_bits() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
+/// Wrong u32 swap_bytes ensures must CE.
+#[test]
+fn check_rust_u32_swap_bytes_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_sw_u32_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn s(x: u32) -> u32 { x.swap_bytes() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Unsigned path-param swap_bytes encodes via byte reverse.
 #[test]
 fn check_rust_encodes_u16_swap_bytes() {
