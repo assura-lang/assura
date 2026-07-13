@@ -16,12 +16,13 @@
 
 use crate::encode_atom_policy::{is_length_method_name, is_size_field_name};
 use crate::encode_method_policy::{
-    KnownBuiltin, is_abs_builtin, is_bool_returning_uf, is_case_fold_method, is_char_at_builtin,
-    is_clear_builtin, is_clone_builtin, is_concat_append_builtin, is_drop_builtin,
-    is_first_builtin, is_get_builtin, is_index_of_builtin, is_insert_builtin, is_min_max_builtin,
-    is_pop_builtin, is_push_builtin, is_put_builtin, is_remove_builtin, is_replace_builtin,
-    is_reverse_builtin, is_set_builtin, is_slice_builtin, is_split_builtin, is_substring_builtin,
-    is_tail_builtin, is_take_builtin, is_trim_builtin,
+    KnownBuiltin, classify_known_builtin, is_abs_builtin, is_bool_returning_uf,
+    is_case_fold_method, is_char_at_builtin, is_clear_builtin, is_clone_builtin,
+    is_concat_append_builtin, is_drop_builtin, is_first_builtin, is_get_builtin,
+    is_index_of_builtin, is_insert_builtin, is_min_max_builtin, is_pop_builtin, is_push_builtin,
+    is_put_builtin, is_remove_builtin, is_replace_builtin, is_reverse_builtin, is_set_builtin,
+    is_slice_builtin, is_split_builtin, is_substring_builtin, is_tail_builtin, is_take_builtin,
+    is_trim_builtin,
 };
 
 /// Fast paths handled **before** integer-arg encoding / [`classify_encode_call`].
@@ -110,6 +111,10 @@ pub(crate) enum EncodeCallKind {
     First,
     /// `abs` ite encoding.
     Abs,
+    /// `clamp(x, lo, hi)` nested min/max ite.
+    Clamp,
+    /// `signum(x)` clamp to [-1, 1].
+    Signum,
     /// `get` unify with `__index`.
     Get,
     /// `set` store + length preserve.
@@ -187,6 +192,18 @@ pub(crate) fn classify_encode_call(func_name: &str, arity: usize) -> EncodeCallK
     if is_abs_builtin(func_name, arity) {
         return EncodeCallKind::Abs;
     }
+    if matches!(
+        classify_known_builtin(func_name, arity),
+        Some(KnownBuiltin::Clamp)
+    ) {
+        return EncodeCallKind::Clamp;
+    }
+    if matches!(
+        classify_known_builtin(func_name, arity),
+        Some(KnownBuiltin::Signum)
+    ) {
+        return EncodeCallKind::Signum;
+    }
     if is_get_builtin(func_name, arity) {
         return EncodeCallKind::Get;
     }
@@ -229,6 +246,8 @@ pub(crate) fn encode_call_kind_from_known_builtin(kind: KnownBuiltin) -> EncodeC
         KnownBuiltin::Drop => EncodeCallKind::Drop,
         KnownBuiltin::First => EncodeCallKind::First,
         KnownBuiltin::Abs => EncodeCallKind::Abs,
+        KnownBuiltin::Clamp => EncodeCallKind::Clamp,
+        KnownBuiltin::Signum => EncodeCallKind::Signum,
         KnownBuiltin::Get => EncodeCallKind::Get,
         KnownBuiltin::Set => EncodeCallKind::Set,
         KnownBuiltin::Put => EncodeCallKind::Put,

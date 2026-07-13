@@ -109,6 +109,8 @@ impl Encoder {
             EncodeCallKind::Drop => self.encode_call_drop(args, arg_vals),
             EncodeCallKind::First => self.encode_call_first(),
             EncodeCallKind::Abs => self.encode_call_abs(arg_vals),
+            EncodeCallKind::Clamp => self.encode_call_clamp(arg_vals),
+            EncodeCallKind::Signum => self.encode_call_signum(arg_vals),
             EncodeCallKind::Get => self.encode_call_get(arg_vals),
             EncodeCallKind::Set => self.encode_call_set(args, arg_vals),
             EncodeCallKind::Put => self.encode_call_put(args, arg_vals),
@@ -472,6 +474,28 @@ impl Encoder {
         let neg_x = x.unary_minus();
         let cond = x.ge(&zero);
         Z3Value::Int(cond.ite(x, &neg_x))
+    }
+
+    /// `clamp(x, lo, hi)` ≡ min(max(x, lo), hi).
+    fn encode_call_clamp(&mut self, arg_vals: &[ast::Int]) -> Z3Value {
+        let x = &arg_vals[0];
+        let lo = &arg_vals[1];
+        let hi = &arg_vals[2];
+        let x_ge_lo = x.ge(lo);
+        let raised = x_ge_lo.ite(x, lo);
+        let raised_le_hi = raised.le(hi);
+        Z3Value::Int(raised_le_hi.ite(&raised, hi))
+    }
+
+    /// `signum(x)` ≡ max(min(x, 1), -1).
+    fn encode_call_signum(&mut self, arg_vals: &[ast::Int]) -> Z3Value {
+        let x = &arg_vals[0];
+        let one = ast::Int::from_i64(1);
+        let neg1 = ast::Int::from_i64(-1);
+        let x_le_one = x.le(&one);
+        let capped = x_le_one.ite(x, &one);
+        let capped_ge_neg1 = capped.ge(&neg1);
+        Z3Value::Int(capped_ge_neg1.ite(&capped, &neg1))
     }
 
     /// Encode `get(coll, key)` as UF unified with `__index`.

@@ -247,6 +247,10 @@ pub(crate) enum KnownBuiltin {
     Abs,
     Min,
     Max,
+    /// `clamp(x, lo, hi)` as nested min/max.
+    Clamp,
+    /// `signum(x)` as clamp to [-1, 1].
+    Signum,
     Substring,
     Concat,
     Append,
@@ -279,6 +283,8 @@ pub(crate) fn classify_known_builtin(op: &str, arity: usize) -> Option<KnownBuil
         ("abs", 1) => Some(KnownBuiltin::Abs),
         ("min", 2) => Some(KnownBuiltin::Min),
         ("max", 2) => Some(KnownBuiltin::Max),
+        ("clamp", 3) => Some(KnownBuiltin::Clamp),
+        ("signum", 1) => Some(KnownBuiltin::Signum),
         ("substring" | "substr", 3) => Some(KnownBuiltin::Substring),
         ("concat", 2) => Some(KnownBuiltin::Concat),
         ("append", 2) => Some(KnownBuiltin::Append),
@@ -323,6 +329,20 @@ pub(crate) fn known_builtin_to_smtlib(op: &str, args: &[String]) -> Option<Strin
         KnownBuiltin::Max => {
             let (a, b) = (&args[0], &args[1]);
             Some(format!("(ite (>= {a} {b}) {a} {b})"))
+        }
+        KnownBuiltin::Clamp => {
+            let (x, lo, hi) = (&args[0], &args[1], &args[2]);
+            // min(max(x, lo), hi)
+            Some(format!(
+                "(ite (<= (ite (>= {x} {lo}) {x} {lo}) {hi}) (ite (>= {x} {lo}) {x} {lo}) {hi})"
+            ))
+        }
+        KnownBuiltin::Signum => {
+            let x = &args[0];
+            // max(min(x, 1), -1)
+            Some(format!(
+                "(ite (>= (ite (<= {x} 1) {x} 1) (- 1)) (ite (<= {x} 1) {x} 1) (- 1))"
+            ))
         }
         KnownBuiltin::Substring => Some(format!("(substring {} {} {})", args[0], args[1], args[2])),
         KnownBuiltin::Concat | KnownBuiltin::Append => {

@@ -15,26 +15,27 @@
 //! unsigned and signed path params ≤64 (signed via bit-pattern map;
 //! ones via NOT+zeros product; bit products for reverse/swap).
 //! Unsigned wrapping_* / shl/shr/rotate via mod 2^w (#1010). Signed
-//! wrapping_add/sub/mul (and `wrapping_{add,sub}_{signed,unsigned}` aliases)
+//! wrapping_add/sub/mul/div/rem (and `wrapping_{add,sub}_{signed,unsigned}` aliases)
 //! and wrapping_shl via double-mod+reinterpret for i8..i64 (i64 modulus is
 //! synthetic `(2^32)*(2^32)`). `wrapping_pow` const exp ≤4.
 //! Signed rotate via bit-pattern map. Signed wrapping_shr via floor div by 2^k.
 //! Top-level signed `wrapping_neg` (multi-block if); nested signed via modular
 //! (0-x) mod 2^w + reinterpret. `wrapping_abs` → `if x >= 0 { x } else { wrapping_neg }`.
-//! Variable wrapping_shl/shr case-sum for bits≤64
-//! (i64 and u64/usize use synthetic 2^64 modulus; 2^63 factor is 2^32*2^31).
-//! Variable rotate_left/right case-sum for bits≤64. Variable BitAnd/Or/Xor:
-//! const mask (unsigned/signed ≤64; signed via bit-pattern map) or both-variable
-//! signed/unsigned ≤64. Variable bitwise `!x` for fixed-width ints ≤64
-//! (`(2^w-1)-u`, synthetic 2^64 for i64/u64). Variable is_power_of_two via pot
-//! enum (≤64 exponents incl. u64/usize). Variable `ilog2`/`ilog10`,
+//! `wrapping_div`/`wrapping_rem` with nonzero const or positive path-param
+//! divisor (MIN/-1 wraps; `/0` stays BNM). Variable wrapping_shl/shr case-sum
+//! for bits≤64 (i64 and u64/usize use synthetic 2^64 modulus; 2^63 factor is
+//! 2^32*2^31). Variable rotate_left/right case-sum for bits≤64. Variable
+//! BitAnd/Or/Xor: const mask (unsigned/signed ≤64; signed via bit-pattern map)
+//! or both-variable signed/unsigned ≤64. Variable bitwise `!x` for fixed-width
+//! ints ≤64 (`(2^w-1)-u`, synthetic 2^64 for i64/u64). Variable is_power_of_two
+//! via pot enum (≤64 exponents incl. u64/usize). Variable `ilog2`/`ilog10`,
 //! `next_power_of_two`, and `isqrt` for unsigned path params ≤64.
 //! `checked_next_power_of_two`/`checked_shl`/`checked_shr`(const).`unwrap_or` /
 //! `unwrap_or_default` (→ `unwrap_or(0)`) and
 //! `checked_{add,sub,mul,div,rem,neg,abs,ilog*,npot,pow,shl,shr}(…).is_some()`/`.is_none()`
 //! → overflow-bound bools;
-//! `overflowing_{add,sub,mul,neg,shl,shr,pow}(…).0` → wrapping_* (pow const exp ≤4);
-//! `overflowing_*(…).1` → same overflow bool as `checked_*(…).is_none()` (const where required).
+//! `overflowing_{add,sub,mul,div,rem,neg,shl,shr,pow}(…).0` → wrapping_* (pow const exp ≤4; div/rem nonzero);
+//! `overflowing_*(…).1` → same overflow bool as `checked_*(…).is_none()` (const where required; div/rem refuse 0).
 //! `u64`/`usize`
 //! `MAX`/`MIN` associated consts. Saturating ops clamp to width (u64 via
 //! synthetic max). Literal `/0`, `%0`, `is_multiple_of(0)` BNM. `signum`
@@ -1292,7 +1293,7 @@ fn expand_checked_is_some_none(expr: &syn::Expr) -> Option<syn::Expr> {
     syn::parse_str(&tree).ok()
 }
 
-/// `x.overflowing_add(y).0` → `x.wrapping_add(y)` (same for sub/mul/neg/shl/shr/pow).
+/// `x.overflowing_add(y).0` → `x.wrapping_add(y)` (same for sub/mul/div/rem/neg/shl/shr/pow).
 fn expand_overflowing_binop_tuple0(expr: &syn::Expr) -> Option<syn::Expr> {
     let syn::Expr::Field(f) = expr else {
         return None;
@@ -1310,6 +1311,9 @@ fn expand_overflowing_binop_tuple0(expr: &syn::Expr) -> Option<syn::Expr> {
         "overflowing_add" if m.args.len() == 1 => "wrapping_add",
         "overflowing_sub" if m.args.len() == 1 => "wrapping_sub",
         "overflowing_mul" if m.args.len() == 1 => "wrapping_mul",
+        // Div/rem by 0 panics (not overflow); refuse literal 0 here.
+        "overflowing_div" if m.args.len() == 1 && !is_lit_int_zero(&m.args[0]) => "wrapping_div",
+        "overflowing_rem" if m.args.len() == 1 && !is_lit_int_zero(&m.args[0]) => "wrapping_rem",
         "overflowing_neg" if m.args.is_empty() => "wrapping_neg",
         "overflowing_shl" if m.args.len() == 1 => "wrapping_shl",
         "overflowing_shr" if m.args.len() == 1 => "wrapping_shr",
@@ -1329,6 +1333,7 @@ fn expand_overflowing_binop_tuple0(expr: &syn::Expr) -> Option<syn::Expr> {
 
 /// `x.overflowing_add(c).1` → overflow flag bool (dual of `checked_add(c).is_none()`).
 /// Same method set / const limits as `expand_checked_is_some_none`.
+/// Div/rem by 0 panics in Rust; refuse so we do not treat panic as overflow=true.
 fn expand_overflowing_binop_tuple1(expr: &syn::Expr) -> Option<syn::Expr> {
     let syn::Expr::Field(f) = expr else {
         return None;
@@ -1342,10 +1347,19 @@ fn expand_overflowing_binop_tuple1(expr: &syn::Expr) -> Option<syn::Expr> {
     let syn::Expr::MethodCall(m) = f.base.as_ref() else {
         return None;
     };
-    let checked = match m.method.to_string().as_str() {
+    let method = m.method.to_string();
+    if matches!(method.as_str(), "overflowing_div" | "overflowing_rem")
+        && m.args.len() == 1
+        && is_lit_int_zero(&m.args[0])
+    {
+        return None;
+    }
+    let checked = match method.as_str() {
         "overflowing_add" if m.args.len() == 1 => "checked_add",
         "overflowing_sub" if m.args.len() == 1 => "checked_sub",
         "overflowing_mul" if m.args.len() == 1 => "checked_mul",
+        "overflowing_div" if m.args.len() == 1 => "checked_div",
+        "overflowing_rem" if m.args.len() == 1 => "checked_rem",
         "overflowing_neg" if m.args.is_empty() => "checked_neg",
         "overflowing_shl" if m.args.len() == 1 => "checked_shl",
         "overflowing_shr" if m.args.len() == 1 => "checked_shr",
@@ -3458,6 +3472,91 @@ fn encode_syn_expr(
                     let slot = *next;
                     *next += 1;
                     lines.push(format!("${slot} = arith sub ${u} ${adj} : Int"));
+                    Some(slot)
+                }
+                // wrapping_div / wrapping_rem: nonzero const or positive path-param
+                // divisor only (Rust panics on /0). Sole wrap case: signed MIN / -1
+                // → MIN (≡ wrapping_neg); MIN % -1 → 0.
+                ("wrapping_div" | "wrapping_rem", 1) => {
+                    if is_lit_int_zero(&m.args[0]) {
+                        return None;
+                    }
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    if let Some(c) = lit_int_i64(&m.args[0]) {
+                        if c == 0 {
+                            return None;
+                        }
+                        // rem ±1 is always 0 when defined (including MIN % -1 wrap).
+                        if method == "wrapping_rem" && (c == 1 || c == -1) {
+                            let slot = *next;
+                            *next += 1;
+                            lines.push(format!("${slot} = const 0 : Int"));
+                            return Some(slot);
+                        }
+                        // wrapping_div by -1 ≡ wrapping_neg (MIN stays MIN).
+                        if method == "wrapping_div" && c == -1 {
+                            let (lo, hi) = wrap_bounds_for(&m.receiver)?;
+                            let (_bits, modulus_i64, signed) = wrap_width(lo, hi)?;
+                            let zero = *next;
+                            *next += 1;
+                            lines.push(format!("${zero} = const 0 : Int"));
+                            let raw = *next;
+                            *next += 1;
+                            lines.push(format!("${raw} = arith sub ${zero} ${a} : Int"));
+                            let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
+                            let t1 = *next;
+                            *next += 1;
+                            lines.push(format!("${t1} = arith mod ${raw} ${mslot} : Int"));
+                            let t2 = *next;
+                            *next += 1;
+                            lines.push(format!("${t2} = arith add ${t1} ${mslot} : Int"));
+                            let u = *next;
+                            *next += 1;
+                            lines.push(format!("${u} = arith mod ${t2} ${mslot} : Int"));
+                            if !signed {
+                                return Some(u);
+                            }
+                            let his = *next;
+                            *next += 1;
+                            lines.push(format!("${his} = const {hi} : Int"));
+                            let gt = *next;
+                            *next += 1;
+                            lines.push(format!("${gt} = cmp gt ${u} ${his} : Bool"));
+                            let adj = *next;
+                            *next += 1;
+                            lines.push(format!("${adj} = arith mul ${gt} ${mslot} : Int"));
+                            let slot = *next;
+                            *next += 1;
+                            lines.push(format!("${slot} = arith sub ${u} ${adj} : Int"));
+                            return Some(slot);
+                        }
+                        let b = *next;
+                        *next += 1;
+                        lines.push(format!("${b} = const {c} : Int"));
+                        let ir_op = if method == "wrapping_div" {
+                            "div"
+                        } else {
+                            "mod"
+                        };
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = arith {ir_op} ${a} ${b} : Int"));
+                        return Some(slot);
+                    }
+                    // Non-literal: only positive path params (e.g. NonZeroU*).
+                    let (lo, _) = path_param_bounds(&m.args[0])?;
+                    if lo < 1 {
+                        return None;
+                    }
+                    let b = encode_syn_expr(&m.args[0], param_names, lines, next)?;
+                    let ir_op = if method == "wrapping_div" {
+                        "div"
+                    } else {
+                        "mod"
+                    };
+                    let slot = *next;
+                    *next += 1;
+                    lines.push(format!("${slot} = arith {ir_op} ${a} ${b} : Int"));
                     Some(slot)
                 }
                 _ => None,

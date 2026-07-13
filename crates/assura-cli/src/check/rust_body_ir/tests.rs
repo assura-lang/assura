@@ -2269,6 +2269,46 @@ fn wrapping_abs_encodes() {
 }
 
 #[test]
+fn wrapping_div_rem_encodes() {
+    let d = try_ir_from_rust_body("D", &px(), Some("i64"), "x.wrapping_div(2)").expect("div2");
+    assert!(d.contains("arith div"), "{d}");
+    let r = try_ir_from_rust_body("R", &px(), Some("i64"), "x.wrapping_rem(3)").expect("rem3");
+    assert!(r.contains("arith mod"), "{r}");
+    // rem ±1 → 0
+    let r1 = try_ir_from_rust_body("R1", &px(), Some("i64"), "x.wrapping_rem(1)").expect("rem1");
+    assert!(r1.contains("const 0"), "{r1}");
+    let rm1 =
+        try_ir_from_rust_body("Rm1", &px(), Some("i64"), "x.wrapping_rem(-1)").expect("rem-1");
+    assert!(rm1.contains("const 0"), "{rm1}");
+    // div by -1 uses modular wrapping_neg
+    let dm1 =
+        try_ir_from_rust_body("Dm1", &px(), Some("i64"), "x.wrapping_div(-1)").expect("div-1");
+    assert!(
+        dm1.contains("arith mod") || dm1.contains("arith sub"),
+        "{dm1}"
+    );
+    // /0 stays BNM
+    assert!(try_ir_from_rust_body("Z", &px(), Some("i64"), "x.wrapping_div(0)").is_none());
+    assert!(try_ir_from_rust_body("Z2", &px(), Some("i64"), "x.wrapping_rem(0)").is_none());
+    // unsigned
+    let ud = try_ir_from_rust_body("Ud", &pu8(), Some("u8"), "x.wrapping_div(3)").expect("u8 div");
+    assert!(ud.contains("arith div"), "{ud}");
+    // overflowing peels
+    let od = try_ir_from_rust_body("Od", &px(), Some("i64"), "x.overflowing_div(2).0")
+        .expect("overflowing_div.0");
+    assert!(od.contains("arith div"), "{od}");
+    let or = try_ir_from_rust_body("Or", &px(), Some("i64"), "x.overflowing_rem(2).0")
+        .expect("overflowing_rem.0");
+    assert!(or.contains("arith mod"), "{or}");
+    let of = try_ir_from_rust_body("Of", &px(), Some("bool"), "x.overflowing_div(-1).1")
+        .expect("overflowing_div.1");
+    assert!(of.contains("cmp") || of.contains("const"), "{of}");
+    // overflowing_div(0) panics → BNM
+    assert!(try_ir_from_rust_body("Oz", &px(), Some("i64"), "x.overflowing_div(0).0").is_none());
+    assert!(try_ir_from_rust_body("Oz1", &px(), Some("bool"), "x.overflowing_div(0).1").is_none());
+}
+
+#[test]
 fn wrapping_add_sub_signed_unsigned_encodes() {
     // u8.wrapping_add_signed / wrapping_sub_signed
     let add_s = try_ir_from_rust_body("As", &pu8(), Some("u8"), "x.wrapping_add_signed(1)")
