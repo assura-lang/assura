@@ -1565,13 +1565,18 @@ fn encode_syn_expr(
                         return Some(slot);
                     }
                     let (lo, hi) = path_param_bounds(&m.receiver)?;
-                    if is_u64_width_bounds(lo, hi) || hi <= 0 {
+                    if hi <= 0 && !is_u64_width_bounds(lo, hi) {
                         return None;
                     }
                     let signed = lo != 0;
                     let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    let thr_hi = if is_u64_width_bounds(lo, hi) {
+                        -1 // full u64 domain (encode builds 10^k through 10^19)
+                    } else {
+                        hi
+                    };
                     if !signed {
-                        return encode_unsigned_ilog10(a, hi, lines, next);
+                        return encode_unsigned_ilog10(a, thr_hi, lines, next);
                     }
                     let zero = *next;
                     *next += 1;
@@ -1582,7 +1587,7 @@ fn encode_syn_expr(
                     let a_pos = *next;
                     *next += 1;
                     lines.push(format!("${a_pos} = call max (${a}, ${one}) : Int"));
-                    let raw = encode_unsigned_ilog10(a_pos, hi, lines, next)?;
+                    let raw = encode_unsigned_ilog10(a_pos, thr_hi, lines, next)?;
                     let gt = *next;
                     *next += 1;
                     lines.push(format!("${gt} = cmp gt ${a} ${zero} : Bool"));

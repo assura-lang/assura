@@ -6839,6 +6839,55 @@ fn ig(x: u64) -> u32 { x.ilog2() }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Variable u64 ilog10 for path params.
+#[test]
+fn check_rust_encodes_variable_ilog10_u64() {
+    let tmp = unique_temp("assura_check_rust_var_ilog10_u64");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn l(x: u64) -> u32 { x.ilog10() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong u64 ilog10 ensures must CE.
+#[test]
+fn check_rust_variable_ilog10_u64_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_var_ilog10_u64_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn l(x: u64) -> u32 { x.ilog10() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Wrong u64 ilog2 ensures must CE.
 #[test]
 fn check_rust_variable_ilog2_u64_wrong_ce() {
