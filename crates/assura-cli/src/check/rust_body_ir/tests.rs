@@ -1990,3 +1990,16 @@ fn checked_mul_unwrap_or_encodes() {
         .expect("mul0");
     assert!(z.contains("const 0") || z.contains("$result"), "{z}");
 }
+
+#[test]
+fn checked_div_rem_unwrap_or_encodes() {
+    let d = try_ir_from_rust_body("D", &px(), Some("i64"), "x.checked_div(2).unwrap_or(0)")
+        .expect("div");
+    assert!(d.contains("arith div") || d.contains("then #"), "{d}");
+    let r = try_ir_from_rust_body("R", &px(), Some("i64"), "x.checked_rem(2).unwrap_or(0)")
+        .expect("rem");
+    assert!(r.contains("arith mod") || r.contains("then #"), "{r}");
+    let z = try_ir_from_rust_body("Z", &px(), Some("i64"), "x.checked_div(0).unwrap_or(7)")
+        .expect("div0");
+    assert!(z.contains("const 7") || z.contains("7"), "{z}");
+}
