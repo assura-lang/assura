@@ -1303,8 +1303,18 @@ fn typed_reverse_bits_and_swap_bytes_peep() {
     let vilog10_32 =
         try_ir_from_rust_body("L32", &pu32(), Some("u32"), "x.ilog10()").expect("u32 ilog10");
     assert!(vilog10_32.contains("cmp ge"), "{vilog10_32}");
-    // signed stays BNM
+    // unbounded i64 stays BNM; fixed-width signed encodes with positivity gate
     assert!(try_ir_from_rust_body("S", &px(), Some("u32"), "x.ilog2()").is_none());
+    let pi8 = vec![ParamInfo {
+        name: "x".into(),
+        ty: "i8".into(),
+    }];
+    let silog = try_ir_from_rust_body("Si", &pi8, Some("u32"), "x.ilog2()").expect("i8 ilog2");
+    assert!(
+        silog.contains("call max") && silog.contains("cmp gt") && silog.contains("arith mul"),
+        "{silog}"
+    );
+    assura_smt::LoadedVerifyExtras::from_ir_text(&silog, "Si").expect("parse signed ilog");
     let np =
         try_ir_from_rust_body("Np", &px(), Some("u32"), "3u32.next_power_of_two()").expect("np");
     assert!(np.contains("const 4 : Int"), "{np}");
