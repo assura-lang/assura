@@ -477,7 +477,7 @@ pub(super) fn encode_unsigned_ilog2(
     lines: &mut Vec<String>,
     next: &mut usize,
 ) -> Option<usize> {
-    if bits == 0 || bits > 32 {
+    if bits == 0 || bits > 64 {
         return None;
     }
     let two = *next;

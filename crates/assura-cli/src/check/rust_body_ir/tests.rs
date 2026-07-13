@@ -1336,8 +1336,12 @@ fn typed_reverse_bits_and_swap_bytes_peep() {
     let vilog10_32 =
         try_ir_from_rust_body("L32", &pu32(), Some("u32"), "x.ilog10()").expect("u32 ilog10");
     assert!(vilog10_32.contains("cmp ge"), "{vilog10_32}");
-    // unbounded i64 stays BNM; fixed-width signed encodes with positivity gate
-    assert!(try_ir_from_rust_body("S", &px(), Some("u32"), "x.ilog2()").is_none());
+    // i64 path encodes with positivity gate (64-bit ladder)
+    let si64 = try_ir_from_rust_body("S", &px(), Some("u32"), "x.ilog2()").expect("i64 ilog2");
+    assert!(
+        si64.contains("call max") && si64.contains("cmp gt"),
+        "{si64}"
+    );
     let pi8 = vec![ParamInfo {
         name: "x".into(),
         ty: "i8".into(),
