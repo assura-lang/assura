@@ -899,6 +899,18 @@ fn pow_const_body_ir() {
     assert!(ir0.contains("const 1"), "{ir0}");
     assert!(try_ir_from_rust_body("Pb", &px(), Some("i64"), "x.pow(5)").is_none());
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "P").expect("parse");
+    // wrapping_pow: mul + mod 2^w
+    let wp = try_ir_from_rust_body("W", &pu8(), Some("u8"), "x.wrapping_pow(2)").expect("wp");
+    assert!(wp.contains("arith mul") && wp.contains("arith mod"), "{wp}");
+    assura_smt::LoadedVerifyExtras::from_ir_text(&wp, "W").expect("parse wp");
+    let wp64 =
+        try_ir_from_rust_body("W64", &pu64(), Some("u64"), "x.wrapping_pow(3)").expect("wp64");
+    assert!(
+        wp64.contains("arith mul") && wp64.contains("const 4294967296"),
+        "{wp64}"
+    );
+    assura_smt::LoadedVerifyExtras::from_ir_text(&wp64, "W64").expect("parse wp64");
+    assert!(try_ir_from_rust_body("W5", &pu8(), Some("u8"), "x.wrapping_pow(5)").is_none());
 }
 
 #[test]

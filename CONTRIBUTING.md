@@ -174,7 +174,8 @@ cargo test -p <crate> --locked --lib
 `{Name}.ir` sidecar or a **encoded** Rust body. Encoded surface includes
 int/bool arith, if/else/match, multi-let, abs/min/max/clamp/signum/saturating/
 abs_diff, &&/||, is_multiple_of, into/as, PartialOrd/borrow/deref/pow/default,
-fixed-width wrapping_* (incl. nested width fallback), variable wrapping_shl/shr
+fixed-width wrapping_* (incl. nested width fallback and `wrapping_pow` with
+const exp ≤4), variable wrapping_shl/shr
 and rotate through 64 bits, BitAnd/Or/Xor (const mask ≤64; both-var signed/
 unsigned ≤64), variable bitwise `!x` ≤64, pot `is_power_of_two` through u64,
 variable `ilog2`/`ilog10`/`next_power_of_two` for unsigned path params ≤64
