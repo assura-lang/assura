@@ -6052,7 +6052,6 @@ fn z(x: i32) -> u32 { x.count_zeros() }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
-
 /// Signed path-param trailing_zeros / leading_zeros via bit-pattern map.
 #[test]
 fn check_rust_encodes_signed_trailing_leading_zeros() {
