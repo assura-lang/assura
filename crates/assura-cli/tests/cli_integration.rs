@@ -5259,6 +5259,61 @@ fn g(x: u16, y: u16) -> bool { x.gt(&y) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// u64 PartialOrd methods encode.
+#[test]
+fn check_rust_encodes_u64_partial_ord() {
+    let tmp = unique_temp("assura_check_rust_u64_partial");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == true || result == false
+fn lt(x: u64, y: u64) -> bool { x.lt(&y) }
+
+/// @ensures result == true || result == false
+fn ge(x: u64, y: u64) -> bool { x.ge(&y) }
+
+/// @ensures result == true
+fn eq(x: u64) -> bool { x.eq(&x) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong u64 PartialOrd ensures must CE.
+#[test]
+fn check_rust_u64_partial_ord_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_u64_partial_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == true
+fn lt(x: u64, y: u64) -> bool { x.lt(&y) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Wrong abs body must CE.
 #[test]
 fn check_rust_abs_wrong_body_ce() {
