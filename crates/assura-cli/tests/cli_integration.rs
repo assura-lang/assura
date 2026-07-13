@@ -5200,6 +5200,110 @@ fn band(x: i8, y: i8) -> i8 { x & y }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Variable u16/u32 rotate_left for path params.
+#[test]
+fn check_rust_encodes_u16_u32_rotate() {
+    let tmp = unique_temp("assura_check_rust_u16_u32_rot");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 0 || result != 0
+fn r16(x: u16) -> u16 { x.rotate_left(1) }
+
+/// @ensures result == 0 || result != 0
+fn r32(x: u32) -> u32 { x.rotate_left(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Signed i16/i32 rotate_left for path params.
+#[test]
+fn check_rust_encodes_i16_i32_rotate() {
+    let tmp = unique_temp("assura_check_rust_i16_i32_rot");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 0 || result != 0
+fn r16(x: i16) -> i16 { x.rotate_left(1) }
+
+/// @ensures result == 0 || result != 0
+fn r32(x: i32) -> i32 { x.rotate_left(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong u16 rotate_left ensures must CE.
+#[test]
+fn check_rust_u16_rotate_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_u16_rot_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn r(x: u16) -> u16 { x.rotate_left(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
+/// Wrong i32 rotate_left ensures must CE.
+#[test]
+fn check_rust_i32_rotate_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_i32_rot_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn r(x: i32) -> i32 { x.rotate_left(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Variable u64 rotate_left encodes via 64-case-sum (#1172).
 /// Range uses `result >= 0` (u64::MAX does not fit as an i64 ensures lit).
 /// Full i64 signed range can cancel under default SMT timeout; soundness is
