@@ -8628,6 +8628,58 @@ fn n(x: i64) -> i64 { x.next_multiple_of(4) }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Mid-width next_multiple_of for unsigned path params.
+#[test]
+fn check_rust_encodes_mid_width_next_multiple_of() {
+    let tmp = unique_temp("assura_check_rust_mid_nmo");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn n16(x: u16) -> u16 { x.next_multiple_of(4) }
+
+/// @ensures result >= 0
+fn n32(x: u32) -> u32 { x.next_multiple_of(4) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong mid-width next_multiple_of ensures must CE.
+#[test]
+fn check_rust_mid_width_next_multiple_of_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_mid_nmo_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn n(x: u16) -> u16 { x.next_multiple_of(4) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// next_multiple_of with NonZeroU32 divisor.
 #[test]
 fn check_rust_encodes_next_multiple_of_nonzero() {
