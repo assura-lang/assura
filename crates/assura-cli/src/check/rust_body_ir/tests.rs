@@ -2003,3 +2003,16 @@ fn checked_div_rem_unwrap_or_encodes() {
         .expect("div0");
     assert!(z.contains("const 7") || z.contains("7"), "{z}");
 }
+
+#[test]
+fn let_mut_without_reassign_encodes() {
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    y + 1
+}
+"#;
+    let body = extract_body_return(src, "f").expect("extract mut");
+    let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
+    assert!(ir.contains("arith add"), "body={body}\nir={ir}");
+}

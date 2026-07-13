@@ -4423,6 +4423,33 @@ fn f(x: i64) -> i64 {
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// let mut without reassignment folds like let.
+#[test]
+fn check_rust_encodes_let_mut_no_reassign() {
+    let tmp = unique_temp("assura_check_rust_let_mut");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= x
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    y + 1
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
 /// Multi-let chain encodes.
 #[test]
 fn check_rust_encodes_u64_multi_let() {
