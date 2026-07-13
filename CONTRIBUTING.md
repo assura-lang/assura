@@ -173,11 +173,11 @@ cargo test -p <crate> --locked --lib
 `assura check-rust` proves `/// @ensures` against either a co-located
 `{Name}.ir` sidecar or a **encoded** Rust body. Encoded surface includes
 int/bool arith, if/else/match, multi-let / pure `let mut` (incl. `let y = if/match …; y + n`), if/match-over-binary (both sides),
-unary-neg, cast-of-if, method-on-if receivers, single if method-arg via distribute; peel `&`/`*` outer layers; `checked_add`/`checked_sub`/`checked_mul`({0,±1,2})/`checked_div`/`checked_rem`(const)/`checked_neg()`/`checked_abs()`/`checked_ilog2`/`checked_ilog10`/`checked_pow`(0..=4)/`checked_next_power_of_two`(unsigned)/`checked_shl`/`checked_shr`(const n).`unwrap_or`; `overflowing_{add,sub,mul,neg,pow}(…).0` → wrapping_* (pow const exp ≤4), abs/min/max/clamp/signum/saturating (incl. u64 via synthetic max)/
+unary-neg, cast-of-if, method-on-if receivers, single if method-arg via distribute; peel `&`/`*` outer layers; `checked_add`/`checked_sub`/`checked_mul`({0,±1,2})/`checked_div`/`checked_rem`(const)/`checked_neg()`/`checked_abs()`/`checked_ilog2`/`checked_ilog10`/`checked_pow`(0..=4)/`checked_next_power_of_two`(unsigned)/`checked_shl`/`checked_shr`(const n).`unwrap_or`; `overflowing_{add,sub,mul,neg,shl,shr,pow}(…).0` → wrapping_* (pow const exp ≤4), abs/min/max/clamp/signum/saturating (incl. u64 via synthetic max)/
 
 abs_diff, &&/||, is_multiple_of, into/as, PartialOrd/borrow/deref/pow/default,
-fixed-width wrapping_* (incl. nested width fallback and `wrapping_pow` with
-const exp ≤4), variable wrapping_shl/shr
+fixed-width wrapping_* (incl. nested width fallback, `wrapping_pow` with
+const exp ≤4, and `wrapping_{add,sub}_{signed,unsigned}`), variable wrapping_shl/shr
 and rotate through 64 bits, BitAnd/Or/Xor (const mask ≤64; both-var signed/
 unsigned ≤64), variable bitwise `!x` ≤64, pot `is_power_of_two` through u64,
 variable `ilog2`/`ilog10`/`next_power_of_two` for unsigned path params ≤64

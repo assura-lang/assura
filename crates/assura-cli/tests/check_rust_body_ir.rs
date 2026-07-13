@@ -2369,6 +2369,9 @@ fn band(x: i64, y: i64) -> i64 { x & y }
 
 /// @ensures result == 0 || result != 0
 fn bor(x: i64, y: i64) -> i64 { x | y }
+
+/// @ensures result == 0 || result != 0
+fn bxor(x: i64, y: i64) -> i64 { x ^ y }
 "#,
     )
     .unwrap();
@@ -2380,6 +2383,136 @@ fn bor(x: i64, y: i64) -> i64 { x | y }
     assert!(out.status.success(), "{stdout}");
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// overflowing_shl/shr(const).0 encodes as wrapping_*.
+#[test]
+fn check_rust_encodes_overflowing_shl_shr() {
+    let tmp = unique_temp("assura_check_rust_overflowing_shl");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn s(x: u8) -> u8 { x.overflowing_shl(1).0 }
+
+/// @ensures result >= 0
+fn r(x: u8) -> u8 { x.overflowing_shr(1).0 }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong overflowing_shl ensures must CE.
+#[test]
+fn check_rust_overflowing_shl_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_overflowing_shl_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn s(x: u8) -> u8 { x.overflowing_shl(1).0 }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
+/// checked_shl(n) with n >= width always uses unwrap_or alt.
+#[test]
+fn check_rust_encodes_checked_shl_oob_alt() {
+    let tmp = unique_temp("assura_check_rust_checked_shl_oob");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 7
+fn f(x: u8) -> u8 {
+    x.checked_shl(8).unwrap_or(7)
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// wrapping_add_signed / wrapping_add_unsigned encode as modular wrap.
+#[test]
+fn check_rust_encodes_wrapping_add_signed_unsigned() {
+    let tmp = unique_temp("assura_check_rust_wrap_signed");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn u(x: u8) -> u8 { x.wrapping_add_signed(1) }
+
+/// @ensures result >= -128 && result <= 127
+fn s(x: i8) -> i8 { x.wrapping_add_unsigned(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong wrapping_add_signed ensures must CE.
+#[test]
+fn check_rust_wrapping_add_signed_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_wrap_signed_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn u(x: u8) -> u8 { x.wrapping_add_signed(1) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
 /// Wrong i64 both-var bitop ensures must CE.

@@ -2147,3 +2147,60 @@ fn overflowing_pow_tuple0_encodes() {
     // exp > 4 stays unencoded (wrapping_pow limit)
     assert!(try_ir_from_rust_body("P5", &pu8(), Some("u8"), "x.overflowing_pow(5).0").is_none());
 }
+
+#[test]
+fn overflowing_shl_shr_tuple0_encodes() {
+    let shl = try_ir_from_rust_body("S", &pu8(), Some("u8"), "x.overflowing_shl(1).0")
+        .expect("overflowing_shl.0");
+    assert!(
+        shl.contains("arith mul") || shl.contains("mod") || shl.contains("const"),
+        "{shl}"
+    );
+    let shr = try_ir_from_rust_body("R", &pu8(), Some("u8"), "x.overflowing_shr(1).0")
+        .expect("overflowing_shr.0");
+    assert!(
+        shr.contains("arith div") || shr.contains("mod") || shr.contains("const"),
+        "{shr}"
+    );
+}
+
+#[test]
+fn wrapping_add_sub_signed_unsigned_encodes() {
+    // u8.wrapping_add_signed / wrapping_sub_signed
+    let add_s = try_ir_from_rust_body("As", &pu8(), Some("u8"), "x.wrapping_add_signed(1)")
+        .expect("add_signed");
+    assert!(
+        add_s.contains("mod") || add_s.contains("arith add"),
+        "{add_s}"
+    );
+    let sub_s = try_ir_from_rust_body("Ss", &pu8(), Some("u8"), "x.wrapping_sub_signed(1)")
+        .expect("sub_signed");
+    assert!(
+        sub_s.contains("mod") || sub_s.contains("arith sub"),
+        "{sub_s}"
+    );
+    // i8.wrapping_add_unsigned / wrapping_sub_unsigned
+    let pi8 = vec![ParamInfo {
+        name: "x".into(),
+        ty: "i8".into(),
+    }];
+    let add_u = try_ir_from_rust_body("Au", &pi8, Some("i8"), "x.wrapping_add_unsigned(1)")
+        .expect("add_unsigned");
+    assert!(
+        add_u.contains("mod") || add_u.contains("arith add"),
+        "{add_u}"
+    );
+    let sub_u = try_ir_from_rust_body("Su", &pi8, Some("i8"), "x.wrapping_sub_unsigned(1)")
+        .expect("sub_unsigned");
+    assert!(
+        sub_u.contains("mod") || sub_u.contains("arith sub"),
+        "{sub_u}"
+    );
+    // identity peep still applies
+    let z = try_ir_from_rust_body("Z", &pu8(), Some("u8"), "x.wrapping_add_signed(0)")
+        .expect("add_signed0");
+    assert!(
+        z.contains("param") || z.contains("load") || !z.contains("mod"),
+        "{z}"
+    );
+}
