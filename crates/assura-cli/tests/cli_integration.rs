@@ -4051,6 +4051,58 @@ fn m(x: u64) -> u64 { u64::MAX }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Default::default() path form encodes as 0.
+#[test]
+fn check_rust_encodes_default_trait() {
+    let tmp = unique_temp("assura_check_rust_default_trait");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == 0
+fn d(x: u64) -> u64 { Default::default() }
+
+/// @ensures result == 0
+fn d2(x: i64) -> i64 { <i64 as Default>::default() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong Default::default ensures must CE.
+#[test]
+fn check_rust_default_trait_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_default_trait_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 1
+fn d(x: u64) -> u64 { Default::default() }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// usize isqrt and usize::MAX encode (same width path as u64).
 #[test]
 fn check_rust_encodes_usize_isqrt_max() {
