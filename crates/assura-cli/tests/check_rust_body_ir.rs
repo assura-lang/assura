@@ -2437,6 +2437,61 @@ fn s(x: u8) -> u8 { x.overflowing_shl(1).0 }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// overflowing_*(…).1 overflow flag encodes (dual of checked_*.is_none()).
+#[test]
+fn check_rust_encodes_overflowing_flag() {
+    let tmp = unique_temp("assura_check_rust_overflowing_flag");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == true || result == false
+fn a(x: u8) -> bool { x.overflowing_add(1).1 }
+
+/// @ensures result == true
+fn oob(x: u8) -> bool { x.overflowing_shl(8).1 }
+
+/// @ensures result == true || result == false
+fn n(x: i64) -> bool { x.overflowing_neg().1 }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong overflowing_add.1 ensures must CE (x=255 overflows).
+#[test]
+fn check_rust_overflowing_flag_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_overflowing_flag_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == false
+fn a(x: u8) -> bool { x.overflowing_add(1).1 }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE (x=255): {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// checked_shl(n) with n >= width always uses unwrap_or alt.
 #[test]
 fn check_rust_encodes_checked_shl_oob_alt() {

@@ -31,7 +31,8 @@
 //! `checked_next_power_of_two`/`checked_shl`/`checked_shr`(const).`unwrap_or` and
 //! `checked_{add,sub,mul,div,rem,neg,abs,ilog*,npot,pow,shl,shr}(…).is_some()`/`.is_none()`
 //! → overflow-bound bools;
-//! `overflowing_{add,sub,mul,neg,shl,shr,pow}(…).0` → wrapping_* (pow const exp ≤4).
+//! `overflowing_{add,sub,mul,neg,shl,shr,pow}(…).0` → wrapping_* (pow const exp ≤4);
+//! `overflowing_*(…).1` → same overflow bool as `checked_*(…).is_none()` (const where required).
 //! `u64`/`usize`
 //! `MAX`/`MIN` associated consts. Saturating ops clamp to width (u64 via
 //! synthetic max). Literal `/0`, `%0`, `is_multiple_of(0)` BNM. `signum`
@@ -793,6 +794,9 @@ pub(crate) fn try_ir_from_rust_body(
     if let Some(e) = expand_overflowing_binop_tuple0(&expr) {
         expr = e;
     }
+    if let Some(e) = expand_overflowing_binop_tuple1(&expr) {
+        expr = e;
+    }
     // `(if c { a } else { b }) + 1` → `if c { a + 1 } else { b + 1 }` for multi-block.
     expr = distribute_if_binary(paren_if_match_operands(expr));
     // `expr_source` parenthesizes top-level if/match; strip so multi-block match hits.
@@ -1315,6 +1319,42 @@ fn expand_overflowing_binop_tuple0(expr: &syn::Expr) -> Option<syn::Expr> {
         format!("{recv}.{wrap}({arg})")
     };
     syn::parse_str(&tree).ok()
+}
+
+/// `x.overflowing_add(c).1` → overflow flag bool (dual of `checked_add(c).is_none()`).
+/// Same method set / const limits as `expand_checked_is_some_none`.
+fn expand_overflowing_binop_tuple1(expr: &syn::Expr) -> Option<syn::Expr> {
+    let syn::Expr::Field(f) = expr else {
+        return None;
+    };
+    let syn::Member::Unnamed(idx) = &f.member else {
+        return None;
+    };
+    if idx.index != 1 {
+        return None;
+    }
+    let syn::Expr::MethodCall(m) = f.base.as_ref() else {
+        return None;
+    };
+    let checked = match m.method.to_string().as_str() {
+        "overflowing_add" if m.args.len() == 1 => "checked_add",
+        "overflowing_sub" if m.args.len() == 1 => "checked_sub",
+        "overflowing_mul" if m.args.len() == 1 => "checked_mul",
+        "overflowing_neg" if m.args.is_empty() => "checked_neg",
+        "overflowing_shl" if m.args.len() == 1 => "checked_shl",
+        "overflowing_shr" if m.args.len() == 1 => "checked_shr",
+        "overflowing_pow" if m.args.len() == 1 => "checked_pow",
+        _ => return None,
+    };
+    let recv = expr_source(&m.receiver);
+    let as_checked = if m.args.is_empty() {
+        format!("{recv}.{checked}().is_none()")
+    } else {
+        let arg = expr_source(&m.args[0]);
+        format!("{recv}.{checked}({arg}).is_none()")
+    };
+    let rewritten: syn::Expr = syn::parse_str(&as_checked).ok()?;
+    expand_checked_is_some_none(&rewritten)
 }
 
 /// `x.checked_add(c).unwrap_or(alt)` → overflow-guarded if-tree (needs SAT_BOUNDS).
