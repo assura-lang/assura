@@ -3737,6 +3737,9 @@ fn check_rust_encodes_u64_match_literal_bind() {
         r#"
 /// @ensures result >= 0
 fn m(x: u64) -> u64 { match x { 0 => 1, n => n } }
+
+/// @ensures result >= 0
+fn m2(x: u64) -> u64 { match x { 0 => 1, n => n + 1 } }
 "#,
     )
     .unwrap();
