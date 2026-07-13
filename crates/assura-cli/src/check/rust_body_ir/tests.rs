@@ -1949,3 +1949,14 @@ fn if_as_method_arg_encodes() {
     );
     assert!(ir.is_some(), "if as method arg: {ir:?}");
 }
+
+#[test]
+fn ref_and_deref_if_encodes() {
+    let ir = try_ir_from_rust_body("R", &px(), Some("i64"), "*&(if x > 0 { x } else { 0 })")
+        .expect("peel *& if");
+    assert!(ir.contains("then #"), "{ir}");
+    // Bare &if peels to if (encode ignores outer ref for value IR).
+    let ir2 = try_ir_from_rust_body("R2", &px(), Some("i64"), "&(if x > 0 { x } else { 0 })")
+        .expect("peel & if");
+    assert!(ir2.contains("then #"), "{ir2}");
+}

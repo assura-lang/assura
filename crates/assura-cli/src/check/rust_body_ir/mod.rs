@@ -779,8 +779,17 @@ pub(crate) fn try_ir_from_rust_body(
     // `(if c { a } else { b }) + 1` → `if c { a + 1 } else { b + 1 }` for multi-block.
     expr = distribute_if_binary(paren_if_match_operands(expr));
     // `expr_source` parenthesizes top-level if/match; strip so multi-block match hits.
-    while let syn::Expr::Paren(p) = expr {
-        expr = *p.expr;
+    // Also peel identity `&` / `*` layers (`*& (if …)`).
+    loop {
+        expr = match expr {
+            syn::Expr::Paren(p) => *p.expr,
+            syn::Expr::Reference(r) => *r.expr,
+            syn::Expr::Unary(u) if matches!(u.op, syn::UnOp::Deref(_)) => *u.expr,
+            other => {
+                expr = other;
+                break;
+            }
+        };
     }
 
     let mut sig_parts = Vec::new();
