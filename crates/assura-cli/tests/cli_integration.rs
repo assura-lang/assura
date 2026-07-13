@@ -5030,6 +5030,64 @@ fn low(x: u8) -> u8 { x & 1 }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// Mid-width unsigned bitops with const mask.
+#[test]
+fn check_rust_encodes_mid_width_bitop_const_mask() {
+    let tmp = unique_temp("assura_check_rust_mid_bitop");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn low16(x: u16) -> u16 { x & 0x00ff }
+
+/// @ensures result >= 0
+fn set16(x: u16) -> u16 { x | 1 }
+
+/// @ensures result >= 0
+fn flip16(x: u16) -> u16 { x ^ 0xffff }
+
+/// @ensures result >= 0
+fn low32(x: u32) -> u32 { x & 0xff }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong mid-width bitop ensures must CE.
+#[test]
+fn check_rust_mid_width_bitop_const_mask_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_mid_bitop_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn low(x: u16) -> u16 { x & 0x00ff }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Signed i8 bitops with const mask encode via unsigned bit-pattern map.
 #[test]
 fn check_rust_encodes_signed_bitop_const_mask() {
