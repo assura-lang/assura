@@ -1703,10 +1703,6 @@ fn encode_syn_expr(
                         && bits <= 64
                         && (signed || mask_i >= 0)
                     {
-                        // Signed path needs concrete modulus for reinterpret (no i64 free-range).
-                        if signed && modulus_i64.is_none() {
-                            // i64 both-var signed bitops still too heavy; const mask OK via u map
-                        }
                         let mask = mask_bits_u64(mask_i, bits);
                         let a = encode_syn_expr(var_e, param_names, lines, next)?;
                         if !signed {
@@ -1714,27 +1710,17 @@ fn encode_syn_expr(
                                 a, mask, kind, bits, lines, next,
                             );
                         }
-                        // Signed: map to unsigned bit pattern, bitop, reinterpret.
-                        let Some(modulus) = modulus_i64 else {
-                            // i64: synthetic 2^64 modulus
-                            let mslot = emit_synthetic_2_64(lines, next);
-                            let u_in = emit_to_unsigned_bits(a, mslot, lines, next);
-                            let u_out = encode_unsigned_bitop_var_const(
-                                u_in, mask, kind, bits, lines, next,
-                            )?;
-                            return Some(emit_from_unsigned_bits(u_out, mslot, hi, lines, next));
-                        };
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        // Signed: map to unsigned bit pattern, bitop, reinterpret
+                        // (i64 via synthetic 2^64).
+                        let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                         let u_in = emit_to_unsigned_bits(a, mslot, lines, next);
                         let u_out =
                             encode_unsigned_bitop_var_const(u_in, mask, kind, bits, lines, next)?;
                         return Some(emit_from_unsigned_bits(u_out, mslot, hi, lines, next));
                     }
                 } else if lit_int_i64(&b.left).is_none() && lit_int_i64(&b.right).is_none() {
-                    // Both variable: unsigned or signed (bit-pattern map) for bits ≤64.
-                    // Signed i64 (no concrete modulus) stays BNM (too heavy).
+                    // Both variable: unsigned or signed (bit-pattern map) for bits ≤64
+                    // (i64 via synthetic 2^64 modulus).
                     let info = path_param_bounds(&b.left)
                         .or_else(|| path_param_bounds(&b.right))
                         .or_else(|| SAT_BOUNDS.get())
@@ -1754,12 +1740,8 @@ fn encode_syn_expr(
                             );
                         }
                         // Signed: map both to unsigned bit patterns, bitop, reinterpret.
-                        let Some(modulus) = modulus_i64 else {
-                            return None; // signed i64 both-var: BNM
-                        };
-                        let mslot = *next;
-                        *next += 1;
-                        lines.push(format!("${mslot} = const {modulus} : Int"));
+                        // i64 uses synthetic 2^64 (same as reverse_bits / const-mask path).
+                        let mslot = emit_signed_modulus_slot(modulus_i64, lines, next);
                         let u_l = emit_to_unsigned_bits(lhs, mslot, lines, next);
                         let u_r = emit_to_unsigned_bits(rhs, mslot, lines, next);
                         let u_out =
