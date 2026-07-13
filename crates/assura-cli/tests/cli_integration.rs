@@ -4738,6 +4738,61 @@ fn pos(x: i64) -> bool { x.lt(&0) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1);
 }
 
+/// Mid-width PartialOrd methods for path params.
+#[test]
+fn check_rust_encodes_mid_width_partial_ord() {
+    let tmp = unique_temp("assura_check_rust_mid_partial_ord");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == true || result == false
+fn g(x: u16, y: u16) -> bool { x.gt(&y) }
+
+/// @ensures result == true || result == false
+fn l(x: i16, y: i16) -> bool { x.lt(&y) }
+
+/// @ensures result == true || result == false
+fn e(x: u16, y: u16) -> bool { x.eq(&y) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong mid-width PartialOrd ensures must CE.
+#[test]
+fn check_rust_mid_width_partial_ord_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_mid_partial_ord_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == true
+fn g(x: u16, y: u16) -> bool { x.gt(&y) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// Wrong abs body must CE.
 #[test]
 fn check_rust_abs_wrong_body_ce() {
