@@ -3642,6 +3642,15 @@ fn s(x: u64, y: u64) -> u64 { x.saturating_sub(y) }
 
 /// @ensures result >= 0
 fn m(x: u64, y: u64) -> u64 { x.saturating_mul(y) }
+
+/// @ensures result == 0
+fn n(x: u64) -> u64 { x.saturating_neg() }
+
+/// @ensures result >= 0
+fn ab(x: u64) -> u64 { x.saturating_abs() }
+
+/// @ensures result >= 0
+fn c(x: u64) -> u64 { x.clamp(0, 10) }
 "#,
     )
     .unwrap();
@@ -3666,6 +3675,31 @@ fn check_rust_u64_saturating_add_wrong_ce() {
         r#"
 /// @ensures result == 0
 fn a(x: u64, y: u64) -> u64 { x.saturating_add(y) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
+/// Wrong u64 clamp ensures must CE.
+#[test]
+fn check_rust_u64_clamp_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_u64_clamp_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == 0
+fn c(x: u64) -> u64 { x.clamp(1, 10) }
 "#,
     )
     .unwrap();
