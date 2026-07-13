@@ -16,6 +16,13 @@ fn pu8() -> Vec<ParamInfo> {
     }]
 }
 
+fn pu16() -> Vec<ParamInfo> {
+    vec![ParamInfo {
+        name: "x".into(),
+        ty: "u16".into(),
+    }]
+}
+
 fn pu32() -> Vec<ParamInfo> {
     vec![ParamInfo {
         name: "x".into(),
@@ -1257,6 +1264,15 @@ fn typed_reverse_bits_and_swap_bytes_peep() {
     let vilog10 =
         try_ir_from_rust_body("L", &pu8(), Some("u32"), "x.ilog10()").expect("var ilog10");
     assert!(vilog10.contains("cmp ge"), "{vilog10}");
+    let vilog16 =
+        try_ir_from_rust_body("V16", &pu16(), Some("u32"), "x.ilog2()").expect("u16 ilog2");
+    assert!(vilog16.contains("arith mod"), "{vilog16}");
+    let vilog32 =
+        try_ir_from_rust_body("V32", &pu32(), Some("u32"), "x.ilog2()").expect("u32 ilog2");
+    assert!(vilog32.contains("arith mod"), "{vilog32}");
+    let vilog10_32 =
+        try_ir_from_rust_body("L32", &pu32(), Some("u32"), "x.ilog10()").expect("u32 ilog10");
+    assert!(vilog10_32.contains("cmp ge"), "{vilog10_32}");
     // signed stays BNM
     assert!(try_ir_from_rust_body("S", &px(), Some("u32"), "x.ilog2()").is_none());
     let np =
