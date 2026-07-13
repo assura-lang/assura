@@ -211,6 +211,11 @@ Implementation: `crates/assura-cli/src/check/rust_body_ir/` (`mod` +
 `check_rust.rs`. Multi-block IR temps must use unique slots across sibling
 blocks (see module docs).
 
+Encode/CE integration tests: `cargo test -p assura --test check_rust_body_ir`
+(`crates/assura-cli/tests/check_rust_body_ir.rs`, split from
+`cli_integration.rs` in #1352). Shared helpers live in
+`crates/assura-cli/tests/common/`.
+
 ### Agent / global `--json` purity
 
 Subcommands that accept global `--json` must emit **only** parseable JSON on

@@ -1,28 +1,8 @@
 //! Multi-block co-located IR inject (#882).
+mod common;
+
+use common::{assura_bin, unique_temp};
 use std::process::Command;
-
-fn assura_bin() -> String {
-    std::env::var("CARGO_BIN_EXE_assura").unwrap_or_else(|_| {
-        let mut p = std::env::current_exe().unwrap();
-        p.pop();
-        if p.ends_with("deps") {
-            p.pop();
-        }
-        p.push("assura");
-        p.to_string_lossy().into_owned()
-    })
-}
-
-fn unique_temp(prefix: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!(
-        "{prefix}_{}_{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ))
-}
 
 #[test]
 fn build_write_ir_abs_call_compiles_and_tests() {
