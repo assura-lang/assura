@@ -358,6 +358,33 @@ fn signed_rem_euclid_encodes() {
         vnmo.contains("arith mod") && vnmo.contains("cmp eq"),
         "{vnmo}"
     );
+    // NonZeroU64 divisor path (u64 rem/div family parity)
+    let nz64 = vec![
+        ParamInfo {
+            name: "x".into(),
+            ty: "u64".into(),
+        },
+        ParamInfo {
+            name: "d".into(),
+            ty: "NonZeroU64".into(),
+        },
+    ];
+    let re64 = try_ir_from_rust_body("R64", &nz64, Some("u64"), "x.rem_euclid(d)").expect("u64 re");
+    assert!(
+        re64.contains("arith mod") && re64.contains("load"),
+        "{re64}"
+    );
+    assura_smt::LoadedVerifyExtras::from_ir_text(&re64, "R64").expect("parse u64 nz rem");
+    let dc64 = try_ir_from_rust_body("Dc64", &nz64, Some("u64"), "x.div_ceil(d)").expect("u64 dc");
+    assert!(dc64.contains("arith div"), "{dc64}");
+    assura_smt::LoadedVerifyExtras::from_ir_text(&dc64, "Dc64").expect("parse u64 nz div_ceil");
+    let nmo64 =
+        try_ir_from_rust_body("N64", &nz64, Some("u64"), "x.next_multiple_of(d)").expect("u64 nmo");
+    assert!(
+        nmo64.contains("arith mod") && nmo64.contains("cmp eq"),
+        "{nmo64}"
+    );
+    assura_smt::LoadedVerifyExtras::from_ir_text(&nmo64, "N64").expect("parse u64 nz nmo");
 }
 
 #[test]
