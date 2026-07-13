@@ -1169,6 +1169,18 @@ fn expand_checked_binop_unwrap_or(expr: &syn::Expr) -> Option<syn::Expr> {
         };
         return syn::parse_str(&tree).ok();
     }
+    // checked_ilog2 / checked_ilog10: None only for 0 (and nonpos for signed).
+    if matches!(method.as_str(), "checked_ilog2" | "checked_ilog10") && inner.args.is_empty() {
+        let recv = expr_source(&inner.receiver);
+        let alt = expr_source(&outer.args[0]);
+        let peep = if method == "checked_ilog2" {
+            "ilog2"
+        } else {
+            "ilog10"
+        };
+        let tree = format!("if {recv} <= 0 {{ {alt} }} else {{ ({recv}).{peep}() }}");
+        return syn::parse_str(&tree).ok();
+    }
     // checked_pow(const) for small exponents
     if method == "checked_pow" && inner.args.len() == 1 {
         let exp = lit_int_i64(&inner.args[0])?;
