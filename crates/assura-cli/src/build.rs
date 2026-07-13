@@ -1191,12 +1191,13 @@ fn inject_bin_main(
     let mut is_contract = false;
     let mut param_types: Vec<(String, String)> = Vec::new();
 
-    // Pass 1: look for contracts
+    // Pass 1: look for contracts (use assura_ast only so crates.io package
+    // verify still builds against published assura-codegen without new APIs).
     for decl in &source.decls {
         if let Decl::Contract(c) = &decl.node {
             primary_name = Some(c.name.clone());
             is_contract = true;
-            param_types = assura_codegen::collect_contract_params(c);
+            param_types = bin_contract_params(c);
             break;
         }
     }
@@ -1213,10 +1214,7 @@ fn inject_bin_main(
                 for p in &f.params {
                     let ty =
                         p.ty.as_ref()
-                            .map(|t| {
-                                let tokens = t.to_tokens();
-                                assura_codegen::map_type_tokens(&tokens)
-                            })
+                            .map(|t| bin_map_simple_type(&t.to_tokens().join(" ")))
                             .unwrap_or_else(|| "i64".to_string());
                     // Skip fn declarations with reference or custom types
                     if ty.contains('&') || ty == "()" {
@@ -1340,6 +1338,103 @@ fn inject_bin_main(
     }
     if human_speak(output_mode, verbosity) {
         eprintln!("  codegen: added binary entry for `{primary}`");
+    }
+}
+
+/// Contract params for `--bin` (mirrors codegen input()/free-var synthesis).
+/// Kept local so `cargo package` of `assura` verifies against crates.io codegen.
+fn bin_contract_params(c: &assura_parser::ast::ContractDecl) -> Vec<(String, String)> {
+    use assura_parser::ast::ClauseKind;
+    let mut params = Vec::new();
+    for clause in &c.clauses {
+        if clause.kind == ClauseKind::Input {
+            for p in assura_parser::ast::extract_clause_params(&clause.body) {
+                let ty =
+                    p.ty.as_ref()
+                        .map(|t| bin_map_simple_type(&t.to_tokens().join(" ")))
+                        .unwrap_or_else(|| "i64".into());
+                params.push((p.name, ty));
+            }
+        }
+    }
+    if params.is_empty() {
+        let mut free = std::collections::HashSet::new();
+        for clause in &c.clauses {
+            if matches!(
+                clause.kind,
+                ClauseKind::Requires | ClauseKind::Ensures | ClauseKind::Invariant
+            ) {
+                bin_collect_free_idents(&clause.body, &mut free);
+            }
+        }
+        let mut sorted: Vec<String> = free.into_iter().collect();
+        sorted.sort();
+        for name in sorted {
+            params.push((name, "i64".into()));
+        }
+    }
+    params
+}
+
+fn bin_collect_free_idents(
+    expr: &assura_parser::ast::SpExpr,
+    idents: &mut std::collections::HashSet<String>,
+) {
+    use assura_parser::ast::Expr;
+    match &expr.node {
+        Expr::Ident(n) if n != "result" && n != "true" && n != "false" => {
+            idents.insert(n.clone());
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            bin_collect_free_idents(lhs, idents);
+            bin_collect_free_idents(rhs, idents);
+        }
+        Expr::UnaryOp { expr: e, .. } | Expr::Old(e) | Expr::Field(e, _) => {
+            bin_collect_free_idents(e, idents);
+        }
+        Expr::Call { func, args } => {
+            bin_collect_free_idents(func, idents);
+            for a in args {
+                bin_collect_free_idents(a, idents);
+            }
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            bin_collect_free_idents(receiver, idents);
+            for a in args {
+                bin_collect_free_idents(a, idents);
+            }
+        }
+        Expr::Index { expr: e, index } => {
+            bin_collect_free_idents(e, idents);
+            bin_collect_free_idents(index, idents);
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            bin_collect_free_idents(cond, idents);
+            bin_collect_free_idents(then_branch, idents);
+            if let Some(e) = else_branch {
+                bin_collect_free_idents(e, idents);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Minimal Assura→Rust type map for `--bin` defaults (no codegen dependency).
+fn bin_map_simple_type(assura_ty: &str) -> String {
+    let t = assura_ty.split_whitespace().next().unwrap_or("Int");
+    match t {
+        "Int" => "i64".into(),
+        "Nat" => "u64".into(),
+        "Bool" => "bool".into(),
+        "Float" => "f64".into(),
+        "String" => "String".into(),
+        "Bytes" => "Vec<u8>".into(),
+        "Unit" => "()".into(),
+        other => other.to_string(),
     }
 }
 
