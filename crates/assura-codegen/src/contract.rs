@@ -801,7 +801,7 @@ pub(crate) fn generate_interface_trait_from_contract(c: &ContractDecl, code: &mu
 ///
 /// Uses the shared `extract_clause_params` from assura-parser, then maps
 /// Assura type tokens to Rust types via `map_type_token`/`map_type_tokens`.
-pub(crate) fn extract_input_params(body: &SpExpr, params: &mut Vec<(String, String)>) {
+pub fn extract_input_params(body: &SpExpr, params: &mut Vec<(String, String)>) {
     use assura_ast::extract_clause_params;
     for param in extract_clause_params(body) {
         let rust_ty = if param.ty.is_none() {

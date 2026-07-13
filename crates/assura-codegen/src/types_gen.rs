@@ -76,7 +76,7 @@ edition = "2024"
 // ---------------------------------------------------------------------------
 
 /// Map a single Assura type token to its Rust equivalent.
-pub(crate) fn map_type_token(tok: &str) -> &str {
+pub fn map_type_token(tok: &str) -> &str {
     match tok {
         "Int" => "i64",
         "Nat" => "u64",
