@@ -123,7 +123,7 @@ call/if/match patterns) so you often get **Verified** with no sidecar.
 `assura build --write-ir` only writes those analyzable shapes (never identity
 stubs for unanalyzable ensures).
 
-If the ensures shape is **not** synthesizable (e.g. bare `result > 0`), those
+If the ensures shape is **not** synthesizable (e.g. `result * result == x`), those
 clauses are **skipped with Unknown** (not a silent counterexample). Write a
 `{ContractName}.ir`, run `assura build --write-ir`, or use `--auto-implement`.
 

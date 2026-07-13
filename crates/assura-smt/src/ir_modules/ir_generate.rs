@@ -2339,12 +2339,18 @@ mod tests {
 
     #[test]
     fn falls_back_to_stub_when_ensures_unrecognized() {
+        // Square-root style equality is not synthesizable (result on both sides of *).
+        // Inequality witnesses like result > 0 are synthesized deliberately.
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
             body: sp(Expr::BinOp {
-                op: BinOp::Gt,
-                lhs: spb(Expr::Ident("result".into())),
-                rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+                op: BinOp::Eq,
+                lhs: spb(Expr::BinOp {
+                    op: BinOp::Mul,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::Ident("result".into())),
+                }),
+                rhs: spb(Expr::Ident("x".into())),
             }),
             effect_variables: vec![],
         }];

@@ -1754,6 +1754,7 @@ contract MatchInt {
     }
 
     /// Unanalyzable ensures must not get a silent identity heuristic (stay Unknown).
+    /// Inequality witnesses like `result > 0` are synthesizable; use square-root style.
     #[test]
     #[cfg(feature = "z3-verify")]
     fn e2e_unanalyzable_result_ensures_stays_unknown_without_fake_identity() {
@@ -1765,10 +1766,10 @@ contract MatchInt {
         std::fs::create_dir_all(&dir).unwrap();
 
         let src = r#"
-contract Positive {
+contract PerfectSquare {
   input(x: Int)
   output(result: Int)
-  ensures { result > 0 }
+  ensures { result * result == x }
 }
 "#;
         let path = dir.join("pos.assura");
@@ -1776,7 +1777,7 @@ contract Positive {
         let typed = crate::test_util::typecheck_ok(src);
         let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
         assert!(
-            !loaded.ir_map.contains_key("Positive"),
+            !loaded.ir_map.contains_key("PerfectSquare"),
             "must not inject stub identity for unanalyzable ensures"
         );
 
@@ -1786,7 +1787,7 @@ contract Positive {
             | VerificationResult::Counterexample { clause_desc, .. }
             | VerificationResult::Unknown { clause_desc, .. }
             | VerificationResult::Timeout { clause_desc } => {
-                clause_desc.starts_with("Positive") && clause_desc.ends_with("::ensures")
+                clause_desc.starts_with("PerfectSquare") && clause_desc.ends_with("::ensures")
             }
         });
         assert!(
