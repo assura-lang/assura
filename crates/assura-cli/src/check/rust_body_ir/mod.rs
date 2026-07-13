@@ -620,18 +620,33 @@ fn expr_same_simple_path(a: &syn::Expr, b: &syn::Expr) -> bool {
 }
 
 /// Clamp `val` slot into SAT_BOUNDS using max/min; returns result slot.
+/// u64/usize: hi via synthetic `2^64 - 1` (cannot fit in i64 const).
 fn emit_sat_clamp(val: usize, lines: &mut Vec<String>, next: &mut usize) -> Option<usize> {
     let (lo_v, hi_v) = SAT_BOUNDS.get()?;
-    if is_u64_width_bounds(lo_v, hi_v) {
-        // Cannot emit u64::MAX as a single i64 const.
-        return None;
-    }
     let lo = *next;
     *next += 1;
     lines.push(format!("${lo} = const {lo_v} : Int"));
-    let hi = *next;
-    *next += 1;
-    lines.push(format!("${hi} = const {hi_v} : Int"));
+    let hi = if is_u64_width_bounds(lo_v, hi_v) {
+        // 2^64 = 2^32 * 2^32; max = 2^64 - 1 (same pattern as bitops mask)
+        let half = *next;
+        *next += 1;
+        lines.push(format!("${half} = const 4294967296 : Int"));
+        let two64 = *next;
+        *next += 1;
+        lines.push(format!("${two64} = arith mul ${half} ${half} : Int"));
+        let one = *next;
+        *next += 1;
+        lines.push(format!("${one} = const 1 : Int"));
+        let h = *next;
+        *next += 1;
+        lines.push(format!("${h} = arith sub ${two64} ${one} : Int"));
+        h
+    } else {
+        let h = *next;
+        *next += 1;
+        lines.push(format!("${h} = const {hi_v} : Int"));
+        h
+    };
     let mx = *next;
     *next += 1;
     lines.push(format!("${mx} = call max (${val}, ${lo}) : Int"));
