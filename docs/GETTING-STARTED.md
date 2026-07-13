@@ -68,7 +68,9 @@ assura check ShowcaseEcho.assura
 Expected: `ShowcaseEcho: ensures ... verified` and `check passed (no errors)`.
 
 For **synthesizable** ensures shapes (`result == x`, arithmetic including
-nested/`-x`/`abs`/`min`/`max` and nested calls like `abs(min(x,y))`, `let`
+nested/`-x`/`abs`/`min`/`max`/`clamp`/`signum` and nested calls like
+`abs(min(x,y))`, inequality witnesses `result >= e` / `result > e` /
+`result <= e` / `result < e` (weakest equality or ±1 body), `let`
 bindings, field loads `p.x` / `p.y` and nested `o.inner.v` on multi-field
 structs (newline-separated fields are fine), tuple projections `t.0` / `t.1`
 (and nested chains like `t.1.0`; use a trailing comma for
@@ -79,9 +81,11 @@ same-file pure call chains, nested if, match arms the planner knows),
 `assura check` synthesizes an in-memory IR body automatically so you get
 **Verified** without a co-located `.ir` file.
 
-Unanalyzable shapes (e.g. `result > 0` with no body) still report
-**Unknown** (not a fake pass), with a tip to write co-located IR,
-`assura build --write-ir`, or `--auto-implement`. That keeps proof expectations clear.
+Shapes the planner cannot synthesize still report **Unknown** (not a fake
+pass), with a tip to write co-located IR, `assura build --write-ir`, or
+`--auto-implement`. Inequality synthesis picks one witness body (e.g.
+`result >= x` uses `result = x`); it is not a full specification of every
+satisfying implementation.
 
 ## 4. Build (IR becomes the implementation)
 
@@ -92,8 +96,9 @@ assura build ShowcaseEcho.assura --output generated
 Assura loads co-located IR for verification and injects it into the
 generated Rust body (you should see a log line about injected IR bodies).
 `assura build --write-ir` also writes that IR next to the source so a later
-`assura build` reuses it. Field and abs/min/max IR lower to real Rust
-(`.y`, `.abs()`, `.min()`) that `cargo test` exercises via proptest.
+`assura build` reuses it. Field and abs/min/max/clamp/signum IR lower to real
+Rust (`.y`, `.abs()`, `.min()`, `.clamp()`, `.signum()`) that `cargo test`
+exercises via proptest.
 The generated crate is a library with a property test, not a binary.
 
 ## 5. Run tests on the generated artifact
@@ -138,7 +143,7 @@ cargo test smoke::echo_forty_two
 
 | Step | Command | What green means |
 |------|---------|------------------|
-| Check | `assura check ...` | SMT proved `result == x` under the IR body |
+| Check | `assura check ...` | SMT proved the ensures under the IR body (sidecar or synthesized) |
 | Build | `assura build ...` | Rust body implements the same IR (not `todo!()`) |
 | Test | `cargo test` | Runtime asserts + proptest agree with the postcondition |
 

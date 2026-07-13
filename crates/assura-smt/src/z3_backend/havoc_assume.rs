@@ -119,6 +119,18 @@ impl IrTermBuilder for Z3IrBuilder<'_, '_> {
                 let (a, b) = (&args[0], &args[1]);
                 a.ge(b).ite(a, b)
             }
+            KnownBuiltin::Clamp => {
+                let (x, lo, hi) = (&args[0], &args[1], &args[2]);
+                let raised = x.ge(lo).ite(x, lo);
+                raised.le(hi).ite(&raised, hi)
+            }
+            KnownBuiltin::Signum => {
+                let x = &args[0];
+                let one = ast::Int::from_i64(1);
+                let neg1 = ast::Int::from_i64(-1);
+                let capped = x.le(&one).ite(x, &one);
+                capped.ge(&neg1).ite(&capped, &neg1)
+            }
             KnownBuiltin::Concat => ast::Int::add(&[&args[0], &args[1]]),
             _ => return None,
         })

@@ -336,6 +336,18 @@ impl Encoder {
                 let cond = x.ge(&zero);
                 return (Z3Value::Int(cond.ite(x, &neg_x)), end);
             }
+            if matches!(call_kind, EncodeCallKind::Clamp) && arg_vals.len() == 3 {
+                let (x, lo, hi) = (&arg_vals[0], &arg_vals[1], &arg_vals[2]);
+                let raised = x.ge(lo).ite(x, lo);
+                return (Z3Value::Int(raised.le(hi).ite(&raised, hi)), end);
+            }
+            if matches!(call_kind, EncodeCallKind::Signum) && arg_vals.len() == 1 {
+                let x = &arg_vals[0];
+                let one = ast::Int::from_i64(1);
+                let neg1 = ast::Int::from_i64(-1);
+                let capped = x.le(&one).ite(x, &one);
+                return (Z3Value::Int(capped.ge(&neg1).ite(&capped, &neg1)), end);
+            }
             if matches!(call_kind, EncodeCallKind::MinMax) {
                 let (a, b) = (&arg_vals[0], &arg_vals[1]);
                 let result = if func_name == "min" {

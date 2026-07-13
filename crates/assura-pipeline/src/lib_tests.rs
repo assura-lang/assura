@@ -1483,10 +1483,53 @@ fn compile_full_suppresses_a04008_when_ensures_verified() {
 }
 
 #[test]
-fn compile_full_no_ir_sidecar_no_counterexample() {
-    // Without an IR sidecar, ensures referencing result should produce
-    // Unknown (known limitation), NOT counterexample.
+fn compile_full_synthesizes_inequality_witness_without_ir() {
+    // Inequality witnesses (result >= lo / result <= hi) synthesize a body and
+    // verify without a co-located .ir sidecar.
     let source = "contract Clamp {\n  input(val: Int, lo: Int, hi: Int)\n  output(result: Int)\n  requires { lo <= hi }\n  ensures { result >= lo }\n  ensures { result <= hi }\n}\n";
+    let config = CompilerConfig {
+        verify: assura_config::VerifyOptions {
+            layer: 1,
+            parallel: false,
+            decrease_checks: false,
+            enable_cache: false,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let output = compile_full(source, "<inline>", &config);
+
+    assert!(
+        !output.has_errors,
+        "no-IR contract should not produce hard errors, got: {:?}",
+        output.diagnostics
+    );
+    let counterexamples: Vec<_> = output
+        .verification
+        .iter()
+        .filter(|r| matches!(r, assura_smt::VerificationResult::Counterexample { .. }))
+        .collect();
+    assert!(
+        counterexamples.is_empty(),
+        "synthesized inequality witnesses must not CE, got: {counterexamples:?}"
+    );
+    let verified = output
+        .verification
+        .iter()
+        .filter(|r| matches!(r, assura_smt::VerificationResult::Verified { .. }))
+        .count();
+    assert!(
+        verified >= 2,
+        "result >= lo / result <= hi should verify via witness IR; got {:?}",
+        output.verification
+    );
+}
+
+#[test]
+fn compile_full_no_ir_sidecar_no_counterexample() {
+    // Without an IR sidecar, unanalyzable ensures (e.g. square-root shape)
+    // should produce Unknown (known limitation), NOT counterexample.
+    let source = "contract PerfectSquare {\n  input(x: Int)\n  output(result: Int)\n  ensures { result * result == x }\n}\n";
     let config = CompilerConfig {
         verify: assura_config::VerifyOptions {
             layer: 1,

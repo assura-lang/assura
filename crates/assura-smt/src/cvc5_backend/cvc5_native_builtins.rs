@@ -292,6 +292,22 @@ pub(crate) fn encode_known_builtin_cvc5<'a>(
             };
             Some(tm.mk_term(cvc5::Kind::Ite, &[cond, a.clone(), b.clone()]))
         }
+        KnownBuiltin::Clamp => {
+            let (x, lo, hi) = (&args[0], &args[1], &args[2]);
+            let x_ge_lo = tm.mk_term(cvc5::Kind::Geq, &[x.clone(), lo.clone()]);
+            let raised = tm.mk_term(cvc5::Kind::Ite, &[x_ge_lo, x.clone(), lo.clone()]);
+            let raised_le_hi = tm.mk_term(cvc5::Kind::Leq, &[raised.clone(), hi.clone()]);
+            Some(tm.mk_term(cvc5::Kind::Ite, &[raised_le_hi, raised, hi.clone()]))
+        }
+        KnownBuiltin::Signum => {
+            let x = &args[0];
+            let one = tm.mk_integer(1);
+            let neg1 = tm.mk_integer(-1);
+            let x_le_one = tm.mk_term(cvc5::Kind::Leq, &[x.clone(), one.clone()]);
+            let capped = tm.mk_term(cvc5::Kind::Ite, &[x_le_one, x.clone(), one]);
+            let capped_ge_neg1 = tm.mk_term(cvc5::Kind::Geq, &[capped.clone(), neg1.clone()]);
+            Some(tm.mk_term(cvc5::Kind::Ite, &[capped_ge_neg1, capped, neg1]))
+        }
         KnownBuiltin::Substring => {
             let str_val = &args[0];
             let start = &args[1];

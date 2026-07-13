@@ -1731,6 +1731,8 @@ fn build_does_not_write_identity_stub_ir_for_unanalyzable_ensures() {
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
 
+    // Square-root style ensures stay unanalyzable (result on both sides of *).
+    // Inequality witnesses like result >= 0 are synthesizable on purpose.
     let assura_path = tmp.join("StubContract.assura");
     std::fs::write(
         &assura_path,
@@ -1739,7 +1741,7 @@ contract StubContract {
   input(x: Int)
   output(result: Int)
   requires { x >= 0 }
-  ensures  { result >= 0 }
+  ensures  { result * result == x }
 }
 "#,
     )

@@ -833,6 +833,95 @@ contract AbsX {
 
     #[test]
     #[cfg(feature = "z3-verify")]
+    fn e2e_heuristic_ir_verifies_clamp_signum_without_sidecar() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+        let dir = std::env::temp_dir().join(format!("assura-clamp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = r#"
+contract ClampX {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == clamp(x, 0, 10) }
+}
+contract SignumX {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == signum(x) }
+}
+"#;
+        let path = dir.join("clamp.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"ClampX".to_string()),
+            "clamp heuristic: {:?}",
+            loaded.heuristic_names()
+        );
+        assert!(
+            loaded.heuristic_names().contains(&"SignumX".to_string()),
+            "signum heuristic: {:?}",
+            loaded.heuristic_names()
+        );
+        let results = Verifier::new(&typed).source(&path).verify();
+        let verified = results
+            .iter()
+            .filter(|r| matches!(r, VerificationResult::Verified { .. }))
+            .count();
+        assert!(verified >= 2, "clamp/signum should verify; got {results:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_heuristic_ir_verifies_result_ge_x_without_sidecar() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+        let dir = std::env::temp_dir().join(format!("assura-ge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = r#"
+contract GeX {
+  input(x: Int)
+  output(result: Int)
+  ensures { result >= x }
+}
+contract GtZero {
+  input(x: Int)
+  output(result: Int)
+  ensures { result > 0 }
+}
+"#;
+        let path = dir.join("ge.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"GeX".to_string()),
+            "ge heuristic: {:?}",
+            loaded.heuristic_names()
+        );
+        assert!(
+            loaded.heuristic_names().contains(&"GtZero".to_string()),
+            "gt0 heuristic: {:?}",
+            loaded.heuristic_names()
+        );
+        let results = Verifier::new(&typed).source(&path).verify();
+        let verified = results
+            .iter()
+            .filter(|r| matches!(r, VerificationResult::Verified { .. }))
+            .count();
+        assert!(
+            verified >= 2,
+            "result >= x / result > 0 should verify via witness IR; got {results:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(feature = "z3-verify")]
     fn e2e_heuristic_ir_verifies_bool_comparison_without_sidecar() {
         use crate::VerificationResult;
         use crate::Verifier;
@@ -1665,6 +1754,7 @@ contract MatchInt {
     }
 
     /// Unanalyzable ensures must not get a silent identity heuristic (stay Unknown).
+    /// Inequality witnesses like `result > 0` are synthesizable; use square-root style.
     #[test]
     #[cfg(feature = "z3-verify")]
     fn e2e_unanalyzable_result_ensures_stays_unknown_without_fake_identity() {
@@ -1676,10 +1766,10 @@ contract MatchInt {
         std::fs::create_dir_all(&dir).unwrap();
 
         let src = r#"
-contract Positive {
+contract PerfectSquare {
   input(x: Int)
   output(result: Int)
-  ensures { result > 0 }
+  ensures { result * result == x }
 }
 "#;
         let path = dir.join("pos.assura");
@@ -1687,7 +1777,7 @@ contract Positive {
         let typed = crate::test_util::typecheck_ok(src);
         let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
         assert!(
-            !loaded.ir_map.contains_key("Positive"),
+            !loaded.ir_map.contains_key("PerfectSquare"),
             "must not inject stub identity for unanalyzable ensures"
         );
 
@@ -1697,7 +1787,7 @@ contract Positive {
             | VerificationResult::Counterexample { clause_desc, .. }
             | VerificationResult::Unknown { clause_desc, .. }
             | VerificationResult::Timeout { clause_desc } => {
-                clause_desc.starts_with("Positive") && clause_desc.ends_with("::ensures")
+                clause_desc.starts_with("PerfectSquare") && clause_desc.ends_with("::ensures")
             }
         });
         assert!(

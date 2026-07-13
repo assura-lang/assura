@@ -1716,6 +1716,64 @@ fn a(x: i64) -> i64 { x.wrapping_abs() }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
+/// wrapping_div / wrapping_rem (nonzero const) and overflowing peels encode.
+#[test]
+fn check_rust_encodes_wrapping_div_rem() {
+    let tmp = unique_temp("assura_check_rust_wrapping_div");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == x / 2
+fn d(x: i64) -> i64 { x.wrapping_div(2) }
+
+/// @ensures result == 0
+fn r1(x: i64) -> i64 { x.wrapping_rem(1) }
+
+/// @ensures result == true || result == false
+fn of(x: i64) -> bool { x.overflowing_div(-1).1 }
+
+/// @ensures result == x / 2
+fn od(x: i64) -> i64 { x.overflowing_div(2).0 }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Wrong wrapping_div ensures must CE.
+#[test]
+fn check_rust_wrapping_div_wrong_ce() {
+    let tmp = unique_temp("assura_check_rust_wrapping_div_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn d(x: i64) -> i64 { x.wrapping_div(2) }
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "must CE: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
 /// checked_*(…).unwrap_or_default() peels as unwrap_or(0).
 #[test]
 fn check_rust_encodes_checked_unwrap_or_default() {

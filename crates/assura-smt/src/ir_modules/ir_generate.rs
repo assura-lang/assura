@@ -78,10 +78,13 @@ const ENSURES_PLANNERS: &[IrPlannerFn] = &[
     plan_field_access_ensures,
     plan_abs_call_ensures,
     plan_min_max_call_ensures,
+    plan_clamp_call_ensures,
+    plan_signum_call_ensures,
     plan_bool_comparison_ensures,
     plan_bool_logic_ensures,
     plan_multi_fn_call_chain,
     plan_identity_equality,
+    plan_result_bound_ensures,
     plan_length_value_ensures,
     plan_length_copy_ensures,
 ];
@@ -652,6 +655,102 @@ fn plan_min_max_call_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPl
     plan_builtin_call_ensures(expr, ctx, name, 2)
 }
 
+/// `ensures { result == clamp(x, lo, hi) }` as nested min/max IR calls.
+fn plan_clamp_call_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    plan_builtin_call_ensures(expr, ctx, "clamp", 3)
+}
+
+/// `ensures { result == signum(x) }` as nested min/max IR (clamp to [-1, 1]).
+fn plan_signum_call_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    plan_builtin_call_ensures(expr, ctx, "signum", 1)
+}
+
+/// Inequality ensures on `result` (witness body, not full specification).
+///
+/// | Ensures shape | Synthesized body |
+/// |---------------|------------------|
+/// | `result >= e` / `result <= e` | `result = e` |
+/// | `result > e` | `result = e + 1` |
+/// | `result < e` | `result = e - 1` |
+///
+/// `e` must be a param, literal, or nested arith/abs/min/max/clamp/signum
+/// tree (same as equality synthesis). Pure inequalities like `result > 0`
+/// get a constant witness (`1` / `-1` / `0`).
+fn plan_result_bound_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    let Expr::BinOp { op, lhs, rhs } = &expr.node else {
+        return None;
+    };
+    if !op.is_ordering_comparison() {
+        return None;
+    }
+    let (result_on_left, other) = if is_result_ident(lhs.as_ref()) {
+        (true, rhs.as_ref())
+    } else if is_result_ident(rhs.as_ref()) {
+        (false, lhs.as_ref())
+    } else {
+        return None;
+    };
+    // Normalize to "result OP other" by flipping comparison when result is RHS.
+    let op = if result_on_left {
+        op.clone()
+    } else {
+        flip_ordering_op(op)?
+    };
+    let mut lines: Vec<String> = Vec::new();
+    let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
+    used.sort_unstable();
+    let body = match op {
+        BinOp::Gte | BinOp::Lte => {
+            // Weakest equality witness: result = other.
+            let slot = operand_to_slot(other, ctx, &mut lines, &mut used)?;
+            lines.push(format!("    $result = load ${slot} : {}", ctx.return_ty));
+            IrGenBody { lines }
+        }
+        BinOp::Gt => {
+            // result = other + 1
+            let o = operand_to_slot(other, ctx, &mut lines, &mut used)?;
+            let one = next_temp_slot(&used);
+            used.push(one);
+            lines.push(format!("    ${one} = const 1 : {}", ctx.return_ty));
+            let sum = next_temp_slot(&used);
+            used.push(sum);
+            lines.push(format!(
+                "    ${sum} = arith add ${o} ${one} : {}",
+                ctx.return_ty
+            ));
+            lines.push(format!("    $result = load ${sum} : {}", ctx.return_ty));
+            IrGenBody { lines }
+        }
+        BinOp::Lt => {
+            // result = other - 1
+            let o = operand_to_slot(other, ctx, &mut lines, &mut used)?;
+            let one = next_temp_slot(&used);
+            used.push(one);
+            lines.push(format!("    ${one} = const 1 : {}", ctx.return_ty));
+            let diff = next_temp_slot(&used);
+            used.push(diff);
+            lines.push(format!(
+                "    ${diff} = arith sub ${o} ${one} : {}",
+                ctx.return_ty
+            ));
+            lines.push(format!("    $result = load ${diff} : {}", ctx.return_ty));
+            IrGenBody { lines }
+        }
+        _ => return None,
+    };
+    Some(single_fn_plan(body))
+}
+
+fn flip_ordering_op(op: &BinOp) -> Option<BinOp> {
+    Some(match op {
+        BinOp::Lt => BinOp::Gt,
+        BinOp::Lte => BinOp::Gte,
+        BinOp::Gt => BinOp::Lt,
+        BinOp::Gte => BinOp::Lte,
+        _ => return None,
+    })
+}
+
 fn plan_builtin_call_ensures(
     expr: &SpExpr,
     ctx: &PlanCtx<'_>,
@@ -1037,6 +1136,48 @@ fn operand_to_slot(
                     used.push(slot);
                     lines.push(format!(
                         "    ${slot} = call {name} (${a}, ${b}) : {}",
+                        ctx.return_ty
+                    ));
+                    Some(slot)
+                }
+                // clamp(x, lo, hi) ≡ min(max(x, lo), hi) — same as check-rust encode.
+                ("clamp", 3) => {
+                    let x = operand_to_slot(&args[0], ctx, lines, used)?;
+                    let lo = operand_to_slot(&args[1], ctx, lines, used)?;
+                    let hi = operand_to_slot(&args[2], ctx, lines, used)?;
+                    let t = next_temp_slot(used);
+                    used.push(t);
+                    lines.push(format!(
+                        "    ${t} = call max (${x}, ${lo}) : {}",
+                        ctx.return_ty
+                    ));
+                    let slot = next_temp_slot(used);
+                    used.push(slot);
+                    lines.push(format!(
+                        "    ${slot} = call min (${t}, ${hi}) : {}",
+                        ctx.return_ty
+                    ));
+                    Some(slot)
+                }
+                // signum(x) ≡ max(min(x, 1), -1).
+                ("signum", 1) => {
+                    let x = operand_to_slot(&args[0], ctx, lines, used)?;
+                    let one = next_temp_slot(used);
+                    used.push(one);
+                    lines.push(format!("    ${one} = const 1 : {}", ctx.return_ty));
+                    let neg1 = next_temp_slot(used);
+                    used.push(neg1);
+                    lines.push(format!("    ${neg1} = const -1 : {}", ctx.return_ty));
+                    let t = next_temp_slot(used);
+                    used.push(t);
+                    lines.push(format!(
+                        "    ${t} = call min (${x}, ${one}) : {}",
+                        ctx.return_ty
+                    ));
+                    let slot = next_temp_slot(used);
+                    used.push(slot);
+                    lines.push(format!(
+                        "    ${slot} = call max (${t}, ${neg1}) : {}",
                         ctx.return_ty
                     ));
                     Some(slot)
@@ -2198,12 +2339,18 @@ mod tests {
 
     #[test]
     fn falls_back_to_stub_when_ensures_unrecognized() {
+        // Square-root style equality is not synthesizable (result on both sides of *).
+        // Inequality witnesses like result > 0 are synthesized deliberately.
         let clauses = vec![Clause {
             kind: ClauseKind::Ensures,
             body: sp(Expr::BinOp {
-                op: BinOp::Gt,
-                lhs: spb(Expr::Ident("result".into())),
-                rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+                op: BinOp::Eq,
+                lhs: spb(Expr::BinOp {
+                    op: BinOp::Mul,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::Ident("result".into())),
+                }),
+                rhs: spb(Expr::Ident("x".into())),
             }),
             effect_variables: vec![],
         }];
