@@ -790,6 +790,30 @@ fn saturating_add_body_ir() {
     let ir = try_ir_from_rust_body("S", &pxy, Some("i64"), "x.saturating_add(y)").expect("sat");
     assert!(ir.contains("arith add") && ir.contains("call max"), "{ir}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&ir, "S").expect("parse");
+    // u64: clamp hi via synthetic 2^64 - 1
+    let pu64 = vec![
+        ParamInfo {
+            name: "x".into(),
+            ty: "u64".into(),
+        },
+        ParamInfo {
+            name: "y".into(),
+            ty: "u64".into(),
+        },
+    ];
+    let u = try_ir_from_rust_body("U", &pu64, Some("u64"), "x.saturating_add(y)").expect("u64 sat");
+    assert!(
+        u.contains("arith add") && u.contains("call max") && u.contains("call min"),
+        "{u}"
+    );
+    assura_smt::LoadedVerifyExtras::from_ir_text(&u, "U").expect("parse u64 sat");
+    let usub =
+        try_ir_from_rust_body("Us", &pu64, Some("u64"), "x.saturating_sub(y)").expect("u64 sub");
+    assert!(
+        usub.contains("arith sub") && usub.contains("call min"),
+        "{usub}"
+    );
+    assura_smt::LoadedVerifyExtras::from_ir_text(&usub, "Us").expect("parse u64 sat sub");
 }
 
 #[test]
