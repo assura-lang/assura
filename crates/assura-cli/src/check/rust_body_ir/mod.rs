@@ -1926,6 +1926,71 @@ fn encode_syn_expr(
                     }
                     Some(acc)
                 }
+                // wrapping_pow with small const exp: mul chain + mod 2^w (≤64).
+                ("wrapping_pow", 1) => {
+                    let syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Int(n),
+                        ..
+                    }) = &m.args[0]
+                    else {
+                        return None;
+                    };
+                    let exp: u32 = n.base10_parse().ok()?;
+                    if exp > 4 {
+                        return None;
+                    }
+                    let (lo, hi) = wrap_bounds_for(&m.receiver)?;
+                    let (_bits, modulus_i64, signed) = wrap_width(lo, hi)?;
+                    let use_synthetic_2_64 = modulus_i64.is_none();
+                    let a = encode_syn_expr(&m.receiver, param_names, lines, next)?;
+                    if exp == 0 {
+                        let slot = *next;
+                        *next += 1;
+                        lines.push(format!("${slot} = const 1 : Int"));
+                        return Some(slot);
+                    }
+                    let mslot = if use_synthetic_2_64 {
+                        let half = *next;
+                        *next += 1;
+                        lines.push(format!("${half} = const 4294967296 : Int"));
+                        let m = *next;
+                        *next += 1;
+                        lines.push(format!("${m} = arith mul ${half} ${half} : Int"));
+                        m
+                    } else {
+                        let modulus = modulus_i64?;
+                        let m = *next;
+                        *next += 1;
+                        lines.push(format!("${m} = const {modulus} : Int"));
+                        m
+                    };
+                    let base_u = if signed {
+                        emit_to_unsigned_bits(a, mslot, lines, next)
+                    } else {
+                        a
+                    };
+                    let mut acc = base_u;
+                    for _ in 1..exp {
+                        let prod = *next;
+                        *next += 1;
+                        lines.push(format!("${prod} = arith mul ${acc} ${base_u} : Int"));
+                        // ((prod mod m) + m) mod m
+                        let t1 = *next;
+                        *next += 1;
+                        lines.push(format!("${t1} = arith mod ${prod} ${mslot} : Int"));
+                        let t2 = *next;
+                        *next += 1;
+                        lines.push(format!("${t2} = arith add ${t1} ${mslot} : Int"));
+                        let u = *next;
+                        *next += 1;
+                        lines.push(format!("${u} = arith mod ${t2} ${mslot} : Int"));
+                        acc = u;
+                    }
+                    if !signed {
+                        return Some(acc);
+                    }
+                    Some(emit_from_unsigned_bits(acc, mslot, hi, lines, next))
+                }
 
                 ("min" | "max", 1) => {
                     if expr_same_simple_path(&m.receiver, &m.args[0]) {
