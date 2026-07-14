@@ -34,14 +34,19 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
             // implementation bodies constrain result/post-state.
             if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
                 // Mirror Verifier's load+synthesize path so -v shows both disk
-                // sidecars and which contracts used in-memory heuristics.
-                // Uses public LoadedVerifyExtras APIs (path-dep / co-publish).
+                // sidecars and in-memory heuristics. Use only APIs already on
+                // crates.io assura-smt (no new methods: co-publish package
+                // gate compiles CLI against published 0.3.x).
                 let loaded = assura_smt::LoadedVerifyExtras::load_or_synthesize(
                     std::path::Path::new(filename),
                     typed,
                 );
-                let colocated = loaded.colocated_names();
                 let heuristics = loaded.heuristic_names();
+                let colocated: Vec<String> = loaded
+                    .loaded_names()
+                    .into_iter()
+                    .filter(|n| !heuristics.iter().any(|h| h == n))
+                    .collect();
                 if colocated.is_empty() && heuristics.is_empty() {
                     eprintln!("  ir:        no co-located sidecars and no synthesizable ensures");
                 } else {

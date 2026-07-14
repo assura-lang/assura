@@ -127,20 +127,6 @@ impl LoadedVerifyExtras {
         names
     }
 
-    /// Names from co-located disk `.ir` only (excludes in-memory heuristics).
-    pub fn colocated_names(&self) -> Vec<String> {
-        let heuristics: std::collections::HashSet<&str> =
-            self.heuristic_names.iter().map(String::as_str).collect();
-        let mut names: Vec<String> = self
-            .ir_map
-            .keys()
-            .filter(|n| !heuristics.contains(n.as_str()))
-            .cloned()
-            .collect();
-        names.sort();
-        names
-    }
-
     /// `Some(VerifyFileExtras)` when sidecars exist; `None` otherwise.
     pub fn extras(&self) -> Option<VerifyFileExtras<'_>> {
         (!self.ir_map.is_empty()).then_some(VerifyFileExtras {
@@ -915,10 +901,10 @@ contract AndBound {
             "and-bound heuristic: {:?}",
             loaded.heuristic_names()
         );
-        assert!(
-            loaded.colocated_names().is_empty(),
-            "no disk sidecar expected: {:?}",
-            loaded.colocated_names()
+        assert_eq!(
+            loaded.loaded_names(),
+            loaded.heuristic_names(),
+            "no disk sidecar: all names should be heuristics"
         );
         let results = Verifier::new(&typed).source(&path).verify();
         let verified = results
