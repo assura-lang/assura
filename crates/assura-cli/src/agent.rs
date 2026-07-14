@@ -204,7 +204,8 @@ assura check-rust src/lib.rs --json        # pure JSON; body proof: .ir or encod
 # Build: verify + generate Rust
 assura build file.assura                   # default output: generated/ beside source
 assura build file.assura --json            # pure JSON status for agents
-assura build file.assura --write-ir        # heuristic IR sidecars + inject bodies
+assura build file.assura --write-ir        # offline heuristic IR sidecars + inject bodies
+assura build file.assura --auto-implement  # offline heuristics first, then LLM residuals
 assura build file.assura --output out/     # CWD-relative unless bare "generated"
 assura build file.assura --target wasm
 

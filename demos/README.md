@@ -122,7 +122,7 @@ in memory when it can:
 - identity / nested arith / `-x`
 - free or method `abs`/`min`/`max`/`clamp`/`signum` (e.g. `x.abs()`)
 - inequality witnesses and multi-clause bounds (prefer lower-bound witness;
-  prefer `result == e` when mixed with bounds)
+  prefer top-level `result == e` over if/match and over pure bounds)
 - And chains of bounds, Bool cmp/logic, if/match/let, fields/tuples/length,
   same-file pure calls
 

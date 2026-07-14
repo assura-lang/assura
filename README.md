@@ -121,10 +121,12 @@ assura init my-project
 # Happy-path demos (must-pass). Prefer these over *-audit.assura files.
 # See demos/README.md for the showcase vs EXPECT FAIL taxonomy.
 assura check demos/heartbleed.assura
-# Result-bearing postconditions need IR (`ShowcaseEcho.ir` next to the source):
+# Result-bearing ensures: assura check synthesizes analyzable shapes in memory
+# (no hand IR). See docs/GETTING-STARTED.md for the synthesizable table and
+# residual ladder (`--write-ir` offline, then `--auto-implement`).
 assura check demos/showcase-echo.assura
 # Verify, inject IR into Rust, and cargo test:
-#   assura build demos/showcase-echo.assura --output /tmp/assura-out
+#   assura build demos/showcase-echo.assura --write-ir --output /tmp/assura-out
 #   (cd /tmp/assura-out && cargo test)
 
 # Check with JSON output
