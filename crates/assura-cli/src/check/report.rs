@@ -3,6 +3,70 @@
 use super::super::*;
 use super::types::VerifyContext;
 
+/// Co-located and in-memory heuristic IR for check UX (human `-v` + JSON).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct IrSurfaceListing {
+    pub colocated: Vec<String>,
+    pub synthesized: Vec<String>,
+    /// `(contract_name, "body from …")` multi-ensures driver notes.
+    pub notes: Vec<(String, String)>,
+}
+
+/// Disk sidecars once + one `stub_ir_sidecars` pass (co-publish-safe APIs only).
+pub(crate) fn collect_ir_surface_listing(
+    filename: &str,
+    typed: &assura_types::TypedFile,
+) -> IrSurfaceListing {
+    let path = std::path::Path::new(filename);
+    let disk = assura_smt::LoadedVerifyExtras::load(path, typed);
+    let colocated = disk.loaded_names();
+    let colocated_set: std::collections::HashSet<&str> =
+        colocated.iter().map(String::as_str).collect();
+    let texts = assura_smt::stub_ir_sidecars_for_typed(typed);
+    let mut synthesized: Vec<String> = texts
+        .iter()
+        .filter(|(name, text)| !colocated_set.contains(name.as_str()) && !text.contains("Stub IR"))
+        .map(|(name, _)| name.clone())
+        .collect();
+    synthesized.sort();
+    let mut notes = Vec::new();
+    for name in &synthesized {
+        if let Some(text) = texts.get(name)
+            && let Some(detail) = synth_note_detail_from_ir(text)
+        {
+            notes.push((name.clone(), detail));
+        }
+    }
+    IrSurfaceListing {
+        colocated,
+        synthesized,
+        notes,
+    }
+}
+
+fn eprint_ir_surface_listing(listing: &IrSurfaceListing) {
+    if listing.colocated.is_empty() && listing.synthesized.is_empty() {
+        eprintln!("  ir:        no co-located sidecars and no synthesizable ensures");
+        return;
+    }
+    if !listing.colocated.is_empty() {
+        eprintln!(
+            "  ir:        {} co-located sidecar(s): {}",
+            listing.colocated.len(),
+            listing.colocated.join(", ")
+        );
+    }
+    if !listing.synthesized.is_empty() {
+        eprintln!(
+            "  ir:        synthesized in-memory: {}",
+            listing.synthesized.join(", ")
+        );
+        for (name, detail) in &listing.notes {
+            eprintln!("  ir:          {name} {detail}");
+        }
+    }
+}
+
 /// Shared verification + reporting logic used by both `run_check` and
 /// `check_file_once` (watch mode). Returns the verification results and
 /// whether errors were found.
@@ -29,51 +93,9 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
 
     let verification_results = if layer >= 1 && has_clauses {
         typed.as_ref().map_or_else(Vec::new, |typed| {
-            // Report IR sidecars discovered next to the source (`{Name}.ir` or
-            // `generated/{Name}.ir`) before verify so agents/users see when
-            // implementation bodies constrain result/post-state.
+            // Human -v: list IR before verify so agents/users see bodies used.
             if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
-                // Disk sidecars once + one stub_ir pass (avoids load_or_synthesize
-                // then re-stub for notes). Co-publish safe: only crates.io APIs.
-                let path = std::path::Path::new(filename);
-                let disk = assura_smt::LoadedVerifyExtras::load(path, typed);
-                let colocated = disk.loaded_names();
-                let colocated_set: std::collections::HashSet<&str> =
-                    colocated.iter().map(String::as_str).collect();
-                let texts = assura_smt::stub_ir_sidecars_for_typed(typed);
-                let mut heuristics: Vec<String> = texts
-                    .iter()
-                    .filter(|(name, text)| {
-                        !colocated_set.contains(name.as_str()) && !text.contains("Stub IR")
-                    })
-                    .map(|(name, _)| name.clone())
-                    .collect();
-                heuristics.sort();
-                if colocated.is_empty() && heuristics.is_empty() {
-                    eprintln!("  ir:        no co-located sidecars and no synthesizable ensures");
-                } else {
-                    if !colocated.is_empty() {
-                        eprintln!(
-                            "  ir:        {} co-located sidecar(s): {}",
-                            colocated.len(),
-                            colocated.join(", ")
-                        );
-                    }
-                    if !heuristics.is_empty() {
-                        eprintln!(
-                            "  ir:        synthesized in-memory: {}",
-                            heuristics.join(", ")
-                        );
-                        // Multi-ensures body driver vs residual (#1370).
-                        for name in &heuristics {
-                            if let Some(text) = texts.get(name)
-                                && let Some(detail) = synth_note_detail_from_ir(text)
-                            {
-                                eprintln!("  ir:          {name} {detail}");
-                            }
-                        }
-                    }
-                }
+                eprint_ir_surface_listing(&collect_ir_surface_listing(filename, typed));
             }
             let config = assura_config::CompilerConfig {
                 verify: verify_options,

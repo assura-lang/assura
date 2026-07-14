@@ -84,6 +84,8 @@ Use `assura check -v` to see `synthesized in-memory: ContractName`. For
 multi-ensures contracts, verbose also names the **body driver** ensures
 (which clause selected the IR body) and any **residual** ensures that were
 not the driver (still checked under that body; may CE or stay Unknown).
+Agents using `assura check --json` get the same surface under
+`file_info.ir` (`colocated`, `synthesized`, `synth_notes`).
 
 ### Optional: co-located IR sidecar
 

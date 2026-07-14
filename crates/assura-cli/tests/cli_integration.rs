@@ -250,6 +250,55 @@ contract IncAndBound {
     );
 }
 
+/// JSON check reports IR surface under file_info.ir (agents mirror of -v).
+#[test]
+fn json_check_includes_file_info_ir_surface() {
+    let tmp = unique_temp("assura_json_ir");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let path = tmp.join("Echo.assura");
+    std::fs::write(
+        &path,
+        r#"
+contract Echo {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == x }
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check", "--json", path.to_str().unwrap()])
+        .output()
+        .expect("assura check --json");
+    assert!(
+        out.status.success(),
+        "check should pass: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect(&format!("json parse: {stdout}"));
+    let ir = v
+        .pointer("/file_info/ir")
+        .expect(&format!("file_info.ir missing: {stdout}"));
+    let synth = ir
+        .get("synthesized")
+        .and_then(|a| a.as_array())
+        .expect("synthesized array");
+    assert!(
+        synth.iter().any(|x| x.as_str() == Some("Echo")),
+        "Echo in synthesized: {ir}"
+    );
+    let notes = ir.get("synth_notes").expect("synth_notes");
+    let echo_note = notes.get("Echo").and_then(|s| s.as_str()).unwrap_or("");
+    assert!(
+        echo_note.contains("body from") && echo_note.contains("result_eq"),
+        "synth note for Echo: {notes}"
+    );
+}
+
 #[test]
 fn quiet_short_flag_works() {
     let out = Command::new(assura_bin())
