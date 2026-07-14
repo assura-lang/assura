@@ -284,21 +284,33 @@ pub(crate) fn run_build(opts: BuildOpts<'_>) {
 
     // Prefer co-located IR sidecars for codegen bodies (#866).
     // `--write-ir` runs above, so sidecars are already on disk for this load.
-    // `--auto-implement` still uses the LLM path and overwrites when it wins.
+    // `--auto-implement`: offline heuristics first (no API key), then LLM only
+    // for remaining contracts so synthesizable shapes never need the model.
     let ir_bodies = if auto_implement {
+        let mut bodies = rust_bodies_from_ir_sidecars(&typed, filename, verbosity, output_mode);
+        let offline = offline_heuristic_rust_bodies(&typed, verbosity, output_mode);
+        for (name, body) in offline {
+            bodies.entry(name).or_insert(body);
+        }
+        let already: std::collections::HashSet<String> = bodies.keys().cloned().collect();
         let ai_config = bc
             .project
             .as_ref()
             .map(|(p, _)| p.ai.clone())
             .unwrap_or_default();
-        auto_implement_contracts(
+        let llm = auto_implement_contracts(
             &typed,
             filename,
             &bc.compiler_config,
             verbosity,
             output_mode,
             &ai_config,
-        )
+            &already,
+        );
+        for (name, body) in llm {
+            bodies.insert(name, body);
+        }
+        bodies
     } else {
         rust_bodies_from_ir_sidecars(&typed, filename, verbosity, output_mode)
     };
@@ -833,6 +845,7 @@ fn auto_implement_contracts(
     verbosity: Verbosity,
     output_mode: OutputMode,
     ai_config: &assura_config::AiConfig,
+    skip_names: &std::collections::HashSet<String>,
 ) -> std::collections::HashMap<String, String> {
     let mut ir_bodies = std::collections::HashMap::new();
     let speak = human_speak(output_mode, verbosity);
@@ -843,6 +856,15 @@ fn auto_implement_contracts(
     }
 
     for ctx in &contexts {
+        if skip_names.contains(&ctx.decl_name) {
+            if speak && verbosity == Verbosity::Verbose {
+                eprintln!(
+                    "  auto-implement: skip `{}` (offline heuristic / co-located IR)",
+                    ctx.decl_name
+                );
+            }
+            continue;
+        }
         if speak {
             eprint!("  auto-implement {}...", ctx.decl_name);
         }
@@ -1163,9 +1185,63 @@ fn write_colocated_ir_sidecars(
     }
     if speak && wrote == 0 && skipped_stub > 0 {
         eprintln!(
-            "  --write-ir: no analyzable ensures to materialize ({skipped_stub} stub(s) skipped); use --auto-implement or hand-write .ir"
+            "  --write-ir: no analyzable ensures to materialize ({skipped_stub} stub(s) skipped); \
+             try `assura build --auto-implement` (LLM) or hand-write {{Contract}}.ir"
         );
     }
+}
+
+/// In-memory IR→Rust bodies from ensures heuristics (no disk, no LLM).
+///
+/// Used by `--auto-implement` so synthesizable contracts never require an
+/// API key. Same non-stub filter as `--write-ir`.
+fn offline_heuristic_rust_bodies(
+    typed: &assura_types::TypedFile,
+    verbosity: Verbosity,
+    output_mode: OutputMode,
+) -> std::collections::HashMap<String, String> {
+    let speak = human_speak(output_mode, verbosity);
+    let contexts = assura_smt::ir_prompt_contexts_for_typed(typed, None);
+    let mut out = std::collections::HashMap::new();
+    for (name, ir_text) in assura_smt::stub_ir_sidecars_for_typed(typed) {
+        if ir_text.contains("Stub IR") {
+            continue;
+        }
+        let Ok(module) = assura_smt::parse_ir_module(&ir_text) else {
+            continue;
+        };
+        if module.functions.is_empty() {
+            continue;
+        }
+        let Some(ctx) = contexts.iter().find(|c| c.decl_name == name) else {
+            continue;
+        };
+        let mut body = String::new();
+        for (i, param) in ctx.params.iter().enumerate() {
+            body.push_str(&format!(
+                "    let slot_{i} = {name}.clone();\n",
+                name = param.name
+            ));
+        }
+        let ir_body = if module.functions.len() == 1 {
+            assura_smt::ir_function_body_to_rust(&module.functions[0])
+        } else {
+            multi_block_ir_to_embedded_body(&module)
+        };
+        let ir_body = ir_body.replace("__result", "__assura_result");
+        let ir_body = strip_trailing_return(&ir_body);
+        body.push_str(&ir_body);
+        out.insert(name, body);
+    }
+    if speak && !out.is_empty() {
+        let names: Vec<&str> = out.keys().map(String::as_str).collect();
+        eprintln!(
+            "  codegen: offline heuristic IR for {} contract(s): {}",
+            out.len(),
+            names.join(", ")
+        );
+    }
+    out
 }
 
 /// Add a `src/main.rs` binary entry that calls the primary contract/fn.

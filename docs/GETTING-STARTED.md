@@ -4,10 +4,10 @@ From install to a verified, runnable implementation.
 
 This guide works on a clean machine (no monorepo required). It uses a
 tiny result-bearing showcase contract. For synthesizable ensures shapes
-(including `result == x`), `assura check` synthesizes an in-memory
-implementation body so you get **Verified** without writing IR by hand.
-Optional co-located IR and `assura build --write-ir` cover shapes
-synthesis cannot prove.
+(including `result == x` and multi-clause bounds), `assura check`
+synthesizes an in-memory implementation body so you get **Verified**
+without writing IR by hand. Residual shapes use
+`assura build --write-ir` (offline) or `--auto-implement` (LLM).
 
 For broader language coverage, see [TUTORIAL.md](TUTORIAL.md) and
 [demos/README.md](../demos/README.md) (showcase vs EXPECT FAIL taxonomy).
@@ -59,24 +59,28 @@ assura check ShowcaseEcho.assura
 
 Expected: `ShowcaseEcho: ensures ... verified` and `check passed (no errors)`.
 
-**Synthesizable** ensures shapes (no hand IR): `result == x`, arithmetic
-including nested/`-x`/`abs`/`min`/`max`/`clamp`/`signum` and nested calls
-like `abs(min(x,y))`, inequality witnesses `result >= e` / `result > e` /
-`result <= e` / `result < e` and conjunct chains
-`result >= lo && result <= mid && result <= hi` (weakest equality or ±1 body),
-`let` bindings, field loads `p.x` / `p.y`
-and nested `o.inner.v` on multi-field structs (newline-separated fields
-are fine), tuple projections `t.0` / `t.1` (and nested chains like
-`t.1.0`; use a trailing comma for 1-tuples: `(Int,)`; empty `(,)` is
-rejected), collection length `result == xs.length()` (also `.len()` /
-`.size()` on List/Bytes/String), Bool `!`/`&&`/`||`/`=>` and comparisons,
-same-file pure call chains, nested if, match arms the planner knows.
+**Synthesizable** ensures shapes (no hand IR):
+
+| Family | Examples |
+|--------|----------|
+| Equality | `result == x`, `result == x + 1`, nested arith, `-x` |
+| Builtins | free or method: `abs`/`min`/`max`/`clamp`/`signum` (e.g. `x.abs()`) |
+| Bounds | `result >= e`, `>`, `<=`, `<`; And chains; **multi-clause** bounds prefer a lower-bound witness |
+| Multi-ensures | Prefer `result == e` when present; combine pure bound ensures otherwise |
+| Structure | fields, tuples, length, Bool logic/cmp, if/match/let, same-file pure calls |
 
 Shapes the planner cannot synthesize still report **Unknown** (not a fake
-pass), with a tip to write co-located IR, `assura build --write-ir`, or
-`--auto-implement`. Inequality synthesis picks one witness body (e.g.
-`result >= x` uses `result = x`); it is not a full specification of every
-satisfying implementation.
+pass). Ladder when that happens:
+
+1. Simplify ensures toward the table above, or
+2. `assura build file.assura --write-ir` (offline heuristic IR next to source), or
+3. `assura build file.assura --auto-implement` (offline first, then LLM for residuals).
+
+Inequality synthesis picks one **witness** body (e.g. `result >= x` uses
+`result = x`); multi-bound clauses share one witness (prefer lower bound).
+That is not a full specification of every satisfying implementation.
+
+Use `assura check -v` to see `synthesized in-memory: ContractName`.
 
 ### Optional: co-located IR sidecar
 
@@ -168,6 +172,18 @@ cargo run -- 42
 # prints: 42
 ```
 
+### Auto-implement residual shapes
+
+`--auto-implement` fills bodies for contracts that still lack IR:
+
+1. Co-located `.ir` on disk (if any)
+2. Offline ensures heuristics (same as `--write-ir`, no API key)
+3. LLM only for remaining unanalyzable ensures (needs AI config)
+
+```bash
+assura build richer.assura --auto-implement --output generated
+```
+
 Strict verification (Unknown limitations fail the check):
 
 ```bash
@@ -184,7 +200,6 @@ assura check demos --showcase-only
 
 - **More demos:** [demos/README.md](../demos/README.md) (prefer SHOWCASE files)
 - **Language tutorial:** [TUTORIAL.md](TUTORIAL.md)
-- **AI / auto-implement:** `assura build --auto-implement` (LLM + IR loop)
 - **Call-shaped helpers:** same-file pure callees get non-identity IR siblings
   when their ensures are analyzable
 
