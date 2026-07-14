@@ -228,10 +228,11 @@ fn plan_from_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
 /// Plan a body from **all** ensures clauses (not first-wins only).
 ///
 /// Selection policy:
-/// 1. Prefer a non-bound plan (`result == e`, if/match, calls, …) when any exists.
-/// 2. Else if every ensures is a pure result-ordering bound (or And of those),
+/// 1. Prefer a plannable `result == e` ensures (leftmost) over other shapes.
+/// 2. Else prefer any other non-bound plan (if/match/calls, leftmost).
+/// 3. Else if every ensures is a pure result-ordering bound (or And of those),
 ///    synthesize one combined witness (prefer lower bound).
-/// 3. Else fall back to first successfully planned ensures (legacy).
+/// 4. Else fall back to first successfully planned ensures (legacy).
 fn plan_from_all_ensures(clauses: &[Clause], ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let ensures: Vec<&SpExpr> = clauses
         .iter()
@@ -242,7 +243,8 @@ fn plan_from_all_ensures(clauses: &[Clause], ctx: &PlanCtx<'_>) -> Option<IrGenP
         return None;
     }
 
-    let mut equality_plan: Option<IrGenPlan> = None;
+    let mut result_eq_plan: Option<IrGenPlan> = None;
+    let mut other_non_bound_plan: Option<IrGenPlan> = None;
     let mut bound_atoms: Vec<&SpExpr> = Vec::new();
     let mut all_are_pure_bounds = true;
 
@@ -252,12 +254,19 @@ fn plan_from_all_ensures(clauses: &[Clause], ctx: &PlanCtx<'_>) -> Option<IrGenP
             continue;
         }
         all_are_pure_bounds = false;
-        if equality_plan.is_none() {
-            equality_plan = plan_from_ensures(expr, ctx);
+        let Some(plan) = plan_from_ensures(expr, ctx) else {
+            continue;
+        };
+        if is_result_equality_ensures(expr) {
+            if result_eq_plan.is_none() {
+                result_eq_plan = Some(plan);
+            }
+        } else if other_non_bound_plan.is_none() {
+            other_non_bound_plan = Some(plan);
         }
     }
 
-    if let Some(plan) = equality_plan {
+    if let Some(plan) = result_eq_plan.or(other_non_bound_plan) {
         return Some(plan);
     }
 
@@ -275,6 +284,18 @@ fn plan_from_all_ensures(clauses: &[Clause], ctx: &PlanCtx<'_>) -> Option<IrGenP
         }
     }
     None
+}
+
+/// `result == e` or `e == result` (top-level equality ensures).
+fn is_result_equality_ensures(expr: &SpExpr) -> bool {
+    match &expr.node {
+        Expr::BinOp {
+            op: BinOp::Eq,
+            lhs,
+            rhs,
+        } => is_result_ident(lhs.as_ref()) || is_result_ident(rhs.as_ref()),
+        _ => false,
+    }
 }
 
 /// True when `expr` is only result-ordering bounds (single or pure `&&` chain).
@@ -2785,6 +2806,98 @@ mod tests {
     }
 
     #[test]
+    fn test_ir_generate_multi_ensures_skips_unplannable_then_equality() {
+        // Unplannable first non-bound must not block a later result == plan.
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Eq,
+                    lhs: spb(Expr::BinOp {
+                        op: BinOp::Mul,
+                        lhs: spb(Expr::Ident("result".into())),
+                        rhs: spb(Expr::Ident("result".into())),
+                    }),
+                    rhs: spb(Expr::Ident("x".into())),
+                }),
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Eq,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::BinOp {
+                        op: BinOp::Add,
+                        lhs: spb(Expr::Ident("x".into())),
+                        rhs: spb(Expr::Literal(Literal::Int("1".into()))),
+                    }),
+                }),
+                effect_variables: vec![],
+            },
+        ];
+        let text =
+            generate_ir_sidecar_text("Skip", &[int_param("x", 0)], &["x".into()], "Int", &clauses);
+        assert!(
+            text.contains("arith add"),
+            "unplannable then equality should still synthesize add, got:\n{text}"
+        );
+        assert!(!text.contains("Stub IR"), "{text}");
+    }
+
+    #[test]
+    fn test_ir_generate_multi_ensures_prefers_result_eq_over_if() {
+        // if-shaped plan first, then result == x + 1 — prefer equality.
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::If {
+                    cond: spb(Expr::BinOp {
+                        op: BinOp::Gt,
+                        lhs: spb(Expr::Ident("x".into())),
+                        rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+                    }),
+                    then_branch: spb(Expr::BinOp {
+                        op: BinOp::Eq,
+                        lhs: spb(Expr::Ident("result".into())),
+                        rhs: spb(Expr::Ident("x".into())),
+                    }),
+                    else_branch: Some(spb(Expr::BinOp {
+                        op: BinOp::Eq,
+                        lhs: spb(Expr::Ident("result".into())),
+                        rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+                    })),
+                }),
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Eq,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::BinOp {
+                        op: BinOp::Add,
+                        lhs: spb(Expr::Ident("x".into())),
+                        rhs: spb(Expr::Literal(Literal::Int("1".into()))),
+                    }),
+                }),
+                effect_variables: vec![],
+            },
+        ];
+        let text =
+            generate_ir_sidecar_text("Pref", &[int_param("x", 0)], &["x".into()], "Int", &clauses);
+        assert!(
+            text.contains("arith add"),
+            "result== should win over earlier if plan, got:\n{text}"
+        );
+        assert!(
+            !text.contains("= if "),
+            "should not emit if IR when equality preferred, got:\n{text}"
+        );
+        assert!(!text.contains("Stub IR"), "{text}");
+    }
+
+    #[test]
     fn test_ir_generate_multi_ensures_bound_order_prefers_lower() {
         // Upper bound first, then lower — combined plan should use lo (Gte preferred).
         let clauses = vec![
@@ -2870,6 +2983,35 @@ mod tests {
         assert!(
             text.contains("call max") && text.contains("call min"),
             "method clamp should nest max/min, got:\n{text}"
+        );
+        assert!(!text.contains("Stub IR"), "{text}");
+    }
+
+    #[test]
+    fn test_ir_generate_method_min() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::MethodCall {
+                    receiver: spb(Expr::Ident("x".into())),
+                    method: "min".into(),
+                    args: vec![sp(Expr::Ident("y".into()))],
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "MinM",
+            &[int_param("x", 0), int_param("y", 1)],
+            &["x".into(), "y".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(
+            text.contains("call min"),
+            "method min should synthesize, got:\n{text}"
         );
         assert!(!text.contains("Stub IR"), "{text}");
     }

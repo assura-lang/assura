@@ -66,7 +66,7 @@ Expected: `ShowcaseEcho: ensures ... verified` and `check passed (no errors)`.
 | Equality | `result == x`, `result == x + 1`, nested arith, `-x` |
 | Builtins | free or method: `abs`/`min`/`max`/`clamp`/`signum` (e.g. `x.abs()`) |
 | Bounds | `result >= e`, `>`, `<=`, `<`; And chains; **multi-clause** bounds prefer a lower-bound witness |
-| Multi-ensures | Prefer `result == e` when present; combine pure bound ensures otherwise |
+| Multi-ensures | Prefer top-level `result == e` over if/match/other plans; combine pure bound ensures (lower-bound witness) otherwise |
 | Structure | fields, tuples, length, Bool logic/cmp, if/match/let, same-file pure calls |
 
 Shapes the planner cannot synthesize still report **Unknown** (not a fake

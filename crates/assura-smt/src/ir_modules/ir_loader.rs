@@ -998,6 +998,48 @@ contract Interval {
 
     #[test]
     #[cfg(feature = "z3-verify")]
+    fn e2e_multi_ensures_unplannable_then_equality_verifies_without_sidecar() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+        let dir = std::env::temp_dir().join(format!("assura-multi-skip-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // First ensures is not synthesizable as a body; second is result == x + 1.
+        let src = r#"
+contract SkipThenInc {
+  input(x: Int)
+  output(result: Int)
+  requires { x >= 0 }
+  ensures { result * result == x }
+  ensures { result == x + 1 }
+}
+"#;
+        let path = dir.join("skip.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded
+                .heuristic_names()
+                .contains(&"SkipThenInc".to_string()),
+            "should still synthesize from later equality: {:?}",
+            loaded.heuristic_names()
+        );
+        let results = Verifier::new(&typed).source(&path).verify();
+        let verified = results
+            .iter()
+            .filter(|r| matches!(r, VerificationResult::Verified { .. }))
+            .count();
+        // At least the equality ensures should verify under the synthesized body.
+        assert!(
+            verified >= 1,
+            "equality after unplannable should verify; got {results:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(feature = "z3-verify")]
     fn e2e_method_abs_ensures_verifies_without_sidecar() {
         use crate::VerificationResult;
         use crate::Verifier;

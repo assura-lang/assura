@@ -169,8 +169,8 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                             "simplify ensures (result == expr / bounds), or materialize IR offline, \
                              or use LLM auto-implement",
                             span.clone(),
-                            "assura build path.assura --write-ir   # offline heuristic IR\n\
-                             assura build path.assura --auto-implement   # LLM for residual shapes",
+                            "assura build path.assura --write-ir  (offline); \
+                             assura build path.assura --auto-implement  (LLM residuals)",
                         );
                     }
                     diagnostics.push(diag);
