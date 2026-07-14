@@ -3204,6 +3204,88 @@ mod tests {
     }
 
     #[test]
+    fn test_synth_note_single_equality_ensures_index_one() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Ident("x".into())),
+            }),
+            effect_variables: vec![],
+        }];
+        let text =
+            generate_ir_sidecar_text("One", &[int_param("x", 0)], &["x".into()], "Int", &clauses);
+        assert!(
+            text.contains("// assura-synth-body: ensures#1 result_eq"),
+            "single ensures should note driver #1:\n{text}"
+        );
+        assert!(
+            !text.contains("assura-synth-residual"),
+            "no residual for single ensures:\n{text}"
+        );
+    }
+
+    #[test]
+    fn test_peel_builtin_call_and_method_clamp_same_ir_shape() {
+        let free = generate_ir_sidecar_text(
+            "ClampFree",
+            &[int_param("x", 0), int_param("lo", 1), int_param("hi", 2)],
+            &["x".into(), "lo".into(), "hi".into()],
+            "Int",
+            &[Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Eq,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::Call {
+                        func: spb(Expr::Ident("clamp".into())),
+                        args: vec![
+                            sp(Expr::Ident("x".into())),
+                            sp(Expr::Ident("lo".into())),
+                            sp(Expr::Ident("hi".into())),
+                        ],
+                    }),
+                }),
+                effect_variables: vec![],
+            }],
+        );
+        let method = generate_ir_sidecar_text(
+            "ClampMeth",
+            &[int_param("x", 0), int_param("lo", 1), int_param("hi", 2)],
+            &["x".into(), "lo".into(), "hi".into()],
+            "Int",
+            &[Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Eq,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::MethodCall {
+                        receiver: spb(Expr::Ident("x".into())),
+                        method: "clamp".into(),
+                        args: vec![sp(Expr::Ident("lo".into())), sp(Expr::Ident("hi".into()))],
+                    }),
+                }),
+                effect_variables: vec![],
+            }],
+        );
+        let free_ops: Vec<_> = free
+            .lines()
+            .filter(|l| l.contains("call max") || l.contains("call min"))
+            .collect();
+        let method_ops: Vec<_> = method
+            .lines()
+            .filter(|l| l.contains("call max") || l.contains("call min"))
+            .collect();
+        assert_eq!(
+            free_ops.len(),
+            method_ops.len(),
+            "clamp free vs method IR:\nfree:\n{free}\nmethod:\n{method}"
+        );
+        assert!(free_ops.len() >= 2, "clamp nests max then min");
+    }
+
+    #[test]
     fn test_synth_note_combined_bounds_no_residual() {
         let clauses = vec![
             Clause {

@@ -1,7 +1,7 @@
 //! `assura check` single-file entry (pipeline + verify dispatch).
 
 use super::super::*;
-use super::report::verify_and_report;
+use super::report::{collect_ir_surface_listing, verify_and_report};
 use super::types::{CheckOptions, VerifyContext};
 
 // ---------------------------------------------------------------------------
@@ -422,6 +422,20 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
                     "status": "ok",
                     "bindings": t.type_env.len(),
                 });
+                // IR surface for agents (mirrors human `check -v` ir: lines).
+                if layer >= 1 {
+                    let listing = collect_ir_surface_listing(filename, t);
+                    let notes: serde_json::Map<String, serde_json::Value> = listing
+                        .notes
+                        .into_iter()
+                        .map(|(k, v)| (k, serde_json::Value::String(v)))
+                        .collect();
+                    file_info["ir"] = serde_json::json!({
+                        "colocated": listing.colocated,
+                        "synthesized": listing.synthesized,
+                        "synth_notes": notes,
+                    });
+                }
             }
 
             let mut output = serde_json::json!({
