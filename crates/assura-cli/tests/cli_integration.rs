@@ -244,7 +244,8 @@ contract IncAndBound {
             && stderr.contains("ensures#2")
             && stderr.contains("result_eq")
             && stderr.contains("ensures#1")
-            && stderr.contains("residual"),
+            && stderr.contains("residual")
+            && stderr.contains("not body driver"),
         "verbose should name driver + residual: {stderr}"
     );
 }

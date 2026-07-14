@@ -33,20 +33,22 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
             // `generated/{Name}.ir`) before verify so agents/users see when
             // implementation bodies constrain result/post-state.
             if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
-                // Mirror Verifier's load+synthesize path so -v shows both disk
-                // sidecars and in-memory heuristics. Use only APIs already on
-                // crates.io assura-smt (no new methods: co-publish package
-                // gate compiles CLI against published 0.3.x).
-                let loaded = assura_smt::LoadedVerifyExtras::load_or_synthesize(
-                    std::path::Path::new(filename),
-                    typed,
-                );
-                let heuristics = loaded.heuristic_names();
-                let colocated: Vec<String> = loaded
-                    .loaded_names()
-                    .into_iter()
-                    .filter(|n| !heuristics.iter().any(|h| h == n))
+                // Disk sidecars once + one stub_ir pass (avoids load_or_synthesize
+                // then re-stub for notes). Co-publish safe: only crates.io APIs.
+                let path = std::path::Path::new(filename);
+                let disk = assura_smt::LoadedVerifyExtras::load(path, typed);
+                let colocated = disk.loaded_names();
+                let colocated_set: std::collections::HashSet<&str> =
+                    colocated.iter().map(String::as_str).collect();
+                let texts = assura_smt::stub_ir_sidecars_for_typed(typed);
+                let mut heuristics: Vec<String> = texts
+                    .iter()
+                    .filter(|(name, text)| {
+                        !colocated_set.contains(name.as_str()) && !text.contains("Stub IR")
+                    })
+                    .map(|(name, _)| name.clone())
                     .collect();
+                heuristics.sort();
                 if colocated.is_empty() && heuristics.is_empty() {
                     eprintln!("  ir:        no co-located sidecars and no synthesizable ensures");
                 } else {
@@ -62,11 +64,8 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                             "  ir:        synthesized in-memory: {}",
                             heuristics.join(", ")
                         );
-                        // Multi-ensures body driver vs residual (#1370). Parse
-                        // assura-synth-* comments from heuristic IR text via
-                        // stub_ir_sidecars_for_typed (already on crates.io API).
-                        let texts = assura_smt::stub_ir_sidecars_for_typed(typed);
-                        for name in heuristics {
+                        // Multi-ensures body driver vs residual (#1370).
+                        for name in &heuristics {
                             if let Some(text) = texts.get(name)
                                 && let Some(detail) = synth_note_detail_from_ir(text)
                             {
@@ -419,7 +418,7 @@ pub(crate) fn synth_note_detail_from_ir(ir_text: &str) -> Option<String> {
     let body = body?;
     Some(match residual {
         Some(r) if !r.is_empty() => {
-            format!("body from {body}; residual {r} (may stay Unknown)")
+            format!("body from {body}; residual {r} (not body driver)")
         }
         _ => format!("body from {body}"),
     })
@@ -439,7 +438,9 @@ module X {
 "#;
         let d = synth_note_detail_from_ir(ir).expect("detail");
         assert!(
-            d.contains("ensures#2 result_eq") && d.contains("ensures#1") && d.contains("Unknown"),
+            d.contains("ensures#2 result_eq")
+                && d.contains("ensures#1")
+                && d.contains("not body driver"),
             "{d}"
         );
     }
