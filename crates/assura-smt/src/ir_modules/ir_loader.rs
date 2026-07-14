@@ -876,6 +876,43 @@ contract SignumX {
 
     #[test]
     #[cfg(feature = "z3-verify")]
+    fn e2e_heuristic_ir_verifies_result_bound_and_without_sidecar() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+        let dir = std::env::temp_dir().join(format!("assura-andbound-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = r#"
+contract AndBound {
+  input(lo: Int, hi: Int)
+  output(result: Int)
+  requires { lo <= hi }
+  ensures { result >= lo && result <= hi }
+}
+"#;
+        let path = dir.join("andbound.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"AndBound".to_string()),
+            "and-bound heuristic: {:?}",
+            loaded.heuristic_names()
+        );
+        let results = Verifier::new(&typed).source(&path).verify();
+        let verified = results
+            .iter()
+            .filter(|r| matches!(r, VerificationResult::Verified { .. }))
+            .count();
+        assert!(
+            verified >= 1,
+            "result >= lo && result <= hi should verify; got {results:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(feature = "z3-verify")]
     fn e2e_heuristic_ir_verifies_result_ge_x_without_sidecar() {
         use crate::VerificationResult;
         use crate::Verifier;

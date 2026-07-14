@@ -672,14 +672,26 @@ fn plan_signum_call_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPla
 /// | `result >= e` / `result <= e` | `result = e` |
 /// | `result > e` | `result = e + 1` |
 /// | `result < e` | `result = e - 1` |
+/// | `bound && bound` (each a result ordering) | witness of the left conjunct |
 ///
 /// `e` must be a param, literal, or nested arith/abs/min/max/clamp/signum
 /// tree (same as equality synthesis). Pure inequalities like `result > 0`
 /// get a constant witness (`1` / `-1` / `0`).
+///
+/// Conjunctive form `result >= lo && result <= hi` is common in demos; the
+/// left conjunct's witness is used (with `requires { lo <= hi }` both hold).
 fn plan_result_bound_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let Expr::BinOp { op, lhs, rhs } = &expr.node else {
         return None;
     };
+    // Peel `bound && bound` so single-clause interval ensures synthesize.
+    if matches!(op, BinOp::And) {
+        if is_result_ordering_bound(lhs.as_ref()) && is_result_ordering_bound(rhs.as_ref()) {
+            return plan_result_bound_ensures(lhs.as_ref(), ctx)
+                .or_else(|| plan_result_bound_ensures(rhs.as_ref(), ctx));
+        }
+        return None;
+    }
     if !op.is_ordering_comparison() {
         return None;
     }
@@ -739,6 +751,14 @@ fn plan_result_bound_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPl
         _ => return None,
     };
     Some(single_fn_plan(body))
+}
+
+/// True when `expr` is a top-level ordering comparison with `result` on one side.
+fn is_result_ordering_bound(expr: &SpExpr) -> bool {
+    let Expr::BinOp { op, lhs, rhs } = &expr.node else {
+        return false;
+    };
+    op.is_ordering_comparison() && (is_result_ident(lhs.as_ref()) || is_result_ident(rhs.as_ref()))
 }
 
 fn flip_ordering_op(op: &BinOp) -> Option<BinOp> {
@@ -2362,5 +2382,122 @@ mod tests {
             &clauses,
         );
         assert!(text.contains("Stub IR"));
+    }
+
+    #[test]
+    fn test_ir_generate_clamp_call() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Call {
+                    func: spb(Expr::Ident("clamp".into())),
+                    args: vec![
+                        sp(Expr::Ident("x".into())),
+                        sp(Expr::Literal(Literal::Int("0".into()))),
+                        sp(Expr::Literal(Literal::Int("10".into()))),
+                    ],
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "ClampX",
+            &[int_param("x", 0)],
+            &["x".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(
+            text.contains("call max") && text.contains("call min"),
+            "clamp → nested max/min, got:\n{text}"
+        );
+        assert!(!text.contains("Stub IR"), "must not stub clamp:\n{text}");
+    }
+
+    #[test]
+    fn test_ir_generate_signum_call() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Call {
+                    func: spb(Expr::Ident("signum".into())),
+                    args: vec![sp(Expr::Ident("x".into()))],
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "SignumX",
+            &[int_param("x", 0)],
+            &["x".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(
+            text.contains("call min") && text.contains("call max"),
+            "signum → nested min/max, got:\n{text}"
+        );
+        assert!(!text.contains("Stub IR"), "must not stub signum:\n{text}");
+    }
+
+    #[test]
+    fn test_ir_generate_result_ge_bound() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Gte,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::Ident("x".into())),
+            }),
+            effect_variables: vec![],
+        }];
+        let text =
+            generate_ir_sidecar_text("GeX", &[int_param("x", 0)], &["x".into()], "Int", &clauses);
+        assert!(
+            text.contains("$result = load $0") || text.contains("load $0"),
+            "result >= x → load param, got:\n{text}"
+        );
+        assert!(!text.contains("Stub IR"), "must not stub bound:\n{text}");
+    }
+
+    #[test]
+    fn test_ir_generate_result_bound_and_conjunct() {
+        // result >= lo && result <= hi → witness of left conjunct (result = lo)
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::And,
+                lhs: spb(Expr::BinOp {
+                    op: BinOp::Gte,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::Ident("lo".into())),
+                }),
+                rhs: spb(Expr::BinOp {
+                    op: BinOp::Lte,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::Ident("hi".into())),
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "AndBound",
+            &[int_param("lo", 0), int_param("hi", 1)],
+            &["lo".into(), "hi".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(
+            text.contains("$result = load $0") || text.contains("load $0"),
+            "interval And should witness left bound (lo), got:\n{text}"
+        );
+        assert!(
+            !text.contains("Stub IR"),
+            "must not stub result bounds And:\n{text}"
+        );
     }
 }
