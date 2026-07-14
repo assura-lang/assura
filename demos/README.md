@@ -118,8 +118,10 @@ If `assura check` fails on these, that is **by design** for teaching.
 `ensures { result == ... }` needs an **implementation body**. Without a
 co-located `.ir` file, `assura check` **auto-synthesizes** analyzable shapes
 in memory when it can (identity, arithmetic including nested and `-x`,
-`abs(x)`, Bool comparisons such as `result == (x > 0)`, and known
-call/if/match patterns) so you often get **Verified** with no sidecar.
+`abs`/`min`/`max`/`clamp`/`signum`, inequality witnesses such as
+`result >= e` / `result > e` and conjuncts `result >= lo && result <= hi`,
+Bool comparisons such as `result == (x > 0)`, and known call/if/match
+patterns) so you often get **Verified** with no sidecar.
 `assura build --write-ir` only writes those analyzable shapes (never identity
 stubs for unanalyzable ensures).
 
