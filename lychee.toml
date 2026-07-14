@@ -5,6 +5,12 @@ timeout = 30
 # Lower concurrency reduces GitHub Actions IP rate / 500 storms on issue URLs.
 max_concurrency = 8
 
+# release-please CHANGELOG is dense with issue/PR URLs. GitHub intermittently
+# returns HTTP 500 for those HTML pages from GHA runners (issue pages that
+# redirect to pulls), which flakes main after every markdown merge. The links
+# are machine-generated and still useful for humans; skip automated recheck.
+exclude_path = ["CHANGELOG.md"]
+
 exclude = [
   "localhost",
   "127\\.0\\.0\\.1",
