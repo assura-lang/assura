@@ -117,17 +117,23 @@ If `assura check` fails on these, that is **by design** for teaching.
 
 `ensures { result == ... }` needs an **implementation body**. Without a
 co-located `.ir` file, `assura check` **auto-synthesizes** analyzable shapes
-in memory when it can (identity, arithmetic including nested and `-x`,
-`abs`/`min`/`max`/`clamp`/`signum`, inequality witnesses such as
-`result >= e` / `result > e` and conjuncts `result >= lo && result <= hi`,
-Bool comparisons such as `result == (x > 0)`, and known call/if/match
-patterns) so you often get **Verified** with no sidecar.
+in memory when it can:
+
+- identity / nested arith / `-x`
+- free or method `abs`/`min`/`max`/`clamp`/`signum` (e.g. `x.abs()`)
+- inequality witnesses and multi-clause bounds (prefer lower-bound witness;
+  prefer `result == e` when mixed with bounds)
+- And chains of bounds, Bool cmp/logic, if/match/let, fields/tuples/length,
+  same-file pure calls
+
+so you often get **Verified** with no sidecar.
 `assura build --write-ir` only writes those analyzable shapes (never identity
-stubs for unanalyzable ensures).
+stubs for unanalyzable ensures). `--auto-implement` tries offline heuristics
+first, then LLM for residuals.
 
 If the ensures shape is **not** synthesizable (e.g. `result * result == x`), those
-clauses are **skipped with Unknown** (not a silent counterexample). Write a
-`{ContractName}.ir`, run `assura build --write-ir`, or use `--auto-implement`.
+clauses are **skipped with Unknown** (not a silent counterexample). Use the
+ladder in [GETTING-STARTED.md](../docs/GETTING-STARTED.md).
 
 See `showcase-echo.assura` (+ optional co-located `ShowcaseEcho.ir`) for the
 happy path.

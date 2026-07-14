@@ -166,9 +166,11 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                         || reason.contains("not auto-synthesizable")
                     {
                         diag = diag.with_suggestion(
-                            "add co-located IR or simplify ensures to a synthesizable shape",
+                            "simplify ensures (result == expr / bounds), or materialize IR offline, \
+                             or use LLM auto-implement",
                             span.clone(),
-                            "assura build --write-ir path/to/file.assura",
+                            "assura build path.assura --write-ir   # offline heuristic IR\n\
+                             assura build path.assura --auto-implement   # LLM for residual shapes",
                         );
                     }
                     diagnostics.push(diag);

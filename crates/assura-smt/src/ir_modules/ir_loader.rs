@@ -920,6 +920,120 @@ contract AndBound {
 
     #[test]
     #[cfg(feature = "z3-verify")]
+    fn e2e_multi_ensures_equality_and_bound_verifies_without_sidecar() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+        let dir = std::env::temp_dir().join(format!("assura-multi-eq-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = r#"
+contract IncNonNeg {
+  input(x: Int)
+  output(result: Int)
+  requires { x >= 0 }
+  ensures { result == x + 1 }
+  ensures { result >= x }
+  ensures { result > 0 }
+}
+"#;
+        let path = dir.join("inc.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"IncNonNeg".to_string()),
+            "multi-ensures heuristic: {:?}",
+            loaded.heuristic_names()
+        );
+        let results = Verifier::new(&typed).source(&path).verify();
+        let verified = results
+            .iter()
+            .filter(|r| matches!(r, VerificationResult::Verified { .. }))
+            .count();
+        assert!(
+            verified >= 3,
+            "equality+bounds multi-ensures should all verify; got {results:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_multi_ensures_upper_then_lower_bound_verifies_without_sidecar() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+        let dir = std::env::temp_dir().join(format!("assura-multi-bound-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Upper bound first — first-wins would pick hi; combined prefers lo.
+        let src = r#"
+contract Interval {
+  input(lo: Int, hi: Int)
+  output(result: Int)
+  requires { lo <= hi }
+  ensures { result <= hi }
+  ensures { result >= lo }
+}
+"#;
+        let path = dir.join("interval.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"Interval".to_string()),
+            "interval heuristic: {:?}",
+            loaded.heuristic_names()
+        );
+        let results = Verifier::new(&typed).source(&path).verify();
+        let verified = results
+            .iter()
+            .filter(|r| matches!(r, VerificationResult::Verified { .. }))
+            .count();
+        assert!(
+            verified >= 2,
+            "upper-then-lower multi-ensures should verify via lo witness; got {results:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_method_abs_ensures_verifies_without_sidecar() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+        let dir = std::env::temp_dir().join(format!("assura-mabs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = r#"
+contract AbsMethod {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == x.abs() }
+}
+"#;
+        let path = dir.join("mabs.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded.heuristic_names().contains(&"AbsMethod".to_string()),
+            "method abs heuristic: {:?}",
+            loaded.heuristic_names()
+        );
+        let results = Verifier::new(&typed).source(&path).verify();
+        let verified = results
+            .iter()
+            .filter(|r| matches!(r, VerificationResult::Verified { .. }))
+            .count();
+        assert!(
+            verified >= 1,
+            "result == x.abs() should verify; got {results:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(feature = "z3-verify")]
     fn e2e_heuristic_ir_verifies_result_bound_and_chain_three_without_sidecar() {
         use crate::VerificationResult;
         use crate::Verifier;

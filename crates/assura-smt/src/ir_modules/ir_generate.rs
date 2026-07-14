@@ -202,17 +202,15 @@ pub fn generate_ir_sidecar_text_with_callees(
         field_layouts,
     };
 
-    for clause in clauses.iter().filter(|c| c.kind == ClauseKind::Ensures) {
-        if let Some(plan) = plan_from_ensures(&clause.body, &ctx) {
-            return format_ir_module_plan(
-                name,
-                params,
-                return_ty,
-                requires_count,
-                ensures_count,
-                &plan,
-            );
-        }
+    if let Some(plan) = plan_from_all_ensures(clauses, &ctx) {
+        return format_ir_module_plan(
+            name,
+            params,
+            return_ty,
+            requires_count,
+            ensures_count,
+            &plan,
+        );
     }
 
     stub_ir_sidecar_text(name, params, return_ty, requires_count, ensures_count)
@@ -225,6 +223,110 @@ fn plan_from_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
         }
     }
     None
+}
+
+/// Plan a body from **all** ensures clauses (not first-wins only).
+///
+/// Selection policy:
+/// 1. Prefer a non-bound plan (`result == e`, if/match, calls, …) when any exists.
+/// 2. Else if every ensures is a pure result-ordering bound (or And of those),
+///    synthesize one combined witness (prefer lower bound).
+/// 3. Else fall back to first successfully planned ensures (legacy).
+fn plan_from_all_ensures(clauses: &[Clause], ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    let ensures: Vec<&SpExpr> = clauses
+        .iter()
+        .filter(|c| c.kind == ClauseKind::Ensures)
+        .map(|c| &c.body)
+        .collect();
+    if ensures.is_empty() {
+        return None;
+    }
+
+    let mut equality_plan: Option<IrGenPlan> = None;
+    let mut bound_atoms: Vec<&SpExpr> = Vec::new();
+    let mut all_are_pure_bounds = true;
+
+    for expr in &ensures {
+        if is_pure_result_bound_expr(expr) {
+            collect_and_conjuncts(expr, &mut bound_atoms);
+            continue;
+        }
+        all_are_pure_bounds = false;
+        if equality_plan.is_none() {
+            equality_plan = plan_from_ensures(expr, ctx);
+        }
+    }
+
+    if let Some(plan) = equality_plan {
+        return Some(plan);
+    }
+
+    if all_are_pure_bounds
+        && !bound_atoms.is_empty()
+        && let Some(plan) = plan_combined_result_bounds(&bound_atoms, ctx)
+    {
+        return Some(plan);
+    }
+
+    // Legacy first-wins among any plannable ensures.
+    for expr in ensures {
+        if let Some(plan) = plan_from_ensures(expr, ctx) {
+            return Some(plan);
+        }
+    }
+    None
+}
+
+/// True when `expr` is only result-ordering bounds (single or pure `&&` chain).
+fn is_pure_result_bound_expr(expr: &SpExpr) -> bool {
+    let mut conjuncts: Vec<&SpExpr> = Vec::new();
+    collect_and_conjuncts(expr, &mut conjuncts);
+    !conjuncts.is_empty() && conjuncts.iter().all(|c| is_result_ordering_bound(c))
+}
+
+/// Witness body for a set of result-ordering atoms (prefer lower bound).
+fn plan_combined_result_bounds(atoms: &[&SpExpr], ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    // Prefer Gte, then Gt, then Lte, then Lt (leftmost of preferred class).
+    let ranked = |op: &BinOp| -> u8 {
+        match op {
+            BinOp::Gte => 0,
+            BinOp::Gt => 1,
+            BinOp::Lte => 2,
+            BinOp::Lt => 3,
+            _ => 4,
+        }
+    };
+    let mut best: Option<&SpExpr> = None;
+    let mut best_rank = 5u8;
+    for atom in atoms {
+        let Expr::BinOp { op, lhs, rhs } = &atom.node else {
+            continue;
+        };
+        if !op.is_ordering_comparison() {
+            continue;
+        }
+        let (result_on_left, _) = if is_result_ident(lhs.as_ref()) {
+            (true, rhs.as_ref())
+        } else if is_result_ident(rhs.as_ref()) {
+            (false, lhs.as_ref())
+        } else {
+            continue;
+        };
+        let norm = if result_on_left {
+            op.clone()
+        } else {
+            match flip_ordering_op(op) {
+                Some(o) => o,
+                None => continue,
+            }
+        };
+        let r = ranked(&norm);
+        if r < best_rank {
+            best_rank = r;
+            best = Some(atom);
+        }
+    }
+    plan_single_result_ordering_bound(best?, ctx)
 }
 
 fn single_fn_plan(body: IrGenBody) -> IrGenPlan {
@@ -1073,10 +1175,14 @@ fn plan_result_equals(other: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenBody> {
         Expr::BinOp { op, lhs, rhs } if op.is_arithmetic() => {
             plan_result_arith(op.clone(), lhs.as_ref(), rhs.as_ref(), ctx)
         }
-        // Nested arith / unary negation: materialize temps then load into result.
-        // Do NOT fall back to identity for one-param contracts (that produced
-        // wrong IR for unanalyzable RHS and hid the "not synthesizable" path).
-        Expr::BinOp { .. } | Expr::UnaryOp { .. } => {
+        // Nested arith / unary / free calls / method peels / fields: materialize
+        // temps then load into result. Do NOT fall back to identity for
+        // one-param contracts (wrong IR + hid the "not synthesizable" path).
+        Expr::BinOp { .. }
+        | Expr::UnaryOp { .. }
+        | Expr::Call { .. }
+        | Expr::MethodCall { .. }
+        | Expr::Field { .. } => {
             let mut lines: Vec<String> = Vec::new();
             let mut used: Vec<usize> = ctx.name_to_slot.values().copied().collect();
             used.sort_unstable();
@@ -1235,6 +1341,72 @@ fn operand_to_slot(
                 _ => None,
             }
         }
+        // Method form: x.abs(), x.min(y), x.max(y), x.clamp(lo, hi), x.signum().
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => match (method.as_str(), args.len()) {
+            ("abs", 0) => {
+                let a = operand_to_slot(receiver.as_ref(), ctx, lines, used)?;
+                let slot = next_temp_slot(used);
+                used.push(slot);
+                lines.push(format!("    ${slot} = call abs (${a}) : {}", ctx.return_ty));
+                Some(slot)
+            }
+            ("min" | "max", 1) => {
+                let a = operand_to_slot(receiver.as_ref(), ctx, lines, used)?;
+                let b = operand_to_slot(&args[0], ctx, lines, used)?;
+                let slot = next_temp_slot(used);
+                used.push(slot);
+                lines.push(format!(
+                    "    ${slot} = call {method} (${a}, ${b}) : {}",
+                    ctx.return_ty
+                ));
+                Some(slot)
+            }
+            ("clamp", 2) => {
+                let x = operand_to_slot(receiver.as_ref(), ctx, lines, used)?;
+                let lo = operand_to_slot(&args[0], ctx, lines, used)?;
+                let hi = operand_to_slot(&args[1], ctx, lines, used)?;
+                let t = next_temp_slot(used);
+                used.push(t);
+                lines.push(format!(
+                    "    ${t} = call max (${x}, ${lo}) : {}",
+                    ctx.return_ty
+                ));
+                let slot = next_temp_slot(used);
+                used.push(slot);
+                lines.push(format!(
+                    "    ${slot} = call min (${t}, ${hi}) : {}",
+                    ctx.return_ty
+                ));
+                Some(slot)
+            }
+            ("signum", 0) => {
+                let x = operand_to_slot(receiver.as_ref(), ctx, lines, used)?;
+                let one = next_temp_slot(used);
+                used.push(one);
+                lines.push(format!("    ${one} = const 1 : {}", ctx.return_ty));
+                let neg1 = next_temp_slot(used);
+                used.push(neg1);
+                lines.push(format!("    ${neg1} = const -1 : {}", ctx.return_ty));
+                let t = next_temp_slot(used);
+                used.push(t);
+                lines.push(format!(
+                    "    ${t} = call min (${x}, ${one}) : {}",
+                    ctx.return_ty
+                ));
+                let slot = next_temp_slot(used);
+                used.push(slot);
+                lines.push(format!(
+                    "    ${slot} = call max (${t}, ${neg1}) : {}",
+                    ctx.return_ty
+                ));
+                Some(slot)
+            }
+            _ => None,
+        },
         Expr::Field(recv, field) => {
             let base = operand_to_slot(recv.as_ref(), ctx, lines, used)?;
             // Resolve field on the receiver's type (supports nested `o.inner.v`).
@@ -2574,6 +2746,132 @@ mod tests {
             !text.contains("Stub IR"),
             "must not stub three-way result bounds And:\n{text}"
         );
+    }
+
+    #[test]
+    fn test_ir_generate_multi_ensures_prefers_equality_over_bounds() {
+        // result == x + 1 and result >= x → equality body (not bound witness).
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Gte,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::Ident("x".into())),
+                }),
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Eq,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::BinOp {
+                        op: BinOp::Add,
+                        lhs: spb(Expr::Ident("x".into())),
+                        rhs: spb(Expr::Literal(Literal::Int("1".into()))),
+                    }),
+                }),
+                effect_variables: vec![],
+            },
+        ];
+        let text =
+            generate_ir_sidecar_text("Inc", &[int_param("x", 0)], &["x".into()], "Int", &clauses);
+        assert!(
+            text.contains("arith add"),
+            "multi-ensures should prefer equality arith, got:\n{text}"
+        );
+        assert!(!text.contains("Stub IR"), "{text}");
+    }
+
+    #[test]
+    fn test_ir_generate_multi_ensures_bound_order_prefers_lower() {
+        // Upper bound first, then lower — combined plan should use lo (Gte preferred).
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Lte,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::Ident("hi".into())),
+                }),
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Gte,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::Ident("lo".into())),
+                }),
+                effect_variables: vec![],
+            },
+        ];
+        let text = generate_ir_sidecar_text(
+            "Bounds",
+            &[int_param("lo", 0), int_param("hi", 1)],
+            &["lo".into(), "hi".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(
+            text.contains("load $0") || text.contains("$result = load $0"),
+            "combined bounds should witness lower bound (lo=$0), got:\n{text}"
+        );
+        assert!(!text.contains("Stub IR"), "{text}");
+    }
+
+    #[test]
+    fn test_ir_generate_method_abs() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::MethodCall {
+                    receiver: spb(Expr::Ident("x".into())),
+                    method: "abs".into(),
+                    args: vec![],
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text =
+            generate_ir_sidecar_text("AbsM", &[int_param("x", 0)], &["x".into()], "Int", &clauses);
+        assert!(
+            text.contains("call abs"),
+            "method abs should synthesize, got:\n{text}"
+        );
+        assert!(!text.contains("Stub IR"), "{text}");
+    }
+
+    #[test]
+    fn test_ir_generate_method_clamp() {
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::Eq,
+                lhs: spb(Expr::Ident("result".into())),
+                rhs: spb(Expr::MethodCall {
+                    receiver: spb(Expr::Ident("x".into())),
+                    method: "clamp".into(),
+                    args: vec![sp(Expr::Ident("lo".into())), sp(Expr::Ident("hi".into()))],
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "ClampM",
+            &[int_param("x", 0), int_param("lo", 1), int_param("hi", 2)],
+            &["x".into(), "lo".into(), "hi".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(
+            text.contains("call max") && text.contains("call min"),
+            "method clamp should nest max/min, got:\n{text}"
+        );
+        assert!(!text.contains("Stub IR"), "{text}");
     }
 
     #[test]

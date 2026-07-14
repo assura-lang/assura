@@ -200,11 +200,11 @@ enum Commands {
         #[arg(long)]
         runtime_checks: bool,
 
-        /// Use the configured LLM provider to auto-generate implementations for contracts
+        /// Fill missing contract bodies: offline ensures heuristics first, then LLM for residuals
         #[arg(long)]
         auto_implement: bool,
 
-        /// Write heuristic IR sidecars next to the source (no LLM); co-located for check/build
+        /// Write analyzable heuristic IR next to the source (no LLM); co-located for check/build
         #[arg(long)]
         write_ir: bool,
 
