@@ -1658,7 +1658,11 @@ fn expr_suggests_call_chain(expr: &SpExpr) -> bool {
 }
 
 fn is_builtin_call(name: &str) -> bool {
-    matches!(name, "length" | "old" | "abs" | "min" | "max")
+    // Keep in sync with peel_builtin_slots + length/old planners.
+    matches!(
+        name,
+        "length" | "old" | "abs" | "min" | "max" | "clamp" | "signum"
+    )
 }
 
 fn format_ir_module_plan(
@@ -3032,6 +3036,66 @@ mod tests {
             "method min should synthesize, got:\n{text}"
         );
         assert!(!text.contains("Stub IR"), "{text}");
+    }
+
+    #[test]
+    fn test_ir_generate_method_max_and_signum() {
+        let max_text = generate_ir_sidecar_text(
+            "MaxM",
+            &[int_param("x", 0), int_param("y", 1)],
+            &["x".into(), "y".into()],
+            "Int",
+            &[Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Eq,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::MethodCall {
+                        receiver: spb(Expr::Ident("x".into())),
+                        method: "max".into(),
+                        args: vec![sp(Expr::Ident("y".into()))],
+                    }),
+                }),
+                effect_variables: vec![],
+            }],
+        );
+        assert!(
+            max_text.contains("call max") && !max_text.contains("Stub IR"),
+            "method max: {max_text}"
+        );
+        let signum_text = generate_ir_sidecar_text(
+            "SignumM",
+            &[int_param("x", 0)],
+            &["x".into()],
+            "Int",
+            &[Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Eq,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::MethodCall {
+                        receiver: spb(Expr::Ident("x".into())),
+                        method: "signum".into(),
+                        args: vec![],
+                    }),
+                }),
+                effect_variables: vec![],
+            }],
+        );
+        assert!(
+            signum_text.contains("call min")
+                && signum_text.contains("call max")
+                && !signum_text.contains("Stub IR"),
+            "method signum → min/max: {signum_text}"
+        );
+    }
+
+    #[test]
+    fn test_is_builtin_call_includes_clamp_signum() {
+        assert!(is_builtin_call("abs"));
+        assert!(is_builtin_call("clamp"));
+        assert!(is_builtin_call("signum"));
+        assert!(!is_builtin_call("double"));
     }
 
     #[test]
