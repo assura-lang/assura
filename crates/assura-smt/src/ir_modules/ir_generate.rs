@@ -672,26 +672,56 @@ fn plan_signum_call_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPla
 /// | `result >= e` / `result <= e` | `result = e` |
 /// | `result > e` | `result = e + 1` |
 /// | `result < e` | `result = e - 1` |
-/// | `bound && bound` (each a result ordering) | witness of the left conjunct |
+/// | `bound && bound && …` (each a result ordering) | witness of the leftmost |
 ///
 /// `e` must be a param, literal, or nested arith/abs/min/max/clamp/signum
 /// tree (same as equality synthesis). Pure inequalities like `result > 0`
 /// get a constant witness (`1` / `-1` / `0`).
 ///
-/// Conjunctive form `result >= lo && result <= hi` is common in demos; the
-/// left conjunct's witness is used (with `requires { lo <= hi }` both hold).
+/// Conjunctive forms (`result >= lo && result <= hi`, and longer left- or
+/// right-associative chains) are common in demos; the leftmost conjunct's
+/// witness is used (with suitable requires the rest hold).
 fn plan_result_bound_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+    // Peel And-chains of pure result-ordering bounds (nested a && b && c).
+    if let Some(first) = first_result_bound_in_pure_and_chain(expr) {
+        return plan_single_result_ordering_bound(first, ctx);
+    }
+    plan_single_result_ordering_bound(expr, ctx)
+}
+
+/// Flatten `&&` into conjuncts; if every conjunct is a result ordering bound
+/// and there are at least two, return the leftmost (else `None`).
+fn first_result_bound_in_pure_and_chain(expr: &SpExpr) -> Option<&SpExpr> {
+    let mut conjuncts: Vec<&SpExpr> = Vec::new();
+    collect_and_conjuncts(expr, &mut conjuncts);
+    if conjuncts.len() < 2 {
+        return None;
+    }
+    if !conjuncts.iter().all(|c| is_result_ordering_bound(c)) {
+        return None;
+    }
+    Some(conjuncts[0])
+}
+
+fn collect_and_conjuncts<'a>(expr: &'a SpExpr, out: &mut Vec<&'a SpExpr>) {
+    match &expr.node {
+        Expr::BinOp {
+            op: BinOp::And,
+            lhs,
+            rhs,
+        } => {
+            collect_and_conjuncts(lhs.as_ref(), out);
+            collect_and_conjuncts(rhs.as_ref(), out);
+        }
+        _ => out.push(expr),
+    }
+}
+
+/// Plan a single top-level `result OP e` (not an And chain).
+fn plan_single_result_ordering_bound(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
     let Expr::BinOp { op, lhs, rhs } = &expr.node else {
         return None;
     };
-    // Peel `bound && bound` so single-clause interval ensures synthesize.
-    if matches!(op, BinOp::And) {
-        if is_result_ordering_bound(lhs.as_ref()) && is_result_ordering_bound(rhs.as_ref()) {
-            return plan_result_bound_ensures(lhs.as_ref(), ctx)
-                .or_else(|| plan_result_bound_ensures(rhs.as_ref(), ctx));
-        }
-        return None;
-    }
     if !op.is_ordering_comparison() {
         return None;
     }
@@ -2498,6 +2528,51 @@ mod tests {
         assert!(
             !text.contains("Stub IR"),
             "must not stub result bounds And:\n{text}"
+        );
+    }
+
+    #[test]
+    fn test_ir_generate_result_bound_and_chain_three() {
+        // result >= lo && result <= mid && result <= hi (nested And tree)
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::And,
+                lhs: spb(Expr::BinOp {
+                    op: BinOp::Gte,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::Ident("lo".into())),
+                }),
+                rhs: spb(Expr::BinOp {
+                    op: BinOp::And,
+                    lhs: spb(Expr::BinOp {
+                        op: BinOp::Lte,
+                        lhs: spb(Expr::Ident("result".into())),
+                        rhs: spb(Expr::Ident("mid".into())),
+                    }),
+                    rhs: spb(Expr::BinOp {
+                        op: BinOp::Lte,
+                        lhs: spb(Expr::Ident("result".into())),
+                        rhs: spb(Expr::Ident("hi".into())),
+                    }),
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "TripleBound",
+            &[int_param("lo", 0), int_param("mid", 1), int_param("hi", 2)],
+            &["lo".into(), "mid".into(), "hi".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(
+            text.contains("$result = load $0") || text.contains("load $0"),
+            "three-way And should witness leftmost (lo), got:\n{text}"
+        );
+        assert!(
+            !text.contains("Stub IR"),
+            "must not stub three-way result bounds And:\n{text}"
         );
     }
 

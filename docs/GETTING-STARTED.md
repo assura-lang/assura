@@ -62,8 +62,9 @@ Expected: `ShowcaseEcho: ensures ... verified` and `check passed (no errors)`.
 **Synthesizable** ensures shapes (no hand IR): `result == x`, arithmetic
 including nested/`-x`/`abs`/`min`/`max`/`clamp`/`signum` and nested calls
 like `abs(min(x,y))`, inequality witnesses `result >= e` / `result > e` /
-`result <= e` / `result < e` and conjuncts `result >= lo && result <= hi`
-(weakest equality or ±1 body), `let` bindings, field loads `p.x` / `p.y`
+`result <= e` / `result < e` and conjunct chains
+`result >= lo && result <= mid && result <= hi` (weakest equality or ±1 body),
+`let` bindings, field loads `p.x` / `p.y`
 and nested `o.inner.v` on multi-field structs (newline-separated fields
 are fine), tuple projections `t.0` / `t.1` (and nested chains like
 `t.1.0`; use a trailing comma for 1-tuples: `(Int,)`; empty `(,)` is

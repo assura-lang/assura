@@ -33,25 +33,31 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
             // `generated/{Name}.ir`) before verify so agents/users see when
             // implementation bodies constrain result/post-state.
             if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
-                // Only report co-located disk sidecars here. In-memory heuristic
-                // fill (analyzable ensures without a `.ir` file) runs inside
-                // assura-smt `Verifier` and must not be called from the CLI so
-                // co-publish package checks against crates.io assura-smt still
-                // compile.
-                let loaded =
-                    assura_smt::LoadedVerifyExtras::load(std::path::Path::new(filename), typed);
-                if loaded.is_empty() {
-                    eprintln!(
-                        "  ir:        no co-located sidecars (verify may still synthesize \
-                         analyzable ensures shapes in-memory)"
-                    );
+                // Mirror Verifier's load+synthesize path so -v shows both disk
+                // sidecars and which contracts used in-memory heuristics.
+                // Uses public LoadedVerifyExtras APIs (path-dep / co-publish).
+                let loaded = assura_smt::LoadedVerifyExtras::load_or_synthesize(
+                    std::path::Path::new(filename),
+                    typed,
+                );
+                let colocated = loaded.colocated_names();
+                let heuristics = loaded.heuristic_names();
+                if colocated.is_empty() && heuristics.is_empty() {
+                    eprintln!("  ir:        no co-located sidecars and no synthesizable ensures");
                 } else {
-                    let names = loaded.loaded_names();
-                    eprintln!(
-                        "  ir:        {} co-located sidecar(s): {}",
-                        names.len(),
-                        names.join(", ")
-                    );
+                    if !colocated.is_empty() {
+                        eprintln!(
+                            "  ir:        {} co-located sidecar(s): {}",
+                            colocated.len(),
+                            colocated.join(", ")
+                        );
+                    }
+                    if !heuristics.is_empty() {
+                        eprintln!(
+                            "  ir:        synthesized in-memory: {}",
+                            heuristics.join(", ")
+                        );
+                    }
                 }
             }
             let config = assura_config::CompilerConfig {
