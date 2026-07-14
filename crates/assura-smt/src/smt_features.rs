@@ -220,10 +220,21 @@ fn verify_incremental_contract_clause(
     body: &SpExpr,
     sibling_clauses: &[Clause],
 ) -> Vec<VerificationResult> {
+    verify_layer0_feature_marker(parent_name, "incremental_contract", body, sibling_clauses)
+}
+
+/// Feature markers owned mainly by Layer 0 (type checker): boolean bodies get
+/// SMT validity; non-boolean / function bodies produce **no** A05102 Unknown.
+fn verify_layer0_feature_marker(
+    parent_name: &str,
+    feature_label: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
     if is_likely_boolean_predicate(body) {
         return vec![verify_feature_body(
             parent_name,
-            "incremental_contract",
+            feature_label,
             body,
             sibling_clauses,
         )];
@@ -1088,13 +1099,12 @@ pub fn verify_feature_clause(
             body,
             sibling_clauses,
         )],
-        // CONC
-        Feature::Determinism => vec![verify_feature_body(
-            parent_name,
-            "determinism",
-            body,
-            sibling_clauses,
-        )],
+        // CONC — bare `must_be deterministic` is Layer 0 (type checker); only
+        // boolean predicate bodies produce SMT obligations. Non-boolean function
+        // bodies used to emit A05102 Unknown and noise flagship demos (libwebp).
+        Feature::Determinism => {
+            verify_layer0_feature_marker(parent_name, "determinism", body, sibling_clauses)
+        }
         Feature::Deadline => vec![verify_feature_body(
             parent_name,
             "deadline",

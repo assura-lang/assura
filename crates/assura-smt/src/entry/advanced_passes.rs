@@ -506,10 +506,7 @@ pub(crate) fn verify_file_with_cvc5(
         if !skip_results.is_empty() {
             let filtered: Vec<assura_ast::Clause> = clauses
                 .iter()
-                .filter(|c| {
-                    !(c.kind == assura_ast::ClauseKind::Ensures
-                        && crate::entry::verify::expr_references_result(&c.body))
-                })
+                .filter(|c| !crate::entry::verify::ensures_needs_ir_for_unconstrained_result(c))
                 .cloned()
                 .collect();
             if filtered.iter().any(|c| {

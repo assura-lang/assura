@@ -998,6 +998,43 @@ contract Interval {
 
     #[test]
     #[cfg(feature = "z3-verify")]
+    fn e2e_extern_result_length_nonneg_verifies_without_ir() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+        let dir = std::env::temp_dir().join(format!("assura-len-nonneg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Flagship taint pattern: extern Bytes + result.length() >= 0 (no IR).
+        let src = r#"
+extern fn read_blob(table: String, id: Nat) -> Bytes
+requires { id >= 0 }
+ensures  { result.length() >= 0 }
+"#;
+        let path = dir.join("blob.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let results = Verifier::new(&typed).source(&path).verify();
+        let unknowns: Vec<_> = results
+            .iter()
+            .filter(|r| matches!(r, VerificationResult::Unknown { .. }))
+            .collect();
+        assert!(
+            unknowns.is_empty(),
+            "result.length() >= 0 must not Unknown-skip: {results:?}"
+        );
+        let verified = results
+            .iter()
+            .filter(|r| matches!(r, VerificationResult::Verified { .. }))
+            .count();
+        assert!(
+            verified >= 1,
+            "result.length() >= 0 should verify via length axioms: {results:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(feature = "z3-verify")]
     fn e2e_multi_ensures_unplannable_then_equality_verifies_without_sidecar() {
         use crate::VerificationResult;
         use crate::Verifier;
