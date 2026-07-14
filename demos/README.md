@@ -129,7 +129,8 @@ in memory when it can:
 so you often get **Verified** with no sidecar.
 `assura build --write-ir` only writes those analyzable shapes (never identity
 stubs for unanalyzable ensures). `--auto-implement` tries offline heuristics
-first, then LLM for residuals.
+first, then LLM for residuals. With multi-ensures, `assura check -v` names
+which ensures drove the body and which residual clauses may stay Unknown.
 
 If the ensures shape is **not** synthesizable (e.g. `result * result == x`), those
 clauses are **skipped with Unknown** (not a silent counterexample). Use the

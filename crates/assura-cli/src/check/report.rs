@@ -62,6 +62,17 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                             "  ir:        synthesized in-memory: {}",
                             heuristics.join(", ")
                         );
+                        // Multi-ensures body driver vs residual (#1370). Parse
+                        // assura-synth-* comments from heuristic IR text via
+                        // stub_ir_sidecars_for_typed (already on crates.io API).
+                        let texts = assura_smt::stub_ir_sidecars_for_typed(typed);
+                        for name in heuristics {
+                            if let Some(text) = texts.get(name)
+                                && let Some(detail) = synth_note_detail_from_ir(text)
+                            {
+                                eprintln!("  ir:          {name} {detail}");
+                            }
+                        }
                     }
                 }
             }
@@ -390,4 +401,58 @@ fn lookup_clause_span(
 /// inconclusive result (error, exit 1).
 fn is_known_smt_limitation(reason: &str) -> bool {
     assura_smt::is_known_smt_limitation(reason)
+}
+
+/// Human detail from `// assura-synth-body` / residual comments in heuristic IR
+/// (#1370). Co-publish safe: parses comment text only (no new smt crate APIs).
+pub(crate) fn synth_note_detail_from_ir(ir_text: &str) -> Option<String> {
+    let mut body: Option<String> = None;
+    let mut residual: Option<String> = None;
+    for line in ir_text.lines() {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("// assura-synth-body:") {
+            body = Some(rest.trim().to_string());
+        } else if let Some(rest) = t.strip_prefix("// assura-synth-residual:") {
+            residual = Some(rest.trim().to_string());
+        }
+    }
+    let body = body?;
+    Some(match residual {
+        Some(r) if !r.is_empty() => {
+            format!("body from {body}; residual {r} (may stay Unknown)")
+        }
+        _ => format!("body from {body}"),
+    })
+}
+
+#[cfg(test)]
+mod synth_note_parse_tests {
+    use super::synth_note_detail_from_ir;
+
+    #[test]
+    fn parses_body_and_residual() {
+        let ir = r#"// Generated IR
+// assura-synth-body: ensures#2 result_eq
+// assura-synth-residual: ensures#1
+module X {
+}
+"#;
+        let d = synth_note_detail_from_ir(ir).expect("detail");
+        assert!(
+            d.contains("ensures#2 result_eq") && d.contains("ensures#1") && d.contains("Unknown"),
+            "{d}"
+        );
+    }
+
+    #[test]
+    fn parses_combined_bounds_without_residual() {
+        let ir = "// assura-synth-body: combined_bounds\nmodule Y {}\n";
+        let d = synth_note_detail_from_ir(ir).expect("detail");
+        assert_eq!(d, "body from combined_bounds");
+    }
+
+    #[test]
+    fn missing_body_comment_returns_none() {
+        assert!(synth_note_detail_from_ir("// Generated IR\nmodule Z {}\n").is_none());
+    }
 }
