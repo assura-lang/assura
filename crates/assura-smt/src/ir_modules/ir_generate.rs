@@ -2500,4 +2500,37 @@ mod tests {
             "must not stub result bounds And:\n{text}"
         );
     }
+
+    #[test]
+    fn test_ir_generate_mixed_and_not_bound_stays_stub() {
+        // result >= lo && x > 0: second conjunct is not a result ordering bound.
+        let clauses = vec![Clause {
+            kind: ClauseKind::Ensures,
+            body: sp(Expr::BinOp {
+                op: BinOp::And,
+                lhs: spb(Expr::BinOp {
+                    op: BinOp::Gte,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::Ident("lo".into())),
+                }),
+                rhs: spb(Expr::BinOp {
+                    op: BinOp::Gt,
+                    lhs: spb(Expr::Ident("x".into())),
+                    rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+                }),
+            }),
+            effect_variables: vec![],
+        }];
+        let text = generate_ir_sidecar_text(
+            "Mixed",
+            &[int_param("lo", 0), int_param("x", 1)],
+            &["lo".into(), "x".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(
+            text.contains("Stub IR"),
+            "mixed And must not peel as result-bound only:\n{text}"
+        );
+    }
 }
