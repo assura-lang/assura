@@ -166,6 +166,44 @@ fn verbose_short_flag_works() {
     );
 }
 
+/// `check -v` lists contracts that used in-memory IR synthesis (#1364).
+#[test]
+fn verbose_check_lists_synthesized_heuristic_ir() {
+    let tmp = unique_temp("assura_verbose_synth");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let path = tmp.join("GeX.assura");
+    std::fs::write(
+        &path,
+        r#"
+contract GeX {
+  input(x: Int)
+  output(result: Int)
+  ensures { result >= x }
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check", "--verbose", path.to_str().unwrap()])
+        .output()
+        .expect("assura check --verbose");
+    assert!(
+        out.status.success(),
+        "check should pass: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("synthesized in-memory") && stderr.contains("GeX"),
+        "verbose should list synthesized contracts: {stderr}"
+    );
+    assert!(
+        !stderr.contains("co-located sidecar"),
+        "no disk sidecar for this fixture: {stderr}"
+    );
+}
+
 #[test]
 fn quiet_short_flag_works() {
     let out = Command::new(assura_bin())

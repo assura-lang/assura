@@ -50,10 +50,11 @@ impl LoadedVerifyExtras {
     /// in memory for any remaining jobs (no disk write).
     ///
     /// Pure stubs (`Stub IR` fallback for unanalyzable ensures) are **not**
-    /// injected, so `ensures { result > 0 }` still reports Unknown instead of
-    /// a false identity proof. Analyzable shapes (`result == x`, arith, call
-    /// chains with same-file callees, match/if, …) verify without requiring
-    /// the user to run `--write-ir` first.
+    /// injected, so shapes like `result * result == x` still report Unknown
+    /// instead of a false identity proof. Analyzable shapes (`result == x`,
+    /// arith, clamp/signum, result bounds including And chains, call chains
+    /// with same-file callees, match/if, …) verify without requiring the
+    /// user to run `--write-ir` first.
     pub fn load_or_synthesize(source_file: &Path, typed: &assura_types::TypedFile) -> Self {
         let mut loaded = Self::load(source_file, typed);
         loaded.fill_missing_with_heuristics(typed);
@@ -118,7 +119,8 @@ impl LoadedVerifyExtras {
         self.ir_map.is_empty()
     }
 
-    /// Names of contracts/functions that have a loaded IR sidecar (sorted).
+    /// Names of contracts/functions that have a loaded IR body (sorted).
+    /// Includes both co-located disk sidecars and in-memory heuristics.
     pub fn loaded_names(&self) -> Vec<String> {
         let mut names: Vec<String> = self.ir_map.keys().cloned().collect();
         names.sort();
@@ -899,6 +901,11 @@ contract AndBound {
             "and-bound heuristic: {:?}",
             loaded.heuristic_names()
         );
+        assert_eq!(
+            loaded.loaded_names(),
+            loaded.heuristic_names(),
+            "no disk sidecar: all names should be heuristics"
+        );
         let results = Verifier::new(&typed).source(&path).verify();
         let verified = results
             .iter()
@@ -907,6 +914,46 @@ contract AndBound {
         assert!(
             verified >= 1,
             "result >= lo && result <= hi should verify; got {results:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(feature = "z3-verify")]
+    fn e2e_heuristic_ir_verifies_result_bound_and_chain_three_without_sidecar() {
+        use crate::VerificationResult;
+        use crate::Verifier;
+        let dir = std::env::temp_dir().join(format!("assura-triplebound-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = r#"
+contract TripleBound {
+  input(lo: Int, mid: Int, hi: Int)
+  output(result: Int)
+  requires { lo <= mid }
+  requires { mid <= hi }
+  ensures { result >= lo && result <= mid && result <= hi }
+}
+"#;
+        let path = dir.join("triple.assura");
+        std::fs::write(&path, src).unwrap();
+        let typed = crate::test_util::typecheck_ok(src);
+        let loaded = LoadedVerifyExtras::load_or_synthesize(&path, &typed);
+        assert!(
+            loaded
+                .heuristic_names()
+                .contains(&"TripleBound".to_string()),
+            "triple-bound heuristic: {:?}",
+            loaded.heuristic_names()
+        );
+        let results = Verifier::new(&typed).source(&path).verify();
+        let verified = results
+            .iter()
+            .filter(|r| matches!(r, VerificationResult::Verified { .. }))
+            .count();
+        assert!(
+            verified >= 1,
+            "three-way result bounds And should verify; got {results:?}"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
