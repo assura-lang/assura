@@ -3,9 +3,11 @@
 From install to a verified, runnable implementation.
 
 This guide works on a clean machine (no monorepo required). It uses a
-tiny result-bearing showcase contract plus a co-located Implementation IR
-sidecar so `assura check` can **verify** (not only type-check), and
-`assura build` can emit real Rust instead of `todo!()`.
+tiny result-bearing showcase contract. For synthesizable ensures shapes
+(including `result == x`), `assura check` synthesizes an in-memory
+implementation body so you get **Verified** without writing IR by hand.
+Optional co-located IR and `assura build --write-ir` cover shapes
+synthesis cannot prove.
 
 For broader language coverage, see [TUTORIAL.md](TUTORIAL.md) and
 [demos/README.md](../demos/README.md) (showcase vs EXPECT FAIL taxonomy).
@@ -32,32 +34,22 @@ cargo install --path crates/assura-cli --locked
 mkdir hello-assura && cd hello-assura
 ```
 
-Write the contract (`ShowcaseEcho.assura`) and co-located IR sidecar
-(`ShowcaseEcho.ir`). The IR file name must match the **contract name**
-(not the `.assura` file stem):
+Write the contract only (`ShowcaseEcho.assura`). No sidecar required for
+identity:
 
 ```bash
 cat > ShowcaseEcho.assura << 'EOF'
-// SHOWCASE: result-bearing identity with co-located IR.
+// SHOWCASE: result-bearing identity (auto-synthesized IR).
 contract ShowcaseEcho {
   input(x: Int)
   output(result: Int)
   ensures { result == x }
 }
 EOF
-
-cat > ShowcaseEcho.ir << 'EOF'
-module ShowcaseEcho {
-  fn #0 : ($0: Int) -> Int ! pure
-  {
-    $result = load $0 : Int
-  }
-}
-EOF
 ```
 
-In the Assura monorepo you can use the same files already under
-`demos/showcase-echo.assura` and `demos/ShowcaseEcho.ir`.
+In the Assura monorepo you can use `demos/showcase-echo.assura` (and
+optional `demos/ShowcaseEcho.ir` if you want an explicit sidecar).
 
 ## 3. Check (prefer all clauses Verified)
 
@@ -67,26 +59,40 @@ assura check ShowcaseEcho.assura
 
 Expected: `ShowcaseEcho: ensures ... verified` and `check passed (no errors)`.
 
-For **synthesizable** ensures shapes (`result == x`, arithmetic including
-nested/`-x`/`abs`/`min`/`max`/`clamp`/`signum` and nested calls like
-`abs(min(x,y))`, inequality witnesses `result >= e` / `result > e` /
+**Synthesizable** ensures shapes (no hand IR): `result == x`, arithmetic
+including nested/`-x`/`abs`/`min`/`max`/`clamp`/`signum` and nested calls
+like `abs(min(x,y))`, inequality witnesses `result >= e` / `result > e` /
 `result <= e` / `result < e` and conjuncts `result >= lo && result <= hi`
-(weakest equality or ±1 body), `let`
-bindings, field loads `p.x` / `p.y` and nested `o.inner.v` on multi-field
-structs (newline-separated fields are fine), tuple projections `t.0` / `t.1`
-(and nested chains like `t.1.0`; use a trailing comma for
-1-tuples: `(Int,)`; empty `(,)` is rejected),
-collection length `result == xs.length()` (also `.len()` / `.size()` on
-List/Bytes/String), Bool `!`/`&&`/`||`/`=>` and comparisons,
-same-file pure call chains, nested if, match arms the planner knows),
-`assura check` synthesizes an in-memory IR body automatically so you get
-**Verified** without a co-located `.ir` file.
+(weakest equality or ±1 body), `let` bindings, field loads `p.x` / `p.y`
+and nested `o.inner.v` on multi-field structs (newline-separated fields
+are fine), tuple projections `t.0` / `t.1` (and nested chains like
+`t.1.0`; use a trailing comma for 1-tuples: `(Int,)`; empty `(,)` is
+rejected), collection length `result == xs.length()` (also `.len()` /
+`.size()` on List/Bytes/String), Bool `!`/`&&`/`||`/`=>` and comparisons,
+same-file pure call chains, nested if, match arms the planner knows.
 
 Shapes the planner cannot synthesize still report **Unknown** (not a fake
 pass), with a tip to write co-located IR, `assura build --write-ir`, or
 `--auto-implement`. Inequality synthesis picks one witness body (e.g.
 `result >= x` uses `result = x`); it is not a full specification of every
 satisfying implementation.
+
+### Optional: co-located IR sidecar
+
+When you want an explicit body (or synthesis cannot cover the shape),
+add `{ContractName}.ir` next to the source (name matches the **contract**,
+not the file stem):
+
+```bash
+cat > ShowcaseEcho.ir << 'EOF'
+module ShowcaseEcho {
+  fn #0 : ($0: Int) -> Int ! pure
+  {
+    $result = load $0 : Int
+  }
+}
+EOF
+```
 
 ## 4. Build (IR becomes the implementation)
 
