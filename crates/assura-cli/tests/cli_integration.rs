@@ -204,6 +204,51 @@ contract GeX {
     );
 }
 
+/// Multi-ensures residual: -v names body driver vs residual ensures (#1370).
+#[test]
+fn verbose_check_lists_multi_ensures_body_driver_and_residual() {
+    let tmp = unique_temp("assura_verbose_multi");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let path = tmp.join("IncAndBound.assura");
+    // Bound residual holds under result == x + 1 (no CE); still not the body driver.
+    std::fs::write(
+        &path,
+        r#"
+contract IncAndBound {
+  input(x: Int)
+  output(result: Int)
+  requires { x >= 0 }
+  ensures { result >= x }
+  ensures { result == x + 1 }
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check", "--verbose", path.to_str().unwrap()])
+        .output()
+        .expect("assura check --verbose multi");
+    assert!(
+        out.status.success(),
+        "check should pass: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("synthesized in-memory") && stderr.contains("IncAndBound"),
+        "verbose synth list: {stderr}"
+    );
+    assert!(
+        stderr.contains("body from")
+            && stderr.contains("ensures#2")
+            && stderr.contains("result_eq")
+            && stderr.contains("ensures#1")
+            && stderr.contains("residual"),
+        "verbose should name driver + residual: {stderr}"
+    );
+}
+
 #[test]
 fn quiet_short_flag_works() {
     let out = Command::new(assura_bin())

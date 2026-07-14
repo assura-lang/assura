@@ -80,7 +80,10 @@ Inequality synthesis picks one **witness** body (e.g. `result >= x` uses
 `result = x`); multi-bound clauses share one witness (prefer lower bound).
 That is not a full specification of every satisfying implementation.
 
-Use `assura check -v` to see `synthesized in-memory: ContractName`.
+Use `assura check -v` to see `synthesized in-memory: ContractName`. For
+multi-ensures contracts, verbose also names the **body driver** ensures
+(which clause selected the IR body) and any **residual** ensures that were
+not the driver (they may still report Unknown under that witness body).
 
 ### Optional: co-located IR sidecar
 

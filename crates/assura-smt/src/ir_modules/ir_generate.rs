@@ -69,6 +69,20 @@ struct IrGenPlan {
     siblings: Vec<(usize, IrGenBody, usize)>,
 }
 
+/// Which ensures clause(s) drove multi-ensures IR synthesis (#1370).
+///
+/// Embedded as `// assura-synth-*` comments in generated IR so CLI verbose
+/// can parse them without new crates.io-only APIs (co-publish safe).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SynthNote {
+    /// 1-based index among ensures clauses, or `None` for combined bounds.
+    driver_ensures: Option<usize>,
+    /// `result_eq` | `other` | `combined_bounds` | `legacy`
+    driver_kind: &'static str,
+    /// 1-based ensures indices not used as the body driver (may stay Unknown).
+    residual_ensures: Vec<usize>,
+}
+
 type IrPlannerFn = fn(&SpExpr, &PlanCtx<'_>) -> Option<IrGenPlan>;
 
 const ENSURES_PLANNERS: &[IrPlannerFn] = &[
@@ -202,7 +216,7 @@ pub fn generate_ir_sidecar_text_with_callees(
         field_layouts,
     };
 
-    if let Some(plan) = plan_from_all_ensures(clauses, &ctx) {
+    if let Some((plan, note)) = plan_from_all_ensures(clauses, &ctx) {
         return format_ir_module_plan(
             name,
             params,
@@ -210,6 +224,7 @@ pub fn generate_ir_sidecar_text_with_callees(
             requires_count,
             ensures_count,
             &plan,
+            Some(&note),
         );
     }
 
@@ -233,7 +248,10 @@ fn plan_from_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
 /// 3. Else if every ensures is a pure result-ordering bound (or And of those),
 ///    synthesize one combined witness (prefer lower bound).
 /// 4. Else fall back to first successfully planned ensures (legacy).
-fn plan_from_all_ensures(clauses: &[Clause], ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
+///
+/// Returns the plan plus a [`SynthNote`] describing the body driver vs residual
+/// ensures for verbose diagnostics (#1370).
+fn plan_from_all_ensures(clauses: &[Clause], ctx: &PlanCtx<'_>) -> Option<(IrGenPlan, SynthNote)> {
     let ensures: Vec<&SpExpr> = clauses
         .iter()
         .filter(|c| c.kind == ClauseKind::Ensures)
@@ -242,13 +260,14 @@ fn plan_from_all_ensures(clauses: &[Clause], ctx: &PlanCtx<'_>) -> Option<IrGenP
     if ensures.is_empty() {
         return None;
     }
+    let n = ensures.len();
 
-    let mut result_eq_plan: Option<IrGenPlan> = None;
-    let mut other_non_bound_plan: Option<IrGenPlan> = None;
+    let mut result_eq_plan: Option<(usize, IrGenPlan)> = None;
+    let mut other_non_bound_plan: Option<(usize, IrGenPlan)> = None;
     let mut bound_atoms: Vec<&SpExpr> = Vec::new();
     let mut all_are_pure_bounds = true;
 
-    for expr in &ensures {
+    for (i, expr) in ensures.iter().enumerate() {
         if is_pure_result_bound_expr(expr) {
             collect_and_conjuncts(expr, &mut bound_atoms);
             continue;
@@ -259,31 +278,51 @@ fn plan_from_all_ensures(clauses: &[Clause], ctx: &PlanCtx<'_>) -> Option<IrGenP
         };
         if is_result_equality_ensures(expr) {
             if result_eq_plan.is_none() {
-                result_eq_plan = Some(plan);
+                result_eq_plan = Some((i, plan));
             }
         } else if other_non_bound_plan.is_none() {
-            other_non_bound_plan = Some(plan);
+            other_non_bound_plan = Some((i, plan));
         }
     }
 
-    if let Some(plan) = result_eq_plan.or(other_non_bound_plan) {
-        return Some(plan);
+    if let Some((idx, plan)) = result_eq_plan {
+        return Some((plan, synth_note_for_driver(idx, "result_eq", n)));
+    }
+    if let Some((idx, plan)) = other_non_bound_plan {
+        return Some((plan, synth_note_for_driver(idx, "other", n)));
     }
 
     if all_are_pure_bounds
         && !bound_atoms.is_empty()
         && let Some(plan) = plan_combined_result_bounds(&bound_atoms, ctx)
     {
-        return Some(plan);
+        return Some((
+            plan,
+            SynthNote {
+                driver_ensures: None,
+                driver_kind: "combined_bounds",
+                residual_ensures: Vec::new(),
+            },
+        ));
     }
 
     // Legacy first-wins among any plannable ensures.
-    for expr in ensures {
+    for (i, expr) in ensures.iter().enumerate() {
         if let Some(plan) = plan_from_ensures(expr, ctx) {
-            return Some(plan);
+            return Some((plan, synth_note_for_driver(i, "legacy", n)));
         }
     }
     None
+}
+
+fn synth_note_for_driver(driver_0based: usize, kind: &'static str, n_ensures: usize) -> SynthNote {
+    let driver = driver_0based + 1;
+    let residual: Vec<usize> = (1..=n_ensures).filter(|&i| i != driver).collect();
+    SynthNote {
+        driver_ensures: Some(driver),
+        driver_kind: kind,
+        residual_ensures: residual,
+    }
 }
 
 /// `result == e` or `e == result` (top-level equality ensures).
@@ -1246,6 +1285,71 @@ fn plan_result_arith(
     Some(IrGenBody { lines })
 }
 
+/// Shared IR peel for free-call and method forms of abs/min/max/clamp/signum
+/// (#1369). `arg_slots` is already-resolved operand slots (method receiver first).
+fn peel_builtin_slots(
+    name: &str,
+    arg_slots: &[usize],
+    return_ty: &str,
+    lines: &mut Vec<String>,
+    used: &mut Vec<usize>,
+) -> Option<usize> {
+    match (name, arg_slots.len()) {
+        ("abs", 1) => {
+            let a = arg_slots[0];
+            let slot = next_temp_slot(used);
+            used.push(slot);
+            lines.push(format!("    ${slot} = call abs (${a}) : {return_ty}"));
+            Some(slot)
+        }
+        ("min" | "max", 2) => {
+            let a = arg_slots[0];
+            let b = arg_slots[1];
+            let slot = next_temp_slot(used);
+            used.push(slot);
+            lines.push(format!(
+                "    ${slot} = call {name} (${a}, ${b}) : {return_ty}"
+            ));
+            Some(slot)
+        }
+        // clamp(x, lo, hi) ≡ min(max(x, lo), hi)
+        ("clamp", 3) => {
+            let x = arg_slots[0];
+            let lo = arg_slots[1];
+            let hi = arg_slots[2];
+            let t = next_temp_slot(used);
+            used.push(t);
+            lines.push(format!("    ${t} = call max (${x}, ${lo}) : {return_ty}"));
+            let slot = next_temp_slot(used);
+            used.push(slot);
+            lines.push(format!(
+                "    ${slot} = call min (${t}, ${hi}) : {return_ty}"
+            ));
+            Some(slot)
+        }
+        // signum(x) ≡ max(min(x, 1), -1)
+        ("signum", 1) => {
+            let x = arg_slots[0];
+            let one = next_temp_slot(used);
+            used.push(one);
+            lines.push(format!("    ${one} = const 1 : {return_ty}"));
+            let neg1 = next_temp_slot(used);
+            used.push(neg1);
+            lines.push(format!("    ${neg1} = const -1 : {return_ty}"));
+            let t = next_temp_slot(used);
+            used.push(t);
+            lines.push(format!("    ${t} = call min (${x}, ${one}) : {return_ty}"));
+            let slot = next_temp_slot(used);
+            used.push(slot);
+            lines.push(format!(
+                "    ${slot} = call max (${t}, ${neg1}) : {return_ty}"
+            ));
+            Some(slot)
+        }
+        _ => None,
+    }
+}
+
 /// Resolve an arithmetic operand to a slot.
 ///
 /// Supports parameters, integer/bool literals (`const` temps), nested
@@ -1298,136 +1402,26 @@ fn operand_to_slot(
             let Expr::Ident(name) = &func.as_ref().node else {
                 return None;
             };
-            match (name.as_str(), args.len()) {
-                ("abs", 1) => {
-                    let a = operand_to_slot(&args[0], ctx, lines, used)?;
-                    let slot = next_temp_slot(used);
-                    used.push(slot);
-                    lines.push(format!("    ${slot} = call abs (${a}) : {}", ctx.return_ty));
-                    Some(slot)
-                }
-                ("min" | "max", 2) => {
-                    let a = operand_to_slot(&args[0], ctx, lines, used)?;
-                    let b = operand_to_slot(&args[1], ctx, lines, used)?;
-                    let slot = next_temp_slot(used);
-                    used.push(slot);
-                    lines.push(format!(
-                        "    ${slot} = call {name} (${a}, ${b}) : {}",
-                        ctx.return_ty
-                    ));
-                    Some(slot)
-                }
-                // clamp(x, lo, hi) ≡ min(max(x, lo), hi) — same as check-rust encode.
-                ("clamp", 3) => {
-                    let x = operand_to_slot(&args[0], ctx, lines, used)?;
-                    let lo = operand_to_slot(&args[1], ctx, lines, used)?;
-                    let hi = operand_to_slot(&args[2], ctx, lines, used)?;
-                    let t = next_temp_slot(used);
-                    used.push(t);
-                    lines.push(format!(
-                        "    ${t} = call max (${x}, ${lo}) : {}",
-                        ctx.return_ty
-                    ));
-                    let slot = next_temp_slot(used);
-                    used.push(slot);
-                    lines.push(format!(
-                        "    ${slot} = call min (${t}, ${hi}) : {}",
-                        ctx.return_ty
-                    ));
-                    Some(slot)
-                }
-                // signum(x) ≡ max(min(x, 1), -1).
-                ("signum", 1) => {
-                    let x = operand_to_slot(&args[0], ctx, lines, used)?;
-                    let one = next_temp_slot(used);
-                    used.push(one);
-                    lines.push(format!("    ${one} = const 1 : {}", ctx.return_ty));
-                    let neg1 = next_temp_slot(used);
-                    used.push(neg1);
-                    lines.push(format!("    ${neg1} = const -1 : {}", ctx.return_ty));
-                    let t = next_temp_slot(used);
-                    used.push(t);
-                    lines.push(format!(
-                        "    ${t} = call min (${x}, ${one}) : {}",
-                        ctx.return_ty
-                    ));
-                    let slot = next_temp_slot(used);
-                    used.push(slot);
-                    lines.push(format!(
-                        "    ${slot} = call max (${t}, ${neg1}) : {}",
-                        ctx.return_ty
-                    ));
-                    Some(slot)
-                }
-                _ => None,
+            let mut arg_slots = Vec::with_capacity(args.len());
+            for a in args {
+                arg_slots.push(operand_to_slot(a, ctx, lines, used)?);
             }
+            peel_builtin_slots(name.as_str(), &arg_slots, ctx.return_ty, lines, used)
         }
         // Method form: x.abs(), x.min(y), x.max(y), x.clamp(lo, hi), x.signum().
+        // Arity is receiver + args; peel_builtin_slots sees free-call arity.
         Expr::MethodCall {
             receiver,
             method,
             args,
-        } => match (method.as_str(), args.len()) {
-            ("abs", 0) => {
-                let a = operand_to_slot(receiver.as_ref(), ctx, lines, used)?;
-                let slot = next_temp_slot(used);
-                used.push(slot);
-                lines.push(format!("    ${slot} = call abs (${a}) : {}", ctx.return_ty));
-                Some(slot)
+        } => {
+            let mut arg_slots = Vec::with_capacity(1 + args.len());
+            arg_slots.push(operand_to_slot(receiver.as_ref(), ctx, lines, used)?);
+            for a in args {
+                arg_slots.push(operand_to_slot(a, ctx, lines, used)?);
             }
-            ("min" | "max", 1) => {
-                let a = operand_to_slot(receiver.as_ref(), ctx, lines, used)?;
-                let b = operand_to_slot(&args[0], ctx, lines, used)?;
-                let slot = next_temp_slot(used);
-                used.push(slot);
-                lines.push(format!(
-                    "    ${slot} = call {method} (${a}, ${b}) : {}",
-                    ctx.return_ty
-                ));
-                Some(slot)
-            }
-            ("clamp", 2) => {
-                let x = operand_to_slot(receiver.as_ref(), ctx, lines, used)?;
-                let lo = operand_to_slot(&args[0], ctx, lines, used)?;
-                let hi = operand_to_slot(&args[1], ctx, lines, used)?;
-                let t = next_temp_slot(used);
-                used.push(t);
-                lines.push(format!(
-                    "    ${t} = call max (${x}, ${lo}) : {}",
-                    ctx.return_ty
-                ));
-                let slot = next_temp_slot(used);
-                used.push(slot);
-                lines.push(format!(
-                    "    ${slot} = call min (${t}, ${hi}) : {}",
-                    ctx.return_ty
-                ));
-                Some(slot)
-            }
-            ("signum", 0) => {
-                let x = operand_to_slot(receiver.as_ref(), ctx, lines, used)?;
-                let one = next_temp_slot(used);
-                used.push(one);
-                lines.push(format!("    ${one} = const 1 : {}", ctx.return_ty));
-                let neg1 = next_temp_slot(used);
-                used.push(neg1);
-                lines.push(format!("    ${neg1} = const -1 : {}", ctx.return_ty));
-                let t = next_temp_slot(used);
-                used.push(t);
-                lines.push(format!(
-                    "    ${t} = call min (${x}, ${one}) : {}",
-                    ctx.return_ty
-                ));
-                let slot = next_temp_slot(used);
-                used.push(slot);
-                lines.push(format!(
-                    "    ${slot} = call max (${t}, ${neg1}) : {}",
-                    ctx.return_ty
-                ));
-                Some(slot)
-            }
-            _ => None,
-        },
+            peel_builtin_slots(method.as_str(), &arg_slots, ctx.return_ty, lines, used)
+        }
         Expr::Field(recv, field) => {
             let base = operand_to_slot(recv.as_ref(), ctx, lines, used)?;
             // Resolve field on the receiver's type (supports nested `o.inner.v`).
@@ -1674,6 +1668,7 @@ fn format_ir_module_plan(
     requires_count: usize,
     ensures_count: usize,
     plan: &IrGenPlan,
+    note: Option<&SynthNote>,
 ) -> String {
     let module = sanitize_module_name(name);
     let param_list = params
@@ -1684,14 +1679,19 @@ fn format_ir_module_plan(
     let main_body = plan.main.lines.join("\n");
     let mut out = format!(
         "// Generated IR for {name} from ensures heuristics\n\
-         // Contract: {requires_count} requires, {ensures_count} ensures\n\
-         module {module} {{\n\
+         // Contract: {requires_count} requires, {ensures_count} ensures\n"
+    );
+    if let Some(note) = note {
+        out.push_str(&format_synth_note_comments(note));
+    }
+    out.push_str(&format!(
+        "module {module} {{\n\
            fn #0 : ({param_list}) -> {return_ty} ! pure\n\
            pre: true\n\
            {{\n\
          {main_body}\n\
            }}\n"
-    );
+    ));
     for (block_id, sibling, nparams) in &plan.siblings {
         let sib_body = sibling.lines.join("\n");
         // Branch/match arms historically use a dummy `$0: Int` signature even
@@ -1714,6 +1714,24 @@ fn format_ir_module_plan(
     }
     out.push_str("}\n");
     out
+}
+
+/// Stable comment lines for multi-ensures driver / residual diagnostics.
+fn format_synth_note_comments(note: &SynthNote) -> String {
+    let body = match note.driver_ensures {
+        Some(i) => format!("// assura-synth-body: ensures#{i} {}\n", note.driver_kind),
+        None => format!("// assura-synth-body: {}\n", note.driver_kind),
+    };
+    if note.residual_ensures.is_empty() {
+        return body;
+    }
+    let residuals = note
+        .residual_ensures
+        .iter()
+        .map(|i| format!("ensures#{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("{body}// assura-synth-residual: {residuals}\n")
 }
 
 fn sanitize_module_name(name: &str) -> String {
@@ -3014,6 +3032,150 @@ mod tests {
             "method min should synthesize, got:\n{text}"
         );
         assert!(!text.contains("Stub IR"), "{text}");
+    }
+
+    #[test]
+    fn test_peel_builtin_call_and_method_abs_same_ir_shape() {
+        // Free abs(x) and method x.abs() must share peel_builtin_slots (#1369).
+        let free = generate_ir_sidecar_text(
+            "AbsFree",
+            &[int_param("x", 0)],
+            &["x".into()],
+            "Int",
+            &[Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Eq,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::Call {
+                        func: spb(Expr::Ident("abs".into())),
+                        args: vec![sp(Expr::Ident("x".into()))],
+                    }),
+                }),
+                effect_variables: vec![],
+            }],
+        );
+        let method = generate_ir_sidecar_text(
+            "AbsMeth",
+            &[int_param("x", 0)],
+            &["x".into()],
+            "Int",
+            &[Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Eq,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::MethodCall {
+                        receiver: spb(Expr::Ident("x".into())),
+                        method: "abs".into(),
+                        args: vec![],
+                    }),
+                }),
+                effect_variables: vec![],
+            }],
+        );
+        let free_body: String = free
+            .lines()
+            .filter(|l| l.trim_start().starts_with('$') || l.contains("call abs"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let method_body: String = method
+            .lines()
+            .filter(|l| l.trim_start().starts_with('$') || l.contains("call abs"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            free_body.contains("call abs") && method_body.contains("call abs"),
+            "both forms call abs:\nfree:\n{free}\nmethod:\n{method}"
+        );
+        // Same instruction sequence shape (ignoring module name headers).
+        assert_eq!(
+            free_body.lines().count(),
+            method_body.lines().count(),
+            "call vs method abs IR body line count:\nfree:\n{free_body}\nmethod:\n{method_body}"
+        );
+    }
+
+    #[test]
+    fn test_synth_note_comments_unplannable_then_equality() {
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Eq,
+                    lhs: spb(Expr::BinOp {
+                        op: BinOp::Mul,
+                        lhs: spb(Expr::Ident("result".into())),
+                        rhs: spb(Expr::Ident("result".into())),
+                    }),
+                    rhs: spb(Expr::Ident("x".into())),
+                }),
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Eq,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::BinOp {
+                        op: BinOp::Add,
+                        lhs: spb(Expr::Ident("x".into())),
+                        rhs: spb(Expr::Literal(Literal::Int("1".into()))),
+                    }),
+                }),
+                effect_variables: vec![],
+            },
+        ];
+        let text =
+            generate_ir_sidecar_text("Skip", &[int_param("x", 0)], &["x".into()], "Int", &clauses);
+        assert!(
+            text.contains("// assura-synth-body: ensures#2 result_eq"),
+            "driver should be second ensures, got:\n{text}"
+        );
+        assert!(
+            text.contains("// assura-synth-residual: ensures#1"),
+            "first ensures residual, got:\n{text}"
+        );
+        assert!(text.contains("arith add"), "body still add:\n{text}");
+    }
+
+    #[test]
+    fn test_synth_note_combined_bounds_no_residual() {
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Lte,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::Ident("hi".into())),
+                }),
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Gte,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::Ident("lo".into())),
+                }),
+                effect_variables: vec![],
+            },
+        ];
+        let text = generate_ir_sidecar_text(
+            "B",
+            &[int_param("lo", 0), int_param("hi", 1)],
+            &["lo".into(), "hi".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(
+            text.contains("// assura-synth-body: combined_bounds"),
+            "combined bounds note, got:\n{text}"
+        );
+        assert!(
+            !text.contains("assura-synth-residual"),
+            "no residual for pure bound set:\n{text}"
+        );
     }
 
     #[test]
