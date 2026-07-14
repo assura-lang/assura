@@ -456,7 +456,9 @@ fn write_generated_project(
     if fs::create_dir_all(&ir_dir).is_ok() {
         for (name, ir_text) in assura_smt::stub_ir_sidecars_for_typed(typed) {
             // Same policy as --write-ir co-located: never persist identity stubs.
-            if assura_smt::is_stub_ir_text(&ir_text) {
+            // Local string check (not assura_smt::is_stub_ir_text): co-publish
+            // packages the CLI against crates.io assura-smt until the next release.
+            if ir_text.contains("Stub IR") {
                 continue;
             }
             let ir_path = ir_dir.join(format!("{name}.ir"));
@@ -1164,7 +1166,8 @@ fn write_colocated_ir_sidecars(
     let mut wrote = 0usize;
     let mut skipped_stub = 0usize;
     for (name, ir_text) in assura_smt::stub_ir_sidecars_for_typed(typed) {
-        if assura_smt::is_stub_ir_text(&ir_text) {
+        // Co-publish safe: do not call APIs added after crates.io 0.3.x.
+        if ir_text.contains("Stub IR") {
             skipped_stub += 1;
             if output_mode == OutputMode::Human && verbosity == Verbosity::Verbose {
                 eprintln!("  --write-ir: skip stub for `{name}` (ensures not auto-synthesizable)");
@@ -1204,7 +1207,8 @@ fn offline_heuristic_rust_bodies(
     let contexts = assura_smt::ir_prompt_contexts_for_typed(typed, None);
     let mut out = std::collections::HashMap::new();
     for (name, ir_text) in assura_smt::stub_ir_sidecars_for_typed(typed) {
-        if assura_smt::is_stub_ir_text(&ir_text) {
+        // Co-publish safe: do not call APIs added after crates.io 0.3.x.
+        if ir_text.contains("Stub IR") {
             continue;
         }
         let Ok(module) = assura_smt::parse_ir_module(&ir_text) else {
@@ -1608,7 +1612,8 @@ fn rust_bodies_from_ir_sidecars(
             continue;
         };
         // Stubs must not become `todo!()` replacements (identity load != ensures).
-        if assura_smt::is_stub_ir_text(&ir_text) {
+        // Co-publish safe: do not call APIs added after crates.io 0.3.x.
+        if ir_text.contains("Stub IR") {
             if output_mode == OutputMode::Human && verbosity == Verbosity::Verbose {
                 eprintln!("  codegen: skip co-located stub IR for `{}`", ctx.decl_name);
             }
