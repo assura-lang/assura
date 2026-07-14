@@ -219,6 +219,21 @@ fn feature_body_with_requires_assumption() {
 // stub_functions_still_return_unknown: removed in #197.
 // Stubs were dead code; all features now route through verify_feature_body.
 
+#[test]
+fn determinism_non_boolean_body_emits_no_unknown() {
+    // Bare `must_be deterministic` attaches the fn body (Block), not a bool
+    // predicate. Layer 0 owns the check; SMT must not emit A05102 Unknown.
+    use assura_ast::Literal;
+    let body = sp(Expr::Block(vec![sp(Expr::Literal(Literal::Int(
+        "1".into(),
+    )))]));
+    let results = verify_feature_clause("determinism", "worst_case_table_size", &body, &[]);
+    assert!(
+        results.is_empty(),
+        "non-boolean determinism marker should not produce results, got {results:?}"
+    );
+}
+
 #[cfg(feature = "z3-verify")]
 #[test]
 fn converted_stubs_verify_tautology_body() {

@@ -279,10 +279,87 @@ pub(crate) fn expr_references_result(expr: &assura_ast::SpExpr) -> bool {
     assura_ast::expr_references_result(expr)
 }
 
+/// `result.length()` / `.len()` / `.size()` (no args), free or method form.
+fn is_result_length_expr(expr: &assura_ast::SpExpr) -> bool {
+    use assura_ast::Expr;
+    match &expr.node {
+        Expr::MethodCall {
+            receiver,
+            method,
+            args,
+        } => {
+            args.is_empty()
+                && expr_references_result(receiver)
+                && matches!(receiver.node, Expr::Ident(ref n) if n == "result")
+                && matches!(method.as_str(), "length" | "len" | "size")
+        }
+        Expr::Call { func, args } if args.len() == 1 => {
+            matches!(&func.node, Expr::Ident(n) if matches!(n.as_str(), "length" | "len" | "size"))
+                && matches!(&args[0].node, Expr::Ident(n) if n == "result")
+        }
+        _ => false,
+    }
+}
+
+fn is_zero_literal(expr: &assura_ast::SpExpr) -> bool {
+    matches!(
+        &expr.node,
+        assura_ast::Expr::Literal(assura_ast::Literal::Int(s)) if s == "0"
+    )
+}
+
+/// Atom is `result.length() >= 0` or `0 <= result.length()`.
+fn is_result_length_nonneg_atom(expr: &assura_ast::SpExpr) -> bool {
+    use assura_ast::{BinOp, Expr};
+    let Expr::BinOp { op, lhs, rhs } = &expr.node else {
+        return false;
+    };
+    match op {
+        BinOp::Gte => is_result_length_expr(lhs) && is_zero_literal(rhs),
+        BinOp::Lte => is_zero_literal(lhs) && is_result_length_expr(rhs),
+        _ => false,
+    }
+}
+
+/// Ensures that hold for free `result` via length nonneg axioms (no IR body).
+///
+/// Covers `result.length() >= 0` and pure `&&` chains of only that shape.
+/// Used so extern demos like `ensures { result.length() >= 0 }` verify without
+/// a co-located body (flagship taint-tracking / SEC.1).
+pub(crate) fn ensures_result_length_nonneg(expr: &assura_ast::SpExpr) -> bool {
+    use assura_ast::{BinOp, Expr};
+    fn collect_and<'a>(e: &'a assura_ast::SpExpr, out: &mut Vec<&'a assura_ast::SpExpr>) {
+        match &e.node {
+            Expr::BinOp {
+                op: BinOp::And,
+                lhs,
+                rhs,
+            } => {
+                collect_and(lhs, out);
+                collect_and(rhs, out);
+            }
+            _ => out.push(e),
+        }
+    }
+    let mut atoms = Vec::new();
+    collect_and(expr, &mut atoms);
+    !atoms.is_empty() && atoms.iter().all(|a| is_result_length_nonneg_atom(a))
+}
+
+/// Ensures that reference `result` and need an IR body (not length nonneg).
+pub(crate) fn ensures_needs_ir_for_unconstrained_result(c: &Clause) -> bool {
+    c.kind == ClauseKind::Ensures
+        && expr_references_result(&c.body)
+        && !ensures_result_length_nonneg(&c.body)
+}
+
 /// When IR loading was attempted but no body exists for a contract,
 /// ensures clauses referencing `result` cannot be verified (Z3 treats
 /// result as unconstrained). Emit `Unknown` for those clauses so
 /// users see "no implementation" instead of spurious counterexamples (#703).
+///
+/// Exception: `result.length() >= 0` (and pure And chains) holds via length
+/// axioms without a body and is left for the solver.
 ///
 /// `ir_loading_attempted` should be `true` when a source path was provided
 /// (CLI, pipeline) so IR sidecar discovery ran. When `false` (direct
@@ -300,7 +377,7 @@ pub(crate) fn unconstrained_result_unknowns(
     }
     clauses
         .iter()
-        .filter(|c| c.kind == ClauseKind::Ensures && expr_references_result(&c.body))
+        .filter(|c| ensures_needs_ir_for_unconstrained_result(c))
         .map(|_| {
             // #865: actionable guidance for the common postcondition shape.
             VerificationResult::unknown_not_encoded(
@@ -352,11 +429,11 @@ pub(crate) fn verify_parallel_with_solver(
             let skip_results =
                 unconstrained_result_unknowns(name, clauses, has_ir, ir_loading_attempted);
             if !skip_results.is_empty() {
-                // Filter out ensures-with-result clauses so the solver only
-                // sees clauses it can meaningfully verify.
+                // Drop ensures that need an IR body; keep length-nonneg and
+                // input-only ensures for the solver.
                 let filtered: Vec<Clause> = clauses
                     .iter()
-                    .filter(|c| !(c.kind == ClauseKind::Ensures && expr_references_result(&c.body)))
+                    .filter(|c| !ensures_needs_ir_for_unconstrained_result(c))
                     .cloned()
                     .collect();
                 if filtered
@@ -1130,7 +1207,9 @@ mod tests {
 
     // -- expr_references_result (#703) --
 
-    use super::{expr_references_result, unconstrained_result_unknowns};
+    use super::{
+        ensures_result_length_nonneg, expr_references_result, unconstrained_result_unknowns,
+    };
     use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, Spanned};
 
     fn sp(e: Expr) -> assura_ast::SpExpr {
@@ -1232,6 +1311,26 @@ mod tests {
         assert!(
             reason.contains("auto-implement") || reason.contains(".ir"),
             "reason should point at IR / auto-implement: {reason}"
+        );
+    }
+
+    #[test]
+    fn unconstrained_result_unknowns_length_nonneg_not_skipped() {
+        // result.length() >= 0 holds via length axioms without IR.
+        let clauses = vec![ensures_clause(sp(Expr::BinOp {
+            lhs: Box::new(sp(Expr::MethodCall {
+                receiver: Box::new(sp(Expr::Ident("result".into()))),
+                method: "length".into(),
+                args: vec![],
+            })),
+            op: BinOp::Gte,
+            rhs: Box::new(sp(Expr::Literal(Literal::Int("0".into())))),
+        }))];
+        assert!(ensures_result_length_nonneg(&clauses[0].body));
+        let unknowns = unconstrained_result_unknowns("read_blob", &clauses, false, true);
+        assert!(
+            unknowns.is_empty(),
+            "length nonneg should not Unknown-skip: {unknowns:?}"
         );
     }
 

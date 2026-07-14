@@ -29,8 +29,7 @@ see [docs/GETTING-STARTED.md](../docs/GETTING-STARTED.md).
 # After: cargo install assura --locked
 assura check demos/heartbleed.assura
 
-# Result-bearing postconditions need an implementation body (IR).
-# This showcase verifies with a co-located .ir sidecar:
+# Result-bearing ensures: many shapes synthesize in memory (no hand IR).
 assura check demos/showcase-echo.assura
 ```
 
@@ -44,7 +43,9 @@ Preferred for docs and CI smoke:
 | File | Notes |
 |------|--------|
 | `heartbleed.assura` | CVE-style buffer safety; input-only ensures |
-| `showcase-echo.assura` + `ShowcaseEcho.ir` | `result == x` with co-located IR (result-bearing path) |
+| `showcase-echo.assura` | `result == x` (synthesized; optional `ShowcaseEcho.ir`) |
+| `libwebp-huffman.assura` | CVE-2023-4863 Huffman bounds (zero-warning on main) |
+| `taint-tracking.assura` | SEC.1 taint / extern length nonneg (zero-warning on main) |
 | `zlib-inflate.assura` | Real inflate contracts |
 | `integer-overflow.assura` | Overflow-safe arithmetic shape |
 | `mbedtls-x509.assura` | X.509 / TLS-shaped contracts |
@@ -54,18 +55,6 @@ Also usually clean on current main (feature demos):
 `deserialization`, `race-condition`, `crypto-weakness`, `stack-overflow`,
 `effect-handler`, `linear-resource`, `typestate-protocol`, `refinement-banking`,
 `concurrent-lock`, `mbedtls-audit`.
-
-### Pass with SMT Unknown *warnings* (not errors)
-
-These may print `check passed (N warning)` when some clauses are not yet
-encoded. That is a **limitation warning**, not a failed proof of the rest:
-
-| File | Notes |
-|------|--------|
-| `libwebp-huffman.assura` | Often used in docs; may warn |
-| `taint-tracking.assura` | SEC.1 demo; may warn |
-
-Prefer `heartbleed` or `showcase-echo` for a first green check.
 
 ## EXPECT FAIL (intentional red)
 
@@ -87,7 +76,7 @@ If `assura check` fails on these, that is **by design** for teaching.
 | File | CVE | Class | Kind |
 |------|-----|-------|------|
 | `heartbleed.assura` | CVE-2014-0160 | Buffer over-read | SHOWCASE |
-| `libwebp-huffman.assura` | CVE-2023-4863 | Heap overflow | FEATURE (may warn) |
+| `libwebp-huffman.assura` | CVE-2023-4863 | Heap overflow | SHOWCASE |
 | `zlib-inflate.assura` | CVE-2022-37434 | Heap overflow | SHOWCASE |
 | `mbedtls-x509.assura` | CVE-2023-45199 cluster | TLS/X.509 | SHOWCASE |
 | `double-free.assura` | CVE-2014-0195 | Double-free | FEATURE |
