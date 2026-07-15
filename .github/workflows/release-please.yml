@@ -1,7 +1,8 @@
 # Opens/updates the release PR on every push to main, and when a release is
-# created (release PR merged), dispatches the cargo-dist Release workflow with
-# the new tag. GITHUB_TOKEN tags do not trigger on.push.tags, so we must
-# explicitly workflow_dispatch Release (see ci-build-release skill).
+# created (release PR merged), ensures the cargo-dist Release workflow runs
+# for the new tag. App-token tags fire on.push.tags; dispatch-release only
+# workflow_dispatches when no healthy tag-push Release exists (#1380).
+# See ci-build-release skill (App-token dual Release runs).
 #
 # Why a separate file: the cargo-dist Release workflow historically only ran
 # on tags and, after adding branches: [main], still recorded zero push events
@@ -107,8 +108,17 @@ jobs:
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push
 
-  # GITHUB_TOKEN cannot trigger on.push.tags for the cargo-dist workflow.
-  # Explicitly dispatch Release with the new tag when a release is created.
+  # Dispatch cargo-dist Release when a release is created.
+  #
+  # Historical note: pure GITHUB_TOKEN tags do not fire on.push.tags, so
+  # dispatch was required. This workflow uses a GitHub App token (identity
+  # separation for auto-approve), and App-token tags DO fire tag-push. Always
+  # dispatching then doubles multi-arch cargo-dist + publish (#1380 / v0.4.0).
+  #
+  # Policy: prefer the tag-push Release when it already exists (queued,
+  # in progress, or successful). Only workflow_dispatch when no healthy
+  # tag-push run appears (GITHUB_TOKEN-only tags, or tag-push failure).
+  # Manual re-runs: `gh workflow run Release -f tag=vX.Y.Z` still works alone.
   dispatch-release:
     needs: [release-please]
     if: needs.release-please.outputs.release_created == 'true'
@@ -122,13 +132,53 @@ jobs:
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: audit
-      - name: Dispatch cargo-dist Release workflow
+      - name: Dispatch cargo-dist Release workflow (if needed)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           set -euo pipefail
-          echo "Dispatching Release for tag=${TAG}"
+          if [[ -z "${TAG}" ]]; then
+            echo "No tag_name from release-please; refusing to dispatch." >&2
+            exit 1
+          fi
+
+          # Tag-push registration can lag a few seconds after App-token tag create.
+          existing=""
+          for attempt in 1 2 3 4 5 6; do
+            existing="$(
+              gh run list --workflow=Release --repo "${GITHUB_REPOSITORY}" --limit 30 \
+                --json databaseId,event,status,conclusion,headBranch \
+                --jq ".[]
+                  | select(
+                      .event == \"push\"
+                      and .headBranch == \"${TAG}\"
+                      and (
+                        .status == \"queued\"
+                        or .status == \"waiting\"
+                        or .status == \"pending\"
+                        or .status == \"in_progress\"
+                        or (.status == \"completed\" and .conclusion == \"success\")
+                      )
+                    )
+                  | .databaseId" \
+                | head -n 1 || true
+            )"
+            if [[ -n "${existing}" ]]; then
+              break
+            fi
+            if [[ "${attempt}" -lt 6 ]]; then
+              echo "No healthy tag-push Release for ${TAG} yet (attempt ${attempt}/6); waiting 10s..."
+              sleep 10
+            fi
+          done
+
+          if [[ -n "${existing}" ]]; then
+            echo "Tag-push Release already covers ${TAG} (run ${existing}); skipping workflow_dispatch (#1380)."
+            exit 0
+          fi
+
+          echo "No healthy tag-push Release for ${TAG}; dispatching from main (GITHUB_TOKEN fallback or failed tag-push)."
           gh workflow run Release --repo "${GITHUB_REPOSITORY}" --ref main -f "tag=${TAG}"
 
 # verified push trigger after workflow registration
