@@ -20,7 +20,12 @@ on:
         type: string
 
 concurrency:
-  group: release-${{ github.ref }}
+  # Key by release tag, not github.ref. Tag-push runs have ref=refs/tags/vX.Y.Z
+  # (ref_name=vX.Y.Z); workflow_dispatch from main has ref=refs/heads/main and
+  # inputs.tag=vX.Y.Z. Using github.ref alone let both runs execute in parallel
+  # when App-token tags fire on.push.tags AND release-please still dispatches
+  # (see #1380). Tag-keyed group serializes any remaining dual trigger.
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:

@@ -51,8 +51,9 @@ push to main
        ├─ opens/updates release PR (label: autorelease: pending)
        │    └─ sync-path-dep-versions (align path dep pins on that branch)
        └─ when release PR is merged (release_created=true):
-            tag + GitHub Release
-            └─ dispatches release.yml with tag=…
+            tag + GitHub Release (App token)
+            ├─ tag-push usually starts release.yml (preferred path)
+            └─ dispatch-release: only if no healthy tag-push Release exists
                  plan → build-local/global (cargo-dist) → host (upload assets)
                  → publish-crates (scripts/publish-crates.sh) → announce
 ```
@@ -66,9 +67,14 @@ Important details:
   `release-please.yml`). Prefer a human merge for release-related PRs, use
   the hourly cron catch-up, or `gh workflow run "Release Please"`. See
   issue #785.
-- Tags created with `GITHUB_TOKEN` **do not** start a separate `push: tags`
-  workflow. `release-please.yml` therefore **workflow_dispatch**es
-  `release.yml` with the **`tag` input** when a release is created.
+- **Release tag + single pipeline (#1380):** release-please creates tags with
+  the **App token**, which **does** fire `release.yml` `on.push.tags`.
+  Pure `GITHUB_TOKEN` tags would not. `dispatch-release` still exists as a
+  fallback, but it **skips** `workflow_dispatch` when a healthy tag-push
+  Release already exists (queued / in progress / success). Concurrency is
+  keyed by the release tag (`release-${{ inputs.tag || github.ref_name }}`)
+  so a race cannot run two full cargo-dist matrices in parallel. Manual
+  re-run: `gh workflow run Release -f tag=vX.Y.Z` (still works alone).
 - Auto-approve skips PRs labeled `autorelease: pending`. Release PRs must
   be merged by a human.
 - **Virtual workspace + `release-type: simple`:** release-please only rewrites
@@ -95,8 +101,8 @@ Config files:
 | `scripts/sync-cargo-lock-workspace-versions.sh` | Align `Cargo.lock` workspace member versions after a version bump (required for CI `--locked`) |
 | `scripts/check-publish-plan.sh` | Assert publish order matches the 13-crate library stack |
 | `scripts/check-cargo-package.sh` | `cargo package` gate; full verify when version is on crates.io, `--list` on co-publish version-bump PRs (#814, co-publish skew) |
-| `.github/workflows/release-please.yml` | Opens release PR on main push; syncs path-deps + lock on that PR; dispatches Release on create |
-| `.github/workflows/release.yml` | cargo-dist installers + publish-crates (`tag` / dispatch) |
+| `.github/workflows/release-please.yml` | Opens release PR on main push; syncs path-deps + lock on that PR; dispatches Release only if tag-push did not (#1380) |
+| `.github/workflows/release.yml` | cargo-dist installers + publish-crates (`tag` / dispatch); concurrency by tag name |
 | `dist-workspace.toml` | cargo-dist targets / installers |
 
 ## Preflight (before merging a release PR)
