@@ -1,0 +1,10 @@
+// MUST COMPILE
+// SafeDivision-style: nonzero divisor plus synthesizable ensures (result == a / b
+// is not always synthesizable; use input-only safety + identity for compile gate).
+// Onboarding twin of docs COMPARE / LANDING SafeDivision story.
+contract SafeDivision {
+    input(a: Int, b: Int)
+    requires { b != 0 }
+    requires { !(a == 0 && b == 0) }
+    ensures { b != 0 }
+}
