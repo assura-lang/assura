@@ -122,7 +122,7 @@ fn verify_contract_cvc5_shellout_incremental(
             build_incremental_shell_script(&script_input, havoc)
         });
 
-        match run_cvc5_binary_queries(&script) {
+        match run_cvc5_binary_queries(&script, session.timeout_ms) {
             Ok(query_results) if query_results.len() == pending_count => {
                 for (pending_clause, query) in pending.into_iter().zip(query_results) {
                     let result = cvc5_shell_query_to_verification_result(

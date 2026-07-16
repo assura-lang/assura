@@ -9,13 +9,22 @@ mod batch2_policy_tests {
     use super::*;
 
     /// #452/#465: Timeout constants unified between native and shell to 10s.
+    /// #1383: Longer config timeouts resolve above the floor for both solvers.
     #[test]
     fn timeout_policy_shared_between_native_and_shell() {
         use crate::encode_timeout_policy::{
-            DEFAULT_SOLVER_TIMEOUT_MS, DEFAULT_SOLVER_TIMEOUT_TLIMIT,
+            DEFAULT_SOLVER_TIMEOUT_MS, DEFAULT_SOLVER_TIMEOUT_TLIMIT, clause_timeout_ms,
+            clause_timeout_tlimit,
         };
         assert_eq!(DEFAULT_SOLVER_TIMEOUT_MS, 10_000);
-        assert_eq!(DEFAULT_SOLVER_TIMEOUT_TLIMIT, "10000");
+        assert_eq!(
+            DEFAULT_SOLVER_TIMEOUT_TLIMIT,
+            DEFAULT_SOLVER_TIMEOUT_MS.to_string()
+        );
+        assert_eq!(clause_timeout_ms(1_000), DEFAULT_SOLVER_TIMEOUT_MS);
+        assert_eq!(clause_timeout_ms(30_000), 30_000);
+        assert_eq!(clause_timeout_tlimit(30_000), "30000");
+        assert_ne!(clause_timeout_tlimit(60_000), DEFAULT_SOLVER_TIMEOUT_TLIMIT);
     }
 
     /// #461: use_incremental_clause_push_pop shared policy is used.

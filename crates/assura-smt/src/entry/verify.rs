@@ -185,7 +185,7 @@ fn verify_with_options_impl(
     extras: Option<&VerifyFileExtras<'_>>,
 ) -> Vec<VerificationResult> {
     match options.solver {
-        SolverChoice::Cvc5 => verify_file_with_cvc5(typed, extras),
+        SolverChoice::Cvc5 => verify_file_with_cvc5(typed, options.timeout_ms, extras),
         SolverChoice::Portfolio => {
             // Run Z3 and CVC5 concurrently, take the best result (#245)
             #[cfg(feature = "z3-verify")]
@@ -194,7 +194,7 @@ fn verify_with_options_impl(
             }
             #[cfg(not(feature = "z3-verify"))]
             {
-                verify_file_with_cvc5(typed, extras)
+                verify_file_with_cvc5(typed, options.timeout_ms, extras)
             }
         }
         SolverChoice::Z3 => {

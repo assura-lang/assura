@@ -15,8 +15,8 @@ pub(crate) enum Cvc5Result {
     Error(String),
 }
 
-pub(crate) fn run_cvc5_binary(script: &str) -> Cvc5Result {
-    match execute_cvc5(script) {
+pub(crate) fn run_cvc5_binary(script: &str, tlimit_ms: u32) -> Cvc5Result {
+    match execute_cvc5(script, tlimit_ms) {
         Ok(stdout) => parse_cvc5_stdout_first(&stdout),
         Err(reason) => Cvc5Result::Error(reason),
     }
@@ -46,20 +46,26 @@ pub(crate) fn cvc5_shell_query_to_verification_result(
     }
 }
 
-pub(crate) fn run_cvc5_binary_queries(script: &str) -> Result<Vec<Cvc5Result>, String> {
-    let stdout = execute_cvc5(script)?;
+pub(crate) fn run_cvc5_binary_queries(
+    script: &str,
+    tlimit_ms: u32,
+) -> Result<Vec<Cvc5Result>, String> {
+    let stdout = execute_cvc5(script, tlimit_ms)?;
     parse_cvc5_stdout_all(&stdout)
 }
 
-fn execute_cvc5(script: &str) -> Result<String, String> {
+fn execute_cvc5(script: &str, tlimit_ms: u32) -> Result<String, String> {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
+    // Re-resolve so short values still hit the shared floor (same helper as
+    // native `tlimit` and Z3 clause timeout).
+    let tlimit = crate::encode_timeout_policy::clause_timeout_tlimit(tlimit_ms as u64);
     let mut cmd = Command::new("cvc5");
     cmd.arg("--lang")
         .arg("smt2")
         .arg("--tlimit")
-        .arg(crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_TLIMIT)
+        .arg(tlimit)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -187,5 +193,22 @@ mod tests {
         assert!(matches!(results[0], Cvc5Result::Unsat));
         assert!(matches!(results[1], Cvc5Result::Sat(_)));
         assert!(matches!(results[2], Cvc5Result::Unsat));
+    }
+
+    #[test]
+    fn shell_tlimit_uses_resolved_clause_budget() {
+        // File-level verify resolves via clause_timeout_ms; shell runner
+        // receives the already-floored u32 and must not re-hardcode 10000.
+        let short = crate::encode_timeout_policy::clause_timeout_ms(1_000);
+        let long = crate::encode_timeout_policy::clause_timeout_ms(60_000);
+        assert_eq!(
+            short,
+            crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_MS
+        );
+        assert_eq!(long, 60_000);
+        assert_ne!(
+            long.to_string(),
+            crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_TLIMIT
+        );
     }
 }

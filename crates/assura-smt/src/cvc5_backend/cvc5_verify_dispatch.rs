@@ -59,10 +59,32 @@ pub(crate) fn verify_contract_cvc5_with_full_context(
 }
 
 /// Verify a single contract's clauses using CVC5, with optional lemma defs.
+///
+/// Uses the default clause timeout floor ([`DEFAULT_SOLVER_TIMEOUT_MS`]).
+/// Prefer [`verify_contract_cvc5_with_lemmas_timeout`] when the caller has a
+/// configured `verify.timeout`.
 pub(crate) fn verify_contract_cvc5_with_lemmas(
     ctx: &ContractVerifyContext<'_>,
     lemma_defs: Option<&std::collections::HashMap<String, Vec<&assura_ast::SpExpr>>>,
     cache: &mut SessionCache,
+) -> Vec<VerificationResult> {
+    verify_contract_cvc5_with_lemmas_timeout(
+        ctx,
+        lemma_defs,
+        cache,
+        crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_MS as u64,
+    )
+}
+
+/// Verify a single contract's clauses using CVC5 with a caller timeout.
+///
+/// `timeout_ms` is floored via [`clause_timeout_ms`] (same as Z3) and applied
+/// to both native `tlimit` and shell `--tlimit`.
+pub(crate) fn verify_contract_cvc5_with_lemmas_timeout(
+    ctx: &ContractVerifyContext<'_>,
+    lemma_defs: Option<&std::collections::HashMap<String, Vec<&assura_ast::SpExpr>>>,
+    cache: &mut SessionCache,
+    timeout_ms: u64,
 ) -> Vec<VerificationResult> {
     let (mut results, prepared) = prepare_cvc5_contract_verification(
         ctx.contract_name,
@@ -70,7 +92,7 @@ pub(crate) fn verify_contract_cvc5_with_lemmas(
         ctx.params,
         ctx.constants,
     );
-    let mut session = Cvc5ContractVerifySession::new(ctx, prepared, lemma_defs, cache);
+    let mut session = Cvc5ContractVerifySession::new(ctx, prepared, lemma_defs, cache, timeout_ms);
 
     #[cfg(feature = "cvc5-verify")]
     {

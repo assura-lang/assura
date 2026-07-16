@@ -110,8 +110,11 @@ pub(crate) fn check_clause_cvc5_shellout(
     script.push_str("(check-sat)\n");
     script.push_str("(get-model)\n");
 
-    let result =
-        cvc5_shell_query_to_verification_result(desc, kind.clone(), run_cvc5_binary(&script));
+    let result = cvc5_shell_query_to_verification_result(
+        desc,
+        kind.clone(),
+        run_cvc5_binary(&script, session.timeout_ms),
+    );
 
     store_cvc5_clause_cache(session.cache, cache_key, &result);
 

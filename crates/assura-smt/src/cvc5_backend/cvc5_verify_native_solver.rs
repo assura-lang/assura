@@ -110,10 +110,24 @@ pub(crate) fn assert_cvc5_solver_prelude<'a>(
     }
 }
 
-#[derive(Default)]
 pub(crate) struct Cvc5SolverOpts {
     pub(crate) incremental: bool,
     pub(crate) unsat_core: bool,
+    /// Per-clause wall-clock budget in ms (CVC5 `tlimit` option).
+    ///
+    /// Defaults to [`crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_MS`].
+    /// File-level verify passes the value from [`clause_timeout_ms`].
+    pub(crate) tlimit_ms: u32,
+}
+
+impl Default for Cvc5SolverOpts {
+    fn default() -> Self {
+        Self {
+            incremental: false,
+            unsat_core: false,
+            tlimit_ms: crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_MS,
+        }
+    }
 }
 
 pub(crate) fn new_cvc5_solver<'a>(
@@ -123,10 +137,10 @@ pub(crate) fn new_cvc5_solver<'a>(
     let mut solver = cvc5::Solver::new(tm);
     solver.set_logic("ALL");
     solver.set_option("produce-models", "true");
-    solver.set_option(
-        "tlimit",
-        crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_TLIMIT,
-    );
+    // Re-resolve so short values still hit the shared floor (idempotent for
+    // already-floored session budgets).
+    let tlimit = crate::encode_timeout_policy::clause_timeout_tlimit(opts.tlimit_ms as u64);
+    solver.set_option("tlimit", &tlimit);
     if opts.incremental {
         solver.set_option("incremental", "true");
     }
@@ -135,6 +149,30 @@ pub(crate) fn new_cvc5_solver<'a>(
         solver.set_option("produce-unsat-assumptions", "true");
     }
     solver
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::encode_timeout_policy::{DEFAULT_SOLVER_TIMEOUT_MS, clause_timeout_ms};
+
+    #[test]
+    fn default_opts_use_clause_timeout_floor() {
+        let opts = Cvc5SolverOpts::default();
+        assert_eq!(opts.tlimit_ms, DEFAULT_SOLVER_TIMEOUT_MS);
+        assert!(!opts.incremental);
+        assert!(!opts.unsat_core);
+    }
+
+    #[test]
+    fn opts_honor_resolved_longer_timeout() {
+        let opts = Cvc5SolverOpts {
+            tlimit_ms: clause_timeout_ms(45_000),
+            ..Default::default()
+        };
+        assert_eq!(opts.tlimit_ms, 45_000);
+        assert_ne!(opts.tlimit_ms, DEFAULT_SOLVER_TIMEOUT_MS);
+    }
 }
 
 pub(crate) fn assert_cvc5_axioms<'a>(solver: &mut cvc5::Solver<'a>, axioms: &[cvc5::Term<'a>]) {

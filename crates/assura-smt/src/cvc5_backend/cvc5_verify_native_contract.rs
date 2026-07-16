@@ -65,6 +65,7 @@ fn verify_contract_cvc5_native_incremental(
         Cvc5SolverOpts {
             incremental: true,
             unsat_core: use_cores,
+            tlimit_ms: session.timeout_ms,
         },
     );
 
