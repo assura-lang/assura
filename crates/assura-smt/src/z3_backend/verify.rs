@@ -437,6 +437,8 @@ pub(crate) fn verify_contract_impl_with_types_and_ir(
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
+    // Single-contract API has no TypedFile / sibling lemmas. File-level
+    // verify_impl_with_timeout collects lemma_defs via collect_lemma_defs.
     let lemma_defs = std::collections::HashMap::new();
     let narrowings = derive_narrowings(ctx.constants);
     let types = TypeConstraints {
@@ -467,7 +469,9 @@ pub(crate) fn verify_impl_with_timeout(
     timeout_ms: u64,
     extras: Option<&crate::VerifyFileExtras<'_>>,
 ) -> Vec<VerificationResult> {
-    let _ = timeout_ms; // timeout is set per-solver in verify_clauses
+    // Clause solvers use encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_MS
+    // (not this parameter). Caller's timeout_ms is applied to advanced
+    // passes (layer2, etc.) via run_advanced_passes below.
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
     let ir_bodies = extras.and_then(|e| e.ir_bodies);
