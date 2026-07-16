@@ -2,6 +2,7 @@
 [![Security](https://github.com/assura-lang/assura/actions/workflows/security.yml/badge.svg)](https://github.com/assura-lang/assura/actions/workflows/security.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/assura-lang/assura/badge)](https://scorecard.dev/viewer/?uri=github.com/assura-lang/assura)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13476/badge)](https://www.bestpractices.dev/projects/13476)
+[![Crates.io](https://img.shields.io/crates/v/assura.svg)](https://crates.io/crates/assura)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-5700%2B%20passing-brightgreen)](#)
 
@@ -12,6 +13,10 @@
 A contract-first language for the AI era. Humans write behavioral contracts.
 AI writes verified implementations. The compiler proves correctness
 mathematically. Ships as Rust.
+
+![Assura check demo](assets/demo/assura-check.gif)
+
+*Regenerate: `vhs assets/demo/assura-check.tape` (requires [VHS](https://github.com/charmbracelet/vhs) and `assura` on `PATH`).*
 
 ```assura
 contract HeartbeatResponse {
@@ -83,8 +88,18 @@ The first build downloads a Z3 prebuilt via the `z3` crate (`gh-release`); no
 manual Z3 install is needed for normal use. See
 [docs/CRATES-IO.md](docs/CRATES-IO.md).
 
-**Prebuilt binaries:** [GitHub Releases](https://github.com/assura-lang/assura/releases)
-(cargo-dist installers; multi-platform).
+**Prebuilt binaries (shell installer, no Rust toolchain required for the
+binary itself):** [GitHub Releases](https://github.com/assura-lang/assura/releases)
+via cargo-dist (`assura-installer.sh` on the release; Linux x86_64 and
+macOS arm64/x64). Example:
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/assura-lang/assura/releases/latest/download/assura-installer.sh | sh
+```
+
+There is **no Homebrew formula** published today (`installers = ["shell"]`
+in `dist-workspace.toml`). Prefer crates.io or the shell installer.
 
 **From a monorepo clone:**
 
@@ -95,6 +110,10 @@ cargo install --path crates/assura-cli --locked
 # Optional standalone LSP binary:
 cargo install --path crates/assura-lsp --locked
 ```
+
+**VS Code extension:** lives in [`editors/vscode/`](editors/vscode/) and is
+**not published** to the Marketplace yet. Build from source (see that folder's
+README) or use the LSP binary from Releases / `cargo install --path crates/assura-lsp`.
 
 **Embedding as a library:** the public compile/verify facade is
 [`assura-pipeline`](https://crates.io/crates/assura-pipeline) on crates.io
