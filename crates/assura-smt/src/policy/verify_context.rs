@@ -122,6 +122,8 @@ pub(crate) struct Cvc5ContractVerifySession<'a> {
     pub prepared: Cvc5ContractPrepared<'a>,
     pub lemma_defs: Option<&'a HashMap<String, Vec<&'a SpExpr>>>,
     pub cache: &'a mut SessionCache,
+    /// Resolved per-clause timeout in ms (after [`clause_timeout_ms`] floor).
+    pub timeout_ms: u32,
 }
 
 impl<'a> Cvc5ContractVerifySession<'a> {
@@ -130,12 +132,14 @@ impl<'a> Cvc5ContractVerifySession<'a> {
         prepared: Cvc5ContractPrepared<'a>,
         lemma_defs: Option<&'a HashMap<String, Vec<&'a SpExpr>>>,
         cache: &'a mut SessionCache,
+        timeout_ms: u64,
     ) -> Self {
         Self {
             contract,
             prepared,
             lemma_defs,
             cache,
+            timeout_ms: crate::encode_timeout_policy::clause_timeout_ms(timeout_ms),
         }
     }
 

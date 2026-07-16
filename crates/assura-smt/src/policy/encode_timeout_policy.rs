@@ -24,6 +24,19 @@ pub(crate) fn clause_timeout_ms(requested_ms: u64) -> u32 {
     requested.max(DEFAULT_SOLVER_TIMEOUT_MS)
 }
 
+/// Resolve per-clause timeout as a CVC5 `--tlimit` / `tlimit` option string.
+///
+/// Same floor/resolve rules as [`clause_timeout_ms`] so shell and native
+/// CVC5 paths match Z3 when `assura.toml` raises `verify.timeout`.
+pub(crate) fn clause_timeout_tlimit(requested_ms: u64) -> String {
+    let ms = clause_timeout_ms(requested_ms);
+    if ms == DEFAULT_SOLVER_TIMEOUT_MS {
+        DEFAULT_SOLVER_TIMEOUT_TLIMIT.to_string()
+    } else {
+        ms.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -50,5 +63,15 @@ mod tests {
     fn clause_timeout_allows_longer_requests() {
         assert_eq!(clause_timeout_ms(30_000), 30_000);
         assert_eq!(clause_timeout_ms(u64::MAX), u32::MAX);
+    }
+
+    #[test]
+    fn clause_timeout_tlimit_matches_resolved_ms() {
+        assert_eq!(
+            clause_timeout_tlimit(1_000),
+            DEFAULT_SOLVER_TIMEOUT_MS.to_string()
+        );
+        assert_eq!(clause_timeout_tlimit(30_000), "30000");
+        assert_ne!(clause_timeout_tlimit(60_000), DEFAULT_SOLVER_TIMEOUT_TLIMIT);
     }
 }

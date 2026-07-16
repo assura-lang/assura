@@ -84,7 +84,7 @@ pub(crate) use self::cvc5_model::parse_smtlib_model;
 #[allow(unused_imports)]
 pub(crate) use self::cvc5_verify_dispatch::{
     verify_contract_cvc5, verify_contract_cvc5_with_full_context, verify_contract_cvc5_with_lemmas,
-    verify_contract_cvc5_with_types,
+    verify_contract_cvc5_with_lemmas_timeout, verify_contract_cvc5_with_types,
 };
 pub(crate) use self::cvc5_verify_shared::collect_lemma_defs_for_cvc5;
 #[allow(unused_imports)]

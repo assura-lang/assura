@@ -72,7 +72,7 @@ rustup update stable
 
 ## Verification
 
-### Z3 timeout on a contract
+### Solver timeout on a contract
 
 **Symptom:** Verification result says `Timeout` instead of `Verified`
 or `Counterexample`.
@@ -95,7 +95,10 @@ or `Counterexample`.
    [verify]
    timeout = 30000
    ```
-   Layer 2 advanced passes use the configured value without that floor.
+   The same budget applies to **Z3 and CVC5** (shell and native), and
+   to portfolio mode: Z3 uses the solver `timeout` option; CVC5 uses
+   `tlimit` / `--tlimit` with the same floor/resolve helper. Layer 2
+   advanced passes use the configured value without that floor.
 
 4. **Use Layer 0 first.** Structural checks (Layer 0) are instant and
    catch type errors, undefined names, and effect violations without

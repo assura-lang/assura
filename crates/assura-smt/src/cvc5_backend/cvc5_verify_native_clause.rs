@@ -50,6 +50,7 @@ pub(crate) fn check_clause_cvc5_native(
             &tm,
             Cvc5SolverOpts {
                 unsat_core: use_cores,
+                tlimit_ms: session.timeout_ms,
                 ..Default::default()
             },
         );

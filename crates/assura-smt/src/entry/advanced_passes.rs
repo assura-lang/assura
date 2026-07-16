@@ -469,8 +469,13 @@ pub(crate) fn run_advanced_passes(typed: &TypedFile, timeout_ms: u64) -> Vec<Ver
 }
 
 /// Verify all contracts in a file using the CVC5 backend.
+///
+/// `timeout_ms` is the caller-configured verify budget (e.g. from
+/// `VerifyOptions` / `assura.toml`). Clause checks floor it via
+/// [`clause_timeout_ms`]; advanced passes use the raw value (Z3 parity).
 pub(crate) fn verify_file_with_cvc5(
     typed: &TypedFile,
+    timeout_ms: u64,
     extras: Option<&VerifyFileExtras<'_>>,
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
@@ -528,11 +533,14 @@ pub(crate) fn verify_file_with_cvc5(
                     ),
                     callee_specs: Some(&callee_specs),
                 };
-                results.extend(crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
-                    &ctx,
-                    Some(&lemma_defs),
-                    &mut session_cache,
-                ));
+                results.extend(
+                    crate::cvc5_backend::verify_contract_cvc5_with_lemmas_timeout(
+                        &ctx,
+                        Some(&lemma_defs),
+                        &mut session_cache,
+                        timeout_ms,
+                    ),
+                );
             }
             results.extend(skip_results);
             continue;
@@ -551,15 +559,19 @@ pub(crate) fn verify_file_with_cvc5(
             ),
             callee_specs: Some(&callee_specs),
         };
-        results.extend(crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
-            &ctx,
-            Some(&lemma_defs),
-            &mut session_cache,
-        ));
+        results.extend(
+            crate::cvc5_backend::verify_contract_cvc5_with_lemmas_timeout(
+                &ctx,
+                Some(&lemma_defs),
+                &mut session_cache,
+                timeout_ms,
+            ),
+        );
     }
 
-    // Run the same 5 advanced passes that the Z3 backend runs
-    results.extend(run_advanced_passes(typed, 2000));
+    // Run the same 5 advanced passes that the Z3 backend runs (raw timeout,
+    // no clause floor — matches verify_impl_with_timeout).
+    results.extend(run_advanced_passes(typed, timeout_ms));
 
     results
 }
@@ -586,7 +598,7 @@ pub(crate) fn verify_portfolio_parallel(
             let _ = tx_z3.send(("z3", results));
         });
         s.spawn(move || {
-            let results = verify_file_with_cvc5(typed, extras);
+            let results = verify_file_with_cvc5(typed, timeout_ms, extras);
             let _ = tx_cvc5.send(("cvc5", results));
         });
 
