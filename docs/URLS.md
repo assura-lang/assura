@@ -11,7 +11,12 @@ project.
 | CLI on crates.io | https://crates.io/crates/assura |
 | Library embed (`assura-pipeline`) | https://crates.io/crates/assura-pipeline |
 | Releases / installers | https://github.com/assura-lang/assura/releases |
+| Demo GIF | https://github.com/assura-lang/assura/blob/main/assets/demo/assura-check.gif |
 | Org | https://github.com/assura-lang |
+
+**Install paths today:** crates.io (`cargo install assura --locked`) or
+cargo-dist **shell** installer on Releases. No Homebrew formula is
+published (`installers = ["shell"]` only).
 
 ## Brand notes
 

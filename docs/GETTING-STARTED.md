@@ -18,13 +18,18 @@ confused. AI-oriented workflow: [AI-AGENTS.md](AI-AGENTS.md).
 
 ## 1. Install
 
-Requires Rust 1.85+ (edition 2024). Z3 is pulled in automatically for
-verification builds.
+**Preferred (crates.io):** requires Rust 1.85+ (edition 2024). Z3 is
+pulled in automatically for verification builds.
 
 ```bash
 cargo install assura --locked
 assura --help
 ```
+
+**Prebuilt shell installer** (GitHub Releases; no Rust toolchain needed for
+the binary itself): see the latest release assets
+(`assura-installer.sh`) or the root README. There is **no Homebrew
+formula** yet.
 
 From a git checkout instead of crates.io:
 

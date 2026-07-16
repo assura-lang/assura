@@ -4,6 +4,20 @@ Syntax highlighting and language server support for the
 [Assura](https://github.com/assura-lang/assura) contract-first
 verification language.
 
+## Marketplace status
+
+**Not published** to the VS Code Marketplace or Open VSX yet. Install from
+this monorepo (developer build) until a public listing exists:
+
+```bash
+cd editors/vscode
+npm ci
+npm run compile
+# Package (optional):
+npx vsce package
+# Install the generated .vsix via VS Code: Extensions → … → Install from VSIX
+```
+
 ## Features
 
 - Syntax highlighting for `.assura` files (keywords, types, operators,
