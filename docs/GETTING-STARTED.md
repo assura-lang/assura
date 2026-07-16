@@ -12,6 +12,10 @@ without writing IR by hand. Residual shapes use
 For broader language coverage, see [TUTORIAL.md](TUTORIAL.md) and
 [demos/README.md](../demos/README.md) (showcase vs EXPECT FAIL taxonomy).
 
+After your first successful check, read [What we prove](WHAT-WE-PROVE.md)
+so Verified / Unknown / Counterexample (and vacuous success) are not
+confused. AI-oriented workflow: [AI-AGENTS.md](AI-AGENTS.md).
+
 ## 1. Install
 
 Requires Rust 1.85+ (edition 2024). Z3 is pulled in automatically for

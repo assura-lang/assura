@@ -140,11 +140,18 @@ requires { !(a == min_int() && b == -1) }
 
 ### "Unknown" verification result
 
-`Unknown` means Z3 could not determine satisfiability within the
-timeout. This is different from `Timeout` (which means the solver ran
-out of time).
+Full honesty map: [What we prove](WHAT-WE-PROVE.md).
 
-Common causes:
+`Unknown` means the solver could not decide the obligation. Reasons
+include timeouts, incomplete models, and **known SMT limitations**
+(reason contains `not yet encoded in SMT`). The CLI treats that known
+limitation marker as a **warning** (exit 0), not a hard verification
+failure. Other Unknown reasons are more severe.
+
+This is different from **Timeout** (budget exceeded) and from
+**Counterexample** (definite failure with a model).
+
+Common causes of inconclusive results:
 - Non-linear arithmetic (multiplication of two variables)
 - Recursive functions without decreases clauses
 - Mixing bitvector and integer theories

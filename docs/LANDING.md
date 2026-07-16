@@ -24,23 +24,23 @@ You write *what*. AI figures out *how*. `rustc` compiles the result.
 
 ## The Problem
 
-AI writes most new code. Nobody trusts it.
+AI writes most new code. Teams still struggle to **trust** it.
 
-- **85% of developers use AI coding tools**, but only **29% trust the output**
-  (Stack Overflow 2025)
-- **66% cite "almost right but not quite"** as their top frustration
-- **45% of AI-generated code contains security vulnerabilities** (Veracode)
-- AI code produces **1.7x more issues per PR** than human code (CodeRabbit 2025)
-- Senior engineers spend **4-6 extra hours per week** reviewing AI output
+- AI coding tools are widely adopted, but survey and industry reports
+  repeatedly show low trust in generated code and high review cost
+- "Almost right" code is a common failure mode: it compiles and passes
+  shallow tests while hiding edge-case bugs
+- AI-generated unit tests often mirror the implementation, so they pass
+  when the code is wrong (same wrong oracle on both sides)
 
-Unit tests do not solve this. An OOPSLA 2025 study proved property-based tests
-catch **~50x more bugs per test** than unit tests. AI-generated tests are
-worse: they mirror implementation bugs. If `divide(10, 0)` returns `0` due to
-a bug, the generated test asserts `== 0`.
+Property-based tests and fuzzing catch more classes of bugs than
+happy-path unit tests, but they still sample behavior. They do not replace
+stating **what must hold for all inputs** and checking those obligations
+with a solver when the fragment is modeled.
 
-Human code review has collapsed under the volume. The current pipeline is
-broken: AI generates code nobody can fully review, verified by tests that
-do not actually verify behavior.
+Assura targets that gap: write contracts, let AI propose implementations,
+and get **Verified**, **Counterexample**, or **Unknown**, not only green tests.
+Honesty map: [What we prove](WHAT-WE-PROVE.md).
 
 ---
 

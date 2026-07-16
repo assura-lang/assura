@@ -21,6 +21,15 @@ bash scripts/setup-cvc5.sh
 
 ## Getting Started
 
+**Docs site:** [https://assura-lang.github.io/assura/](https://assura-lang.github.io/assura/)
+([preferred URLs](docs/URLS.md))
+
+**Where to start (issues):**
+
+- [good first issue](https://github.com/assura-lang/assura/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+- [help wanted](https://github.com/assura-lang/assura/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22)
+- Discussions: [Announcements](https://github.com/assura-lang/assura/discussions/1400), [Q&A](https://github.com/assura-lang/assura/discussions/1402)
+
 **Try the released CLI** (optional, no clone required):
 
 ```bash

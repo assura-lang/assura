@@ -102,13 +102,16 @@ cargo install --path crates/assura-lsp --locked
 
 ```toml
 [dependencies]
-assura-pipeline = "0.3"
+assura-pipeline = "0.4"
 ```
 
 Prefer crates.io for apps; use a git path dependency only when tracking
 unreleased `main`. Release process: [docs/CRATES-IO.md](docs/CRATES-IO.md).
 
 ### Usage
+
+**Docs site (preferred entry):**
+[https://assura-lang.github.io/assura/](https://assura-lang.github.io/assura/)
 
 **Primary path (install → check → build → test):** see
 [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md). That guide works on a
@@ -203,17 +206,25 @@ A project activates only the categories it needs. CORE is always on.
 
 ## Documentation
 
-- [Tutorial](docs/TUTORIAL.md) (getting started, first contract, verification layers)
+**Site:** [assura-lang.github.io/assura](https://assura-lang.github.io/assura/)
+([preferred URLs](docs/URLS.md); not [assura.dev](https://assura.dev), a different product)
+
+- [Getting started](docs/GETTING-STARTED.md) (install → check → build)
+- [Tutorial](docs/TUTORIAL.md) (first contract, verification layers)
+- [What we prove](docs/WHAT-WE-PROVE.md) (Verified / Unknown / Counterexample; honesty map)
+- [Compared to other tools](docs/COMPARE.md) (Dafny, Verus, Liquid Haskell, tests)
+- [Case studies](docs/CASE-STUDIES.md) (Heartbleed, libwebp, showcase)
+- [For AI agents](docs/AI-AGENTS.md) (JSON check, IR acceptance, MCP)
 - [Quick Reference](docs/CHEATSHEET.md) (types, clauses, effects, CLI commands on one page)
 - [Scenario Guides](docs/SCENARIOS.md) (greenfield dev, retrofit existing code, security audit, CI, team onboarding)
-- [Contract Cookbook](docs/COOKBOOK.md) (25 ready-to-copy contract patterns by category)
+- [Contract Cookbook](docs/COOKBOOK.md) (ready-to-copy contract patterns by category)
 - [Troubleshooting / FAQ](docs/FAQ.md) (Z3 timeouts, counterexamples, common errors)
 - [Internals](docs/INTERNALS.md) (architecture, crate map, SMT encoding)
-- [Language Specification](docs/SPECIFICATION.md) (195 EBNF productions, 50 verification features, ~278 error codes)
+- [Language Specification](docs/SPECIFICATION.md) (EBNF, verification features, error codes)
 - [Implementation Roadmap](docs/ROADMAP.md)
 - [Competitive Analysis](docs/INVESTIGATION.md)
 - [Contributing](CONTRIBUTING.md)
-- [Demo Contracts](demos/) (real CVE prevention examples)
+- [Demo Contracts](demos/) (CVE-prevention and showcase examples)
 - [50 Example Contracts](examples/) (one per verification feature, organized by category)
 
 ## License
