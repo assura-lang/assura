@@ -273,7 +273,7 @@ fn test_multiple_state_variables() {
         } => {
             assert_eq!(property, "x_le_y");
             assert_eq!(*step, 6); // step 6: x=6, y=4
-            assert!(trace.len() > 0);
+            assert!(!trace.is_empty());
         }
         other => panic!("expected Counterexample, got {other:?}"),
     }

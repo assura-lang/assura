@@ -88,6 +88,7 @@ fn verify_clauses_with_types(
     cache: &mut SessionCache,
     results: &mut Vec<VerificationResult>,
     types: &TypeConstraints,
+    timeout_ms: u32,
 ) {
     // One compiler brain: clause partitioning / feature dispatch / frame setup
     // (shared with CVC5 via `clause_policy`; not full expr-encode unification).
@@ -123,10 +124,7 @@ fn verify_clauses_with_types(
 
     let solver = Solver::new();
     let mut solver_params = z3::Params::new();
-    solver_params.set_u32(
-        "timeout",
-        crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_MS,
-    );
+    solver_params.set_u32("timeout", timeout_ms);
     solver.set_params(&solver_params);
     if crate::prelude_policy::track_requires_unsat_cores(requires.len()) {
         enable_unsat_cores(&solver);
@@ -460,6 +458,7 @@ pub(crate) fn verify_contract_impl_with_types_and_ir(
         &mut cache,
         &mut results,
         &types,
+        crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_MS,
     );
     results
 }
@@ -469,9 +468,10 @@ pub(crate) fn verify_impl_with_timeout(
     timeout_ms: u64,
     extras: Option<&crate::VerifyFileExtras<'_>>,
 ) -> Vec<VerificationResult> {
-    // Clause solvers use encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_MS
-    // (not this parameter). Caller's timeout_ms is applied to advanced
-    // passes (layer2, etc.) via run_advanced_passes below.
+    // Floor short config defaults (often 1s) at DEFAULT_SOLVER_TIMEOUT_MS;
+    // honor longer assura.toml / CLI timeout for both clause solvers and
+    // advanced passes.
+    let clause_timeout = crate::encode_timeout_policy::clause_timeout_ms(timeout_ms);
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
     let ir_bodies = extras.and_then(|e| e.ir_bodies);
@@ -541,6 +541,7 @@ pub(crate) fn verify_impl_with_timeout(
                     &mut cache,
                     &mut results,
                     &types,
+                    clause_timeout,
                 );
             }
             results.extend(skip);
@@ -559,7 +560,15 @@ pub(crate) fn verify_impl_with_timeout(
             callee_specs: Some(&callee_specs),
             ..Default::default()
         };
-        verify_clauses_with_types(name, clauses, &lemma_defs, &mut cache, &mut results, &types);
+        verify_clauses_with_types(
+            name,
+            clauses,
+            &lemma_defs,
+            &mut cache,
+            &mut results,
+            &types,
+            clause_timeout,
+        );
     }
 
     // Run all 5 advanced passes via shared solver-agnostic functions (#214)

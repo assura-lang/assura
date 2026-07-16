@@ -87,12 +87,15 @@ or `Counterexample`.
    && x < 1000000` enumerate a huge space. Use tighter bounds or
    refinement types.
 
-3. **Increase the timeout.** The default is 1 second for Layer 1
-   (10 seconds for Layer 2). Increase it in `assura.toml`:
+3. **Increase the timeout.** `VerifyOptions` / `assura.toml` default to
+   1000 ms, but Layer 1 clause solvers floor at **10 seconds** so short
+   defaults do not starve multi-clause demos. Set a higher value (e.g.
+   30000 or 60000) when you need more than the floor:
    ```toml
    [verify]
    timeout = 30000
    ```
+   Layer 2 advanced passes use the configured value without that floor.
 
 4. **Use Layer 0 first.** Structural checks (Layer 0) are instant and
    catch type errors, undefined names, and effect violations without
