@@ -41,6 +41,11 @@ details and prebuilt GitHub Release installers.
 ## Documentation
 
 - **[Tutorial](TUTORIAL.md)**: Get started writing your first contracts
+- **[What we prove](WHAT-WE-PROVE.md)**: Verified / Unknown / Counterexample honesty map
+- **[Compared to other tools](COMPARE.md)**: Dafny, Verus, Liquid Haskell, tests
+- **[Case studies](CASE-STUDIES.md)**: Heartbleed, libwebp, showcase demos
+- **[For AI agents](AI-AGENTS.md)**: JSON check, IR acceptance, MCP
+- **[Preferred URLs](URLS.md)**: Canonical links (not assura.dev)
 - **[Cheatsheet](CHEATSHEET.md)**: Quick reference for syntax and features
 - **[Cookbook](COOKBOOK.md)**: Common patterns and recipes
 - **[Language Specification](SPECIFICATION.md)**: Complete language reference

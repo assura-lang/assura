@@ -144,6 +144,9 @@ verify).
 | 0 | `--layer 0` | Type checking, name resolution, linearity |
 | 1 | `--layer 1` | SMT verification via Z3: refinement types, arithmetic (default) |
 
+What Verified / Unknown / Counterexample mean (and what is *not* proved):
+[What we prove](WHAT-WE-PROVE.md).
+
 ```bash
 assura check contracts/lib.assura --layer 0
 ```
