@@ -71,7 +71,16 @@ fn compile_valid_contract() {
         output.diagnostics
     );
     // Verify resolved is accessible via typed
-    assert!(output.typed.as_ref().unwrap().resolved.source.decls.len() > 0);
+    assert!(
+        !output
+            .typed
+            .as_ref()
+            .unwrap()
+            .resolved
+            .source
+            .decls
+            .is_empty()
+    );
     assert!(
         !output.has_errors,
         "unexpected errors: {:?}",

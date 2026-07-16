@@ -3,6 +3,8 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
 ## [0.4.0](https://github.com/assura-lang/assura/compare/v0.3.0...v0.4.0) (2026-07-14)
 
 
@@ -259,12 +261,6 @@ All notable changes to Assura are documented here. Format follows
 * signed BV comparisons for fixed-width I* types ([#859](https://github.com/assura-lang/assura/issues/859)) ([927063c](https://github.com/assura-lang/assura/commit/927063c4ce4b723e98df608a715c2201160c5013))
 * SMT/types/IR batch (fixed-width, match, verify_ir, evolution) ([#856](https://github.com/assura-lang/assura/issues/856)) ([0b0d6eb](https://github.com/assura-lang/assura/commit/0b0d6ebdc1736936041e3a69b5eda6eba3177435))
 
-## [Unreleased]
-
-### Changed
-
-* deps: upgrade rmcp 2.1 → 2.2 in assura-mcp (#907)
-
 ## [0.2.0](https://github.com/assura-lang/assura/compare/v0.1.0...v0.2.0) (2026-07-04)
 
 
@@ -361,5 +357,5 @@ Initial release of the Assura compiler.
   mbedtls 4x CVSS 9.8 CVEs)
 - 50+ must_compile, 30+ must_reject fixture tests, 19 e2e tests
 
-[Unreleased]: https://github.com/assura-lang/assura/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/assura-lang/assura/compare/v0.4.0...HEAD
 [0.1.0]: https://github.com/assura-lang/assura/releases/tag/v0.1.0
