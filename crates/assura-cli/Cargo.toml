@@ -41,7 +41,7 @@ assura-mcp = { version = "0.4.0", path = "../assura-mcp" }
 assura-pipeline = { version = "0.4.0", path = "../assura-pipeline" }
 assura-rust-analyzer = { version = "0.4.0", path = "../assura-rust-analyzer" }
 assura-llm = { version = "0.4.0", path = "../assura-llm" }
-syn = { version = "2", features = ["full", "parsing"] }
+syn = { version = "3", features = ["full", "parsing"] }
 quote = "1"
 tower-lsp = "0.20"
 tokio = { version = "1.52.3", features = ["full"] }
