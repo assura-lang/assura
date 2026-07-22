@@ -238,7 +238,7 @@ pub fn parse_rust_source(source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyze
                             name: func.sig.ident.to_string(),
                             params: extract_params(&func.sig),
                             return_type: extract_return_type(&func.sig),
-                            is_unsafe: func.sig.unsafety.is_some(),
+                            is_unsafe: matches!(func.sig.safety, syn::Safety::Unsafe(_)),
                             is_async: func.sig.asyncness.is_some(),
                             is_public: matches!(func.vis, syn::Visibility::Public(_)),
                         },
@@ -285,7 +285,7 @@ pub fn parse_rust_source(source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyze
                 let trait_name = imp
                     .trait_
                     .as_ref()
-                    .map(|(_, path, _)| path.to_token_stream().to_string());
+                    .map(|(path, _)| path.to_token_stream().to_string());
 
                 if !impl_contract.is_empty() {
                     let offset = imp.impl_token.span.start().column;
@@ -315,7 +315,7 @@ pub fn parse_rust_source(source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyze
                                     name: method.sig.ident.to_string(),
                                     params: extract_params(&method.sig),
                                     return_type: extract_return_type(&method.sig),
-                                    is_unsafe: method.sig.unsafety.is_some(),
+                                    is_unsafe: matches!(method.sig.safety, syn::Safety::Unsafe(_)),
                                     is_async: method.sig.asyncness.is_some(),
                                     is_public: matches!(method.vis, syn::Visibility::Public(_)),
                                 },

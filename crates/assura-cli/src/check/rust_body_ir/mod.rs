@@ -972,7 +972,8 @@ fn emit_value_blocks(
 
             let mut arm_specs: Vec<(String, usize)> = Vec::new();
             for arm in &m.arms {
-                if arm.guard.is_some() {
+                // syn 3: match guards are Pat::Guard, not Arm.guard
+                if matches!(&arm.pat, syn::Pat::Guard(_)) {
                     return None;
                 }
                 // Plain `n => body`: rewrite as `_ => body[n:=scrut]` (IR match has no binds).
@@ -1080,18 +1081,21 @@ fn match_identity_guards_to_if(m: &syn::ExprMatch) -> Option<syn::Expr> {
             syn::Expr::Block(b) => block_as_expr_owned(&b.block)?,
             other => other.clone(),
         };
-        match (&arm.pat, &arm.guard) {
-            (syn::Pat::Wild(_), None) => {
+        match &arm.pat {
+            syn::Pat::Wild(_) => {
                 if nest.is_some() {
                     return None;
                 }
                 nest = Some(format!("( {} )", expr_source(&body)));
             }
-            (syn::Pat::Ident(id), Some((_, guard)))
-                if id.by_ref.is_none() && id.mutability.is_none() =>
+            // syn 3: `n if cond => body` is Pat::Guard wrapping Pat::Ident
+            syn::Pat::Guard(g)
+                if let syn::Pat::Ident(id) = g.pat.as_ref()
+                    && id.by_ref.is_none()
+                    && id.mutability.is_none() =>
             {
                 let bind = id.ident.to_string();
-                let guard_sub = substitute_ident_expr(*guard.clone(), &bind, &m.expr);
+                let guard_sub = substitute_ident_expr((*g.guard).clone(), &bind, &m.expr);
                 let body_sub = substitute_ident_expr(body, &bind, &m.expr);
                 let cond_src = expr_source(&guard_sub);
                 let then_src = expr_source(&body_sub);

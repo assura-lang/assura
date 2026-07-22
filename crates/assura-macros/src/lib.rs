@@ -854,7 +854,8 @@ fn invariant_fn(attr: TokenStream, input: ItemFn) -> TokenStream {
 /// Check if a method has a `&mut self` receiver.
 fn is_mut_self_method(sig: &syn::Signature) -> bool {
     if let Some(syn::FnArg::Receiver(recv)) = sig.inputs.first() {
-        recv.reference.is_some() && recv.mutability.is_some()
+        // syn 3: `&mut self` is ReceiverKind::Reference(_, _, Some(mut))
+        matches!(recv.kind, syn::ReceiverKind::Reference(_, _, Some(_)))
     } else {
         false
     }
