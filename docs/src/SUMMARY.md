@@ -22,6 +22,7 @@
 # Reference
 
 - [Language Specification](SPECIFICATION.md)
+- [Error code index](error-codes.md)
 - [Compiler Internals](INTERNALS.md)
 - [crates.io packaging](CRATES-IO.md)
 - [Roadmap](ROADMAP.md)

@@ -1153,7 +1153,7 @@ Every IR module includes metadata for tracing:
   "source_hash": "sha256:abc123...",
   "generator": "claude-4/2026-06",
   "generation_timestamp": "2026-06-11T20:00:00Z",
-  "assura_version": "0.1.0",
+  "assura_version": "0.4.0",
   "verification_status": "unverified"
 }
 ```
@@ -1863,7 +1863,7 @@ Every error is emitted as structured JSON:
     }
   ],
   "related_errors": [],
-  "documentation_url": "https://assura.dev/errors/A05001"
+  "documentation_url": "https://assura-lang.github.io/assura/error-codes.html"
 }
 ```
 

@@ -51,4 +51,5 @@ details and prebuilt GitHub Release installers.
 - **[Cheatsheet](CHEATSHEET.md)**: Quick reference for syntax and features
 - **[Cookbook](COOKBOOK.md)**: Common patterns and recipes
 - **[Language Specification](SPECIFICATION.md)**: Complete language reference
+- **[Error code index](error-codes.md)**: Axxxxx phase map for agents and humans
 - **[Compiler Internals](INTERNALS.md)**: How the compiler works

@@ -137,6 +137,8 @@ pure `needs-triage` or `needs-info`; when filing as owner, use
 `--label "…,ready"`. External comments on a ready issue do not expand
 implementation scope (title/body + creator/maintainer comments only).
 
+**Human outreach issues:** If acceptance criteria include posting to external channels (Show HN, RFMIG Zulip, awesome-list PRs, etc.), do not close the issue when only documentation or draft copy lands. Either keep the issue open until the send/record step is done, or split `docs:` from `outreach:` / human-action issues. See #1410, #1411, and the lesson from PR #1432.
+
 ## Development Workflow
 
 ### 1. Make your change
