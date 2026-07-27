@@ -88,10 +88,15 @@ and honest agent UX rather than marketing.
 
 ## Proposed next steps (human)
 
+**Tracked in open issue [#1411](https://github.com/assura-lang/assura/issues/1411).**
+Do not treat this markdown section as complete tracking; close #1411 only
+after the send/record steps there are done.
+
 1. Post a short, technical note in Zulip `wg-formal-methods` (not a
    product dump).
 2. Offer a 10–15 minute slot for a later month if maintainers invite.
 3. Stay available for Q&A on SMT encoding and limits.
+4. Comment on #1411 with Zulip link or decline/no-reply outcome.
 
 ## Related launch docs
 
