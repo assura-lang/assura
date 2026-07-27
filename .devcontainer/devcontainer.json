@@ -1,0 +1,13 @@
+{
+  "name": "Assura",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-1-bookworm",
+  "features": {},
+  "customizations": {
+    "vscode": {
+      "extensions": ["rust-lang.rust-analyzer"]
+    }
+  },
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y libz3-dev && rustup update stable && rustup default stable",
+  "forwardPorts": [],
+  "remoteUser": "vscode"
+}

@@ -12,6 +12,7 @@
 - [For AI agents](AI-AGENTS.md)
 - [Compared to other tools](COMPARE.md)
 - [What we prove](WHAT-WE-PROVE.md)
+- [SMT portfolio note](SMT-NOTE.md)
 - [Preferred URLs](URLS.md)
 - [FAQ](FAQ.md)
 - [Migration Guide](MIGRATION.md)

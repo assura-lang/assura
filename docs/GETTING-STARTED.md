@@ -37,6 +37,25 @@ From a git checkout instead of crates.io:
 cargo install --path crates/assura-cli --locked
 ```
 
+## 1b. Try without a full local install
+
+If you only want to see a check result before installing:
+
+1. **Open the repo in GitHub Codespaces** (`.devcontainer/devcontainer.json`
+   installs Rust + `libz3-dev`), then:
+   ```bash
+   cargo install --path crates/assura-cli --locked
+   assura check demos/showcase-echo.assura
+   ```
+   Same commands work on any machine that already has Rust 1.85+ and Z3.
+2. **Watch the demo GIF** (no install):  
+   https://github.com/assura-lang/assura/blob/main/assets/demo/assura-check.gif
+3. **Copy-paste the showcase** from section 2 into a file after
+   `cargo install assura --locked`.
+
+There is no hosted WASM playground yet (tracked separately). Prefer
+install + one local check over a partial browser demo that cannot run Z3.
+
 ## 2. Create a tiny project
 
 ```bash

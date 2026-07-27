@@ -65,3 +65,24 @@ https://assura-lang.github.io/assura/
 ## Product Hunt / Dev Hunt
 
 Only after: polished gallery (GIF), maker bio, docs URL not confused with assura.dev.
+
+
+## Supporting docs (this folder)
+
+| Doc | Purpose |
+|-----|---------|
+| [competitor-replies.md](competitor-replies.md) | When/how to reply in Verus/Dafny/Prusti threads |
+| [rfmig-intro.md](rfmig-intro.md) | RFMIG 5–10 min outline + Zulip blurb |
+| [../SMT-NOTE.md](../SMT-NOTE.md) | SMT portfolio / timeout / Unknown technical note |
+
+## Pre-post checklist
+
+- [ ] Docs site loads: https://assura-lang.github.io/assura/
+- [ ] Demo GIF: https://github.com/assura-lang/assura/blob/main/assets/demo/assura-check.gif
+- [ ] COMPARE and WHAT-WE-PROVE pages render on the docs site
+- [ ] `cargo install assura --locked` still works (or note Releases installer)
+- [ ] No assura.dev affiliation; no uncited percentages
+- [ ] Human owner available to answer comments for 24h after post
+
+Actual posting is a **human** step (see GitHub issue #1410). Agents prepare
+drafts and checklists only unless the maintainer explicitly asks to post.
