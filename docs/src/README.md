@@ -35,13 +35,15 @@ assura check my_contract.assura
 assura build my_contract.assura
 ```
 
-See [CRATES-IO.md](../CRATES-IO.md) and the root README for co-publish
+See [CRATES-IO.md](CRATES-IO.md) and the root README for co-publish
 details and prebuilt GitHub Release installers.
 
 ## Documentation
 
-- **[Tutorial](TUTORIAL.md)**: Get started writing your first contracts
+- **[Getting started](GETTING-STARTED.md)**: Install, first check, build, run
+- **[Tutorial](TUTORIAL.md)**: Broader language tour after the first contract
 - **[What we prove](WHAT-WE-PROVE.md)**: Verified / Unknown / Counterexample honesty map
+- **[SMT portfolio note](SMT-NOTE.md)**: Dual solvers, timeouts, Unknown policy
 - **[Compared to other tools](COMPARE.md)**: Dafny, Verus, Liquid Haskell, tests
 - **[Case studies](CASE-STUDIES.md)**: Heartbleed, libwebp, showcase demos
 - **[For AI agents](AI-AGENTS.md)**: JSON check, IR acceptance, MCP

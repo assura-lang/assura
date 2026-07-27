@@ -4,6 +4,8 @@
 
 # User Guide
 
+- [Getting started](GETTING-STARTED.md)
+
 - [Tutorial](TUTORIAL.md)
 - [Cheatsheet](CHEATSHEET.md)
 - [Cookbook](COOKBOOK.md)
