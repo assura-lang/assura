@@ -1342,8 +1342,8 @@ fn repl_load_parses_file() {
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.contains("OK"),
-        "should parse demo file successfully, got: {stdout}"
+        stdout.contains("OK  ") || stdout.contains("VERIFIED"),
+        "should load and report success for demo file, got: {stdout}"
     );
 }
 
@@ -2439,8 +2439,10 @@ fn build_produces_native_artifact() {
     // CLI output should mention the artifact path and size
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.contains("OK") && stdout.contains("bytes"),
-        "stdout should report artifact path and size: {stdout}"
+        stdout.contains("OK  ")
+            && stdout.contains("bytes")
+            && (stdout.contains(".rlib") || stdout.contains(".rmeta")),
+        "stdout should report OK, artifact path, and size: {stdout}"
     );
 
     let _ = std::fs::remove_dir_all(&tmp);
@@ -2470,8 +2472,8 @@ fn build_output_includes_artifact_size() {
     // The output should report the artifact with a byte count (e.g. "1234 bytes")
     // or at minimum the OK status line
     assert!(
-        stdout.contains("OK"),
-        "stdout should contain OK status line: {stdout}"
+        stdout.contains("OK  ") && stdout.contains("bytes"),
+        "stdout should contain OK status line with byte size: {stdout}"
     );
 
     let _ = std::fs::remove_dir_all(&tmp);
