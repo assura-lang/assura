@@ -4,6 +4,11 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    # Keep open PRs rebased when main moves so strict status checks +
+    # auto-merge can land without manual update-branch thrash.
+    rebase-strategy: auto
+    # Groups collapse many lockfile PRs into one; limit still caps majors
+    # and any ungrouped updates that remain solo.
     open-pull-requests-limit: 5
     labels:
       - dependencies
@@ -27,31 +32,57 @@ updates:
           - "tonic-*"
           - "prost"
           - "prost-*"
+      # One PR for all other minor/patch crates so concurrent Cargo.lock
+      # PRs do not repeatedly push each other BEHIND under strict checks.
+      # Majors stay ungrouped for separate review (e.g. rmcp 2 -> 3).
+      cargo-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: npm
     directory: "/editors/vscode"
     schedule:
       interval: weekly
+    rebase-strategy: auto
     open-pull-requests-limit: 5
     labels:
       - dependencies
     commit-message:
       prefix: "deps"
+    groups:
+      vscode-npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: npm
     directory: "/editors/tree-sitter-assura"
     schedule:
       interval: weekly
+    rebase-strategy: auto
     open-pull-requests-limit: 5
     labels:
       - dependencies
     commit-message:
       prefix: "deps"
+    groups:
+      tree-sitter-npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+    rebase-strategy: auto
     open-pull-requests-limit: 5
     labels:
       - dependencies
@@ -67,3 +98,7 @@ updates:
       codeql-action:
         patterns:
           - "github/codeql-action*"
+      # Remaining actions in one PR (stale, checkout, cache, etc.).
+      github-actions:
+        patterns:
+          - "*"
