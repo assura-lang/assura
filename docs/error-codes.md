@@ -26,7 +26,7 @@
 | A12xxx | types | assura-types | checks/concurrency.rs, checkers/security/ |
 | A13xxx | types | assura-types | checks/numeric.rs, domain/numeric.rs |
 | A31xxx | types | assura-types | checks/core.rs (liveness prove/fairness) |
-| A05 (impl) | smt+cli | assura-smt / assura-cli | `A05100` SMT inconclusive / limitation |
+| A05 (impl) | smt+cli | assura-smt / assura-cli | `A05100` CE, `A05101` timeout, `A05102` known limitation, `A05103` inconclusive |
 
 ## Codes from SPEC §7.2 (plus a few high-traffic impl codes)
 
@@ -104,8 +104,8 @@
 | A22003 | ? | ? | Unbounded allocation detected | No allocation bound proved | Complexity Bounds (A22xxx) | rg code in crates |
 | A05100 | smt+cli | assura-smt / assura-cli | SMT counterexample found (verification failed) | Fix the contract (real violation) | (impl) | check/report.rs |
 | A05101 | cli | assura-cli | SMT solver timed out | Increase `--timeout` | (impl) | check/report.rs |
-| A05102 | cli | assura-cli | Known compiler limitation (warning, exit 0) | No action needed | (impl) | check/report.rs |
-| A05103 | cli | assura-cli | Solver inconclusive (error, exit 1) | Simplify the contract | (impl) | check/report.rs |
+| A05102 | cli | assura-cli | Known compiler limitation (warning, exit 0; error under `--strict`) | Simplify ensures, add IR, or ignore until encoding lands | (impl) | check/report.rs |
+| A05103 | cli | assura-cli | Solver inconclusive (error, exit 1) | Simplify the contract or raise `--timeout` | (impl) | check/report.rs |
 | A10002 | types | assura-types | Match on unknown scrutinee without wildcard | (implementation; see CLI/SMT Unknown policy) | (impl) | checks/meta.rs (match exhaustiveness) |
 
 ## High-traffic implementation codes (not always in SPEC §7.2 table above)
@@ -115,6 +115,7 @@ this table over guessing the phase.
 
 | Code | Phase | Primary crate | Typical meaning | Start in tree |
 |------|-------|---------------|-----------------|---------------|
+| A01000 | cli/pipeline | assura-cli / assura-pipeline | Source file read/IO failure | check/run.rs, pipeline |
 | A02006 | resolve | assura-resolve | Duplicate import | imports.rs |
 | A02007 | resolve | assura-resolve | Unused import | unused.rs |
 | A02008 | resolve | assura-resolve | Invalid import path segment | imports.rs |

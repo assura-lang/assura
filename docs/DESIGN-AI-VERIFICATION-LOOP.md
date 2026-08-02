@@ -251,15 +251,14 @@ The pieces exist but are not connected:
 | JSON output | `VerificationSummary` | Works (JSON-serializable) |
 | IR prompt generation | `render_ir_prompt` / `ir_prompt_contexts_for_typed` | Works |
 | Heuristic IR generation | `ir_generate::generate_ir_sidecar_text` | Works (pattern detection) |
-| MCP server | `assura-mcp` (5 tools) | Works, but no IR verify tool |
+| MCP server | `assura-mcp` (6 tools) | Works: check, infer, explain, type_map, ir_prompt, **ir_verify** |
+| CLI IR + SMT | `assura ir --verify` / `--verify-only` | Works (requires `--contract`) |
 
-**Missing connections:**
+**Remaining gaps (not blocking the closed loop):**
 
-1. No MCP tool to submit IR text and get verification results
-2. `assura ir` command does not run SMT verification
-3. No counterexample-to-IR-slot mapping
-4. No structured repair hints
-5. No multi-turn protocol with progress tracking
+1. No counterexample-to-IR-slot mapping
+2. No structured repair hints beyond Unknown/CE reasons
+3. No multi-turn protocol with progress tracking
 
 ---
 
