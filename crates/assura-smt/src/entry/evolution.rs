@@ -148,10 +148,7 @@ fn check_implication(
         let all_exprs: Vec<&&SpExpr> = antecedents.iter().chain(consequents.iter()).collect();
         for expr in &all_exprs {
             if expr_has_unmodelable_features(expr) {
-                return VerificationResult::Unknown {
-                    clause_desc: desc.to_string(),
-                    reason: "clause uses features not yet encoded in SMT".into(),
-                };
+                return VerificationResult::unknown_not_encoded(desc, "clause uses features");
             }
         }
 
