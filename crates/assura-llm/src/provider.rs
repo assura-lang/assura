@@ -218,7 +218,7 @@ impl LlmProvider for MockProvider {
         Ok(serde_json::to_string(&serde_json::json!({
             "suggestions": []
         }))
-        .unwrap())
+        .expect("static JSON object always serializes"))
     }
 
     fn model_id(&self) -> &str {
