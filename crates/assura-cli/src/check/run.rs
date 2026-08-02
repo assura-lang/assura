@@ -103,9 +103,20 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
 
     let (source, display_name) = read_source_arg(filename).unwrap_or_else(|e| {
         if output_mode == OutputMode::Json {
+            // Match the normal check --json envelope so agents can always
+            // parse `{diagnostics, file_info, ...}` (not a bare diag array).
             let diag = assura_diagnostics::Diagnostic::error("A01000", format!("{e}"), 0..0)
                 .with_file(filename);
-            println!("{}", serde_json::to_string_pretty(&[diag]).unwrap());
+            let report = serde_json::json!({
+                "diagnostics": [diag],
+                "file_info": {
+                    "file": filename,
+                    "success": false,
+                },
+                "layer": compiler_config.verify.layer,
+                "verification": [],
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
         } else {
             eprintln!("Error: {filename}: {e}");
         }

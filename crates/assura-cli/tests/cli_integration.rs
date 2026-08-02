@@ -2844,6 +2844,33 @@ fn check_watch_missing_path_json() {
     assert_eq!(v["watch"], true);
 }
 
+/// `check --json` on a missing file must use the same report envelope as a
+/// normal check (object with `diagnostics` / `file_info`), not a bare array.
+#[test]
+fn check_missing_file_json_envelope() {
+    let out = Command::new(assura_bin())
+        .args(["check", "/no/such/check/path.assura", "--json"])
+        .output()
+        .expect("failed to run assura check --json missing");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "missing path should exit 2: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("missing path --json must be a JSON object");
+    assert!(v.is_object(), "expected object envelope, got: {stdout}");
+    assert_eq!(v["file_info"]["success"], false);
+    assert_eq!(v["file_info"]["file"], "/no/such/check/path.assura");
+    let diags = v["diagnostics"].as_array().expect("diagnostics array");
+    assert_eq!(diags.len(), 1);
+    assert_eq!(diags[0]["code"], "A01000");
+    assert!(v["verification"].is_array());
+}
+
 #[test]
 fn check_showcase_only_filters_by_header() {
     let tmp = unique_temp("assura_showcase_only");
