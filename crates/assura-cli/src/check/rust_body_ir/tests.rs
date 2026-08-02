@@ -1932,14 +1932,16 @@ fn simple_nested_if_in_then() {
 
 #[test]
 fn unary_neg_if_encodes() {
-    let ir = try_ir_from_rust_body("U", &px(), Some("i64"), "-(if x > 0 { x } else { 1 })");
-    assert!(ir.is_some(), "unary if");
+    let ir = try_ir_from_rust_body("U", &px(), Some("i64"), "-(if x > 0 { x } else { 1 })")
+        .expect("unary if should encode");
+    assert!(ir.contains("then #") || ir.contains("neg"), "{ir}");
 }
 
 #[test]
 fn method_on_if_encodes() {
-    let ir = try_ir_from_rust_body("M", &px(), Some("i64"), "(if x > 0 { x } else { 1 }).abs()");
-    assert!(ir.is_some(), "method on if");
+    let ir = try_ir_from_rust_body("M", &px(), Some("i64"), "(if x > 0 { x } else { 1 }).abs()")
+        .expect("method on if should encode");
+    assert!(ir.contains("then #") || ir.contains("abs"), "{ir}");
 }
 
 #[test]
@@ -1963,8 +1965,9 @@ fn cast_of_if_encodes() {
         &px(),
         Some("i64"),
         "(if x > 0 { x } else { 0 }) as i64",
-    );
-    assert!(ir.is_some(), "cast of if");
+    )
+    .expect("cast of if should encode");
+    assert!(ir.contains("then #"), "{ir}");
 }
 
 #[test]
@@ -1984,8 +1987,9 @@ fn if_as_method_arg_encodes() {
         &pxy,
         Some("i64"),
         "x.saturating_add(if y > 0 { 1 } else { 0 })",
-    );
-    assert!(ir.is_some(), "if as method arg: {ir:?}");
+    )
+    .expect("if as method arg should encode");
+    assert!(ir.contains("then #") || ir.contains("add"), "{ir}");
 }
 
 #[test]
