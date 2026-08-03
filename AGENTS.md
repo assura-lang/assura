@@ -546,6 +546,12 @@ Pratt parsing for expressions. Rowan 0.17 removed mutable syntax APIs
 (`SyntaxNodeMut` / in-place tree edit); Assura only builds green trees
 and reads them immutably, so no call-site changes were required.
 
+**Downstream crates must not depend on `rowan` directly.** `assura-fmt`
+walks CST children with `as_token()` / `as_node()` only. Matching on
+`rowan::NodeOrToken` while depending on a separate `rowan` crate version
+breaks `cargo package` when crates.io `assura-parser` still pins an
+older rowan (dual type instances). Keep rowan private to `assura-parser`.
+
 **z3 0.20 patterns**: No lifetime params (`Bool`, not `Bool<'ctx>`).
 No `&ctx` first arg on constructors (`Int::from_i64(n)`, not
 `Int::from_i64(&ctx, n)`). Use `.eq()` not `._eq()`. Context
