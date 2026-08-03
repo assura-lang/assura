@@ -127,6 +127,16 @@ full verify at release time.
 tarball). CI runs the same script on every rust-touching change (job
 **Cargo package (publishable)**).
 
+**Shared native crate versions (rowan lesson, #1448 / #1451):** when packaging
+a downstream crate (for example `assura-fmt`), Cargo resolves path+version
+deps against **crates.io** for siblings already published. If the monorepo
+bumps a private dependency (for example `rowan` 0.16 → 0.17) only on
+`assura-parser`, but a sibling crate still depends on `rowan` directly,
+verify can dual-link two `rowan` majors and fail type-checking
+(`NodeOrToken` from 0.16 vs 0.17). Keep `rowan` private to `assura-parser`;
+downstream code should use `assura_parser` types and methods
+(`as_token` / `as_node`) only.
+
 Fast listing only (no verify build):
 
 ```bash
