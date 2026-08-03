@@ -2015,6 +2015,54 @@ fn f(x: i64) -> i64 {
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// Straight-line `let mut` + `+=` / `=` reassignment (linear SSA fold).
+#[test]
+fn check_rust_encodes_let_mut_reassign() {
+    let tmp = unique_temp("assura_check_rust_let_mut_re");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result == x + 1
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    y += 1;
+    y
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "mut+= should prove: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+    assert!(v["verified"].as_u64().unwrap_or(0) >= 1, "{stdout}");
+
+    std::fs::write(
+        tmp.join("ok2.rs"),
+        r#"
+/// @ensures result == x + 1
+fn g(x: i64) -> i64 {
+    let mut y = x;
+    y = y + 1;
+    y
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok2.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "mut= should prove: {stdout}");
+}
+
 /// checked_neg().unwrap_or encodes (MIN → alt).
 #[test]
 fn check_rust_encodes_checked_neg_unwrap() {

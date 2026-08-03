@@ -102,46 +102,125 @@ fn body_return_from_block(block: &syn::Block) -> Option<String> {
     }
 }
 
-/// Fold `let a = e1; let b = a + 1; b` (or `return b`) into a single expression.
-/// Only simple `Pat::Ident` bindings without type ascriptions; `mut` is allowed
-/// when the binding is never reassigned (pure fold). Final stmt is
-/// path/return/expression that may reference prior binds.
+/// Fold simple statement sequences into a single expression via substitution
+/// (linear SSA, not a full CFG).
+///
+/// Supported:
+/// - `let a = e1; let b = a + 1; b` (pure lets; `mut` ok without reassignment)
+/// - `let mut y = x; y += 1; y` / `y = y + 1; y` (linear reassignment)
+/// - Final stmt: path / return / expression referencing prior binds
+///
+/// Not supported (returns None → body_not_modeled): assignments inside
+/// `if`/`match`/loops, multi-LHS patterns, type ascriptions on lets, bare
+/// mid-block expressions that are not assignments.
 fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<syn::Expr> {
     if stmts.len() < 2 {
         return None;
     }
-    // split_last -> (last_elem, prefix)
-    let (last, binds) = stmts.split_last()?;
+    let (last, prefix) = stmts.split_last()?;
+    // name → current expression (already substituted for earlier names)
     let mut env: Vec<(String, syn::Expr)> = Vec::new();
-    for stmt in binds {
-        let syn::Stmt::Local(local) = stmt else {
-            return None;
-        };
-        // Reject any later assignment to mut bindings (fold is pure substitute).
-        let name = match &local.pat {
-            syn::Pat::Ident(id) if id.by_ref.is_none() && id.subpat.is_none() => {
-                id.ident.to_string()
+    for stmt in prefix {
+        match stmt {
+            syn::Stmt::Local(local) => {
+                let name = match &local.pat {
+                    syn::Pat::Ident(id) if id.by_ref.is_none() && id.subpat.is_none() => {
+                        id.ident.to_string()
+                    }
+                    _ => return None,
+                };
+                let init = local.init.as_ref()?;
+                if init.diverge.is_some() {
+                    return None;
+                }
+                let mut init_expr = (*init.expr).clone();
+                for (n, e) in env.iter().rev() {
+                    init_expr = substitute_ident_expr(init_expr, n, e);
+                }
+                if let Some((_, slot)) = env.iter_mut().find(|(n, _)| n == &name) {
+                    *slot = init_expr;
+                } else {
+                    env.push((name, init_expr));
+                }
+            }
+            syn::Stmt::Expr(expr, _) => {
+                apply_linear_assignment(expr, &mut env)?;
             }
             _ => return None,
-        };
-        let init = local.init.as_ref()?;
-        if init.diverge.is_some() {
-            return None;
         }
-        env.push((name, (*init.expr).clone()));
     }
     let mut final_expr: syn::Expr = match last {
         syn::Stmt::Expr(syn::Expr::Return(ret), _) => (*ret.expr.as_ref()?.as_ref()).clone(),
         syn::Stmt::Expr(e, _) => e.clone(),
         _ => return None,
     };
-    // Substitute later binds first so earlier names expand fully.
     for (name, init) in env.into_iter().rev() {
         final_expr = substitute_ident_expr(final_expr, &name, &init);
     }
     // Lift if out of binary operands: `(if c { a } else { b }) + 1` →
     // `if c { a + 1 } else { b + 1 }` so multi-block encode works.
     Some(distribute_if_binary(paren_if_match_operands(final_expr)))
+}
+
+/// Apply `x = e` or `x += e` (etc.) to the linear env. Name must already be bound.
+fn apply_linear_assignment(expr: &syn::Expr, env: &mut Vec<(String, syn::Expr)>) -> Option<()> {
+    match expr {
+        syn::Expr::Assign(a) => {
+            let name = expr_simple_ident_name(&a.left)?;
+            let mut rhs = (*a.right).clone();
+            for (n, e) in env.iter().rev() {
+                rhs = substitute_ident_expr(rhs, n, e);
+            }
+            let (_, slot) = env.iter_mut().find(|(n, _)| n == &name)?;
+            *slot = rhs;
+            Some(())
+        }
+        syn::Expr::Binary(b) => {
+            let plain = assign_op_to_bin_op(b.op)?;
+            let name = expr_simple_ident_name(&b.left)?;
+            let mut rhs = (*b.right).clone();
+            for (n, e) in env.iter().rev() {
+                rhs = substitute_ident_expr(rhs, n, e);
+            }
+            let cur = env.iter().find(|(n, _)| n == &name)?.1.clone();
+            let combined = syn::Expr::Binary(syn::ExprBinary {
+                attrs: Vec::new(),
+                left: Box::new(cur),
+                op: plain,
+                right: Box::new(rhs),
+            });
+            let (_, slot) = env.iter_mut().find(|(n, _)| n == &name)?;
+            *slot = combined;
+            Some(())
+        }
+        _ => None,
+    }
+}
+
+fn expr_simple_ident_name(expr: &syn::Expr) -> Option<String> {
+    match expr {
+        syn::Expr::Path(p) if p.path.segments.len() == 1 && p.qself.is_none() => {
+            Some(p.path.segments[0].ident.to_string())
+        }
+        syn::Expr::Paren(p) => expr_simple_ident_name(&p.expr),
+        _ => None,
+    }
+}
+
+fn assign_op_to_bin_op(op: syn::BinOp) -> Option<syn::BinOp> {
+    match op {
+        syn::BinOp::AddAssign(_) => Some(syn::parse_quote!(+)),
+        syn::BinOp::SubAssign(_) => Some(syn::parse_quote!(-)),
+        syn::BinOp::MulAssign(_) => Some(syn::parse_quote!(*)),
+        syn::BinOp::DivAssign(_) => Some(syn::parse_quote!(/)),
+        syn::BinOp::RemAssign(_) => Some(syn::parse_quote!(%)),
+        syn::BinOp::BitXorAssign(_) => Some(syn::parse_quote!(^)),
+        syn::BinOp::BitAndAssign(_) => Some(syn::parse_quote!(&)),
+        syn::BinOp::BitOrAssign(_) => Some(syn::parse_quote!(|)),
+        syn::BinOp::ShlAssign(_) => Some(syn::parse_quote!(<<)),
+        syn::BinOp::ShrAssign(_) => Some(syn::parse_quote!(>>)),
+        _ => None,
+    }
 }
 
 /// Lift if/match out of binary/unary/method so multi-block encode can fire.

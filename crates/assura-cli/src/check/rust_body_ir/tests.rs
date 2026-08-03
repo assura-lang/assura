@@ -2072,6 +2072,52 @@ fn f(x: i64) -> i64 {
 }
 
 #[test]
+fn let_mut_add_assign_encodes() {
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    y += 1;
+    y
+}
+"#;
+    let body = extract_body_return(src, "f").expect("extract mut+=");
+    let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
+    assert!(ir.contains("arith add"), "body={body}\nir={ir}");
+}
+
+#[test]
+fn let_mut_plain_reassign_encodes() {
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    y = y + 1;
+    y
+}
+"#;
+    let body = extract_body_return(src, "f").expect("extract mut=");
+    let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
+    assert!(ir.contains("arith add"), "body={body}\nir={ir}");
+}
+
+#[test]
+fn let_mut_reassign_inside_if_still_bnm() {
+    // Control-flow mid-block is out of linear SSA scope.
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    if x > 0 {
+        y += 1;
+    }
+    y
+}
+"#;
+    assert!(
+        extract_body_return(src, "f").is_none(),
+        "if-with-assign should not fold"
+    );
+}
+
+#[test]
 fn checked_neg_unwrap_or_encodes() {
     let ir = try_ir_from_rust_body("N", &px(), Some("i64"), "x.checked_neg().unwrap_or(0)")
         .expect("checked_neg");

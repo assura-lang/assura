@@ -55,7 +55,7 @@ counterexample. Width limits are typically **through 64 bits** unless noted.
 | Area | Examples |
 |------|----------|
 | Control | `if` / `else`, `match` |
-| Binding | Multi-`let`, pure `let mut` (no reassignment), `let y = if/match …; y + n` |
+| Binding | Multi-`let`, pure `let mut`, linear reassignment (`y += 1`, `y = y + 1` on a straight-line path), `let y = if/match …; y + n` |
 | Composition | if/match over binary ops (both sides), method-on-if receivers, cast-of-if |
 | References | Peel outer `&` / `*` layers |
 
@@ -99,7 +99,7 @@ reports `body_not_modeled` and exits **1**. They are not silent Verified.
 
 | Shape | Why / what to do |
 |-------|------------------|
-| `let mut y = x; y += 1; y` (reassignment) | Pure `let mut` fold only; mutation/SSA not modeled. Prefer pure expressions or immutable lets. |
+| Assignments inside `if` / `match` / loops | Linear SSA only (no CFG). Rewrite to pure expressions or branch-local values. |
 | Bare `checked_*` / `overflowing_*` as the **return type** (full `Option` / `(T, bool)`) | Peel: `.unwrap_or` / `.unwrap_or_default` / `.is_some()` / `.is_none()` / `.0` / `.1`. Full Option/tuple values are not IR result types. |
 | Bodies outside Bucket A (I/O, arbitrary methods, complex ADTs, …) | Supply a co-located `{Name}.ir`, simplify the body, or keep contracts on `.assura` + generated code. |
 
