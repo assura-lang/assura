@@ -648,17 +648,32 @@ Concretely:
 
 ### Commit Messages
 
-Format: `<scope>: <description>`
+**Conventional Commit type first** (required for release-please), then
+optional scope in parentheses. Squash-merge uses the **PR title** as the
+main-branch subject; release-please only bumps versions for `feat` /
+`fix` / `perf` (and breaking markers).
 
-Scopes: `parser`, `resolve`, `types`, `smt`, `codegen`, `cli`, `docs`,
-`tests`, `ci`, `deps`
+Format: `<type>(<scope>): <description>`
+
+Types that bump: `feat` (minor pre-1.0), `fix` / `perf` (patch).
+Types that do not: `docs`, `chore`, `test`, `ci`, `refactor`, …
+
+Scopes (examples): `parser`, `resolve`, `types`, `smt`, `codegen`,
+`check-rust`, `cli`, `docs`, `tests`, `ci`, `deps`
 
 Examples:
-- `parser: handle refinement types in field definitions`
-- `resolve: implement symbol table and scope analysis`
-- `types: add base type checker for Int, Nat, Float, Bool`
-- `smt: initial Z3 bindings and refinement type encoding`
-- `codegen: generate debug_assert! from requires clauses`
+- `feat(parser): handle refinement types in field definitions`
+- `feat(resolve): implement symbol table and scope analysis`
+- `feat(types): add base type checker for Int, Nat, Float, Bool`
+- `feat(smt): initial Z3 bindings and refinement type encoding`
+- `feat(codegen): generate debug_assert! from requires clauses`
+- `feat(check-rust): CFG SSA join for if/match mutation`
+- `fix(cli): check --json missing-file full envelope`
+- `docs: check-rust supported surface page`
+
+**Do not** use bare scope titles (`check-rust: …`, `parser: …`). Those
+are not Conventional Commit types; release-please will not open a
+release PR.
 
 ### License
 
