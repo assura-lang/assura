@@ -3,6 +3,13 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.1](https://github.com/assura-lang/assura/compare/v0.4.0...v0.4.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* check --json missing-file envelope and MPI hygiene ([#1449](https://github.com/assura-lang/assura/issues/1449)) ([290eb14](https://github.com/assura-lang/assura/commit/290eb145937debb9288a4fd1d2236cde341ef18c))
+
 ## [Unreleased]
 
 ## [0.4.0](https://github.com/assura-lang/assura/compare/v0.3.0...v0.4.0) (2026-07-14)
