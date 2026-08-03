@@ -1497,7 +1497,10 @@ fn s003_info_flow_secret_to_result_a08001() {
 
     // Simulate: result == key (secret data flows to public output)
     let err = checker.check_assignment(SecurityLabel::Public, SecurityLabel::Restricted, &(0..10));
-    assert_eq!(err.expect("should detect secret->public flow").code, "A08001");
+    assert_eq!(
+        err.expect("should detect secret->public flow").code,
+        "A08001"
+    );
 }
 
 #[test]

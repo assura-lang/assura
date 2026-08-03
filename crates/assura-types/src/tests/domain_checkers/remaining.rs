@@ -1648,7 +1648,11 @@ fn error_propagation_dc_swallow_a12001() {
         },
     );
     let err = checker.validate_catch("CRITICAL_ERROR", ErrorAction::Swallow, 0..10);
-    assert_eq!(err.expect("swallowing must_propagate error should fail").code, "A12001");
+    assert_eq!(
+        err.expect("swallowing must_propagate error should fail")
+            .code,
+        "A12001"
+    );
 }
 
 // InterfaceChecker: missing method triggers A13001

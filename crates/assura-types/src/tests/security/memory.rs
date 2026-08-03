@@ -139,7 +139,10 @@ fn memory_checker_region_containment_different_buffers() {
         buffer: "buf_b".into(),
     });
     let result = checker.check_region_containment("r_a", "r_b", &(0..10));
-    assert_eq!(result.expect("different buffer regions should fail").code, "A08102");
+    assert_eq!(
+        result.expect("different buffer regions should fail").code,
+        "A08102"
+    );
 }
 
 #[test]
