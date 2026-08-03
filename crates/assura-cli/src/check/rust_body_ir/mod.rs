@@ -163,7 +163,7 @@ fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<syn::Expr> {
 }
 
 /// Apply `x = e` or `x += e` (etc.) to the linear env. Name must already be bound.
-fn apply_linear_assignment(expr: &syn::Expr, env: &mut Vec<(String, syn::Expr)>) -> Option<()> {
+fn apply_linear_assignment(expr: &syn::Expr, env: &mut [(String, syn::Expr)]) -> Option<()> {
     match expr {
         syn::Expr::Assign(a) => {
             let name = expr_simple_ident_name(&a.left)?;
