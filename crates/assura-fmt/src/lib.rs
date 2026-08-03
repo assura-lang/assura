@@ -123,18 +123,13 @@ pub fn format_source_file(_file: &assura_parser::ast::SourceFile) -> String {
 // ---------------------------------------------------------------------------
 
 /// Collect all leaf tokens from the CST in document order.
+///
+/// Use `as_token` / `as_node` (not `rowan::NodeOrToken` match arms) so this
+/// crate does not depend on a concrete `rowan` version. Packaging against
+/// crates.io `assura-parser` would otherwise dual-link rowan 0.16 + 0.17.
 fn collect_leaf_tokens(node: &assura_parser::syntax_kind::SyntaxNode) -> Vec<(SyntaxKind, String)> {
     let mut tokens = Vec::new();
-    for child in node.children_with_tokens() {
-        match child {
-            rowan::NodeOrToken::Token(tok) => {
-                tokens.push((tok.kind(), tok.text().to_string()));
-            }
-            rowan::NodeOrToken::Node(n) => {
-                collect_leaf_tokens_into(&n, &mut tokens);
-            }
-        }
-    }
+    collect_leaf_tokens_into(node, &mut tokens);
     tokens
 }
 
@@ -143,13 +138,10 @@ fn collect_leaf_tokens_into(
     tokens: &mut Vec<(SyntaxKind, String)>,
 ) {
     for child in node.children_with_tokens() {
-        match child {
-            rowan::NodeOrToken::Token(tok) => {
-                tokens.push((tok.kind(), tok.text().to_string()));
-            }
-            rowan::NodeOrToken::Node(n) => {
-                collect_leaf_tokens_into(&n, tokens);
-            }
+        if let Some(tok) = child.as_token() {
+            tokens.push((tok.kind(), tok.text().to_string()));
+        } else if let Some(n) = child.as_node() {
+            collect_leaf_tokens_into(n, tokens);
         }
     }
 }

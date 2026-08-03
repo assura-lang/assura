@@ -202,7 +202,6 @@ name = "assura-fmt"
 version = "0.4.0"
 dependencies = [
  "assura-parser",
- "rowan",
 ]
 
 [[package]]
