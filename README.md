@@ -181,8 +181,9 @@ assura check-rust src/
 #   1) co-located {Name}.ir
 #   2) encoded Rust body (arith/if/match/wrapping/bitops/…; see docs/CHECK-RUST-SURFACE.md)
 # Otherwise ensures are body_not_modeled (not silent verified/skipped).
-# User map: docs/CHECK-RUST-SURFACE.md  |  contributor detail: CONTRIBUTING "check-rust body proof"
+# User map: docs/CHECK-RUST-SURFACE.md  |  demos: demos/check-rust/  |  interop: examples/interop-rust/
 assura check-rust src/ --json
+assura check-rust demos/check-rust/ok   # prove demos (expect exit 0)
 
 # Suggest contracts for unannotated functions
 assura check-rust src/ --suggest

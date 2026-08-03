@@ -11,6 +11,7 @@ assura check-rust demos/check-rust/ok
 assura check-rust demos/check-rust/ok/clamp.rs
 assura check-rust demos/check-rust/ok/inc.rs
 assura check-rust demos/check-rust/ok/abs.rs
+assura check-rust demos/check-rust/ok/inc_mut.rs
 ```
 
 | File | Point |
@@ -18,6 +19,7 @@ assura check-rust demos/check-rust/ok/abs.rs
 | `ok/clamp.rs` | if/else + `result >= 0` |
 | `ok/inc.rs` | pure `let` + `result == x + 1` |
 | `ok/abs.rs` | `x.abs()` method body |
+| `ok/inc_mut.rs` | linear `let mut` + `+=` |
 
 ## Fail intentionally (expect exit non-zero)
 

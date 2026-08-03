@@ -20,7 +20,7 @@ fn check_rust_demos_ok_tree_proves() {
     );
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
-    assert!(v["verified"].as_u64().unwrap_or(0) >= 3, "{stdout}");
+    assert!(v["verified"].as_u64().unwrap_or(0) >= 4, "{stdout}");
     assert_eq!(v["errors"], 0, "{stdout}");
 }
 

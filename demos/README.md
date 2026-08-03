@@ -31,7 +31,16 @@ assura check demos/heartbleed.assura
 
 # Result-bearing ensures: many shapes synthesize in memory (no hand IR).
 assura check demos/showcase-echo.assura
+
+# Inline Rust annotations (/// @ensures), not .assura files:
+assura check-rust demos/check-rust/ok
+# Intentional counterexample (expect non-zero exit):
+assura check-rust demos/check-rust/fail/clamp_wrong.rs
 ```
+
+Full map: [check-rust/README.md](check-rust/README.md) and
+[docs/CHECK-RUST-SURFACE.md](../docs/CHECK-RUST-SURFACE.md). Interop sample
+crate: [examples/interop-rust](../examples/interop-rust).
 
 Do **not** start with `demos/*-audit.assura` or `defi-audit.assura` unless you
 are studying expected failures.

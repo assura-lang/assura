@@ -89,6 +89,7 @@ Only after: polished gallery (GIF), maker bio, docs URL not confused with assura
 | [../COMPARE.md](../COMPARE.md) | Assura vs Verus / Dafny (includes check-rust) |
 | [../CHECK-RUST-SURFACE.md](../CHECK-RUST-SURFACE.md) | What check-rust can prove on Rust |
 | [../AGENT-LOOP.md](../AGENT-LOOP.md) | Agent JSON branch policy |
+| [crate-of-the-week.md](crate-of-the-week.md) | TWiR CotW nomination draft (next outreach) |
 
 ## Pre-post checklist
 

@@ -14,7 +14,15 @@ For broader language coverage, see [TUTORIAL.md](TUTORIAL.md) and
 
 After your first successful check, read [What we prove](WHAT-WE-PROVE.md)
 so Verified / Unknown / Counterexample (and vacuous success) are not
-confused. AI-oriented workflow: [AI-AGENTS.md](AI-AGENTS.md).
+confused. AI-oriented workflow: [AI-AGENTS.md](AI-AGENTS.md) and
+[AGENT-LOOP.md](AGENT-LOOP.md).
+
+**Existing Rust with doc-comment contracts:** see
+[CHECK-RUST-SURFACE.md](CHECK-RUST-SURFACE.md) and try:
+
+```bash
+assura check-rust demos/check-rust/ok
+```
 
 ## 1. Install
 
