@@ -13,7 +13,7 @@ categories.workspace = true
 assura-ast = { version = "0.4.0", path = "../assura-ast" }
 assura-diagnostics = { version = "0.4.0", path = "../assura-diagnostics" }
 logos = "0.16"
-rowan = "0.16"
+rowan = "0.17"
 
 [dev-dependencies]
 insta = "1"
