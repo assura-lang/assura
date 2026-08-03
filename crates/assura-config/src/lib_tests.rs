@@ -718,8 +718,7 @@ fn load_project_config_reads_valid_toml() {
     .unwrap();
 
     let result = load_project_config(dir.path(), find_root_here);
-    assert!(result.is_some(), "should parse valid assura.toml");
-    let (config, root) = result.unwrap();
+    let (config, root) = result.expect("should parse valid assura.toml");
     assert_eq!(config.package.name, "test-proj");
     assert_eq!(config.package.version, "1.0.0");
     assert_eq!(config.verify.layer, 2);

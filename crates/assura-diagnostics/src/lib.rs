@@ -402,9 +402,10 @@ mod tests {
     fn test_explain_all_catalog_codes() {
         let catalog = error_catalog();
         for entry in &catalog {
-            let found = explain(entry.code);
-            assert!(found.is_some(), "should find {}", entry.code);
-            assert_eq!(found.unwrap().code, entry.code);
+            let found = explain(entry.code).unwrap_or_else(|| {
+                panic!("should find {}", entry.code);
+            });
+            assert_eq!(found.code, entry.code);
         }
     }
 
