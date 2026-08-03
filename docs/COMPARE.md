@@ -44,8 +44,9 @@ That is real, but it is **not** the same product as Verus:
 
 **Prefer Assura** when you want a separate contract language and/or an
 agent-friendly check loop, including optional inline annotations on Rust
-with honest body modeling limits (see [What we prove](WHAT-WE-PROVE.md)
-and CONTRIBUTING "check-rust body proof").
+with honest body modeling limits (see
+[`check-rust` supported surface](CHECK-RUST-SURFACE.md),
+[What we prove](WHAT-WE-PROVE.md), and CONTRIBUTING "check-rust body proof").
 
 ## When Assura is a better fit
 

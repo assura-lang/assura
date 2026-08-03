@@ -181,6 +181,10 @@ cargo test -p <crate> --locked --lib
 
 ### `check-rust` body proof
 
+User-facing map (modeled / `body_not_modeled` / soundness refusals):
+[`docs/CHECK-RUST-SURFACE.md`](docs/CHECK-RUST-SURFACE.md). Keep this
+section as the contributor residual detail when the encoder changes.
+
 `assura check-rust` proves `/// @ensures` against either a co-located
 `{Name}.ir` sidecar or a **encoded** Rust body. Encoded surface includes
 int/bool arith, if/else/match, multi-let / pure `let mut` (incl. `let y = if/match …; y + n`), if/match-over-binary (both sides),

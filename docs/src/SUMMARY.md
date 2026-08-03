@@ -14,6 +14,7 @@
 - [For AI agents](AI-AGENTS.md)
 - [Compared to other tools](COMPARE.md)
 - [What we prove](WHAT-WE-PROVE.md)
+- [`check-rust` supported surface](CHECK-RUST-SURFACE.md)
 - [SMT portfolio note](SMT-NOTE.md)
 - [Preferred URLs](URLS.md)
 - [FAQ](FAQ.md)

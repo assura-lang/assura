@@ -40,6 +40,9 @@ See FAQ: Z3 timeout on a contract.
 
 - Features that still return Unknown with the known-limitation marker
 - Host code outside Assura contracts / IR / check-rust body modeling
+  (for inline Rust, see
+  [`check-rust` supported surface](CHECK-RUST-SURFACE.md): modeled vs
+  `body_not_modeled` vs soundness refusals)
 - Absolute absence of all security bugs (only the properties you state
   and that the solver models)
 - Correctness of the SMT solvers themselves or of `rustc`
@@ -61,4 +64,5 @@ features is common; runtime assertions from codegen still apply.
 
 - [FAQ](FAQ.md) — timeouts, counterexamples, Unknown
 - [Compared to other tools](COMPARE.md)
+- [`check-rust` supported surface](CHECK-RUST-SURFACE.md) — inline Rust body model
 - [Preferred URLs](URLS.md)

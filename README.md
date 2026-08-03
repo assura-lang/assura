@@ -179,8 +179,9 @@ assura infer src/main.rs
 assura check-rust src/
 # Body proof paths (in order):
 #   1) co-located {Name}.ir
-#   2) encoded Rust body (arith/if/match/wrapping/bitops/rotate/is_power_of_two/ilog…; see CONTRIBUTING "check-rust body proof")
+#   2) encoded Rust body (arith/if/match/wrapping/bitops/…; see docs/CHECK-RUST-SURFACE.md)
 # Otherwise ensures are body_not_modeled (not silent verified/skipped).
+# User map: docs/CHECK-RUST-SURFACE.md  |  contributor detail: CONTRIBUTING "check-rust body proof"
 assura check-rust src/ --json
 
 # Suggest contracts for unannotated functions
