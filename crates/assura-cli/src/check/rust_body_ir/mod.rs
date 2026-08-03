@@ -51,6 +51,7 @@
 use assura_rust_analyzer::ParamInfo;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use syn::spanned::Spanned;
 
 thread_local! {
     /// Saturating op bounds for the current encode (set from return type).
@@ -73,6 +74,7 @@ use width::*;
 
 /// Extract a simple trailing return expression for `fn_name` from Rust source.
 pub(crate) fn extract_body_return(source: &str, fn_name: &str) -> Option<String> {
+    clear_fold_residual();
     let file = syn::parse_file(source).ok()?;
     for item in &file.items {
         match item {
@@ -102,52 +104,47 @@ fn body_return_from_block(block: &syn::Block) -> Option<String> {
     }
 }
 
+// Last residual reason when fold fails on a known construct (line-specific BNM).
+thread_local! {
+    static FOLD_RESIDUAL: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// Reason for the most recent body fold failure (if any). Cleared on success.
+pub(crate) fn take_fold_residual() -> Option<String> {
+    FOLD_RESIDUAL.with(|c| c.borrow_mut().take())
+}
+
+fn set_fold_residual(reason: impl Into<String>) {
+    FOLD_RESIDUAL.with(|c| *c.borrow_mut() = Some(reason.into()));
+}
+
+fn clear_fold_residual() {
+    FOLD_RESIDUAL.with(|c| *c.borrow_mut() = None);
+}
+
 /// Fold simple statement sequences into a single expression via substitution
-/// (linear SSA, not a full CFG).
+/// (linear SSA + branch-local join for if/match mutation; not full loop SSA).
 ///
 /// Supported:
 /// - `let a = e1; let b = a + 1; b` (pure lets; `mut` ok without reassignment)
 /// - `let mut y = x; y += 1; y` / `y = y + 1; y` (linear reassignment)
+/// - `let mut y = x; if c { y += 1; } y` / if-else / match arm mutation (CFG join)
 /// - Final stmt: path / return / expression referencing prior binds
 ///
-/// Not supported (returns None → body_not_modeled): assignments inside
-/// `if`/`match`/loops, multi-LHS patterns, type ascriptions on lets, bare
-/// mid-block expressions that are not assignments.
+/// Not supported (returns None → body_not_modeled): loops with mutation,
+/// multi-LHS patterns, type ascriptions on lets, bare mid-block expressions
+/// that are not assignments / if / match.
 fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<syn::Expr> {
+    clear_fold_residual();
     if stmts.len() < 2 {
         return None;
     }
     let (last, prefix) = stmts.split_last()?;
     // name → current expression (already substituted for earlier names)
     let mut env: Vec<(String, syn::Expr)> = Vec::new();
+    let mut assigned = std::collections::HashSet::new();
     for stmt in prefix {
-        match stmt {
-            syn::Stmt::Local(local) => {
-                let name = match &local.pat {
-                    syn::Pat::Ident(id) if id.by_ref.is_none() && id.subpat.is_none() => {
-                        id.ident.to_string()
-                    }
-                    _ => return None,
-                };
-                let init = local.init.as_ref()?;
-                if init.diverge.is_some() {
-                    return None;
-                }
-                let mut init_expr = (*init.expr).clone();
-                for (n, e) in env.iter().rev() {
-                    init_expr = substitute_ident_expr(init_expr, n, e);
-                }
-                if let Some((_, slot)) = env.iter_mut().find(|(n, _)| n == &name) {
-                    *slot = init_expr;
-                } else {
-                    env.push((name, init_expr));
-                }
-            }
-            syn::Stmt::Expr(expr, _) => {
-                apply_linear_assignment(expr, &mut env)?;
-            }
-            _ => return None,
-        }
+        apply_stmt_to_env(stmt, &mut env, &mut assigned)?;
     }
     let mut final_expr: syn::Expr = match last {
         syn::Stmt::Expr(syn::Expr::Return(ret), _) => (*ret.expr.as_ref()?.as_ref()).clone(),
@@ -159,11 +156,335 @@ fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<syn::Expr> {
     }
     // Lift if out of binary operands: `(if c { a } else { b }) + 1` →
     // `if c { a + 1 } else { b + 1 }` so multi-block encode works.
+    clear_fold_residual();
     Some(distribute_if_binary(paren_if_match_operands(final_expr)))
 }
 
+type SsaEnv = Vec<(String, syn::Expr)>;
+type AssignedSet = std::collections::HashSet<String>;
+
+/// Apply one statement to the SSA env (local bind, assign, or if/match join).
+///
+/// `assigned` records names mutated via `=` / `+=` / … so CFG join does not
+/// treat a shadowing `let y = e` as mutation of outer `y`.
+fn apply_stmt_to_env(
+    stmt: &syn::Stmt,
+    env: &mut Vec<(String, syn::Expr)>,
+    assigned: &mut AssignedSet,
+) -> Option<()> {
+    match stmt {
+        syn::Stmt::Local(local) => {
+            let name = match &local.pat {
+                syn::Pat::Ident(id) if id.by_ref.is_none() && id.subpat.is_none() => {
+                    id.ident.to_string()
+                }
+                _ => {
+                    set_fold_residual("multi-pattern or typed let not modeled in body SSA");
+                    return None;
+                }
+            };
+            let init = local.init.as_ref()?;
+            if init.diverge.is_some() {
+                return None;
+            }
+            let mut init_expr = (*init.expr).clone();
+            for (n, e) in env.iter().rev() {
+                init_expr = substitute_ident_expr(init_expr, n, e);
+            }
+            // Shadow / rebind for in-scope uses; does NOT count as assignment.
+            if let Some((_, slot)) = env.iter_mut().find(|(n, _)| n == &name) {
+                *slot = init_expr;
+            } else {
+                env.push((name, init_expr));
+            }
+            Some(())
+        }
+        syn::Stmt::Expr(expr, _) => apply_effect_expr(expr, env, assigned),
+        _ => {
+            set_fold_residual("unsupported statement form in body SSA");
+            None
+        }
+    }
+}
+
+/// Mid-block effect: assignment or if/match mutation join (not loops).
+fn apply_effect_expr(
+    expr: &syn::Expr,
+    env: &mut Vec<(String, syn::Expr)>,
+    assigned: &mut AssignedSet,
+) -> Option<()> {
+    if matches!(expr, syn::Expr::Assign(_))
+        || matches!(expr, syn::Expr::Binary(b) if assign_op_to_bin_op(b.op).is_some())
+    {
+        return apply_linear_assignment(expr, env, assigned).or_else(|| {
+            set_fold_residual(format!(
+                "assignment to unbound or unsupported LHS (line ~{})",
+                expr_approx_line(expr)
+            ));
+            None
+        });
+    }
+    match expr {
+        syn::Expr::If(if_e) => apply_cfg_if(if_e, env, assigned),
+        syn::Expr::Match(m) => apply_cfg_match(m, env, assigned),
+        syn::Expr::While(_) | syn::Expr::ForLoop(_) | syn::Expr::Loop(_) => {
+            set_fold_residual(format!(
+                "loop control flow not modeled (line ~{}): rewrite without loop or supply co-located .ir",
+                expr_approx_line(expr)
+            ));
+            None
+        }
+        syn::Expr::Paren(p) => apply_effect_expr(&p.expr, env, assigned),
+        syn::Expr::Group(g) => apply_effect_expr(&g.expr, env, assigned),
+        _ => {
+            set_fold_residual(format!(
+                "mid-block expression not modeled as assignment/if/match (line ~{})",
+                expr_approx_line(expr)
+            ));
+            None
+        }
+    }
+}
+
+fn expr_approx_line(expr: &syn::Expr) -> usize {
+    let line = expr.span().start().line;
+    if line == 0 { 1 } else { line }
+}
+
+/// Apply every statement in a block as env effects (mutation arms).
+fn apply_block_to_env(
+    block: &syn::Block,
+    env: &mut Vec<(String, syn::Expr)>,
+    assigned: &mut AssignedSet,
+) -> Option<()> {
+    for stmt in &block.stmts {
+        apply_stmt_to_env(stmt, env, assigned)?;
+    }
+    Some(())
+}
+
+/// Substitute current env into `expr` (names → expressions).
+fn subst_env(expr: syn::Expr, env: &[(String, syn::Expr)]) -> syn::Expr {
+    let mut out = expr;
+    for (n, e) in env.iter().rev() {
+        out = substitute_ident_expr(out, n, e);
+    }
+    out
+}
+
+/// Build `if cond { then } else { else }` as a value expression.
+fn make_if_value(cond: syn::Expr, then_e: syn::Expr, else_e: syn::Expr) -> syn::Expr {
+    syn::Expr::If(syn::ExprIf {
+        attrs: Vec::new(),
+        if_token: Default::default(),
+        cond: Box::new(cond),
+        then_branch: syn::Block {
+            brace_token: Default::default(),
+            stmts: vec![syn::Stmt::Expr(then_e, None)],
+        },
+        else_branch: Some((
+            Default::default(),
+            Box::new(syn::Expr::Block(syn::ExprBlock {
+                attrs: Vec::new(),
+                label: None,
+                block: syn::Block {
+                    brace_token: Default::default(),
+                    stmts: vec![syn::Stmt::Expr(else_e, None)],
+                },
+            })),
+        )),
+    })
+}
+
+/// Join parent env after if/else mutation arms (phi-style).
+/// Only names in then/else `assigned` sets take arm values (not shadowing lets).
+fn join_env_after_if(
+    cond: syn::Expr,
+    then_env: &[(String, syn::Expr)],
+    then_assigned: &AssignedSet,
+    else_env: &[(String, syn::Expr)],
+    else_assigned: &AssignedSet,
+    env: &mut [(String, syn::Expr)],
+) {
+    for (name, parent_val) in env.iter_mut() {
+        let then_val = if then_assigned.contains(name) {
+            then_env
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, e)| e.clone())
+                .unwrap_or_else(|| parent_val.clone())
+        } else {
+            parent_val.clone()
+        };
+        let else_val = if else_assigned.contains(name) {
+            else_env
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, e)| e.clone())
+                .unwrap_or_else(|| parent_val.clone())
+        } else {
+            parent_val.clone()
+        };
+        if expr_source(&then_val) == expr_source(&else_val) {
+            *parent_val = then_val;
+        } else {
+            *parent_val = make_if_value(cond.clone(), then_val, else_val);
+        }
+    }
+}
+
+/// CFG join for `if cond { …mut… } [else …]`.
+fn apply_cfg_if(
+    if_e: &syn::ExprIf,
+    env: &mut [(String, syn::Expr)],
+    parent_assigned: &mut AssignedSet,
+) -> Option<()> {
+    let cond = subst_env((*if_e.cond).clone(), env);
+    let mut then_env: SsaEnv = env.to_vec();
+    let mut then_assigned = AssignedSet::new();
+    apply_block_to_env(&if_e.then_branch, &mut then_env, &mut then_assigned)?;
+
+    let mut else_env: SsaEnv = env.to_vec();
+    let mut else_assigned = AssignedSet::new();
+    if let Some((_, else_box)) = &if_e.else_branch {
+        match else_box.as_ref() {
+            syn::Expr::Block(eb) => {
+                apply_block_to_env(&eb.block, &mut else_env, &mut else_assigned)?
+            }
+            syn::Expr::If(nested) => apply_cfg_if(nested, &mut else_env, &mut else_assigned)?,
+            other => apply_effect_expr(other, &mut else_env, &mut else_assigned)?,
+        }
+    }
+
+    join_env_after_if(
+        cond,
+        &then_env,
+        &then_assigned,
+        &else_env,
+        &else_assigned,
+        env,
+    );
+    for n in then_assigned.union(&else_assigned) {
+        parent_assigned.insert(n.clone());
+    }
+    Some(())
+}
+
+/// CFG join for match with lit / trailing-irrefutable arms that only mutate env.
+fn apply_cfg_match(
+    m: &syn::ExprMatch,
+    env: &mut [(String, syn::Expr)],
+    parent_assigned: &mut AssignedSet,
+) -> Option<()> {
+    if m.arms.is_empty() {
+        set_fold_residual("empty match not modeled in body SSA");
+        return None;
+    }
+    let scrut = subst_env((*m.expr).clone(), env);
+
+    // (optional lit eq, env after arm, names assigned in arm)
+    let mut arm_results: Vec<(Option<syn::Expr>, SsaEnv, AssignedSet)> = Vec::new();
+    let mut saw_irrefutable = false;
+    for arm in &m.arms {
+        if saw_irrefutable {
+            set_fold_residual(format!(
+                "match arm after irrefutable pattern not modeled (line ~{})",
+                expr_approx_line(&m.expr)
+            ));
+            return None;
+        }
+        if matches!(&arm.pat, syn::Pat::Guard(_)) {
+            set_fold_residual(format!(
+                "match guard mutation not modeled (line ~{})",
+                expr_approx_line(&m.expr)
+            ));
+            return None;
+        }
+        let (lit_pat, bind_name): (Option<syn::Expr>, Option<String>) = match &arm.pat {
+            syn::Pat::Wild(_) => {
+                saw_irrefutable = true;
+                (None, None)
+            }
+            syn::Pat::Lit(pl) => (
+                Some(syn::Expr::Lit(syn::ExprLit {
+                    attrs: Vec::new(),
+                    lit: pl.lit.clone(),
+                })),
+                None,
+            ),
+            syn::Pat::Ident(id)
+                if id.by_ref.is_none() && id.mutability.is_none() && id.subpat.is_none() =>
+            {
+                // Irrefutable bind: like wild + subst bind → scrut (value-match policy).
+                saw_irrefutable = true;
+                (None, Some(id.ident.to_string()))
+            }
+            _ => {
+                set_fold_residual(format!(
+                    "match pattern not modeled for mutation join (line ~{})",
+                    expr_approx_line(&m.expr)
+                ));
+                return None;
+            }
+        };
+        let mut arm_env: SsaEnv = env.to_vec();
+        let mut arm_assigned = AssignedSet::new();
+        if let Some(bind) = &bind_name {
+            arm_env.push((bind.clone(), scrut.clone()));
+        }
+        match arm.body.as_ref() {
+            syn::Expr::Block(eb) => apply_block_to_env(&eb.block, &mut arm_env, &mut arm_assigned)?,
+            other => apply_effect_expr(other, &mut arm_env, &mut arm_assigned)?,
+        }
+        if let Some(bind) = &bind_name {
+            arm_assigned.remove(bind);
+        }
+        arm_results.push((lit_pat, arm_env, arm_assigned));
+    }
+
+    for (name, parent_val) in env.iter_mut() {
+        let mut nest: Option<syn::Expr> = None;
+        for (lit, arm_env, arm_assigned) in arm_results.iter().rev() {
+            let arm_val = if arm_assigned.contains(name) {
+                arm_env
+                    .iter()
+                    .find(|(n, _)| n == name)
+                    .map(|(_, e)| e.clone())
+                    .unwrap_or_else(|| parent_val.clone())
+            } else {
+                parent_val.clone()
+            };
+            nest = Some(match (lit, nest) {
+                (None, None) => arm_val,
+                (None, Some(_)) => arm_val, // unreachable: arms after irrefutable rejected
+                (Some(lit_e), None) => {
+                    let cond = make_binary(scrut.clone(), syn::parse_quote!(==), lit_e.clone());
+                    make_if_value(cond, arm_val, parent_val.clone())
+                }
+                (Some(lit_e), Some(else_e)) => {
+                    let cond = make_binary(scrut.clone(), syn::parse_quote!(==), lit_e.clone());
+                    make_if_value(cond, arm_val, else_e)
+                }
+            });
+        }
+        if let Some(joined) = nest {
+            *parent_val = joined;
+        }
+    }
+    for (_, _, arm_assigned) in &arm_results {
+        for n in arm_assigned {
+            parent_assigned.insert(n.clone());
+        }
+    }
+    Some(())
+}
+
 /// Apply `x = e` or `x += e` (etc.) to the linear env. Name must already be bound.
-fn apply_linear_assignment(expr: &syn::Expr, env: &mut [(String, syn::Expr)]) -> Option<()> {
+fn apply_linear_assignment(
+    expr: &syn::Expr,
+    env: &mut [(String, syn::Expr)],
+    assigned: &mut AssignedSet,
+) -> Option<()> {
     match expr {
         syn::Expr::Assign(a) => {
             let name = expr_simple_ident_name(&a.left)?;
@@ -173,6 +494,7 @@ fn apply_linear_assignment(expr: &syn::Expr, env: &mut [(String, syn::Expr)]) ->
             }
             let (_, slot) = env.iter_mut().find(|(n, _)| n == &name)?;
             *slot = rhs;
+            assigned.insert(name);
             Some(())
         }
         syn::Expr::Binary(b) => {
@@ -191,6 +513,7 @@ fn apply_linear_assignment(expr: &syn::Expr, env: &mut [(String, syn::Expr)]) ->
             });
             let (_, slot) = env.iter_mut().find(|(n, _)| n == &name)?;
             *slot = combined;
+            assigned.insert(name);
             Some(())
         }
         _ => None,
@@ -800,6 +1123,34 @@ fn substitute_ident_expr(expr: syn::Expr, name: &str, replacement: &syn::Expr) -
                 .collect();
             c.args = args.into_iter().collect();
             syn::Expr::Call(c)
+        }
+        // CFG join leaves if/match trees that still mention bound names.
+        syn::Expr::If(mut if_e) => {
+            *if_e.cond = substitute_ident_expr(*if_e.cond, name, replacement);
+            if_e.then_branch = map_block_expr(if_e.then_branch, |e| {
+                substitute_ident_expr(e, name, replacement)
+            });
+            if let Some((tok, else_box)) = if_e.else_branch.take() {
+                let else_e = substitute_ident_expr(*else_box, name, replacement);
+                if_e.else_branch = Some((tok, Box::new(else_e)));
+            }
+            syn::Expr::If(if_e)
+        }
+        syn::Expr::Match(mut m) => {
+            *m.expr = substitute_ident_expr(*m.expr, name, replacement);
+            m.arms = m
+                .arms
+                .into_iter()
+                .map(|mut arm| {
+                    arm.body = Box::new(substitute_ident_expr(*arm.body, name, replacement));
+                    arm
+                })
+                .collect();
+            syn::Expr::Match(m)
+        }
+        syn::Expr::Block(mut eb) => {
+            eb.block = map_block_expr(eb.block, |e| substitute_ident_expr(e, name, replacement));
+            syn::Expr::Block(eb)
         }
         other => other,
     }

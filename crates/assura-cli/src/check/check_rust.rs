@@ -134,6 +134,7 @@ pub(crate) fn run_check_rust(
     let mut total_verified = 0usize;
     let mut total_errors = 0usize;
     let mut total_body_not_modeled = 0usize;
+    let mut last_bnm_reason: Option<String> = None;
     let mut all_results: Vec<serde_json::Value> = Vec::new();
 
     for (file_path, items) in &file_items {
@@ -379,16 +380,25 @@ pub(crate) fn run_check_rust(
                     item_verified,
                     item_errors,
                 ) {
+                    let fold_reason = super::rust_body_ir::take_fold_residual();
                     if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
-                        eprintln!(
-                            "  note: `{item_name}` has no co-located .ir and body is outside the encode surface; \
-                             ensures were not proven against the Rust body (status body_not_modeled)"
-                        );
+                        if let Some(ref reason) = fold_reason {
+                            eprintln!("  note: `{item_name}` body_not_modeled: {reason}");
+                        } else {
+                            eprintln!(
+                                "  note: `{item_name}` has no co-located .ir and body is outside the encode surface; \
+                                 ensures were not proven against the Rust body (status body_not_modeled)"
+                            );
+                        }
                     }
                     item_skipped += item_verified;
                     item_verified = 0;
                     item_status = "body_not_modeled";
                     total_body_not_modeled += 1;
+                    // Stash last reason for the summary rewrite hints (if any).
+                    if let Some(reason) = fold_reason {
+                        last_bnm_reason = Some(format!("{item_name}: {reason}"));
+                    }
                 }
 
                 total_verified += item_verified;
@@ -494,13 +504,23 @@ pub(crate) fn run_check_rust(
             eprintln!("{total_errors} verification error(s)");
             process::exit(1);
         } else if total_body_not_modeled > 0 {
-            eprintln!(
-                "{total_body_not_modeled} item(s) not proven against the Rust body \
-                 (body_not_modeled). Rewrite hints: keep mutation on a straight \
-                 line (no assign inside if/match/loop); peel checked_*/overflowing_* \
-                 with .unwrap_or / .is_some() / .0; avoid panic div/mod. Or add \
-                 co-located {{Name}}.ir. Surface map: docs/CHECK-RUST-SURFACE.md"
-            );
+            if let Some(ref reason) = last_bnm_reason {
+                eprintln!(
+                    "{total_body_not_modeled} item(s) not proven against the Rust body \
+                     (body_not_modeled). Last reason: {reason}. Loops stay residual; \
+                     if/match mutation joins are encoded. Peel checked_*/overflowing_* \
+                     with .unwrap_or / .is_some() / .0; avoid panic div/mod. Or add \
+                     co-located {{Name}}.ir. Surface map: docs/CHECK-RUST-SURFACE.md"
+                );
+            } else {
+                eprintln!(
+                    "{total_body_not_modeled} item(s) not proven against the Rust body \
+                     (body_not_modeled). Rewrite hints: peel checked_*/overflowing_* \
+                     with .unwrap_or / .is_some() / .0; avoid panic div/mod; loops with \
+                     mutation stay residual. Or add co-located {{Name}}.ir. Surface map: \
+                     docs/CHECK-RUST-SURFACE.md"
+                );
+            }
             process::exit(1);
         } else if total_verified == 0 {
             println!(

@@ -2063,6 +2063,147 @@ fn g(x: i64) -> i64 {
     assert!(out.status.success(), "mut= should prove: {stdout}");
 }
 
+/// CFG join: mutation inside if-then / if-else (#1466).
+#[test]
+fn check_rust_encodes_let_mut_if_join() {
+    let tmp = unique_temp("assura_check_rust_let_mut_if");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("then.rs"),
+        r#"
+/// @ensures result >= x
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    if x > 0 {
+        y += 1;
+    }
+    y
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args([
+            "check-rust",
+            "--json",
+            tmp.join("then.rs").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "if-then mut should prove: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+    assert!(v["verified"].as_u64().unwrap_or(0) >= 1, "{stdout}");
+
+    std::fs::write(
+        tmp.join("else.rs"),
+        r#"
+/// @ensures result >= x + 1
+fn g(x: i64) -> i64 {
+    let mut y = x;
+    if x > 0 {
+        y += 1;
+    } else {
+        y += 2;
+    }
+    y
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args([
+            "check-rust",
+            "--json",
+            tmp.join("else.rs").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "if-else mut should prove: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "if-else mut body: {stdout}");
+    assert!(v["verified"].as_u64().unwrap_or(0) >= 1, "{stdout}");
+}
+
+/// CFG join: match lit/_ mutation (#1466).
+#[test]
+fn check_rust_encodes_let_mut_match_join() {
+    let tmp = unique_temp("assura_check_rust_let_mut_match");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("m.rs"),
+        r#"
+/// @ensures result >= x + 1
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    match x {
+        0 => {
+            y += 1;
+        }
+        _ => {
+            y += 2;
+        }
+    }
+    y
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("m.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "match mut should prove: {stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+    assert!(v["verified"].as_u64().unwrap_or(0) >= 1, "{stdout}");
+}
+
+/// Loop mutation stays body_not_modeled (fail closed, no silent Verified).
+#[test]
+fn check_rust_loop_mut_body_not_modeled() {
+    let tmp = unique_temp("assura_check_rust_let_mut_loop");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("loop.rs"),
+        r#"
+/// @ensures result >= 0
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    while y > 0 {
+        y -= 1;
+    }
+    y
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args([
+            "check-rust",
+            "--json",
+            tmp.join("loop.rs").to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !out.status.success(),
+        "loop mut must not soft-pass: {stdout}"
+    );
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert!(
+        v["body_not_modeled"].as_u64().unwrap_or(0) >= 1,
+        "expected BNM for loop mut: {stdout}"
+    );
+}
+
 /// checked_neg().unwrap_or encodes (MIN → alt).
 #[test]
 fn check_rust_encodes_checked_neg_unwrap() {

@@ -2100,8 +2100,8 @@ fn f(x: i64) -> i64 {
 }
 
 #[test]
-fn let_mut_reassign_inside_if_still_bnm() {
-    // Control-flow mid-block is out of linear SSA scope.
+fn let_mut_reassign_inside_if_then_encodes() {
+    // CFG join: if-then mut without else → if c { y' } else { y }
     let src = r#"
 fn f(x: i64) -> i64 {
     let mut y = x;
@@ -2111,10 +2111,101 @@ fn f(x: i64) -> i64 {
     y
 }
 "#;
+    let body = extract_body_return(src, "f").expect("if-then mut should fold");
+    assert!(body.contains("if"), "expected join if in body={body}");
+    let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
+    assert!(
+        ir.contains("then #"),
+        "expected multi-block join IR; body={body}\nir={ir}"
+    );
+}
+
+#[test]
+fn let_mut_reassign_inside_if_else_encodes() {
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    if x > 0 {
+        y += 1;
+    } else {
+        y += 2;
+    }
+    y
+}
+"#;
+    let body = extract_body_return(src, "f").expect("if-else mut should fold");
+    assert!(body.contains("if"), "expected join if in body={body}");
+    let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
+    assert!(
+        ir.contains("then #"),
+        "expected multi-block join IR; body={body}\nir={ir}"
+    );
+}
+
+#[test]
+fn let_mut_reassign_inside_match_encodes() {
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    match x {
+        0 => {
+            y += 1;
+        }
+        _ => {
+            y += 2;
+        }
+    }
+    y
+}
+"#;
+    let body = extract_body_return(src, "f").expect("match mut should fold");
+    assert!(body.contains("if"), "match mut joins to if; body={body}");
+    let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
+    assert!(
+        ir.contains("then #"),
+        "expected multi-block join IR; body={body}\nir={ir}"
+    );
+}
+
+#[test]
+fn let_mut_shadowing_let_in_if_does_not_join() {
+    // `let y = e` shadows; outer y must stay x (not join as if c { e } else { x }).
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    if x > 0 {
+        let y = 99;
+        let _z = y;
+    }
+    y
+}
+"#;
+    let body = extract_body_return(src, "f").expect("shadow let should not poison outer");
+    // Folded body should be just x (or equivalent), not an if with 99.
+    assert!(
+        !body.contains("99"),
+        "shadowing must not join into outer y; body={body}"
+    );
+}
+
+#[test]
+fn let_mut_reassign_inside_loop_still_bnm() {
+    // Loops stay residual (no full loop SSA).
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    while y > 0 {
+        y -= 1;
+    }
+    y
+}
+"#;
     assert!(
         extract_body_return(src, "f").is_none(),
-        "if-with-assign should not fold"
+        "loop mut should not fold"
     );
+    let reason = super::take_fold_residual().expect("line-specific residual");
+    assert!(reason.contains("loop"), "reason={reason}");
 }
 
 #[test]

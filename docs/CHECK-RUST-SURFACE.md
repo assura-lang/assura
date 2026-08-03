@@ -55,7 +55,7 @@ counterexample. Width limits are typically **through 64 bits** unless noted.
 | Area | Examples |
 |------|----------|
 | Control | `if` / `else`, `match` |
-| Binding | Multi-`let`, pure `let mut`, linear reassignment (`y += 1`, `y = y + 1` on a straight-line path), `let y = if/match …; y + n` |
+| Binding | Multi-`let`, pure `let mut`, linear reassignment (`y += 1`, `y = y + 1`), branch-local mutation join (`if`/`match` arms that reassign, then use the name after the branch), `let y = if/match …; y + n` |
 | Composition | if/match over binary ops (both sides), method-on-if receivers, cast-of-if |
 | References | Peel outer `&` / `*` layers |
 
@@ -99,7 +99,7 @@ reports `body_not_modeled` and exits **1**. They are not silent Verified.
 
 | Shape | Why / what to do |
 |-------|------------------|
-| Assignments inside `if` / `match` / loops | Linear SSA only (no CFG). Rewrite to pure expressions or branch-local values. |
+| Assignments inside **loops** (`while` / `for` / `loop`) | No loop SSA / phi. Rewrite without loops or supply co-located `{Name}.ir`. (If/match mutation joins are modeled.) |
 | Bare `checked_*` / `overflowing_*` as the **return type** (full `Option` / `(T, bool)`) | Peel: `.unwrap_or` / `.unwrap_or_default` / `.is_some()` / `.is_none()` / `.0` / `.1`. Full Option/tuple values are not IR result types. |
 | Bodies outside Bucket A (I/O, arbitrary methods, complex ADTs, …) | Supply a co-located `{Name}.ir`, simplify the body, or keep contracts on `.assura` + generated code. |
 

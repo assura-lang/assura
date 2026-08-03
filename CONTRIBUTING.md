@@ -213,12 +213,14 @@ gaps):
 |-------|--------|
 | Panic paths (`/0`, `%0`, `/`/`%` with zero-including path divisors, `is_multiple_of(0)`, literal `0.ilog2()`) | Soundness: do not encode panic as free SMT div/mod |
 | `rem_euclid`/`div_euclid`/`div_ceil`/`next_multiple_of` with non-positive or zero-including divisors | Same soundness rule; use a positive const or `NonZeroU*` param |
-| Assignments inside `if`/`match`/loops (not linear) | Linear SSA fold only; straight-line `let mut y = x; y += 1; y` is modeled |
+| Assignments inside **loops** (`while`/`for`/`loop`) | No loop SSA; if/match mutation joins are modeled (`let mut y = x; if c { y += 1; } y`) |
 | Bare `checked_*` / `overflowing_*` without peel (Option or `(T, bool)` return as the result type) | Intentional: peel with `.unwrap_or` / `.unwrap_or_default` / `.is_some()` / `.is_none()` / `.0` / `.1`; full Option/tuple values are not IR types |
 
 CLI prints rewrite hints on `body_not_modeled` exit (pointing at
-`docs/CHECK-RUST-SURFACE.md`). Straight-line `let mut` reassignment is
-folded in `fold_simple_lets` (linear SSA); CFG-shaped mutation remains residual.
+`docs/CHECK-RUST-SURFACE.md`), including a line-specific residual reason when
+fold fails on a known construct (e.g. loop mutation). Straight-line and
+if/match `let mut` reassignment is folded in `fold_simple_lets` (linear SSA +
+branch join); **loop** mutation remains residual.
 
 Signed path-param `reverse_bits`/`swap_bytes`/`count_*`/`trailing_*`/`leading_*`
 use synthetic `2^64` bit-pattern map for full i64 (same as `count_ones`).
