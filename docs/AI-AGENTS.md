@@ -26,6 +26,10 @@ assura check path/to/file.assura --json
 assura check-rust src/ --json
 ```
 
+Full field table and branch policy: [Agent verification loop](AGENT-LOOP.md).
+Inline Rust surface: [CHECK-RUST-SURFACE](CHECK-RUST-SURFACE.md).
+Demos: `demos/check-rust/` (prove + intentional fail).
+
 ## Acceptance policy (LLM IR / auto-implement)
 
 Do **not** require every clause `status == "verified"`. Many clauses return
@@ -67,7 +71,9 @@ Prefer `assura check --json` when MCP is unavailable.
 
 ## Related
 
+- [Agent verification loop](AGENT-LOOP.md)
 - [Getting started](GETTING-STARTED.md)
 - [Compared to other tools](COMPARE.md)
+- [`check-rust` supported surface](CHECK-RUST-SURFACE.md)
 - [Case studies](CASE-STUDIES.md)
 - [Preferred URLs](URLS.md)

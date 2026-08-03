@@ -18,18 +18,22 @@ page, and what-we-prove page are live (they are on main as of PR #1406).
 Assura is a contract-first language: you write what the program must do;
 SMT (Z3/CVC5) checks it; the toolchain generates Rust.
 
+You can also annotate existing Rust with /// @requires / @ensures and run
+assura check-rust (modeled body surface; not Verus-depth for arbitrary crates).
+
 Motivation: AI writes a lot of code; unit tests often mirror the same bugs.
 We want structured Verified / Counterexample / Unknown results agents can loop on.
 
 Demo GIF: https://github.com/assura-lang/assura/blob/main/assets/demo/assura-check.gif
 Docs: https://assura-lang.github.io/assura/
 Install: cargo install assura --locked
-  (or shell installer from GitHub Releases)
+  (or shell installer: https://github.com/assura-lang/assura/releases)
 
-What we prove (honest limits): …/WHAT-WE-PROVE.html
-Compared to Dafny/Verus: …/COMPARE.html
+What we prove: https://assura-lang.github.io/assura/WHAT-WE-PROVE.html
+Compared to Dafny/Verus: https://assura-lang.github.io/assura/COMPARE.html
+check-rust surface: https://assura-lang.github.io/assura/CHECK-RUST-SURFACE.html
 
-Happy to answer questions about the SMT surface, AI IR loop, and what's still Unknown.
+Happy to answer questions about the SMT surface and the AI implement loop.
 ```
 
 Stay in comments for 24h after posting.
@@ -44,14 +48,22 @@ Stay in comments for 24h after posting.
 
 ## r/rust (draft)
 
-Lead with: ships as Rust; `cargo install assura`; optional Verus comparison
-("we are not verifying arbitrary existing Rust-in-place; contracts are a
-separate surface + AI implement loop").
+Lead with: ships as Rust; `cargo install assura`; optional Verus comparison.
+
+Honest split (use this wording):
+
+- Primary: contract-first `.assura` + emit Rust + AI implement loop
+- Secondary: `/// @requires` / `@ensures` + `assura check-rust` on a **modeled**
+  body surface (see CHECK-RUST-SURFACE); fail closed on `body_not_modeled`
+- Prefer Verus for deep borrow-aware proofs of existing Rust as the main workflow
+
+Do not say only "we never annotate existing Rust" (false). Do not say
+"drop-in Verus for any crate" (false).
 
 ## r/ProgrammingLanguages (draft)
 
 Lead with design: contract language vs host, layer 0–2, AI acceptance policy
-for Unknown, link SPEC / COMPARE.
+for Unknown / Counterexample, link SPEC / COMPARE / CHECK-RUST-SURFACE.
 
 ## This Week in Rust (draft)
 
@@ -74,14 +86,18 @@ Only after: polished gallery (GIF), maker bio, docs URL not confused with assura
 | [competitor-replies.md](competitor-replies.md) | When/how to reply in Verus/Dafny/Prusti threads |
 | [rfmig-intro.md](rfmig-intro.md) | RFMIG 5–10 min outline + Zulip blurb |
 | [../SMT-NOTE.md](../SMT-NOTE.md) | SMT portfolio / timeout / Unknown technical note |
+| [../COMPARE.md](../COMPARE.md) | Assura vs Verus / Dafny (includes check-rust) |
+| [../CHECK-RUST-SURFACE.md](../CHECK-RUST-SURFACE.md) | What check-rust can prove on Rust |
+| [../AGENT-LOOP.md](../AGENT-LOOP.md) | Agent JSON branch policy |
 
 ## Pre-post checklist
 
 - [ ] Docs site loads: https://assura-lang.github.io/assura/
 - [ ] Demo GIF: https://github.com/assura-lang/assura/blob/main/assets/demo/assura-check.gif
-- [ ] COMPARE and WHAT-WE-PROVE pages render on the docs site
+- [ ] COMPARE, WHAT-WE-PROVE, CHECK-RUST-SURFACE pages render on the docs site
 - [ ] `cargo install assura --locked` still works (or note Releases installer)
 - [ ] No assura.dev affiliation; no uncited percentages
+- [ ] Wording matches COMPARE: contract-first primary; check-rust secondary; not Verus-depth
 - [ ] Human owner available to answer comments for 24h after post
 
 Actual posting is a **human** step (see GitHub issue #1410). Agents prepare

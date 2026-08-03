@@ -20,10 +20,11 @@ Reply only when **at least one** is true:
    specs, or structured Verified / Counterexample / Unknown loops.
 3. You can add a **missing axis** that the thread lacks (not "try Assura"
    as a bare pitch):
-   - Separate contract surface vs annotations-on-existing-Rust
+   - Separate contract surface vs optional `/// @…` + `check-rust` (modeled
+     surface only; not Verus-depth for arbitrary crates)
    - Z3 **and** CVC5 portfolio with shared timeout floor
    - Unknown policy (`not yet encoded in SMT` = warning, not false Verified)
-   - Rust as **emit** target, not only host of proofs
+   - Rust as **emit** target, plus annotate-and-check for a subset of bodies
    - MCP / check-rust / auto-implement agent loop
 
 ## When **not** to reply
@@ -51,13 +52,15 @@ Skip is the default. Silence is fine.
 
 ### vs Verus (Rust-in-place)
 
-> Assura is a different surface: you write contracts in a dedicated
-> language, SMT (Z3/CVC5) checks them, then the toolchain **emits** Rust.
-> We are not a drop-in for verifying arbitrary existing Rust crates the
-> way Verus does. Fit is contract-first + AI implement loop; Verus wins
-> for fine-grained proofs on human-written Rust. Compare:
-> https://assura-lang.github.io/assura/COMPARE.html and limits:
-> https://assura-lang.github.io/assura/WHAT-WE-PROVE.html
+> Assura is primarily contract-first: dedicated contracts, SMT (Z3/CVC5),
+> then **emit** Rust for an AI implement loop. We also support
+> `/// @requires` / `@ensures` on existing Rust via `assura check-rust`,
+> but only on a **modeled** body surface (fail closed as body_not_modeled
+> otherwise). That is not Verus-depth borrow-aware proof of arbitrary
+> crates; Verus still wins for that. Compare:
+> https://assura-lang.github.io/assura/COMPARE.html
+> Surface: https://assura-lang.github.io/assura/CHECK-RUST-SURFACE.html
+> Limits: https://assura-lang.github.io/assura/WHAT-WE-PROVE.html
 
 ### vs Dafny (mature multi-target)
 
@@ -86,8 +89,9 @@ Prefer **at most two** of:
 
 1. https://assura-lang.github.io/assura/COMPARE.html
 2. https://assura-lang.github.io/assura/WHAT-WE-PROVE.html
-3. https://assura-lang.github.io/assura/SMT-NOTE.html (SMT audience only)
-4. https://github.com/assura-lang/assura (source / install)
+3. https://assura-lang.github.io/assura/CHECK-RUST-SURFACE.html (if discussing annotate-on-Rust)
+4. https://assura-lang.github.io/assura/SMT-NOTE.html (SMT audience only)
+5. https://github.com/assura-lang/assura (source / install)
 
 Avoid dumping every demo URL unless asked.
 

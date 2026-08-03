@@ -496,7 +496,10 @@ pub(crate) fn run_check_rust(
         } else if total_body_not_modeled > 0 {
             eprintln!(
                 "{total_body_not_modeled} item(s) not proven against the Rust body \
-                 (simplify body for encode, add co-located {{Name}}.ir, or use assura check + IR)"
+                 (body_not_modeled). Rewrite hints: prefer pure lets (no mut \
+                 reassignment); peel checked_*/overflowing_* with .unwrap_or / \
+                 .is_some() / .0; avoid panic div/mod. Or add co-located \
+                 {{Name}}.ir. Surface map: docs/CHECK-RUST-SURFACE.md"
             );
             process::exit(1);
         } else if total_verified == 0 {

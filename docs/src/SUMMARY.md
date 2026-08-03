@@ -12,6 +12,7 @@
 - [Case studies](CASE-STUDIES.md)
 - [Scenarios](SCENARIOS.md)
 - [For AI agents](AI-AGENTS.md)
+- [Agent verification loop](AGENT-LOOP.md)
 - [Compared to other tools](COMPARE.md)
 - [What we prove](WHAT-WE-PROVE.md)
 - [`check-rust` supported surface](CHECK-RUST-SURFACE.md)

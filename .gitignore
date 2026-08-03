@@ -21,3 +21,4 @@ fuzz/Cargo.lock
 *.key
 node_modules/
 *.vsix
+examples/**/target/

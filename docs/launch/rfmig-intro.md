@@ -53,7 +53,9 @@ Pointer: [SMT-NOTE.md](../SMT-NOTE.md), [WHAT-WE-PROVE.md](../WHAT-WE-PROVE.md)
 
 ### 5. Explicit non-goals (1–2 min)
 
-- Not a Verus substitute for verifying arbitrary Rust-in-place
+- Not a Verus substitute for deep borrow-aware proofs of arbitrary Rust
+  (we do offer `/// @…` + `check-rust` on a modeled surface; see
+  CHECK-RUST-SURFACE)
 - Not a claim of "all security bugs gone"
 - Vacuous success: empty obligations can still "pass"; JSON marks
   `vacuous`
@@ -70,16 +72,18 @@ a contract-first surface belongs in RFMIG tool interop discussions.
 ```
 Assura is a contract-first language aimed at AI-assisted development:
 humans write behavioral contracts; Z3/CVC5 check them; the toolchain
-emits Rust. It is not Verus-in-place. Differentiators for this group:
-dual-solver portfolio with shared timeout floors, structured Unknown
-with a known-limitation marker, and an agent loop (MCP / check-rust /
-auto-implement) that treats Counterexample as fail and limitation
-Unknown as non-proof.
+emits Rust. Optional check-rust path annotates existing Rust on a modeled
+surface (not Verus-depth for arbitrary crates). Differentiators for this
+group: dual-solver portfolio with shared timeout floors, structured
+Unknown with a known-limitation marker, and an agent loop (MCP /
+check-rust / auto-implement) that treats Counterexample as fail and
+limitation Unknown as non-proof.
 
 Docs: https://assura-lang.github.io/assura/
-Compare: …/COMPARE.html
-What we prove: …/WHAT-WE-PROVE.html
-SMT note: …/SMT-NOTE.html
+Compare: https://assura-lang.github.io/assura/COMPARE.html
+What we prove: https://assura-lang.github.io/assura/WHAT-WE-PROVE.html
+check-rust surface: https://assura-lang.github.io/assura/CHECK-RUST-SURFACE.html
+SMT note: https://assura-lang.github.io/assura/SMT-NOTE.html
 Source: https://github.com/assura-lang/assura
 
 Happy to give a short RFMIG talk focused on encoding/portfolio design
