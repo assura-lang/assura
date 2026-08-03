@@ -15,7 +15,7 @@ Source (.assura)
 Lexer (logos 0.16)           crates/assura-parser/src/lexer.rs
   | produces tokens via logos derive
   v
-Parser (rowan 0.16 CST)      crates/assura-parser/src/cst.rs
+Parser (rowan 0.17 CST)      crates/assura-parser/src/cst.rs
   | hand-written recursive descent + Pratt expression parsing
   | produces GreenNode (lossless concrete syntax tree)
   v
@@ -47,7 +47,7 @@ optionally invokes `cargo check` on the generated Rust project.
 
 | Crate | LOC | Tests | Purpose |
 |-------|-----|-------|---------|
-| `assura-parser` | 8,100 | 149 | Lexer (logos 0.16), CST (rowan 0.16), recursive descent parser, Pratt expressions, CST-to-AST lowering |
+| `assura-parser` | 8,100 | 149 | Lexer (logos 0.16), CST (rowan 0.17), recursive descent parser, Pratt expressions, CST-to-AST lowering |
 | `assura-resolve` | 4,300 | 91 | Name resolution, scope analysis, symbol table |
 | `assura-types` | 33,800 | 1,081 | Type checking, 50+ domain-specific checkers |
 | `assura-smt` | 13,800 | 397 | Z3/CVC5 SMT solver integration, verification |
@@ -559,7 +559,7 @@ cargo fmt --all && cargo clippy --workspace -- -D warnings && cargo test --works
 | Library | Version | Used For |
 |---------|---------|----------|
 | logos | 0.16 | Lexer (derive macro) |
-| rowan | 0.16 | Lossless concrete syntax tree |
+| rowan | 0.17 | Lossless concrete syntax tree (immutable; no mutable edit APIs) |
 | ariadne | 0.6 | Error display |
 | z3 | 0.20 | SMT solver bindings (optional, behind `z3-verify` feature) |
 | prettyplease | 0.2 | Rust source formatting in codegen |

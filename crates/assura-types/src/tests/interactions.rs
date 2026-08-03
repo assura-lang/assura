@@ -1386,8 +1386,11 @@ fn test_error_propagation_must_propagate_swallow_rejected() {
 
     // Swallowing a must_propagate error should produce A12001
     let err = checker.validate_catch("SQLITE_CORRUPT", ErrorAction::Swallow, 0..10);
-    assert!(err.is_some(), "swallowing must_propagate error should fail");
-    assert_eq!(err.unwrap().code, "A12001");
+    assert_eq!(
+        err.expect("swallowing must_propagate error should fail")
+            .code,
+        "A12001"
+    );
 
     // Propagating is fine
     let err = checker.validate_catch("SQLITE_CORRUPT", ErrorAction::Propagate, 0..10);
@@ -1425,8 +1428,10 @@ fn test_error_propagation_must_not_mask() {
         ErrorAction::TranslateTo("SQLITE_OK".into()),
         0..10,
     );
-    assert!(err.is_some(), "forbidden translation should fail");
-    assert_eq!(err.unwrap().code, "A12002");
+    assert_eq!(
+        err.expect("forbidden translation should fail").code,
+        "A12002"
+    );
 
     // Allowed translation should pass
     let err = checker.validate_catch(
@@ -1450,8 +1455,10 @@ fn test_error_propagation_must_check() {
 
     // Unchecked call to must_check function -> A12003
     let err = checker.validate_unchecked_call("sqlite3_reset", 0..10);
-    assert!(err.is_some(), "unchecked must_check call should fail");
-    assert_eq!(err.unwrap().code, "A12003");
+    assert_eq!(
+        err.expect("unchecked must_check call should fail").code,
+        "A12003"
+    );
 
     // Non-must_check function is fine
     let err = checker.validate_unchecked_call("sqlite3_open", 0..10);

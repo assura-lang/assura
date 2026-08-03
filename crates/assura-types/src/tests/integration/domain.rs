@@ -389,8 +389,10 @@ fn circular_buffer_check_index_wired() {
     checker.declare("buf".into(), 4);
     // Index 0 on empty buffer: check_index should flag it
     let err = checker.check_index("buf", 5, &(0..1));
-    assert!(err.is_some(), "index 5 on capacity-4 buffer should error");
-    assert_eq!(err.unwrap().code, "A23001");
+    assert_eq!(
+        err.expect("index 5 on capacity-4 buffer should error").code,
+        "A23001"
+    );
 }
 
 // =========================================================================
@@ -622,8 +624,10 @@ fn resource_limit_unbounded_detected() {
     let checker = ResourceLimitChecker::new();
     // No limit declared for "cpu"
     let err = checker.check_unbounded("cpu");
-    assert!(err.is_some(), "unbounded resource should be detected");
-    assert_eq!(err.unwrap().code, "A46002");
+    assert_eq!(
+        err.expect("unbounded resource should be detected").code,
+        "A46002"
+    );
 }
 
 #[test]
@@ -836,8 +840,10 @@ fn ulp_bound_violation_detected() {
     let mut checker = NumericalPrecisionChecker::new();
     checker.declare("y".into(), 64, 1.0, 0..1);
     let err = checker.check_ulp_bound("y", 2.5);
-    assert!(err.is_some(), "ULP 2.5 > min 1.0 should trigger A42002");
-    assert_eq!(err.unwrap().code, "A42002");
+    assert_eq!(
+        err.expect("ULP 2.5 > min 1.0 should trigger A42002").code,
+        "A42002"
+    );
 }
 
 #[test]
@@ -845,8 +851,10 @@ fn cancellation_detected() {
     let mut checker = NumericalPrecisionChecker::new();
     checker.declare("z".into(), 64, 1.0, 0..1);
     let err = checker.check_cancellation("z", 0.99999);
-    assert!(err.is_some(), "ratio 0.99999 should trigger A42003");
-    assert_eq!(err.unwrap().code, "A42003");
+    assert_eq!(
+        err.expect("ratio 0.99999 should trigger A42003").code,
+        "A42003"
+    );
 }
 
 #[test]

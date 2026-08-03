@@ -639,8 +639,7 @@ fn compile_full_produces_codegen_output() {
         "unexpected errors: {:?}",
         output.diagnostics
     );
-    assert!(output.generated.is_some(), "codegen should produce output");
-    let generated = output.generated.unwrap();
+    let generated = output.generated.expect("codegen should produce output");
     assert!(
         !generated.files.is_empty(),
         "generated project should have files"

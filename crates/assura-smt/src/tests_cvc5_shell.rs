@@ -511,8 +511,7 @@ fn shell_old_ident_encoding() {
     let inner = Spanned::no_span(Expr::Ident("x".into()));
     let result = encode_old_smtlib(&inner, expr_to_smtlib);
     // old(x) for an ident should produce the old snapshot name
-    assert!(result.is_some(), "old(x) should encode");
-    let smt = result.unwrap();
+    let smt = result.expect("old(x) should encode");
     assert!(
         smt.contains("old"),
         "old(x) should contain 'old' in the name, got: {smt}"

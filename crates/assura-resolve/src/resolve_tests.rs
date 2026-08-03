@@ -879,8 +879,10 @@ type Outer {
         .expect("Outer scope not found");
     // Int is in root scope; lookup from Outer scope should find it
     let int_sym = table.lookup("Int", outer_scope);
-    assert!(int_sym.is_some(), "Int should be found via scope chain");
-    assert_eq!(int_sym.unwrap().kind, SymbolKind::BuiltinType);
+    assert_eq!(
+        int_sym.expect("Int should be found via scope chain").kind,
+        SymbolKind::BuiltinType
+    );
     // Nonexistent name should return None
     let missing = table.lookup("DoesNotExist", outer_scope);
     assert!(missing.is_none(), "missing name should return None");

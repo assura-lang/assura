@@ -63,8 +63,7 @@ fn fixed_width_u8_overflow_add() {
     // U8 + U8: 255 + 255 = 510 > 255 -> overflow
     let checker = FixedWidthChecker::new();
     let err = checker.check_arithmetic_overflow(&AstBinOp::Add, &Type::U8, &Type::U8, &(0..1));
-    assert!(err.is_some(), "U8 + U8 should detect potential overflow");
-    let e = err.unwrap();
+    let e = err.expect("U8 + U8 should detect potential overflow");
     assert_eq!(e.code, "A10101");
     assert!(e.message.contains("checked_add"));
 }
@@ -74,8 +73,10 @@ fn fixed_width_i8_overflow_add() {
     // I8 + I8: 127 + 127 = 254 > 127 -> overflow
     let checker = FixedWidthChecker::new();
     let err = checker.check_arithmetic_overflow(&AstBinOp::Add, &Type::I8, &Type::I8, &(0..1));
-    assert!(err.is_some(), "I8 + I8 should detect potential overflow");
-    assert_eq!(err.unwrap().code, "A10101");
+    assert_eq!(
+        err.expect("I8 + I8 should detect potential overflow").code,
+        "A10101"
+    );
 }
 
 #[test]
@@ -92,8 +93,7 @@ fn fixed_width_mul_overflow() {
     // U8 * U8: 255 * 255 = 65025 > 255 -> overflow
     let checker = FixedWidthChecker::new();
     let err = checker.check_arithmetic_overflow(&AstBinOp::Mul, &Type::U8, &Type::U8, &(0..1));
-    assert!(err.is_some(), "U8 * U8 should detect potential overflow");
-    let e = err.unwrap();
+    let e = err.expect("U8 * U8 should detect potential overflow");
     assert!(e.message.contains("checked_mul"));
 }
 
@@ -101,8 +101,10 @@ fn fixed_width_mul_overflow() {
 fn fixed_width_narrowing_cast_u32_to_u16() {
     // U32 -> U16: max 4294967295 > 65535 -> unsafe
     let err = FixedWidthChecker::check_cast_safety(&Type::U32, &Type::U16, &(0..1));
-    assert!(err.is_some(), "U32 -> U16 should be unsafe narrowing");
-    assert_eq!(err.unwrap().code, "A10102");
+    assert_eq!(
+        err.expect("U32 -> U16 should be unsafe narrowing").code,
+        "A10102"
+    );
 }
 
 #[test]
@@ -121,8 +123,10 @@ fn fixed_width_signed_unsigned_comparison() {
         &Type::U32,
         &(0..1),
     );
-    assert!(err.is_some(), "I32 vs U32 comparison should warn");
-    assert_eq!(err.unwrap().code, "A10103");
+    assert_eq!(
+        err.expect("I32 vs U32 comparison should warn").code,
+        "A10103"
+    );
 }
 
 #[test]
@@ -141,8 +145,10 @@ fn fixed_width_same_signedness_ok() {
 fn fixed_width_division_by_zero() {
     let rhs = Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())));
     let err = FixedWidthChecker::check_division_by_zero(&AstBinOp::Div, &rhs, &Type::U32, &(0..1));
-    assert!(err.is_some(), "division by literal 0 should be flagged");
-    assert_eq!(err.unwrap().code, "A10104");
+    assert_eq!(
+        err.expect("division by literal 0 should be flagged").code,
+        "A10104"
+    );
 }
 
 #[test]
@@ -181,8 +187,10 @@ fn fixed_width_cast_i32_to_u32() {
     // I32 -> U32: signed-to-unsigned, range [-2^31, 2^31-1] does not
     // fit in [0, 2^32-1] because of negative values -> unsafe
     let err = FixedWidthChecker::check_cast_safety(&Type::I32, &Type::U32, &(0..1));
-    assert!(err.is_some(), "I32 -> U32 cast should be unsafe");
-    assert_eq!(err.unwrap().code, "A10102");
+    assert_eq!(
+        err.expect("I32 -> U32 cast should be unsafe").code,
+        "A10102"
+    );
 }
 
 #[test]
@@ -222,8 +230,7 @@ fn fixed_width_check_binop_combined() {
 fn fixed_width_modulo_by_zero() {
     let rhs = Spanned::no_span(AstExpr::Literal(AstLit::Int("0".into())));
     let err = FixedWidthChecker::check_division_by_zero(&AstBinOp::Mod, &rhs, &Type::I32, &(0..1));
-    assert!(err.is_some(), "modulo by zero should be flagged");
-    let e = err.unwrap();
+    let e = err.expect("modulo by zero should be flagged");
     assert_eq!(e.code, "A10104");
     assert!(e.message.contains("modulo"));
 }
@@ -233,8 +240,10 @@ fn fixed_width_sub_overflow_unsigned() {
     // U8 - U8: 0 - 255 = -255 < 0 -> overflow (underflow)
     let checker = FixedWidthChecker::new();
     let err = checker.check_arithmetic_overflow(&AstBinOp::Sub, &Type::U8, &Type::U8, &(0..1));
-    assert!(err.is_some(), "U8 - U8 should detect potential underflow");
-    assert_eq!(err.unwrap().code, "A10101");
+    assert_eq!(
+        err.expect("U8 - U8 should detect potential underflow").code,
+        "A10101"
+    );
 }
 
 #[test]

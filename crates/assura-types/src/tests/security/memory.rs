@@ -63,8 +63,7 @@ fn memory_checker_bounds_check_missing() {
     });
 
     let result = checker.check_bounds_in_requires("buf", &[&unrelated_expr], &(0..10));
-    assert!(result.is_some(), "should detect missing bounds check");
-    let err = result.unwrap();
+    let err = result.expect("should detect missing bounds check");
     assert_eq!(err.code, "A08101");
     assert!(err.message.contains("buf"));
 }
@@ -140,8 +139,10 @@ fn memory_checker_region_containment_different_buffers() {
         buffer: "buf_b".into(),
     });
     let result = checker.check_region_containment("r_a", "r_b", &(0..10));
-    assert!(result.is_some(), "different buffer regions should fail");
-    assert_eq!(result.unwrap().code, "A08102");
+    assert_eq!(
+        result.expect("different buffer regions should fail").code,
+        "A08102"
+    );
 }
 
 #[test]

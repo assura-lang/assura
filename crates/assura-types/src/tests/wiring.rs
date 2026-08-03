@@ -1497,8 +1497,10 @@ fn s003_info_flow_secret_to_result_a08001() {
 
     // Simulate: result == key (secret data flows to public output)
     let err = checker.check_assignment(SecurityLabel::Public, SecurityLabel::Restricted, &(0..10));
-    assert!(err.is_some(), "should detect secret->public flow");
-    assert_eq!(err.unwrap().code, "A08001");
+    assert_eq!(
+        err.expect("should detect secret->public flow").code,
+        "A08001"
+    );
 }
 
 #[test]
@@ -1507,8 +1509,7 @@ fn s003_info_flow_implicit_flow_a08004() {
     let checker = InfoFlowChecker::new();
     let err =
         checker.check_implicit_flow(SecurityLabel::Confidential, SecurityLabel::Public, &(0..10));
-    assert!(err.is_some(), "should detect implicit flow");
-    assert_eq!(err.unwrap().code, "A08004");
+    assert_eq!(err.expect("should detect implicit flow").code, "A08004");
 }
 
 #[test]

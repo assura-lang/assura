@@ -469,8 +469,7 @@ fn recovery_multiple_contracts_one_broken() {
         "#,
     );
     // Parser should recover from Bad and still parse AlsoGood
-    assert!(ast.is_some(), "expected AST despite one broken contract");
-    let sf = ast.unwrap();
+    let sf = ast.expect("expected AST despite one broken contract");
     // Should have at least 2 contract declarations (Good and AlsoGood)
     let contract_count = sf
         .decls

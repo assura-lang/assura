@@ -532,17 +532,25 @@ Keep dependencies up to date. Run `cargo outdated -R` periodically.
 
 | Crate | Version | Notes |
 |-------|---------|-------|
-| rowan | 0.16 | stable, upgrades OK |
+| rowan | 0.17 | immutable CST only (0.17 removed mutable edit APIs; Assura never used them) |
 | ariadne | 0.6 | Report::build takes (kind, span) with 2 args; span is (Id, Range) |
 | logos | 0.16 | stable, upgrades OK |
 | z3 | 0.20 | No lifetime params on AST types; no &ctx first arg; pre-generated FFI bindings |
 | sha2 | 0.11 | Uses digest 0.11, high-level API unchanged |
 | cvc5 | 0.4 | Native FFI bindings; `Sort` not Copy; `Kind` names differ from SMT-LIB2; requires `features = ["static"]` for static linking |
 
-**rowan 0.16 patterns**: `GreenNodeBuilder`, `SyntaxNode::new_root()`,
+**rowan 0.17 patterns**: `GreenNodeBuilder`, `SyntaxNode::new_root()`,
 `Language` trait on `AssuraLanguage`, `SyntaxKind` enum with `From<u16>`.
 The parser uses an events/markers pattern (Open/Close/Advance) with
-Pratt parsing for expressions.
+Pratt parsing for expressions. Rowan 0.17 removed mutable syntax APIs
+(`SyntaxNodeMut` / in-place tree edit); Assura only builds green trees
+and reads them immutably, so no call-site changes were required.
+
+**Downstream crates must not depend on `rowan` directly.** `assura-fmt`
+walks CST children with `as_token()` / `as_node()` only. Matching on
+`rowan::NodeOrToken` while depending on a separate `rowan` crate version
+breaks `cargo package` when crates.io `assura-parser` still pins an
+older rowan (dual type instances). Keep rowan private to `assura-parser`.
 
 **z3 0.20 patterns**: No lifetime params (`Bool`, not `Bool<'ctx>`).
 No `&ctx` first arg on constructors (`Int::from_i64(n)`, not
@@ -665,7 +673,7 @@ These are final. Do not revisit without explicit discussion.
 |----------|--------|-----------|
 | Compiler language | Rust | docs/INVESTIGATION.md |
 | Lexer | logos 0.16 | Fast, derive macro |
-| Parser | rowan 0.16 CST + hand-written recursive descent | Lossless CST, Pratt expressions |
+| Parser | rowan 0.17 CST + hand-written recursive descent | Lossless CST, Pratt expressions |
 | Error display | ariadne 0.6 | Colored spans |
 | SMT solver | Z3 primary (z3 crate), CVC5 fallback | docs/ROADMAP.md |
 | Codegen target | Rust source via prettyplease | NOT syn/quote |
