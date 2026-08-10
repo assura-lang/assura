@@ -447,6 +447,18 @@ mod tests {
         }
     }
 
+    /// Codes mentioned in checker module docs as future work must not
+    /// silently appear in the catalog until they are implemented and wired.
+    #[test]
+    fn reserved_error_codes_not_yet_in_catalog() {
+        for code in ["A09104", "A53007", "A53008"] {
+            assert!(
+                explain(code).is_none(),
+                "{code}: reserved/future code must not be in catalog until implemented"
+            );
+        }
+    }
+
     #[test]
     fn test_explain_all_catalog_codes() {
         let catalog = error_catalog();
