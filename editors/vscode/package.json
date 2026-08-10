@@ -86,11 +86,11 @@
   "overrides": {
     "serialize-javascript": "^7.0.5",
     "diff": "^8.0.3",
-    "brace-expansion": "5.0.8",
+    "brace-expansion": "5.0.9",
     "mocha": {
-      "brace-expansion": "2.1.2",
+      "brace-expansion": "2.1.4",
       "minimatch": {
-        "brace-expansion": "2.1.2"
+        "brace-expansion": "2.1.4"
       }
     }
   }
