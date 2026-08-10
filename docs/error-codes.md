@@ -283,19 +283,17 @@ table with a real start path and **remove the code from**
 `scripts/catalog-hollow-allowlist.txt` (guards section 15 freezes that set;
 see #1490).
 
-**Authoritative hollow set:** `scripts/catalog-hollow-allowlist.txt` (94 codes;
+**Authoritative hollow set:** `scripts/catalog-hollow-allowlist.txt` (89 codes;
 see allowlist file). If a code is on the allowlist it is not emitted in
 production. Section 15 fails CI if the hollow set grows without an allowlist
 update.
 
 | Code | Phase | Primary crate | Message | Status |
 |------|-------|---------------|---------|--------|
-| A19001 | types | assura-types | Missing audit trail | not emitted |
 | A44005 | types | assura-types | Dirtying unpinned page | not emitted |
 | A42005 | types | assura-types | Proof obligation references out-of-scope variable | not emitted |
 | A52005 | types | assura-types | No codec matches input | not emitted |
 | A02002 | resolve | assura-resolve | Undefined type (catalog-only / test-only construction) | not emitted |
-| A02009 | resolve | assura-resolve | Visibility violation | not emitted |
 | A55004 | types | assura-types | Lemma has side effects | not emitted |
 | A50004 | types | assura-types | Generating function is not total over range | not emitted |
 | A36004 | types | assura-types | Nested atomic function swallows error | not emitted |
@@ -358,12 +356,10 @@ update.
 | A58004 | types | assura-types | Conflicting triggers on same quantifier | not emitted |
 | A58003 | types | assura-types | Quantifier timeout (no trigger specified) | not emitted |
 | A56002 | types | assura-types | Called function modifies outside caller's frame | not emitted |
-| A19002 | types | assura-types | Incomplete audit trail | not emitted |
 | A56003 | types | assura-types | Function reads undeclared source | not emitted |
 | A41003 | types | assura-types | Row ordering difference | not emitted |
 | A31004 | types | assura-types | Format exceeds expected size | not emitted |
 | A40002 | types | assura-types | Incremental value not finalized | not emitted |
-| A04009 | types | assura-types | Feature_max constant in verification clause | not emitted |
 | A59003 | types | assura-types | Opaque function contract insufficient | not emitted |
 | A01003 | parser | assura-parser | Invalid numeric literal | not emitted |
 | A01004 | parser | assura-parser | Reserved keyword used as identifier | not emitted |
@@ -383,4 +379,3 @@ update.
 | A07004 | types | assura-types | Effect handler missing for `E` | not emitted |
 | A07005 | types | assura-types | Effect hierarchy violation | not emitted |
 | A13004 | types | assura-types | Integer overflow possible | not emitted |
-| A26002 | types | assura-types | Incomplete i18n coverage | not emitted |
