@@ -1698,6 +1698,7 @@ format is `ANNSSS` where `A` = Assura, `NN` = category (2 digits),
 
 | Code | Message | Cause |
 |---|---|---|
+| A04008 | Ensures references unconstrained output | Ensures uses free `result`/output without IR or input-only form |
 
 #### Linearity (A05xxx)
 
