@@ -11704,5 +11704,5 @@ Keywords by category:
 | A-PERF-xxx | Unsafe escape, complexity bounds | 9 | 1-2 |
 | A-TEST-xxx | Test generation, behavioral equivalence, multi-pass | 10 | 0-2 |
 | A-MISC-xxx | Incremental/coroutine, invariant suspension | 4 | 0 |
-| **Total** | | **~278** | |
+| **Total** | | **~195** | |
 

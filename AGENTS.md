@@ -353,7 +353,7 @@ the compiler proves correctness via Z3/CVC5 SMT solvers; then `rustc`
 compiles the generated Rust to native or WASM binaries.
 
 - Full spec: `docs/SPECIFICATION.md` (11,800 lines, 195 EBNF productions,
-  50 verification features, ~278 error codes)
+  50 verification features, ~195 error codes)
 - Competitive analysis: `docs/INVESTIGATION.md` (3,200 lines)
 - Phased roadmap: `docs/ROADMAP.md` (752 lines)
 - **Master plan**: `MASTER-PLAN.md` (the actionable task list, read this
@@ -1223,7 +1223,7 @@ all. Use this index to find what you need:
 | Implementation IR | Section 4 | What AI generates (not contract language) |
 | SMT encoding | Section 5 | Layer 1-3 strategies, theories, counterexamples |
 | Rust codegen | Section 6, Appendix C | Type mapping, contract codegen, Cargo output |
-| Error codes | Section 7, Appendix D | All ~278 error codes with descriptions |
+| Error codes | Section 7, Appendix D | All ~195 error codes with descriptions |
 | Module system | Section 8 | Imports, paths, visibility |
 | Standard library | Section 9 | Built-in types, collection contracts |
 | CLI and config | Section 10 | Commands, assura.toml, output modes |
