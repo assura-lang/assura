@@ -467,9 +467,15 @@ jobs:
             --jq '"url=\(.html_url) tag=\(.tag_name) draft=\(.draft) prerelease=\(.prerelease)"'
 
   # Remove curated RELEASE_NOTES.md from main after it was applied to the
-  # GitHub Release body (host job). Branch protection requires a PR; use the
-  # auto-approve app so the cleanup PR can auto-merge. Non-fatal: notes left
-  # on main are wrong only for the *next* release override window.
+  # GitHub Release body (host job). Branch protection requires a PR + review.
+  #
+  # Root cause (v0.4.2 #1499): opening the cleanup PR with the same GitHub App
+  # that auto-approves means the App is the PR author. GitHub forbids
+  # self-approval, so auto-merge sat in REVIEW_REQUIRED forever.
+  #
+  # Fix: create branch/commit/PR as github-actions[bot] (GITHUB_TOKEN), then
+  # approve + enable auto-merge with the App token (different identity).
+  # Non-fatal: notes left on main only affect the next release override window.
   cleanup-release-notes:
     needs:
       - plan
@@ -492,13 +498,15 @@ jobs:
         with:
           client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
           private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
-          # Least privilege for branch + cleanup PR (zizmor github-app audit).
+          # Approve + auto-merge only (PR author must be GITHUB_TOKEN bot).
           permission-contents: write
           permission-pull-requests: write
       - name: Open PR to remove RELEASE_NOTES.md
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ steps.cleanup-token.outputs.token || secrets.GITHUB_TOKEN }}
+          # Author identity: github-actions[bot] so the App can approve.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP_TOKEN: ${{ steps.cleanup-token.outputs.token }}
           TAG: ${{ needs.plan.outputs.tag }}
           GH_REPO: ${{ github.repository }}
         run: |
@@ -524,11 +532,26 @@ jobs:
           else
             echo "RELEASE_NOTES.md already absent on ${BRANCH}"
           fi
+
+          approve_and_automerge() {
+            local pr_ref="$1"
+            if [ -n "${APP_TOKEN:-}" ]; then
+              # Different identity than PR author (GITHUB_TOKEN).
+              GH_TOKEN="${APP_TOKEN}" gh pr review --approve "${pr_ref}" --repo "${GH_REPO}" \
+                || echo "Approve failed or already approved; continuing."
+              GH_TOKEN="${APP_TOKEN}" gh pr merge "${pr_ref}" --repo "${GH_REPO}" --auto --squash \
+                || echo "Could not enable auto-merge; checks or rules may still apply."
+            else
+              echo "App token unavailable; cleanup PR needs a human or auto-approve workflow."
+              gh pr merge "${pr_ref}" --repo "${GH_REPO}" --auto --squash || true
+            fi
+          }
+
           EXISTING=$(gh pr list --repo "${GH_REPO}" --head "${BRANCH}" --state open \
             --json number --jq '.[0].number // empty')
           if [ -n "${EXISTING}" ]; then
             echo "Cleanup PR already open: #${EXISTING}"
-            gh pr merge "${EXISTING}" --repo "${GH_REPO}" --auto --squash || true
+            approve_and_automerge "${EXISTING}"
             exit 0
           fi
           # If the branch tip already matches main (file gone via earlier merge), skip.
@@ -540,5 +563,5 @@ jobs:
           PR_URL=$(gh pr create --repo "${GH_REPO}" --base main --head "${BRANCH}" \
             --title "chore: remove release notes override" \
             --body "Auto-cleanup after ${TAG}: curated RELEASE_NOTES.md was applied to the GitHub Release and should not stay on main for the next cut.")
-          gh pr merge "$PR_URL" --repo "${GH_REPO}" --auto --squash || true
           echo "Opened cleanup PR: ${PR_URL}"
+          approve_and_automerge "${PR_URL}"
