@@ -398,19 +398,26 @@ mod tests {
         assert!(info.is_none());
     }
 
-    /// Codes added to `docs/error-codes.md` high-traffic table for #1477 / PR #1480.
-    /// Keeps the agent index honest: every documented high-traffic code must
-    /// resolve via `explain()` (except intentional non-catalog placeholders).
+    /// High-traffic rows recently added to `docs/error-codes.md` (#1477 / #1480
+    /// batch plus the next frequency slice). Every listed code must resolve via
+    /// `explain()` so the agent index stays honest.
     #[test]
-    fn high_traffic_index_batch_1477_codes_are_in_catalog() {
+    fn high_traffic_index_recent_codes_are_in_catalog() {
         const CODES: &[&str] = &[
+            // #1477 / PR #1480
             "A32002", "A36003", "A52002", "A46002", "A29001", "A25003", "A09103", "A53006",
             "A49003", "A35003", "A34003", "A30002", "A23001", "A10104", "A09102", "A08103",
             "A51003", "A46003", "A36001", "A35001",
+            // next frequency slice (MPI 2026-08-10)
+            "A10102", "A10103", "A42001", "A20001", "A20002", "A18001", "A18003", "A24003",
+            "A25001", "A22004", "A44003", "A46001", "A55003", "A32001", "A48001", "A34001",
+            "A37001", "A30003",
         ];
         for code in CODES {
             let info = explain(code).unwrap_or_else(|| {
-                panic!("{code}: listed in docs/error-codes.md high-traffic table but missing from catalog")
+                panic!(
+                    "{code}: listed in docs/error-codes.md high-traffic table but missing from catalog"
+                )
             });
             assert_eq!(info.code, *code);
             assert!(

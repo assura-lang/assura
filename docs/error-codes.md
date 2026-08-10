@@ -182,6 +182,24 @@ this table over guessing the phase.
 | A46003 | types | assura-types | Resource near limit | domain/platform.rs |
 | A36001 | types | assura-types | Rollback to unknown savepoint | domain/storage/rollback.rs |
 | A35001 | types | assura-types | Write-write conflict | domain/storage/mvcc.rs |
+| A10102 | types | assura-types | Unsafe narrowing cast | checkers/fixed_width.rs |
+| A10103 | types | assura-types | Signed/unsigned comparison mismatch | checkers/fixed_width.rs |
+| A42001 | types | assura-types | Numerical precision loss | domain/numeric.rs |
+| A20001 | types | assura-types | Deterministic function uses non-deterministic source | checkers/security/determinism.rs |
+| A20002 | types | assura-types | Deterministic function iterates hash collection | checkers/security/determinism.rs |
+| A18001 | types | assura-types | Shared memory read without access mode | checkers/security/shared_mem.rs |
+| A18003 | types | assura-types | Shared memory data race | checkers/security/shared_mem.rs |
+| A24003 | types | assura-types | Callback depth exceeded | domain/concurrency.rs |
+| A25001 | types | assura-types | Deadline exceeded | domain/concurrency.rs |
+| A22004 | types | assura-types | Arena use after drop | domain/memory.rs |
+| A44003 | types | assura-types | Unknown platform in abstraction | domain/platform.rs |
+| A46001 | types | assura-types | Resource limit exceeded | domain/platform.rs |
+| A55003 | types | assura-types | Duplicate library name | domain/meta/contract_library.rs |
+| A32001 | types | assura-types | Opaque function called without contract | domain/core/opaque_function.rs |
+| A48001 | types | assura-types | Complexity bound exceeded | domain/meta/complexity_bound.rs |
+| A34001 | types | assura-types | Evict pinned page | domain/storage/page_cache.rs |
+| A37001 | types | assura-types | Monotonicity violation | domain/storage/monotonic_state.rs |
+| A30003 | types | assura-types | Protocol missing required field | domain/format/protocol_grammar.rs |
 
 If a code is still missing: `rg 'A0xxxx' crates --glob '*.rs'` then add a row here
 in the same PR when agents are likely to hit it again.
