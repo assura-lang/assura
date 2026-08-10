@@ -275,7 +275,7 @@ pub struct Diagnostic {
 `From` conversions exist for `ResolutionError` and `TypeError`.
 
 The error catalog provides `explain(code)` with O(1) HashMap lookup for
-all ~278 error codes defined in the spec.
+all ~195 error codes defined in the diagnostics catalog (SPEC §7.2).
 
 ### assura-cli
 

@@ -1,6 +1,6 @@
 # Assura Development Status
 
-> 202,092 lines of Rust, 5,796 tests, **21 workspace members** (re-counted 2026-08-10 via `scripts/count-crates.sh`).
+> 201,006 lines of Rust, 5,794 tests, **21 workspace members** (re-counted 2026-08-10 via `scripts/count-crates.sh`).
 
 ## What Works Today
 

@@ -347,7 +347,7 @@ Initial release of the Assura compiler.
 - 10 declaration types: contract, bind, fn, service, type, enum, extern,
   block, prophecy, codec_registry
 - Refinement types, linear types, typestate, effect system, taint tracking
-- ~278 error codes across 8 categories (A01xxx-A08xxx)
+- ~195 error codes in the diagnostics catalog (SPEC §7.2; pure-listing codes removed)
 - Watch mode with filesystem notifications and content-hash deduplication
 
 ### Editor Support
