@@ -686,6 +686,21 @@ Examples:
 are not Conventional Commit types; release-please will not open a
 release PR.
 
+### RELEASE_NOTES.md cleanup (dual-token)
+
+Curated release notes use root `RELEASE_NOTES.md` (override on the
+GitHub Release body). The post-release cleanup job must **not** open
+that PR with the same GitHub App that auto-approves it (self-approval
+is forbidden; cleanup sat in `REVIEW_REQUIRED` after v0.4.2 #1499).
+
+Correct pattern in `.github/workflows/release.yml` `cleanup-release-notes`:
+
+1. Create branch / commit / PR with `GITHUB_TOKEN` (`github-actions[bot]`)
+2. Approve + `gh pr merge --auto` with the App token (different identity)
+
+Do not merge release-please PRs without explicit user approval. Full
+pattern: `ci-build-release` skill (RELEASE_NOTES dual-token section).
+
 ### License
 
 MIT OR Apache-2.0 (dual license, Rust ecosystem standard).
