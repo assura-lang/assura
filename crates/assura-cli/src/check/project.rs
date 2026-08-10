@@ -48,7 +48,7 @@ pub(crate) fn run_check_project(
                         .iter()
                         .map(|e| {
                             let msg = e.to_string();
-                            // Map to catalog codes (A02000 is not a valid code).
+                            // Map resolve errors onto real catalog codes only.
                             let code = if msg.to_ascii_lowercase().contains("circular") {
                                 "A02005"
                             } else {

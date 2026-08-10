@@ -83,9 +83,13 @@ Do not improvise a parallel pipeline. Follow the branch that matches your task.
 
 Full meanings: `docs/SPECIFICATION.md` §7.2 / Appendix D. Do not fix an `A02` in `assura-smt` or an `A01` in `assura-types` unless the index explicitly says cross-phase.
 
-**When you introduce or rely on a code not in the index:** append one row to
-`docs/error-codes.md` in the same PR (high-traffic section is fine). Do not
-regenerate all of Appendix D.
+**When you introduce a new error code:** in the **same PR** (1) implement and
+emit it, (2) add the catalog entry in `assura-diagnostics`, (3) append a row to
+`docs/error-codes.md` (high-traffic section is fine). Do **not** invent `Axxxxx`
+numbers in module docs, comments, or TODOs for unimplemented checks. Describe
+future work in prose without a code number until it is wired. `scripts/guards.sh`
+section 14 hard-fails phantom codes (mentions outside the catalog). Sentinels
+`A00000` / `A88888` / `A99999` only. Do not regenerate all of Appendix D.
 
 ### `assura-types` layer map (summary)
 

@@ -8,12 +8,11 @@ use crate::TypeError;
 
 /// Validates quantifier trigger annotations for verification performance.
 ///
-/// Error codes (currently emitted):
+/// Error codes:
 /// - A53006: quantifier has no trigger annotation
 ///
-/// Reserved for future checks (not yet emitted; not in the diagnostics catalog):
-/// - A53007: trigger references variable not bound by the quantifier
-/// - A53008: trigger term is a sub-expression of the quantifier body (matching loop risk)
+/// Do not invent further `Axxxxx` numbers here until the check is implemented
+/// and registered in `assura-diagnostics` catalog in the same change.
 #[derive(Debug, Clone)]
 pub struct QuantifierTriggerChecker {
     quantifiers: Vec<QuantifierInfo>,
