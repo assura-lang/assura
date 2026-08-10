@@ -3,6 +3,21 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.2](https://github.com/assura-lang/assura/compare/v0.4.1...v0.4.2) (2026-08-10)
+
+
+### Bug Fixes
+
+* ban phantom Axxxxx codes with guards section 14 ([#1489](https://github.com/assura-lang/assura/issues/1489)) ([fd4fbe3](https://github.com/assura-lang/assura/commit/fd4fbe33beefce4fafc5ab768cc1c82b829cf0a9))
+* brace-expansion advisories and MPI hygiene ([#1478](https://github.com/assura-lang/assura/issues/1478)) ([c836059](https://github.com/assura-lang/assura/commit/c8360598476834e88780af2db716b09246936768))
+* drop 5 non-SPEC hollow catalog error codes ([#1495](https://github.com/assura-lang/assura/issues/1495)) ([fa0d777](https://github.com/assura-lang/assura/commit/fa0d777705e8d1cc9de778164f25311ab8f5ddd6))
+* freeze hollow catalog set (guards section 15) ([#1492](https://github.com/assura-lang/assura/issues/1492)) ([106a580](https://github.com/assura-lang/assura/commit/106a580f3f2dd24f0af6db2b024e8ea5538f9fa5))
+* harden hollow catalog freeze after review ([#1493](https://github.com/assura-lang/assura/issues/1493)) ([584d8cb](https://github.com/assura-lang/assura/commit/584d8cb345ef0ade8a59a368c9e0df57ae315be6))
+* honest error-code docs and high-traffic primary paths ([#1488](https://github.com/assura-lang/assura/issues/1488)) ([8eb9479](https://github.com/assura-lang/assura/commit/8eb947986aa11a8901e157fd05b91fac0f54f412))
+* remove pure-listing unused error codes from SPEC and catalog ([#1496](https://github.com/assura-lang/assura/issues/1496)) ([c60974b](https://github.com/assura-lang/assura/commit/c60974bc5bdc575452a57badcc997a3a41497c58))
+* stop hollow catalog codes from seeding implement tickets ([#1491](https://github.com/assura-lang/assura/issues/1491)) ([57f60fc](https://github.com/assura-lang/assura/commit/57f60fced9f83540798449a62a9cc196439dbf80))
+* strip cfg(test) extern mods without over-skipping ([#1494](https://github.com/assura-lang/assura/issues/1494)) ([c278268](https://github.com/assura-lang/assura/commit/c278268310e40198b18ece64fc0f0f6d3a0c1936))
+
 ## [0.4.1](https://github.com/assura-lang/assura/compare/v0.4.0...v0.4.1) (2026-08-03)
 
 
