@@ -91,9 +91,12 @@ future work in prose without a code number until it is wired. Do **not** add a
 catalog-only "reserved" entry without an emitter (hollow catalog). Do **not**
 file implement issues for codes listed under **Catalog placeholders** in
 `docs/error-codes.md` or for any code that only exists in catalog/SPEC without
-an emit site. `scripts/guards.sh` section 14 hard-fails phantom codes (mentions
-outside the catalog in `crates/**/*.{rs,md}` and `docs/**/*.md`). Sentinels
-`A00000` / `A88888` / `A99999` only. Do not regenerate all of Appendix D.
+an emit site. `scripts/guards.sh` **section 14** hard-fails phantom codes
+(mentions outside the catalog in `crates/**/*.{rs,md}` and `docs/**/*.md`).
+**Section 15** freezes the hollow catalog set against
+`scripts/catalog-hollow-allowlist.txt` (new hollow codes fail CI; after
+wiring a code, remove it from that file). Sentinels `A00000` / `A88888` /
+`A99999` only. Do not regenerate all of Appendix D.
 
 ### `assura-types` layer map (summary)
 

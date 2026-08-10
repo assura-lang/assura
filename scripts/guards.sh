@@ -544,6 +544,126 @@ else
   jsec 14 "no phantom Axxxxx codes" "ok" "all mentioned Axxxxx are cataloged or allowlisted sentinels"
 fi
 
+# ---------------------------------------------------------------------------
+# 15) Hollow catalog freeze (#1490). Catalog entries without a production emit
+#     site must be listed in scripts/catalog-hollow-allowlist.txt. New hollow
+#     codes FAIL (implement+emit same PR, or product-approved allowlist add).
+#     Stale allowlist entries (now emitted) also FAIL so the list shrinks.
+# ---------------------------------------------------------------------------
+s15_fail=0
+if [[ -f crates/assura-diagnostics/src/catalog.rs && -f scripts/catalog-hollow-allowlist.txt ]]; then
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    kind="${line%%	*}"
+    code="${line#*	}"
+    case "$kind" in
+      new)
+        die "new hollow catalog code $code (in catalog, no production emit, not in allowlist)"
+        die "  fix: emit the diagnostic + tests in this PR, or (product decision) add to scripts/catalog-hollow-allowlist.txt"
+        jfind 15 "scripts/catalog-hollow-allowlist.txt" "new hollow $code"
+        s15_fail=1
+        ;;
+      stale)
+        die "stale hollow allowlist entry $code (now has a production emit site)"
+        die "  fix: remove $code from scripts/catalog-hollow-allowlist.txt and add a high-traffic error-codes row"
+        jfind 15 "scripts/catalog-hollow-allowlist.txt" "stale hollow $code"
+        s15_fail=1
+        ;;
+    esac
+  done < <(
+    python3 - <<'PY'
+import re
+from pathlib import Path
+
+catalog = set(
+    re.findall(
+        r'code:\s*"(A\d{5})"',
+        Path("crates/assura-diagnostics/src/catalog.rs").read_text(
+            encoding="utf-8", errors="ignore"
+        ),
+    )
+)
+sentinels = {"A00000", "A88888", "A99999"}
+allow = set()
+for line in Path("scripts/catalog-hollow-allowlist.txt").read_text(
+    encoding="utf-8", errors="ignore"
+).splitlines():
+    line = line.strip()
+    if not line or line.startswith("#"):
+        continue
+    allow.add(line)
+
+emit = set()
+test_markers = (
+    "/tests/",
+    "_test.rs",
+    "_tests.rs",
+    "tests_",
+    "ra_tests",
+    "resolve_tests",
+    "snapshots.rs",
+    "regressions.rs",
+    "parity_",
+    "cli_integration",
+    "check_rust_body",
+)
+emit_patterns = [
+    re.compile(r'code:\s*(?:Some\()?["\']?(A\d{5})["\']?'),
+    re.compile(r'Diagnostic::(?:error|warning|new)\(\s*["\'](A\d{5})'),
+    re.compile(r'(?:error|warning)\(\s*["\'](A\d{5})["\']'),
+]
+for p in Path("crates").rglob("*.rs"):
+    if p.name == "catalog.rs":
+        continue
+    sp = str(p)
+    if any(m in sp for m in test_markers):
+        continue
+    text = p.read_text(encoding="utf-8", errors="ignore")
+    for pat in emit_patterns:
+        for m in pat.finditer(text):
+            emit.add(m.group(1))
+
+cli = Path("crates/assura-cli")
+if cli.is_dir():
+    for p in cli.rglob("*.rs"):
+        if any(m in str(p) for m in test_markers):
+            continue
+        text = p.read_text(encoding="utf-8", errors="ignore")
+        for m in re.finditer(r'["\'](A\d{5})["\']', text):
+            line_start = text.rfind("\n", 0, m.start()) + 1
+            line_end = text.find("\n", m.end())
+            if line_end < 0:
+                line_end = len(text)
+            line = text[line_start:line_end]
+            if any(
+                k in line
+                for k in ("code", "ErrorCode", "A0", "error", "Diagnostic", "severity")
+            ):
+                emit.add(m.group(1))
+
+hollow = catalog - emit - sentinels
+for code in sorted(hollow - allow):
+    print(f"new\t{code}")
+for code in sorted(allow - hollow):
+    # allowlist entry that is no longer hollow (or never was)
+    if code in catalog:
+        print(f"stale\t{code}")
+    else:
+        # code removed from catalog entirely
+        print(f"stale\t{code}")
+PY
+  )
+elif [[ -f crates/assura-diagnostics/src/catalog.rs ]]; then
+  die "missing scripts/catalog-hollow-allowlist.txt (required for hollow catalog freeze)"
+  jfind 15 "scripts/catalog-hollow-allowlist.txt" "missing allowlist file"
+  s15_fail=1
+fi
+if [[ $s15_fail -eq 1 ]]; then
+  jsec 15 "hollow catalog freeze" "fail" "new hollow catalog codes or stale allowlist entries"
+else
+  jsec 15 "hollow catalog freeze" "ok" "hollow catalog set matches scripts/catalog-hollow-allowlist.txt"
+fi
+
 # ── Final output ─────────────────────────────────────────────────────────────
 if $json_mode; then
   python3 - "$_jdata" << 'PYEOF'

@@ -299,7 +299,14 @@ and often in SPEC Appendix D, but **no checker currently emits them**.
 as phantom codes (#1486/#1487): catalog or docs invent a number before the
 check exists. When product prioritizes a check, implement **emit + tests +
 catalog row refresh in the same PR**, then move the row into the high-traffic
-table with a real start path.
+table with a real start path and **remove the code from**
+`scripts/catalog-hollow-allowlist.txt` (guards section 15 freezes that set;
+see #1490).
+
+**Authoritative hollow set:** `scripts/catalog-hollow-allowlist.txt` (93 codes
+as of #1490). Some SPEC series codes may still appear in the tables above for
+phase lookup; if a code is on the allowlist it is not emitted. Section 15
+fails CI if the hollow set grows without an allowlist update.
 
 | Code | Phase | Primary crate | Message | Status |
 |------|-------|---------------|---------|--------|
