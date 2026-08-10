@@ -481,13 +481,14 @@ fi
 
 # ---------------------------------------------------------------------------
 # 14) No phantom Axxxxx codes outside the diagnostics catalog.
-#     Agents must not invent error codes in module docs or comments before the
-#     code is implemented + registered in catalog.rs in the same change.
-#     Allowlist intentional sentinels only (unknown / test).
+#     Agents must not invent error codes in module docs, comments, or docs/
+#     before the code is implemented + registered in catalog.rs in the same
+#     change. Allowlist intentional sentinels only (unknown / test).
+#     Scans crates/**/*.{rs,md} and docs/**/*.md (catalog.rs excluded).
 # ---------------------------------------------------------------------------
 s14_fail=0
 if [[ -f crates/assura-diagnostics/src/catalog.rs ]]; then
-  # Extract catalog codes and every Axxxxx mention under crates/ (except catalog).
+  # Extract catalog codes and every Axxxxx mention under crates/ + docs/.
   # Fail if a mention is not in the catalog and not allowlisted.
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
@@ -514,18 +515,26 @@ catalog = set(
 # Intentional non-catalog sentinels (also allowlisted in bash above).
 allow = {"A00000", "A88888", "A99999"}
 seen = set()
-for p in Path("crates").rglob("*.rs"):
-    if p.name == "catalog.rs" and "assura-diagnostics" in p.parts:
+roots = [
+    (Path("crates"), ("*.rs", "*.md")),
+    (Path("docs"), ("*.md",)),
+]
+for root, globs in roots:
+    if not root.is_dir():
         continue
-    text = p.read_text(encoding="utf-8", errors="ignore")
-    for code in set(re.findall(r"\bA\d{5}\b", text)):
-        if code in catalog or code in allow:
-            continue
-        key = (code, str(p))
-        if key in seen:
-            continue
-        seen.add(key)
-        print(f"{code}\t{p}")
+    for g in globs:
+        for p in root.rglob(g):
+            if p.name == "catalog.rs" and "assura-diagnostics" in p.parts:
+                continue
+            text = p.read_text(encoding="utf-8", errors="ignore")
+            for code in set(re.findall(r"\bA\d{5}\b", text)):
+                if code in catalog or code in allow:
+                    continue
+                key = (code, str(p))
+                if key in seen:
+                    continue
+                seen.add(key)
+                print(f"{code}\t{p}")
 PY
   )
 fi
