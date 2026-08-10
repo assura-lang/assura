@@ -162,6 +162,26 @@ this table over guessing the phase.
 | A64001 | types | assura-types | FFI / error propagation (impl) | checks/ffi_error.rs |
 | A31006 | types | assura-types | Liveness block missing `prove` | checks/core.rs (`run_liveness_checks`) |
 | A31007 | types | assura-types | `leads_to` without `assume fair` | checks/core.rs (`run_liveness_checks`); colon form splits `prove`/`leads_to` clauses |
+| A32002 | types | assura-types | Opaque body access without reveal | domain/core/opaque_function.rs |
+| A36003 | types | assura-types | Duplicate savepoint name | domain/storage/rollback.rs |
+| A52002 | types | assura-types | Suspend undeclared invariant (also empty decoder name in codec registry) | domain/meta/scoped_invariant.rs, domain/format/codec_registry.rs |
+| A46002 | types | assura-types | Unbounded resource usage | domain/platform.rs |
+| A29001 | types | assura-types | Data used before checksum verification | domain/format/checksum.rs |
+| A25003 | types | assura-types | Unbounded operation in deadline | domain/concurrency.rs |
+| A09103 | types | assura-types | Tainted data flows to trusted sink | checkers/taint.rs |
+| A53006 | types | assura-types | Quantifier missing trigger annotation | domain/core/quantifier_trigger.rs |
+| A49003 | types | assura-types | Equivalence missing contract reference | domain/meta/behavioral_equivalence.rs |
+| A35003 | types | assura-types | Phantom read | domain/storage/mvcc.rs |
+| A34003 | types | assura-types | Page cache capacity exceeded | domain/storage/page_cache.rs |
+| A30002 | types | assura-types | Protocol wrong state for message | domain/format/protocol_grammar.rs |
+| A23001 | types | assura-types | Circular buffer index exceeds capacity | domain/memory.rs |
+| A10104 | types | assura-types | Fixed-width division by zero | checkers/fixed_width.rs |
+| A09102 | types | assura-types | Tainted data used as allocation size | checkers/taint.rs |
+| A08103 | types | assura-types | Ghost region references missing buffer | checkers/memory.rs |
+| A51003 | types | assura-types | Contract version gap | domain/meta/incremental_contract.rs |
+| A46003 | types | assura-types | Resource near limit | domain/platform.rs |
+| A36001 | types | assura-types | Rollback to unknown savepoint | domain/storage/rollback.rs |
+| A35001 | types | assura-types | Write-write conflict | domain/storage/mvcc.rs |
 
 If a code is still missing: `rg 'A0xxxx' crates --glob '*.rs'` then add a row here
 in the same PR when agents are likely to hit it again.
