@@ -2093,7 +2093,6 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Ensure only one thread holds exclusive access at a time, or use \
                  atomic operations.",
         },
-
         // -- A20001-A20002: Determinism --
         ErrorInfo {
             code: "A20001",
