@@ -161,14 +161,13 @@ fn nat_fn(n: Nat) -> Nat
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
+    let ensures_result = ensures_result.unwrap_or_else(|| {
+        panic!("should have an ensures result, got: {results:?}");
+    });
     assert!(
-        ensures_result.is_some(),
-        "should have an ensures result, got: {results:?}"
-    );
-    assert!(
-        matches!(ensures_result.unwrap(), VerificationResult::Verified { .. }),
+        matches!(ensures_result, VerificationResult::Verified { .. }),
         "Nat return type should constrain result >= 0, got: {:?}",
-        ensures_result.unwrap()
+        ensures_result
     );
 }
 
@@ -224,11 +223,11 @@ fn nat_param(n: Nat) -> Int
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
-    assert!(ensures_result.is_some(), "should have an ensures result");
+    let ensures_result = ensures_result.expect("should have an ensures result");
     assert!(
-        matches!(ensures_result.unwrap(), VerificationResult::Verified { .. }),
+        matches!(ensures_result, VerificationResult::Verified { .. }),
         "Nat param should constrain n >= 0, got: {:?}",
-        ensures_result.unwrap()
+        ensures_result
     );
 }
 
@@ -604,11 +603,11 @@ contract UsesConstant {
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
-    assert!(ensures_result.is_some(), "should have an ensures result");
+    let ensures_result = ensures_result.expect("should have an ensures result");
     assert!(
-        matches!(ensures_result.unwrap(), VerificationResult::Verified { .. }),
+        matches!(ensures_result, VerificationResult::Verified { .. }),
         "feature_max should bind MAX_SIZE to 65536, got: {:?}",
-        ensures_result.unwrap()
+        ensures_result
     );
 }
 
@@ -631,11 +630,11 @@ fn check_size(payload: Nat, record: Nat) -> Int
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
-    assert!(ensures_result.is_some(), "should have an ensures result");
+    let ensures_result = ensures_result.expect("should have an ensures result");
     assert!(
-        matches!(ensures_result.unwrap(), VerificationResult::Verified { .. }),
+        matches!(ensures_result, VerificationResult::Verified { .. }),
         "HEADER_SIZE=3 + payload <= record should imply record >= 3, got: {:?}",
-        ensures_result.unwrap()
+        ensures_result
     );
 }
 
@@ -659,15 +658,12 @@ contract WrongClaim {
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
-    assert!(ensures_result.is_some(), "should have an ensures result");
+    let ensures_result = ensures_result.expect("should have an ensures result");
     // LIMIT=10 so LIMIT > 100 is false: should be counterexample
     assert!(
-        matches!(
-            ensures_result.unwrap(),
-            VerificationResult::Counterexample { .. }
-        ),
+        matches!(ensures_result, VerificationResult::Counterexample { .. }),
         "LIMIT=10 > 100 should produce counterexample, got: {:?}",
-        ensures_result.unwrap()
+        ensures_result
     );
 }
 
@@ -690,12 +686,12 @@ fn check_total(payload: Nat) -> Int
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
-    assert!(ensures_result.is_some(), "should have an ensures result");
+    let ensures_result = ensures_result.expect("should have an ensures result");
     // HEADER(5) + payload + FOOTER(3) <= 100 => payload <= 92
     assert!(
-        matches!(ensures_result.unwrap(), VerificationResult::Verified { .. }),
+        matches!(ensures_result, VerificationResult::Verified { .. }),
         "5 + payload + 3 <= 100 should imply payload <= 92, got: {:?}",
-        ensures_result.unwrap()
+        ensures_result
     );
 }
 
@@ -721,11 +717,11 @@ fn validate_page(page_size: Nat) -> Int
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
-    assert!(ensures_result.is_some(), "should have an ensures result");
+    let ensures_result = ensures_result.expect("should have an ensures result");
     assert!(
-        matches!(ensures_result.unwrap(), VerificationResult::Verified { .. }),
+        matches!(ensures_result, VerificationResult::Verified { .. }),
         "max_page_size=4096 should narrow page_size <= 4096, got: {:?}",
-        ensures_result.unwrap()
+        ensures_result
     );
 }
 
@@ -745,11 +741,11 @@ fn check_content(CONTENT_LEN: Nat) -> Int
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
-    assert!(ensures_result.is_some(), "should have an ensures result");
+    let ensures_result = ensures_result.expect("should have an ensures result");
     assert!(
-        matches!(ensures_result.unwrap(), VerificationResult::Verified { .. }),
+        matches!(ensures_result, VerificationResult::Verified { .. }),
         "MAX_CONTENT_LEN=16384 should narrow CONTENT_LEN <= 16384, got: {:?}",
-        ensures_result.unwrap()
+        ensures_result
     );
 }
 
@@ -773,15 +769,12 @@ fn validate_page(page_size: Nat) -> Int
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
-    assert!(ensures_result.is_some(), "should have an ensures result");
+    let ensures_result = ensures_result.expect("should have an ensures result");
     // PAGE_LIMIT has no max_ prefix so no narrowing happens for page_size
     assert!(
-        matches!(
-            ensures_result.unwrap(),
-            VerificationResult::Counterexample { .. }
-        ),
+        matches!(ensures_result, VerificationResult::Counterexample { .. }),
         "without narrowing, page_size <= 4096 should produce counterexample, got: {:?}",
-        ensures_result.unwrap()
+        ensures_result
     );
 }
 
@@ -802,11 +795,11 @@ fn check_buffer(buffer: Nat) -> Int
         | VerificationResult::Counterexample { clause_desc, .. } => clause_desc.contains("ensures"),
         _ => false,
     });
-    assert!(ensures_result.is_some(), "should have an ensures result");
+    let ensures_result = ensures_result.expect("should have an ensures result");
     assert!(
-        matches!(ensures_result.unwrap(), VerificationResult::Verified { .. }),
+        matches!(ensures_result, VerificationResult::Verified { .. }),
         "max_buffer=1024 should narrow buffer <= 1024, got: {:?}",
-        ensures_result.unwrap()
+        ensures_result
     );
 }
 

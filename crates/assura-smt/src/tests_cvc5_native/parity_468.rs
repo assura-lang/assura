@@ -368,11 +368,11 @@ mod cvc5_parity_468 {
             }
             _ => false,
         });
-        assert!(ensures.is_some(), "should have an ensures result");
+        let ensures = ensures.expect("should have an ensures result");
         assert!(
-            matches!(ensures.unwrap(), VerificationResult::Verified { .. }),
+            matches!(ensures, VerificationResult::Verified { .. }),
             "feature_max should bind MAX_SIZE to 65536, got: {:?}",
-            ensures.unwrap()
+            ensures
         );
     }
 
@@ -422,11 +422,11 @@ mod cvc5_parity_468 {
             }
             _ => false,
         });
-        assert!(ensures.is_some(), "should have an ensures result");
+        let ensures = ensures.expect("should have an ensures result");
         assert!(
-            matches!(ensures.unwrap(), VerificationResult::Verified { .. }),
+            matches!(ensures, VerificationResult::Verified { .. }),
             "HEADER_SIZE=3 + payload <= record should imply record >= 3, got: {:?}",
-            ensures.unwrap()
+            ensures
         );
     }
 
@@ -462,11 +462,11 @@ mod cvc5_parity_468 {
             }
             _ => false,
         });
-        assert!(ensures.is_some(), "should have an ensures result");
+        let ensures = ensures.expect("should have an ensures result");
         assert!(
-            matches!(ensures.unwrap(), VerificationResult::Counterexample { .. }),
+            matches!(ensures, VerificationResult::Counterexample { .. }),
             "LIMIT=10 > 100 should produce counterexample, got: {:?}",
-            ensures.unwrap()
+            ensures
         );
     }
 
@@ -515,11 +515,11 @@ mod cvc5_parity_468 {
             }
             _ => false,
         });
-        assert!(ensures.is_some(), "should have an ensures result");
+        let ensures = ensures.expect("should have an ensures result");
         assert!(
-            matches!(ensures.unwrap(), VerificationResult::Verified { .. }),
+            matches!(ensures, VerificationResult::Verified { .. }),
             "5 + payload + 3 <= 100 should imply payload <= 92, got: {:?}",
-            ensures.unwrap()
+            ensures
         );
     }
 
@@ -590,11 +590,11 @@ mod cvc5_parity_468 {
             }
             _ => false,
         });
-        assert!(ensures.is_some(), "should have ensures result");
+        let ensures = ensures.expect("should have ensures result");
         assert!(
-            matches!(ensures.unwrap(), VerificationResult::Verified { .. }),
+            matches!(ensures, VerificationResult::Verified { .. }),
             "Nat return type should constrain result >= 0, got: {:?}",
-            ensures.unwrap()
+            ensures
         );
     }
 
@@ -621,11 +621,11 @@ mod cvc5_parity_468 {
             }
             _ => false,
         });
-        assert!(ensures.is_some(), "should have ensures result");
+        let ensures = ensures.expect("should have ensures result");
         assert!(
-            matches!(ensures.unwrap(), VerificationResult::Counterexample { .. }),
+            matches!(ensures, VerificationResult::Counterexample { .. }),
             "result < 0 with Nat return should produce counterexample, got: {:?}",
-            ensures.unwrap()
+            ensures
         );
     }
 

@@ -87,10 +87,13 @@ Full meanings: `docs/SPECIFICATION.md` §7.2 / Appendix D. Do not fix an `A02` i
 emit it, (2) add the catalog entry in `assura-diagnostics`, (3) append a row to
 `docs/error-codes.md` (high-traffic section is fine). Do **not** invent `Axxxxx`
 numbers in module docs, comments, or TODOs for unimplemented checks. Describe
-future work in prose without a code number until it is wired. `scripts/guards.sh`
-section 14 hard-fails phantom codes (mentions outside the catalog in
-`crates/**/*.{rs,md}` and `docs/**/*.md`). Sentinels `A00000` / `A88888` /
-`A99999` only. Do not regenerate all of Appendix D.
+future work in prose without a code number until it is wired. Do **not** add a
+catalog-only "reserved" entry without an emitter (hollow catalog). Do **not**
+file implement issues for codes listed under **Catalog placeholders** in
+`docs/error-codes.md` or for any code that only exists in catalog/SPEC without
+an emit site. `scripts/guards.sh` section 14 hard-fails phantom codes (mentions
+outside the catalog in `crates/**/*.{rs,md}` and `docs/**/*.md`). Sentinels
+`A00000` / `A88888` / `A99999` only. Do not regenerate all of Appendix D.
 
 ### `assura-types` layer map (summary)
 
