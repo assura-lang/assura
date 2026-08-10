@@ -201,6 +201,137 @@ this table over guessing the phase.
 | A37001 | types | assura-types | Monotonicity violation | domain/storage/monotonic_state.rs |
 | A30003 | types | assura-types | Protocol missing required field | domain/format/protocol_grammar.rs |
 
+| A26002 | types | assura-types | Incomplete i18n coverage | domain/format/binary_format.rs |
+| A15004 | types | assura-types | Operation may violate invariant | checkers/security/structural_invariant.rs |
+| A15001 | types | assura-types | Structural invariant on non-recursive type | checkers/security/structural_invariant.rs |
+| A18002 | types | assura-types | Shared memory write without exclusive | checkers/security/shared_mem.rs |
+| A33003 | types | assura-types | Fsync before data write | domain/storage/crash_recovery.rs |
+| A03012 | types | assura-types | Index variable used at runtime | checkers/info_flow.rs |
+| A23002 | types | assura-types | Circular buffer zero capacity | domain/memory.rs |
+| A45003 | types | assura-types | Undeclared feature flag | domain/platform.rs |
+| A42002 | types | assura-types | ULP bound violation | domain/numeric.rs |
+| A31001 | types | assura-types | Undefined axiom reference | domain/core/axiomatic_def.rs |
+| A31003 | types | assura-types | Unused axiom | domain/core/axiomatic_def.rs |
+| A32003 | types | assura-types | Reveal outside proof context | domain/core/opaque_function.rs |
+| A51001 | types | assura-types | Precondition strengthened | domain/meta/incremental_contract.rs |
+| A48003 | types | assura-types | Exponential complexity warning | domain/meta/complexity_bound.rs |
+| A54003 | types | assura-types | Diamond inheritance in contracts | domain/meta/contract_composition.rs |
+| A30001 | types | assura-types | Protocol invalid transition | domain/format/protocol_grammar.rs |
+| A29003 | types | assura-types | Checksum range mismatch | domain/format/checksum.rs |
+| A28003 | types | assura-types | String truncation splits code unit | domain/format/string_encoding.rs |
+| A27001 | types | assura-types | Bit field out of bounds | domain/format/bit_level.rs |
+| A26004 | types | assura-types | Binary fields overlap | domain/format/binary_format.rs |
+| A26003 | types | assura-types | Binary field missing endianness | domain/format/binary_format.rs |
+| A15002 | types | assura-types | Tree invariant insufficient fields | checkers/security/structural_invariant.rs |
+| A15003 | types | assura-types | Sort invariant wrong field count | checkers/security/structural_invariant.rs |
+| A19001 | types | assura-types | Missing audit trail | rg code in crates |
+| A33002 | types | assura-types | Commit without fsync | domain/storage/crash_recovery.rs |
+| A03011 | types | assura-types | Dependent type index kind mismatch | checkers/info_flow.rs |
+| A03008 | types | assura-types | Invalid Bool index expression | checkers/info_flow.rs |
+| A25002 | types | assura-types | Nested deadline exceeds outer | domain/concurrency.rs |
+| A24002 | types | assura-types | Callback registered in non-reentrant context | domain/concurrency.rs |
+| A23019 | types | assura-types | Fence ordering mismatch | domain/memory.rs |
+| A47002 | types | assura-types | Undischarged safety obligation | domain/safety.rs |
+| A47003 | types | assura-types | Empty proof obligations | domain/safety.rs |
+| A45002 | types | assura-types | Conflicting feature flags | domain/platform.rs |
+| A38002 | types | assura-types | Handler for undeclared failure mode | domain/storage/storage_failure.rs |
+| A44002 | types | assura-types | Direct platform reference | domain/platform.rs |
+| A55002 | types | assura-types | Library self-dependency | domain/meta/contract_library.rs |
+| A54002 | types | assura-types | Circular contract extends chain | domain/meta/contract_composition.rs |
+| A43003 | types | assura-types | Zero-size table | domain/numeric.rs |
+| A43004 | types | assura-types | Invalid encoding: byte sequence not valid | domain/numeric.rs |
+| A31002 | types | assura-types | Circular axiom dependency | domain/core/axiomatic_def.rs |
+| A53003 | types | assura-types | After-all predicate not satisfied | domain/core/crud_auth.rs |
+| A53001 | types | assura-types | CRUD operation missing auth policy | domain/core/crud_auth.rs |
+| A53002 | types | assura-types | Delete without authentication | domain/core/crud_auth.rs |
+| A52003 | types | assura-types | Restore non-suspended invariant | domain/meta/scoped_invariant.rs |
+| A50002 | types | assura-types | Refinement chain gap | domain/meta/multi_pass_refinement.rs |
+| A50003 | types | assura-types | Trivial refinement pass | domain/meta/multi_pass_refinement.rs |
+| A36002 | types | assura-types | Resource leak after rollback | domain/storage/rollback.rs |
+| A38003 | types | assura-types | Critical failure mode unhandled | domain/storage/storage_failure.rs |
+| A35002 | types | assura-types | Snapshot isolation violation | domain/storage/mvcc.rs |
+| A34002 | types | assura-types | Evict dirty page without flush | domain/storage/page_cache.rs |
+| A29002 | types | assura-types | Checksum algorithm mismatch | domain/format/checksum.rs |
+| A28002 | types | assura-types | String encoding mismatch | domain/format/string_encoding.rs |
+| A27002 | types | assura-types | Bit field crosses byte boundary | domain/format/bit_level.rs |
+| A05200 | types | assura-types | Unbounded quantifier warning | assura-cli/src/check/report.rs |
+| A51002 | types | assura-types | Postcondition weakened | domain/meta/incremental_contract.rs |
+| A37002 | types | assura-types | Illegal monotonic variable reset | domain/storage/monotonic_state.rs |
+| A44005 | types | assura-types | Dirtying unpinned page | rg code in crates |
+| A42005 | types | assura-types | Proof obligation references out-of-scope variable | rg code in crates |
+| A52005 | types | assura-types | No codec matches input | rg code in crates |
+| A02009 | resolve | assura-resolve | Visibility violation | rg code in crates |
+| A55004 | types | assura-types | Lemma has side effects | rg code in crates |
+| A50004 | types | assura-types | Generating function is not total over range | rg code in crates |
+| A36004 | types | assura-types | Nested atomic function swallows error | rg code in crates |
+| A42004 | types | assura-types | Unsafe escape without proof obligation | rg code in crates |
+| A55005 | types | assura-types | Circular lemma dependency | rg code in crates |
+| A31005 | types | assura-types | Reserved space violated | rg code in crates |
+| A35005 | types | assura-types | Callee is not deterministic | rg code in crates |
+| A50005 | types | assura-types | Table size mismatch | rg code in crates |
+| A51005 | types | assura-types | Reference function uses restricted operations | rg code in crates |
+| A54004 | types | assura-types | Ghost variable not updated to match runtime state | rg code in crates |
+| A57001 | types | assura-types | Axiom is inconsistent | rg code in crates |
+| A58005 | types | assura-types | Trigger pattern not found in formula | rg code in crates |
+| A40004 | types | assura-types | Resources not released on terminal state | rg code in crates |
+| A56005 | types | assura-types | Frame condition conflict with effects | rg code in crates |
+| A29004 | types | assura-types | Protocol violation: step out of order | rg code in crates |
+| A37005 | types | assura-types | FFI thread safety violation | rg code in crates |
+| A32004 | types | assura-types | Recovery procedure has side effects beyond repair | rg code in crates |
+| A57005 | types | assura-types | Conflicting axiom definitions | rg code in crates |
+| A59001 | types | assura-types | Cannot prove property: function is opaque | rg code in crates |
+| A35004 | types | assura-types | Pointer-derived value in deterministic context | rg code in crates |
+| A47004 | types | assura-types | Monotonic value overflows without wrap policy | rg code in crates |
+| A34004 | types | assura-types | Callback may fail but is marked infallible | rg code in crates |
+| A58001 | types | assura-types | Trigger does not mention bound variable | rg code in crates |
+| A29005 | types | assura-types | Reader may see partial write | rg code in crates |
+| A37004 | types | assura-types | FFI null pointer not checked | rg code in crates |
+| A49005 | types | assura-types | Bit field constraint not satisfiable | rg code in crates |
+| A39004 | types | assura-types | Limit change may invalidate existing state | rg code in crates |
+| A49004 | types | assura-types | Bit cursor used after byte-level read | rg code in crates |
+| A45005 | types | assura-types | Write to read-only transaction | rg code in crates |
+| A54005 | types | assura-types | Ghost type used in runtime signature | rg code in crates |
+| A41001 | types | assura-types | Output divergence detected | rg code in crates |
+| A56001 | types | assura-types | Function modifies undeclared target | rg code in crates |
+| A51004 | types | assura-types | No reference function for precision contract | rg code in crates |
+| A41005 | types | assura-types | Undocumented exclusion | rg code in crates |
+| A38004 | types | assura-types | Feature max too small for invariant | rg code in crates |
+| A46004 | types | assura-types | IO bound exceeded | rg code in crates |
+| A39001 | types | assura-types | Limit may be exceeded without check | rg code in crates |
+| A45004 | types | assura-types | Stale snapshot: version no longer available | rg code in crates |
+| A48004 | types | assura-types | Return value of reset not checked | rg code in crates |
+| A48005 | types | assura-types | Must-preserve detail violated | rg code in crates |
+| A52004 | types | assura-types | Probe function has side effects | rg code in crates |
+| A40001 | types | assura-types | Step called in invalid state | rg code in crates |
+| A34005 | types | assura-types | Callback invariant not satisfiable | rg code in crates |
+| A59005 | types | assura-types | Opaque type field accessed externally | rg code in crates |
+| A44004 | types | assura-types | Double unpin: pin count already zero | rg code in crates |
+| A53005 | types | assura-types | Refinement state not initialized before first pass | rg code in crates |
+| A03009 | types | assura-types | Invalid Enum index expression | checkers/info_flow.rs |
+| A53004 | types | assura-types | Pass count exceeds declared maximum | rg code in crates |
+| A58002 | types | assura-types | Potential matching loop in trigger | rg code in crates |
+| A57003 | types | assura-types | Axiom property does not follow from definition | rg code in crates |
+| A40003 | types | assura-types | Incremental progress not guaranteed | rg code in crates |
+| A39002 | types | assura-types | Limit default outside [min, max] | rg code in crates |
+| A41002 | types | assura-types | Error code mismatch | rg code in crates |
+| A39003 | types | assura-types | Limit max exceeds compile-time feature_max | rg code in crates |
+| A41004 | types | assura-types | Type coercion difference | rg code in crates |
+| A57002 | types | assura-types | Recursive axiom not well-founded | rg code in crates |
+| A59004 | types | assura-types | Recursive reveal exceeded fuel | rg code in crates |
+| A57004 | types | assura-types | Axiom used at runtime | rg code in crates |
+| A56004 | types | assura-types | Modifies clause on pure function | rg code in crates |
+| A59002 | types | assura-types | Reveal of non-opaque function | rg code in crates |
+| A58004 | types | assura-types | Conflicting triggers on same quantifier | rg code in crates |
+| A58003 | types | assura-types | Quantifier timeout (no trigger specified) | rg code in crates |
+| A56002 | types | assura-types | Called function modifies outside caller's frame | rg code in crates |
+| A19002 | types | assura-types | Incomplete audit trail | rg code in crates |
+| A56003 | types | assura-types | Function reads undeclared source | rg code in crates |
+| A41003 | types | assura-types | Row ordering difference | rg code in crates |
+| A31004 | types | assura-types | Format exceeds expected size | rg code in crates |
+| A40002 | types | assura-types | Incremental value not finalized | rg code in crates |
+| A04009 | types | assura-types | Feature_max constant in verification clause | rg code in crates |
+| A59003 | types | assura-types | Opaque function contract insufficient | rg code in crates |
+
 If a code is still missing: `rg 'A0xxxx' crates --glob '*.rs'` then add a row here
 in the same PR when agents are likely to hit it again.
 
