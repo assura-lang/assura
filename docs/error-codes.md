@@ -283,10 +283,10 @@ table with a real start path and **remove the code from**
 `scripts/catalog-hollow-allowlist.txt` (guards section 15 freezes that set;
 see #1490).
 
-**Authoritative hollow set:** `scripts/catalog-hollow-allowlist.txt` (94 codes
-as of #1490). Some SPEC series codes may still appear in the tables above for
-phase lookup; if a code is on the allowlist it is not emitted. Section 15
-fails CI if the hollow set grows without an allowlist update.
+**Authoritative hollow set:** `scripts/catalog-hollow-allowlist.txt` (94 codes;
+see allowlist file). If a code is on the allowlist it is not emitted in
+production. Section 15 fails CI if the hollow set grows without an allowlist
+update.
 
 | Code | Phase | Primary crate | Message | Status |
 |------|-------|---------------|---------|--------|
