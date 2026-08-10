@@ -129,6 +129,16 @@ this table over guessing the phase.
 | A10101 | types | assura-types | Numeric / match interaction (impl) | checks/numeric.rs, checks/meta.rs |
 | A11005 | types | assura-types | Invariant / FFI-related type issue | checks/ffi_error.rs, entry/invariant paths |
 | A14001 | types | assura-types | Frame / modifies violation | checks/frame_totality.rs |
+| A14002 | types | assura-types | Secret-dependent array index (timing) | checkers/error_propagation.rs, checks/frame_totality.rs |
+| A04008 | types+cli | assura-types / assura-cli | Ensures references unconstrained output (`result`) | checks/clause_quality.rs; suppressed when IR present (#703) |
+| A05025 | smt+types | assura-smt / assura-types | Unresolved prophecy variable | advanced/prophecy.rs; structural checker in types |
+| A05026 | smt | assura-smt | Prophecy double-resolved / unconstrained | advanced/prophecy.rs |
+| A08101 | types | assura-types | Buffer access without bounds check | checkers/memory.rs |
+| A09101 | types | assura-types | Tainted data as array index | checkers/taint.rs |
+| A23003 | types | assura-types | Circular buffer empty on read | domain/memory.rs |
+| A26001 | types | assura-types | Binary format field offset exceeds buffer | domain/format/binary_format.rs |
+| A43005 | types | assura-types | Precomputed table size not a standard domain | domain/numeric.rs |
+| A17004 | types | assura-types | Decrypt without `tag_verified` (AEAD) | checks crypto conformance |
 | A23016 | types | assura-types | Domain / feature checker (impl) | domain/, checks/ |
 | A24001 | types | assura-types | Domain / feature checker (impl) | domain/, checks/ |
 | A27003 | types | assura-types | Domain / feature checker (impl) | domain/, checks/ |

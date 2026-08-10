@@ -4,7 +4,7 @@
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13476/badge)](https://www.bestpractices.dev/projects/13476)
 [![Crates.io](https://img.shields.io/crates/v/assura.svg)](https://crates.io/crates/assura)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-5700%2B%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-5800%2B%20passing-brightgreen)](#)
 
 # Assura
 

@@ -1,6 +1,6 @@
 # Assura Development Status
 
-> 201,160 lines of Rust, 5,781 tests, **21 workspace members** (re-counted 2026-08-02 via `scripts/count-crates.sh`).
+> 202,038 lines of Rust, 5,795 tests, **21 workspace members** (re-counted 2026-08-10 via `scripts/count-crates.sh`).
 
 ## What Works Today
 
@@ -36,20 +36,20 @@ Workspace members only (`Cargo.toml` `members = ["crates/*"]` with
 
 | Crate (package) | LOC | Tests | Role |
 |-----------------|-----|-------|------|
-| assura-parser | 10,402 | 209 | Lexer (logos) + recursive-descent parser (rowan CST), Pratt expressions |
+| assura-parser | 10,401 | 209 | Lexer (logos) + recursive-descent parser (rowan CST), Pratt expressions |
 | assura-ast | 3,162 | 46 | Canonical AST, DeclVisitor, ExprVisitor, ExprFolder |
-| assura-resolve | 6,095 | 189 | Scope analysis, imports, stdlib prelude injection |
-| assura-types | 44,727 | 1,750 | 60+ checkers in CHECKER_PIPELINE, all 50 spec features |
-| assura-smt | 59,594 | 1,348 | Z3 + CVC5, Layer 2 verifier, prophecy/liveness/weak-memory, IR exec |
+| assura-resolve | 6,097 | 189 | Scope analysis, imports, stdlib prelude injection |
+| assura-types | 44,756 | 1,750 | 60+ checkers in CHECKER_PIPELINE, all 50 spec features |
+| assura-smt | 59,590 | 1,348 | Z3 + CVC5, Layer 2 verifier, prophecy/liveness/weak-memory, IR exec |
 | assura-codegen | 16,706 | 670 | Multi-file Rust projects, proptest gen, WASM, IR body substitution |
-| assura-pipeline | 2,379 | 71 | Canonical compile/compile_full/verify_typed/run_at |
-| assura-config | 1,299 | 53 | assura.toml, VerifyOptions, CompilerConfig |
-| assura-diagnostics | 4,224 | 75 | Error codes, ariadne + JSON rendering |
-| assura (dir: assura-cli) | 38,774 | 937 | CLI binary: check, build, init, fmt, infer, check-rust, … |
+| assura-pipeline | 2,378 | 71 | Canonical compile/compile_full/verify_typed/run_at |
+| assura-config | 1,298 | 53 | assura.toml, VerifyOptions, CompilerConfig |
+| assura-diagnostics | 4,225 | 75 | Error codes, ariadne + JSON rendering |
+| assura (dir: assura-cli) | 39,635 | 951 | CLI binary: check, build, init, fmt, infer, check-rust, … |
 | assura-lsp | 1,965 | 55 | Language server (tower-lsp) |
 | assura-server | 809 | 27 | gRPC + HTTP/JSON API |
 | assura-mcp | 865 | 28 | MCP server for AI agent integration |
-| assura-fmt | 741 | 53 | Formatter |
+| assura-fmt | 733 | 53 | Formatter |
 | assura-macros | 1,974 | 58 | Proc macros (`#[contract]`, `#[trust]`) |
 | assura-stdlib | 409 | 18 | Stdlib modules (math, string, collections, …) |
 | assura-rust-analyzer | 2,514 | 92 | Syn-based Rust source parser for contract inference |
@@ -57,7 +57,7 @@ Workspace members only (`Cargo.toml` `members = ["crates/*"]` with
 | assura-bench | 421 | 0 | Criterion benchmarks |
 | assura-runtime | 262 | 10 | Runtime support for contracts |
 | assura-llm | 3,462 | 82 | LLM provider abstraction for auto-implement / suggest |
-| **Total** | **201,160** | **5,781** | |
+| **Total** | **202,038** | **5,795** | |
 
 `crates/assura-driver` is **excluded** from the workspace (exploratory rustc
 driver). Refresh counts with `bash scripts/count-crates.sh`.
