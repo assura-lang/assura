@@ -8,6 +8,14 @@ rules:
     ignore:
       - ci.yml
 
+  # auto-approve uses pull_request_target so fork PRs receive App secrets
+  # (pull_request has Secret source: None). Safe: no checkout of PR head;
+  # only gh approve/merge. Without this, require_last_push_approval blocks
+  # maintainer MCM polish on first-time contributor PRs.
+  dangerous-triggers:
+    ignore:
+      - auto-approve.yml
+
   # release.yml is cargo-dist generated. Template expansions and container images
   # come from the plan job's trusted outputs, not untrusted PR input.
   template-injection:
