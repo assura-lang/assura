@@ -68,7 +68,7 @@ mod tests {
     #[test]
     fn resolution_error_with_secondary() {
         let err = ResolutionError {
-            code: "A02002".into(),
+            code: "A02003".into(),
             message: "duplicate name `x`".into(),
             span: 10..15,
             secondary: Some((0..5, "previously defined here".into())),

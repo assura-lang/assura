@@ -156,7 +156,7 @@ requires {
 effects: pure
 {
     header_len + content_len
-// If this could overflow U32, the verifier rejects it (A13004)
+// If this could overflow U32, the verifier rejects it (compile-time bound failure)
 }
 
 // ---------------------------------------------------------------------------
@@ -324,7 +324,7 @@ effects: pure
 //   SEC.1: Peer key length from wire is @untrusted. Cannot be used as
 //     copy length without validation (A28001).
 //   MEM.1: peer_point is Region<MAX_EC_POINT_SIZE>. Writes require
-//     compile-time proof of bounds (A13004).
+//     compile-time proof of bounds (compile-time bound failure).
 //   CORE.3: modifies { ctx.peer_point } prevents corruption of adjacent
 //     fields even with a logic bug.
 //
@@ -335,7 +335,7 @@ effects: pure
 // CVE-2024-23775 (X.509 integer overflow):
 //   SEC.1: Length fields from certificates are @untrusted. Validated
 //     before arithmetic. Overflow in safe_alloc_size is caught by
-//     refined type checking (A13004).
+//     refined type checking (compile-time bound failure).
 //
 // CVE-2024-45158 (config-sized stack buffer):
 //   PLAT.2: MAX_CONTENT_LEN is a feature_max. Changing it re-verifies

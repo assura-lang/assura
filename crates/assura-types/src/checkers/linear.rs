@@ -319,7 +319,6 @@ impl LinearContext {
 ///
 /// Returns errors for:
 /// - A05004: linear variable used inconsistently across branches
-/// - A05005: linear variable escapes its scope
 pub(crate) fn check_expr_linearity(expr: &SpExpr, ctx: &mut LinearContext) -> Vec<TypeError> {
     let mut errors = Vec::new();
     check_expr_linearity_inner(expr, ctx, &mut errors);

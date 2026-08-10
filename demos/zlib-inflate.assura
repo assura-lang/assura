@@ -269,7 +269,7 @@ effects: pure
 //
 // 2. MEM.1 (memory regions): head->extra is Region<extra_max>. Every
 //    zmemcpy_safe call requires compile-time proof that
-//    offset + length <= extra_max. Overflow is A13004.
+//    offset + length <= extra_max. Overflow is compile-time bound failure.
 //
 // 3. MISC.1 (incremental contracts): The ExtraField state tracks
 //    extra_bytes_copied with an invariant that it never exceeds extra_max.

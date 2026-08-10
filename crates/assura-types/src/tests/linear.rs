@@ -816,7 +816,7 @@ fn linear_context_merge_takes_max_usage() {
 
 #[test]
 fn linear_context_a05005_scope_escape() {
-    // A05005: linear variable escapes its scope.
+    // Linear variable escapes its scope (modeled as A05002 unused).
     // This occurs when a linear variable is passed into a context
     // where it outlives its scope (e.g., stored in a longer-lived data
     // structure). For now, model this as a linear var that gets used

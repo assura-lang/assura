@@ -7,9 +7,8 @@
 2. Open the primary crate/files below (or `rg 'A0xxxx' crates --glob '*.rs'`).
 3. Do **not** fix a types error by changing the SMT backend unless the code is `A04`/`A11`/`A05100` and the failure is genuinely solver-side.
 4. For unknown codes not listed here: `rg 'A0xxxx' docs/SPECIFICATION.md` then `rg 'A0xxxx' crates`.
-5. Rows under **Catalog placeholders** are not emitted by any checker. Do **not**
-   open implement issues for them. Ship emit + tests + catalog + index row in
-   one PR when product prioritizes the check (same rule as phantom ban #1489).
+5. Do **not** invent `Axxxxx` numbers until emit + catalog + index land in the
+   same PR (guards sections 14–15). Planned work uses prose, not reserved codes.
 
 ## By series (agent phase map)
 
@@ -272,110 +271,11 @@ in the same PR when agents are likely to hit it again.
 
 ## Catalog placeholders (not emitted)
 
-These codes exist in `assura-diagnostics` catalog (so `assura explain` works)
-and often in SPEC Appendix D, but **no checker currently emits them**.
+Pure-listing hollow error codes (catalog + SPEC, no production emit and no
+partial checker wiring) were removed. New codes must be implemented, emitted,
+cataloged, and indexed in the **same PR**. See AGENTS.md and guards sections
+14–15.
 
-**Do not open implement tickets for these.** That is the same class of noise
-as phantom codes (#1486/#1487): catalog or docs invent a number before the
-check exists. When product prioritizes a check, implement **emit + tests +
-catalog row refresh in the same PR**, then move the row into the high-traffic
-table with a real start path and **remove the code from**
-`scripts/catalog-hollow-allowlist.txt` (guards section 15 freezes that set;
-see #1490).
+If a code is only planned, describe it in prose without an `Axxxxx` number
+until emit lands. Do not re-add rows here without a production emitter.
 
-**Authoritative hollow set:** `scripts/catalog-hollow-allowlist.txt` (89 codes;
-see allowlist file). If a code is on the allowlist it is not emitted in
-production. Section 15 fails CI if the hollow set grows without an allowlist
-update.
-
-| Code | Phase | Primary crate | Message | Status |
-|------|-------|---------------|---------|--------|
-| A44005 | types | assura-types | Dirtying unpinned page | not emitted |
-| A42005 | types | assura-types | Proof obligation references out-of-scope variable | not emitted |
-| A52005 | types | assura-types | No codec matches input | not emitted |
-| A02002 | resolve | assura-resolve | Undefined type (catalog-only / test-only construction) | not emitted |
-| A55004 | types | assura-types | Lemma has side effects | not emitted |
-| A50004 | types | assura-types | Generating function is not total over range | not emitted |
-| A36004 | types | assura-types | Nested atomic function swallows error | not emitted |
-| A42004 | types | assura-types | Unsafe escape without proof obligation | not emitted |
-| A55005 | types | assura-types | Circular lemma dependency | not emitted |
-| A31005 | types | assura-types | Reserved space violated | not emitted |
-| A35005 | types | assura-types | Callee is not deterministic | not emitted |
-| A50005 | types | assura-types | Table size mismatch | not emitted |
-| A51005 | types | assura-types | Reference function uses restricted operations | not emitted |
-| A54004 | types | assura-types | Ghost variable not updated to match runtime state | not emitted |
-| A57001 | types | assura-types | Axiom is inconsistent | not emitted |
-| A58005 | types | assura-types | Trigger pattern not found in formula | not emitted |
-| A40004 | types | assura-types | Resources not released on terminal state | not emitted |
-| A56005 | types | assura-types | Frame condition conflict with effects | not emitted |
-| A29004 | types | assura-types | Protocol violation: step out of order | not emitted |
-| A37005 | types | assura-types | FFI thread safety violation | not emitted |
-| A32004 | types | assura-types | Recovery procedure has side effects beyond repair | not emitted |
-| A57005 | types | assura-types | Conflicting axiom definitions | not emitted |
-| A59001 | types | assura-types | Cannot prove property: function is opaque | not emitted |
-| A35004 | types | assura-types | Pointer-derived value in deterministic context | not emitted |
-| A47004 | types | assura-types | Monotonic value overflows without wrap policy | not emitted |
-| A34004 | types | assura-types | Callback may fail but is marked infallible | not emitted |
-| A58001 | types | assura-types | Trigger does not mention bound variable | not emitted |
-| A29005 | types | assura-types | Reader may see partial write | not emitted |
-| A37004 | types | assura-types | FFI null pointer not checked | not emitted |
-| A49005 | types | assura-types | Bit field constraint not satisfiable | not emitted |
-| A39004 | types | assura-types | Limit change may invalidate existing state | not emitted |
-| A49004 | types | assura-types | Bit cursor used after byte-level read | not emitted |
-| A45005 | types | assura-types | Write to read-only transaction | not emitted |
-| A54005 | types | assura-types | Ghost type used in runtime signature | not emitted |
-| A41001 | types | assura-types | Output divergence detected | not emitted |
-| A56001 | types | assura-types | Function modifies undeclared target | not emitted |
-| A51004 | types | assura-types | No reference function for precision contract | not emitted |
-| A41005 | types | assura-types | Undocumented exclusion | not emitted |
-| A38004 | types | assura-types | Feature max too small for invariant | not emitted |
-| A46004 | types | assura-types | IO bound exceeded | not emitted |
-| A39001 | types | assura-types | Limit may be exceeded without check | not emitted |
-| A45004 | types | assura-types | Stale snapshot: version no longer available | not emitted |
-| A48004 | types | assura-types | Return value of reset not checked | not emitted |
-| A48005 | types | assura-types | Must-preserve detail violated | not emitted |
-| A52004 | types | assura-types | Probe function has side effects | not emitted |
-| A40001 | types | assura-types | Step called in invalid state | not emitted |
-| A34005 | types | assura-types | Callback invariant not satisfiable | not emitted |
-| A59005 | types | assura-types | Opaque type field accessed externally | not emitted |
-| A44004 | types | assura-types | Double unpin: pin count already zero | not emitted |
-| A53005 | types | assura-types | Refinement state not initialized before first pass | not emitted |
-| A53004 | types | assura-types | Pass count exceeds declared maximum | not emitted |
-| A58002 | types | assura-types | Potential matching loop in trigger | not emitted |
-| A57003 | types | assura-types | Axiom property does not follow from definition | not emitted |
-| A40003 | types | assura-types | Incremental progress not guaranteed | not emitted |
-| A39002 | types | assura-types | Limit default outside [min, max] | not emitted |
-| A41002 | types | assura-types | Error code mismatch | not emitted |
-| A39003 | types | assura-types | Limit max exceeds compile-time feature_max | not emitted |
-| A41004 | types | assura-types | Type coercion difference | not emitted |
-| A57002 | types | assura-types | Recursive axiom not well-founded | not emitted |
-| A59004 | types | assura-types | Recursive reveal exceeded fuel | not emitted |
-| A57004 | types | assura-types | Axiom used at runtime | not emitted |
-| A56004 | types | assura-types | Modifies clause on pure function | not emitted |
-| A59002 | types | assura-types | Reveal of non-opaque function | not emitted |
-| A58004 | types | assura-types | Conflicting triggers on same quantifier | not emitted |
-| A58003 | types | assura-types | Quantifier timeout (no trigger specified) | not emitted |
-| A56002 | types | assura-types | Called function modifies outside caller's frame | not emitted |
-| A56003 | types | assura-types | Function reads undeclared source | not emitted |
-| A41003 | types | assura-types | Row ordering difference | not emitted |
-| A31004 | types | assura-types | Format exceeds expected size | not emitted |
-| A40002 | types | assura-types | Incremental value not finalized | not emitted |
-| A59003 | types | assura-types | Opaque function contract insufficient | not emitted |
-| A01003 | parser | assura-parser | Invalid numeric literal | not emitted |
-| A01004 | parser | assura-parser | Reserved keyword used as identifier | not emitted |
-| A01005 | parser | assura-parser | Mismatched braces | not emitted |
-| A02004 | resolve | assura-resolve | Ambiguous import `X` | not emitted |
-| A03003 | types | assura-types | Cannot unify `T1` with `T2` | not emitted |
-| A03004 | types | assura-types | Missing field `F` in struct | not emitted |
-| A04001 | smt+types | assura-smt / assura-types | Precondition may not hold | not emitted |
-| A04002 | smt+types | assura-smt / assura-types | Postcondition may not hold | not emitted |
-| A04003 | smt+types | assura-smt / assura-types | Refinement subtype check failed | not emitted |
-| A04004 | smt+types | assura-smt / assura-types | Division by zero possible | not emitted |
-| A04005 | smt+types | assura-smt / assura-types | Index out of bounds possible | not emitted |
-| A04006 | smt+types | assura-smt / assura-types | Arithmetic overflow possible | not emitted |
-| A04007 | smt+types | assura-smt / assura-types | Refinement timeout | not emitted |
-| A05005 | types | assura-types | Linear value dropped without consuming | not emitted |
-| A06005 | types | assura-types | Missing transition guard | not emitted |
-| A07004 | types | assura-types | Effect handler missing for `E` | not emitted |
-| A07005 | types | assura-types | Effect hierarchy violation | not emitted |
-| A13004 | types | assura-types | Integer overflow possible | not emitted |

@@ -2,7 +2,7 @@
 
 > For implementers deciding whether to build Assura, and in what order.
 > Based on the SPECIFICATION.md (195 EBNF productions, 50 verification
-> features, ~278 error codes) and INVESTIGATION.md (tech stack,
+> features, ~195 error codes) and INVESTIGATION.md (tech stack,
 > competitive analysis, stress-tested demo projects).
 
 ## Scope Summary
@@ -19,7 +19,7 @@ The full specification defines:
   effect rows, information flow)
 - 3-layer verification: Layer 0 (<10ms), Layer 1 (<200ms), Layer 2
   (<10s), Layer 3 (BMC/k-induction)
-- ~278 error codes with structured JSON output
+- ~195 error codes with structured JSON output
 - CLI, AI Agent API (gRPC), LSP server
 
 This roadmap sequences the work from "nothing exists" to "all 50
@@ -55,7 +55,7 @@ and reports syntax errors with error codes.
 | Lexer | 1 week | ~199 keywords (Section 1.1). Tokenize identifiers, literals, operators, comments. Decision: hand-rolled lexer in Rust vs `logos` crate. Recommend `logos` for speed and simplicity; it handles keyword disambiguation well. |
 | Parser | 2-3 weeks | Recursive descent for the core EBNF (Sections 1.2-1.11). Start with a subset: `SourceFile`, `ServiceDecl`, `ContractDecl`, `TypeDecl`, `EnumDecl`, `OperationDecl`, `QueryDecl`, `RequiresClause`, `EnsuresClause`, `EffectsClause`, `Predicate`, `Expr`. Skip Layers 8-21 (extended contract layers) initially. |
 | AST types | 1 week | Define Rust structs for every AST node. Use `Span` annotations for source locations on every node. Derive `Debug`, `Clone`, `PartialEq`. |
-| Error reporting | 1 week | Implement error codes A01001-A01005 (syntax errors). JSON output format from Section 7.3. Human-readable mode with `ariadne` or `miette` crate. |
+| Error reporting | 1 week | Implement error codes A01001-A01002 (syntax errors). JSON output format from Section 7.3. Human-readable mode with `ariadne` or `miette` crate. |
 
 **Key decisions**:
 
@@ -135,9 +135,9 @@ effect containment without invoking Z3.
 
 | Task | Effort | Details |
 |------|--------|---------|
-| Linear type checker | 2 weeks | Implement context splitting (Section 2.5). Track usage grades: 0 (erased), 1 (linear), n (exact), omega (unlimited). Emit A05001-A05005. The key insight: refinement predicates are ghost (grade 0), not computational. See Test Case 1 in Section 13. |
+| Linear type checker | 2 weeks | Implement context splitting (Section 2.5). Track usage grades: 0 (erased), 1 (linear), n (exact), omega (unlimited). Emit A05001-A05004. The key insight: refinement predicates are ghost (grade 0), not computational. See Test Case 1 in Section 13. |
 | Typestate checker | 1 week | Finite state machine DFA per typestate variable (Section 2.6). Track state through branches; reject ambiguous states after diverging branches (A06004). Typestate variables must be linear. |
-| Effect checker | 1 week | Set inclusion check. Each function's body effects must be a subset of its declared effect row (Section 3.5). Implement effect hierarchy (`io` = union of all IO sub-effects, Section 3.6). Emit A07001-A07005. |
+| Effect checker | 1 week | Set inclusion check. Each function's body effects must be a subset of its declared effect row (Section 3.5). Implement effect hierarchy (`io` = union of all IO sub-effects, Section 3.6). Emit A07001-A07003. |
 
 **Interaction priority**: Implement Linear + Typestate first (typestate
 requires linearity), then Linear + Effect (resource-scoped effects).
@@ -172,8 +172,8 @@ domain-specific features composable.
 
 | Task | Effort | Details |
 |------|--------|---------|
-| CORE.1 Ghost code | 1.5 weeks | Ghost variables, functions, and blocks (Section 14.CORE.1). Enforce erasure: ghost code cannot affect runtime. Ghost functions must be pure. Ghost assertions become SMT obligations. Codegen: completely erased (or `debug_assert` in debug mode). Error codes A54001-A54005. |
-| CORE.2 Lemmas | 1.5 weeks | Proof functions that generate no runtime code (Section 14.CORE.2). `apply lemma_name(args)` adds the lemma's ensures as an assumption. `induction var` generates base/inductive cases. Error codes A55001-A55005. |
+| CORE.1 Ghost code | 1.5 weeks | Ghost variables, functions, and blocks (Section 14.CORE.1). Enforce erasure: ghost code cannot affect runtime. Ghost functions must be pure. Ghost assertions become SMT obligations. Codegen: completely erased (or `debug_assert` in debug mode). Error codes A54001-A54003. |
+| CORE.2 Lemmas | 1.5 weeks | Proof functions that generate no runtime code (Section 14.CORE.2). `apply lemma_name(args)` adds the lemma's ensures as an assumption. `induction var` generates base/inductive cases. Error codes A55001-A55003. |
 | CORE.3 Frame conditions | 1 week | `modifies` clauses declaring what a function changes (Section 14.CORE.3). Everything else is implicitly unchanged. This is critical for modular verification: without frame conditions, the verifier must re-prove all invariants after every call. |
 
 **Why these matter**: In the stress-testing rounds (INVESTIGATION.md),
