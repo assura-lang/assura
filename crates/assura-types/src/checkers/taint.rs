@@ -90,8 +90,8 @@ pub(crate) fn extract_taint_label(
 /// - **A09102**: Tainted data used as allocation size without validation
 /// - **A09103**: Tainted data flows to trusted sink
 ///
-/// Reserved for future checks (not yet emitted; not in the diagnostics catalog):
-/// - **A09104**: Taint validation incomplete (partial sanitization)
+/// Do not invent further `Axxxxx` numbers here until the check is implemented
+/// and registered in `assura-diagnostics` catalog in the same change.
 #[derive(Debug, Clone)]
 pub(crate) struct TaintChecker {
     /// Maps variable name to its taint label.
