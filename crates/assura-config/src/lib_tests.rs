@@ -152,8 +152,11 @@ fn parse_empty_string_returns_default() {
 #[test]
 fn parse_malformed_toml_errors() {
     let bad = "this is not [valid toml {{{";
-    let result = toml::from_str::<ProjectConfig>(bad);
-    assert!(result.is_err());
+    let err = toml::from_str::<ProjectConfig>(bad).expect_err("malformed toml must fail");
+    assert!(
+        !err.to_string().is_empty(),
+        "parse error should carry a message"
+    );
 }
 
 #[test]
