@@ -661,10 +661,7 @@ contract WrongClaim {
     let ensures_result = ensures_result.expect("should have an ensures result");
     // LIMIT=10 so LIMIT > 100 is false: should be counterexample
     assert!(
-        matches!(
-            ensures_result,
-            VerificationResult::Counterexample { .. }
-        ),
+        matches!(ensures_result, VerificationResult::Counterexample { .. }),
         "LIMIT=10 > 100 should produce counterexample, got: {:?}",
         ensures_result
     );
@@ -775,10 +772,7 @@ fn validate_page(page_size: Nat) -> Int
     let ensures_result = ensures_result.expect("should have an ensures result");
     // PAGE_LIMIT has no max_ prefix so no narrowing happens for page_size
     assert!(
-        matches!(
-            ensures_result,
-            VerificationResult::Counterexample { .. }
-        ),
+        matches!(ensures_result, VerificationResult::Counterexample { .. }),
         "without narrowing, page_size <= 4096 should produce counterexample, got: {:?}",
         ensures_result
     );
