@@ -1,12 +1,19 @@
 name: Auto-approve
 
+# pull_request_target: secrets available for fork PRs (pull_request has Secret source: None).
+# Safe: no checkout of untrusted PR head; only gh approve/merge via App token.
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to approve (workflow_dispatch only)"
+        required: false
+        type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
   cancel-in-progress: true
 
 permissions:
@@ -19,64 +26,71 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    # Skip PRs authored by github-actions[bot] (self-approve deadlock).
-    # Skip release-please PRs for auto-merge (label check below); approve is still fine
-    # when author is the App bot (different identity from GITHUB_TOKEN).
+    # Skip self-approve deadlock. Run for maintainer actor, Dependabot, bots,
+    # or any PR when dispatched manually with pr_number.
     if: >-
-      github.event.pull_request.user.login != 'github-actions[bot]' &&
-      (github.actor == 'SebTardif' ||
-       github.event.pull_request.user.login == 'dependabot[bot]' ||
-       endsWith(github.event.pull_request.user.login, '[bot]'))
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.user.login != 'github-actions[bot]' &&
+       (github.actor == 'SebTardif' ||
+        github.event.pull_request.user.login == 'dependabot[bot]' ||
+        endsWith(github.event.pull_request.user.login, '[bot]')))
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: audit
 
-      # App token first: used for both approve and auto-merge.
-      # Prefer App over GITHUB_TOKEN for approve so:
-      # 1) fork PRs work (GITHUB_TOKEN cannot review cross-fork PRs),
-      # 2) require_last_push_approval is satisfied when a human maintainer
-      #    was the last pusher (App is a different identity).
-      # Dependabot `pull_request` runs do not receive repository secrets:
-      # create-github-app-token may fail; continue-on-error + GITHUB_TOKEN
-      # fallback keeps same-repo / Dependabot paths working.
+      # App token first: required for fork PRs (GITHUB_TOKEN cannot review them)
+      # and for require_last_push_approval when a human was the last pusher.
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token
         continue-on-error: true
         with:
           client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
           private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
-          # Least privilege for approve + auto-merge (zizmor github-app audit).
           permission-contents: write
           permission-pull-requests: write
           permission-workflows: write
 
+      - name: Resolve PR number
+        id: pr
+        env:
+          EVENT_PR: ${{ github.event.pull_request.number }}
+          INPUT_PR: ${{ github.event.inputs.pr_number }}
+        run: |
+          n="${EVENT_PR:-${INPUT_PR}}"
+          if [ -z "$n" ]; then
+            echo "No PR number" >&2
+            exit 1
+          fi
+          echo "number=$n" >> "$GITHUB_OUTPUT"
+
       - name: Approve PR
-        if: github.event.pull_request.user.login != 'github-actions[bot]'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
           REPO: ${{ github.repository }}
         run: |
           gh pr review --approve "${PR_NUMBER}" --repo "${REPO}" \
-            || echo "Approve failed (fork token limits or already approved); continuing."
+            || echo "Approve failed or already approved; continuing."
 
-      # Never auto-merge release-please PRs (maintainer controls release cadence).
       - name: Enable auto-merge
-        if: >-
-          !contains(github.event.pull_request.labels.*.name, 'autorelease: pending')
         env:
-          # Prefer App token; fall back to GITHUB_TOKEN when App mint failed
-          # (Dependabot secret isolation or missing AUTO_APPROVE_PRIVATE_KEY).
-          # Use env (not ${{ }} inside run:) so zizmor template-injection is clean.
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
           REPO: ${{ github.repository }}
         run: |
           if [ -z "${APP_TOKEN}" ]; then
-            echo "App token unavailable; using GITHUB_TOKEN for auto-merge (post-merge push workflows may be suppressed)."
+            echo "App token unavailable; using GITHUB_TOKEN for auto-merge."
           fi
+          # Never auto-merge release-please PRs.
+          labels=$(gh pr view "${PR_NUMBER}" --repo "${REPO}" --json labels --jq '[.labels[].name] | join(",")')
+          case ",$labels," in
+            *",autorelease: pending,"*)
+              echo "Skipping auto-merge for release-please PR"
+              exit 0
+              ;;
+          esac
           gh pr merge --auto --squash "${PR_NUMBER}" --repo "${REPO}" \
-            || echo "Could not enable auto-merge (common when PR modifies .github/workflows/* and the App lacks workflows permission, or checks not yet green). PR was approved; manual merge may be needed."
+            || echo "Could not enable auto-merge; PR may still need green checks or manual merge."
