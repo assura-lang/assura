@@ -512,12 +512,6 @@ mod tests {
         // A02004 = "Ambiguous import" per spec (was "Visibility violation")
         let a02004 = explain("A02004").expect("A02004 should exist");
         assert_eq!(a02004.name, "Ambiguous import");
-
-        // A19001 must exist (audit trail, was entirely missing)
-        assert!(explain("A19001").is_some(), "A19001 should exist");
-
-        // A26002 must exist (i18n completeness, was missing)
-        assert!(explain("A26002").is_some(), "A26002 should exist");
     }
 
     /// Regression #903: A03005 catalog is unknown-field, not "Not callable".

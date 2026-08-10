@@ -439,23 +439,6 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Use a qualified name (module.Foo) to disambiguate, or use an \
                  alias on one of the imports: import b { Foo as BFoo }.",
         },
-        // -- A02009: Visibility violation (moved from A02004 to avoid spec conflict) --
-        ErrorInfo {
-            code: "A02009",
-            name: "Visibility violation",
-            description: "An attempt was made to access a field or member that \
-                          is not public. Non-pub fields are only accessible within \
-                          the module that defines the type.",
-            example: r#"  type Wallet {
-      balance: Int   // private (no pub)
-  }
-
-  contract Check {
-      requires: w.balance > 0   // A02009: balance is private
-  }"#,
-            fix: "Mark the field as 'pub' in the type definition if external \
-                 access is intended, or access it through a public getter method.",
-        },
         // -- A05005: Ghost/linear interaction --
         ErrorInfo {
             code: "A05005",
@@ -809,7 +792,7 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Simplify the refinement predicate, add intermediate lemmas, \
                  or increase the solver timeout in assura.toml.",
         },
-        // -- A04008-A04009: Verification clause quality warnings --
+        // -- A04008: Verification clause quality warnings --
         ErrorInfo {
             code: "A04008",
             name: "Ensures references unconstrained output",
@@ -822,17 +805,6 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Write ensures clauses that reference only input variables: \
                  ensures { x + y >= 0 }. For extern functions returning Bytes/String, \
                  result.length() >= 0 is safe (background axiom).",
-        },
-        ErrorInfo {
-            code: "A04009",
-            name: "Feature_max constant in verification clause",
-            description: "A feature_max constant is used in a requires, ensures, or \
-                          invariant clause. The SMT encoder treats feature_max constants \
-                          as unconstrained integer variables, not their defined values.",
-            example: r#"  feature_max HEADER_SIZE: Nat = 3
-  contract check(data: Bytes)
-    requires { data.length() >= HEADER_SIZE }  // SMT sees 0, not 3"#,
-            fix: "Inline the value directly: requires { data.length() >= 3 }.",
         },
         // -- A06005: Typestate --
         ErrorInfo {
@@ -2121,33 +2093,6 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             fix: "Ensure only one thread holds exclusive access at a time, or use \
                  atomic operations.",
         },
-        // -- A19001-A19002: Audit trail (spec Section 7.1) --
-        ErrorInfo {
-            code: "A19001",
-            name: "Missing audit trail",
-            description: "A contract or function marked with an audit annotation does \
-                          not produce a corresponding audit trail entry. Every auditable \
-                          operation must emit a structured log entry for compliance review.",
-            example: r#"  @auditable
-  contract TransferFunds {
-      input { from: Account, to: Account, amount: Nat }
-      requires { from.balance >= amount }
-      // missing audit trail emission
-  }"#,
-            fix: "Add an audit trail emission in the contract body, or use the \
-                 built-in audit effect to generate entries automatically.",
-        },
-        ErrorInfo {
-            code: "A19002",
-            name: "Incomplete audit trail",
-            description: "An audit trail entry is missing required fields. Audit entries \
-                          must include timestamp, actor, action, and result.",
-            example: r#"  audit.emit({
-      action: "transfer",
-      // missing: actor, timestamp, result
-  })"#,
-            fix: "Include all required audit fields: timestamp, actor, action, and result.",
-        },
         // -- A20001-A20002: Determinism --
         ErrorInfo {
             code: "A20001",
@@ -2329,20 +2274,6 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             example: r#"  // Buffer is 16 bytes, field at offset 12, size 8
       field header at offset 12, size 8  // 12 + 8 = 20 > 16"#,
             fix: "Adjust the field offset or size to fit within the buffer.",
-        },
-        // -- A26002: i18n completeness (spec Section 7.1) --
-        ErrorInfo {
-            code: "A26002",
-            name: "Incomplete i18n coverage",
-            description: "A string literal or user-facing message is not covered by \
-                          the internationalization table. Every user-visible string \
-                          must have translations for all declared locales.",
-            example: r#"  @i18n(locales: ["en", "fr", "de"])
-  contract Greet {
-      ensures { result == "Hello" }  // no fr/de translations
-  }"#,
-            fix: "Add translations for all declared locales in the i18n table, \
-                 or mark the string as locale-independent with @no_i18n.",
         },
         ErrorInfo {
             code: "A26003",

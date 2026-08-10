@@ -14,7 +14,6 @@ use crate::types::*;
 ///
 /// Error codes:
 /// - A26001: field offset exceeds buffer length
-/// - A26002: field size mismatch
 /// - A26003: endianness not specified for multi-byte field
 /// - A26004: overlapping fields
 #[derive(Debug, Clone)]
