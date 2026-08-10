@@ -608,10 +608,18 @@ def strip_test_regions(text: str) -> str:
     while i < len(lines):
         line = lines[i]
         if re.search(r"#\[cfg\(test\)\]", line):
-            # skip cfg(test) + following mod / fn block if present
+            # skip cfg(test) + following attributes + mod / fn item
             i += 1
             while i < len(lines) and lines[i].strip() == "":
                 i += 1
+            while i < len(lines) and re.match(r"\s*#\[", lines[i]):
+                i += 1
+                while i < len(lines) and lines[i].strip() == "":
+                    i += 1
+            if i < len(lines) and re.match(r"\s*(?:pub\s+)?mod\s+\w+\s*;", lines[i]):
+                # extern mod tests; (no body) — only skip this line
+                i += 1
+                continue
             if i < len(lines) and re.match(r"\s*(?:pub\s+)?mod\s+\w+", lines[i]):
                 # brace-count skip module body
                 depth = 0
@@ -701,7 +709,7 @@ elif [[ -f crates/assura-diagnostics/src/catalog.rs ]]; then
   s15_fail=1
 fi
 if [[ $s15_fail -eq 1 ]]; then
-  jsec 15 "hollow catalog freeze" "fail" "new hollow catalog codes or stale allowlist entries"
+  jsec 15 "hollow catalog freeze" "fail" "new / stale / orphan hollow allowlist mismatch"
 else
   jsec 15 "hollow catalog freeze" "ok" "hollow catalog set matches scripts/catalog-hollow-allowlist.txt"
 fi
