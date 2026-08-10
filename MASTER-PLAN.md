@@ -1,6 +1,6 @@
 # Assura Development Status
 
-> 202,063 lines of Rust, 5,796 tests, **21 workspace members** (re-counted 2026-08-10 via `scripts/count-crates.sh`).
+> 202,094 lines of Rust, 5,796 tests, **21 workspace members** (re-counted 2026-08-10 via `scripts/count-crates.sh`).
 
 ## What Works Today
 
@@ -39,12 +39,12 @@ Workspace members only (`Cargo.toml` `members = ["crates/*"]` with
 | assura-parser | 10,401 | 209 | Lexer (logos) + recursive-descent parser (rowan CST), Pratt expressions |
 | assura-ast | 3,162 | 46 | Canonical AST, DeclVisitor, ExprVisitor, ExprFolder |
 | assura-resolve | 6,097 | 189 | Scope analysis, imports, stdlib prelude injection |
-| assura-types | 44,756 | 1,750 | 60+ checkers in CHECKER_PIPELINE, all 50 spec features |
+| assura-types | 44,760 | 1,750 | 60+ checkers in CHECKER_PIPELINE, all 50 spec features |
 | assura-smt | 59,590 | 1,348 | Z3 + CVC5, Layer 2 verifier, prophecy/liveness/weak-memory, IR exec |
 | assura-codegen | 16,706 | 670 | Multi-file Rust projects, proptest gen, WASM, IR body substitution |
 | assura-pipeline | 2,378 | 71 | Canonical compile/compile_full/verify_typed/run_at |
 | assura-config | 1,301 | 53 | assura.toml, VerifyOptions, CompilerConfig |
-| assura-diagnostics | 4,247 | 76 | Error codes, ariadne + JSON rendering |
+| assura-diagnostics | 4,274 | 76 | Error codes, ariadne + JSON rendering |
 | assura (dir: assura-cli) | 39,635 | 951 | CLI binary: check, build, init, fmt, infer, check-rust, … |
 | assura-lsp | 1,965 | 55 | Language server (tower-lsp) |
 | assura-server | 809 | 27 | gRPC + HTTP/JSON API |
@@ -57,7 +57,7 @@ Workspace members only (`Cargo.toml` `members = ["crates/*"]` with
 | assura-bench | 421 | 0 | Criterion benchmarks |
 | assura-runtime | 262 | 10 | Runtime support for contracts |
 | assura-llm | 3,462 | 82 | LLM provider abstraction for auto-implement / suggest |
-| **Total** | **202,063** | **5,796** | |
+| **Total** | **202,094** | **5,796** | |
 
 `crates/assura-driver` is **excluded** from the workspace (exploratory rustc
 driver). Refresh counts with `bash scripts/count-crates.sh`.
