@@ -572,7 +572,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 6009..6407,
+            span: 6009..6427,
         },
         Spanned {
             node: Contract(
@@ -616,7 +616,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 6407..7508,
+            span: 6427..7528,
         },
         Spanned {
             node: FnDef(
@@ -663,21 +663,21 @@ SourceFile {
                                                 node: Ident(
                                                     "peer_public",
                                                 ),
-                                                span: 7901..7912,
+                                                span: 7921..7932,
                                             },
                                             "curve_id",
                                         ),
-                                        span: 7901..7921,
+                                        span: 7921..7941,
                                     },
                                     op: Eq,
                                     rhs: Spanned {
                                         node: Ident(
                                             "our_curve",
                                         ),
-                                        span: 7924..7934,
+                                        span: 7944..7954,
                                     },
                                 },
-                                span: 7901..7934,
+                                span: 7921..7954,
                             },
                             effect_variables: [],
                         },
@@ -687,14 +687,14 @@ SourceFile {
                                 node: Ident(
                                     "pure",
                                 ),
-                                span: 7936..7950,
+                                span: 7956..7970,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 7508..8336,
+            span: 7528..8356,
         },
         Spanned {
             node: Block {
@@ -705,7 +705,7 @@ SourceFile {
                 value: None,
                 body: [],
             },
-            span: 8336..9092,
+            span: 8356..9112,
         },
         Spanned {
             node: FnDef(
@@ -755,11 +755,11 @@ SourceFile {
                                                 node: Ident(
                                                     "curve",
                                                 ),
-                                                span: 9277..9282,
+                                                span: 9297..9302,
                                             },
                                             "order",
                                         ),
-                                        span: 9277..9288,
+                                        span: 9297..9308,
                                     },
                                     op: Gt,
                                     rhs: Spanned {
@@ -768,10 +768,10 @@ SourceFile {
                                                 "1",
                                             ),
                                         ),
-                                        span: 9290..9292,
+                                        span: 9310..9312,
                                     },
                                 },
-                                span: 9277..9292,
+                                span: 9297..9312,
                             },
                             effect_variables: [],
                         },
@@ -785,11 +785,11 @@ SourceFile {
                                                 node: Ident(
                                                     "curve",
                                                 ),
-                                                span: 9489..9494,
+                                                span: 9509..9514,
                                             },
                                             "order",
                                         ),
-                                        span: 9489..9500,
+                                        span: 9509..9520,
                                     },
                                     op: Gt,
                                     rhs: Spanned {
@@ -798,10 +798,10 @@ SourceFile {
                                                 "1",
                                             ),
                                         ),
-                                        span: 9502..9504,
+                                        span: 9522..9524,
                                     },
                                 },
-                                span: 9489..9504,
+                                span: 9509..9524,
                             },
                             effect_variables: [],
                         },
@@ -811,14 +811,14 @@ SourceFile {
                                 node: Ident(
                                     "pure",
                                 ),
-                                span: 9506..9520,
+                                span: 9526..9540,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 9092..9520,
+            span: 9112..9540,
         },
         Spanned {
             node: FnDef(
@@ -861,7 +861,7 @@ SourceFile {
                                 node: Ident(
                                     "record_buf",
                                 ),
-                                span: 10090..10114,
+                                span: 10110..10134,
                             },
                             effect_variables: [],
                         },
@@ -875,14 +875,14 @@ SourceFile {
                                         "read",
                                     ],
                                 ),
-                                span: 10114..10131,
+                                span: 10134..10151,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 9520..10709,
+            span: 9540..10729,
         },
         Spanned {
             node: Block {
@@ -898,7 +898,7 @@ SourceFile {
                 ),
                 body: [],
             },
-            span: 10709..11355,
+            span: 10729..11375,
         },
         Spanned {
             node: Block {
@@ -914,7 +914,7 @@ SourceFile {
                 ),
                 body: [],
             },
-            span: 11355..11398,
+            span: 11375..11418,
         },
         Spanned {
             node: Block {
@@ -930,7 +930,7 @@ SourceFile {
                 ),
                 body: [],
             },
-            span: 11398..11443,
+            span: 11418..11463,
         },
         Spanned {
             node: FnDef(
@@ -968,17 +968,17 @@ SourceFile {
                                         node: Ident(
                                             "point_len",
                                         ),
-                                        span: 11515..11524,
+                                        span: 11535..11544,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
                                         node: Ident(
                                             "SMT_EC_POINT_BOUND",
                                         ),
-                                        span: 11527..11546,
+                                        span: 11547..11566,
                                     },
                                 },
-                                span: 11515..11546,
+                                span: 11535..11566,
                             },
                             effect_variables: [],
                         },
@@ -990,17 +990,17 @@ SourceFile {
                                         node: Ident(
                                             "content_len",
                                         ),
-                                        span: 11560..11571,
+                                        span: 11580..11591,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
                                         node: Ident(
                                             "SMT_CONTENT_BOUND",
                                         ),
-                                        span: 11574..11592,
+                                        span: 11594..11612,
                                     },
                                 },
-                                span: 11560..11592,
+                                span: 11580..11612,
                             },
                             effect_variables: [],
                         },
@@ -1012,7 +1012,7 @@ SourceFile {
                                         node: Ident(
                                             "point_len",
                                         ),
-                                        span: 11606..11615,
+                                        span: 11626..11635,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
@@ -1021,10 +1021,10 @@ SourceFile {
                                                 "256",
                                             ),
                                         ),
-                                        span: 11618..11622,
+                                        span: 11638..11642,
                                     },
                                 },
-                                span: 11606..11622,
+                                span: 11626..11642,
                             },
                             effect_variables: [],
                         },
@@ -1036,7 +1036,7 @@ SourceFile {
                                         node: Ident(
                                             "content_len",
                                         ),
-                                        span: 11636..11647,
+                                        span: 11656..11667,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
@@ -1045,10 +1045,10 @@ SourceFile {
                                                 "16384",
                                             ),
                                         ),
-                                        span: 11650..11656,
+                                        span: 11670..11676,
                                     },
                                 },
-                                span: 11636..11656,
+                                span: 11656..11676,
                             },
                             effect_variables: [],
                         },
@@ -1060,7 +1060,7 @@ SourceFile {
                                         node: Ident(
                                             "SMT_EC_POINT_BOUND",
                                         ),
-                                        span: 11670..11688,
+                                        span: 11690..11708,
                                     },
                                     op: Eq,
                                     rhs: Spanned {
@@ -1069,10 +1069,10 @@ SourceFile {
                                                 "256",
                                             ),
                                         ),
-                                        span: 11691..11695,
+                                        span: 11711..11715,
                                     },
                                 },
-                                span: 11670..11695,
+                                span: 11690..11715,
                             },
                             effect_variables: [],
                         },
@@ -1084,7 +1084,7 @@ SourceFile {
                                         node: Ident(
                                             "SMT_CONTENT_BOUND",
                                         ),
-                                        span: 11709..11726,
+                                        span: 11729..11746,
                                     },
                                     op: Eq,
                                     rhs: Spanned {
@@ -1093,10 +1093,10 @@ SourceFile {
                                                 "16384",
                                             ),
                                         ),
-                                        span: 11729..11735,
+                                        span: 11749..11755,
                                     },
                                 },
-                                span: 11709..11735,
+                                span: 11729..11755,
                             },
                             effect_variables: [],
                         },
@@ -1106,14 +1106,14 @@ SourceFile {
                                 node: Ident(
                                     "pure",
                                 ),
-                                span: 11737..11751,
+                                span: 11757..11771,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 11443..11751,
+            span: 11463..11771,
         },
         Spanned {
             node: FnDef(
@@ -1151,17 +1151,17 @@ SourceFile {
                                         node: Ident(
                                             "header_len",
                                         ),
-                                        span: 11831..11841,
+                                        span: 11851..11861,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
                                         node: Ident(
                                             "SMT_HANDSHAKE_BOUND",
                                         ),
-                                        span: 11844..11864,
+                                        span: 11864..11884,
                                     },
                                 },
-                                span: 11831..11864,
+                                span: 11851..11884,
                             },
                             effect_variables: [],
                         },
@@ -1173,17 +1173,17 @@ SourceFile {
                                         node: Ident(
                                             "content_len",
                                         ),
-                                        span: 11878..11889,
+                                        span: 11898..11909,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
                                         node: Ident(
                                             "SMT_HANDSHAKE_BOUND",
                                         ),
-                                        span: 11892..11912,
+                                        span: 11912..11932,
                                     },
                                 },
-                                span: 11878..11912,
+                                span: 11898..11932,
                             },
                             effect_variables: [],
                         },
@@ -1197,17 +1197,17 @@ SourceFile {
                                                 node: Ident(
                                                     "header_len",
                                                 ),
-                                                span: 11926..11936,
+                                                span: 11946..11956,
                                             },
                                             op: Add,
                                             rhs: Spanned {
                                                 node: Ident(
                                                     "content_len",
                                                 ),
-                                                span: 11938..11950,
+                                                span: 11958..11970,
                                             },
                                         },
-                                        span: 11926..11950,
+                                        span: 11946..11970,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
@@ -1218,20 +1218,20 @@ SourceFile {
                                                         "2",
                                                     ),
                                                 ),
-                                                span: 11953..11955,
+                                                span: 11973..11975,
                                             },
                                             op: Mul,
                                             rhs: Spanned {
                                                 node: Ident(
                                                     "SMT_HANDSHAKE_BOUND",
                                                 ),
-                                                span: 11957..11977,
+                                                span: 11977..11997,
                                             },
                                         },
-                                        span: 11953..11977,
+                                        span: 11973..11997,
                                     },
                                 },
-                                span: 11926..11977,
+                                span: 11946..11997,
                             },
                             effect_variables: [],
                         },
@@ -1245,17 +1245,17 @@ SourceFile {
                                                 node: Ident(
                                                     "header_len",
                                                 ),
-                                                span: 11991..12001,
+                                                span: 12011..12021,
                                             },
                                             op: Add,
                                             rhs: Spanned {
                                                 node: Ident(
                                                     "content_len",
                                                 ),
-                                                span: 12003..12015,
+                                                span: 12023..12035,
                                             },
                                         },
-                                        span: 11991..12015,
+                                        span: 12011..12035,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
@@ -1264,10 +1264,10 @@ SourceFile {
                                                 "131070",
                                             ),
                                         ),
-                                        span: 12018..12025,
+                                        span: 12038..12045,
                                     },
                                 },
-                                span: 11991..12025,
+                                span: 12011..12045,
                             },
                             effect_variables: [],
                         },
@@ -1279,7 +1279,7 @@ SourceFile {
                                         node: Ident(
                                             "SMT_HANDSHAKE_BOUND",
                                         ),
-                                        span: 12039..12058,
+                                        span: 12059..12078,
                                     },
                                     op: Eq,
                                     rhs: Spanned {
@@ -1288,10 +1288,10 @@ SourceFile {
                                                 "65535",
                                             ),
                                         ),
-                                        span: 12061..12067,
+                                        span: 12081..12087,
                                     },
                                 },
-                                span: 12039..12067,
+                                span: 12059..12087,
                             },
                             effect_variables: [],
                         },
@@ -1301,14 +1301,14 @@ SourceFile {
                                 node: Ident(
                                     "pure",
                                 ),
-                                span: 12069..12083,
+                                span: 12089..12103,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 11751..12083,
+            span: 11771..12103,
         },
     ],
 }
