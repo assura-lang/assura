@@ -37,42 +37,24 @@
 |------|-------|---------------|---------|--------------|-----------------|---------------|
 | A01001 | parser | assura-parser | Unexpected token | Parser error | Syntax (A01xxx) | grammar/, lexer.rs, lower/ |
 | A01002 | parser | assura-parser | Unterminated string literal | Missing closing quote | Syntax (A01xxx) | grammar/, lexer.rs, lower/ |
-| A01003 | parser | assura-parser | Invalid numeric literal | Malformed number | Syntax (A01xxx) | grammar/, lexer.rs, lower/ |
-| A01004 | parser | assura-parser | Reserved keyword used as identifier | Naming conflict | Syntax (A01xxx) | grammar/, lexer.rs, lower/ |
-| A01005 | parser | assura-parser | Mismatched braces | Unbalanced `{}` | Syntax (A01xxx) | grammar/, lexer.rs, lower/ |
 | A02001 | resolve | assura-resolve | Undefined identifier `X` | Name not in scope | Name Resolution (A02xxx) | lib.rs, type_refs.rs, imports.rs |
-| A02002 | resolve | assura-resolve | Undefined type `X` | Type not declared | Name Resolution (A02xxx) | lib.rs, type_refs.rs, imports.rs |
 | A02003 | resolve | assura-resolve | Duplicate definition of `X` | Name collision | Name Resolution (A02xxx) | lib.rs, type_refs.rs, imports.rs |
-| A02004 | resolve | assura-resolve | Ambiguous import `X` | Multiple modules export same name | Name Resolution (A02xxx) | lib.rs, type_refs.rs, imports.rs |
 | A02005 | resolve | assura-resolve | Circular import | Module A imports B imports A | Name Resolution (A02xxx) | lib.rs, type_refs.rs, imports.rs |
 | A03001 | types | assura-types | Expected `T1`, found `T2` / empty tuple / pattern arity | Incompatible types; invalid `(,)`; constructor/tuple pattern field count | Type Mismatch (A03xxx) | inference.rs, clauses.rs, checks/ |
 | A03002 | types | assura-types | Type parameter count mismatch | Wrong number of generics | Type Mismatch (A03xxx) | inference.rs, clauses.rs, checks/ |
-| A03003 | types | assura-types | Cannot unify `T1` with `T2` | Failed unification | Type Mismatch (A03xxx) | inference.rs, clauses.rs, checks/ |
-| A03004 | types | assura-types | Missing field `F` in struct | Incomplete construction | Type Mismatch (A03xxx) | inference.rs, clauses.rs, checks/ |
 | A03005 | types | assura-types | Unknown field `F` in type `T` | Field does not exist | Type Mismatch (A03xxx) | inference.rs, clauses.rs, checks/ |
 | A03006 | types | assura-types | Clause not Bool / dependent index mismatch | Non-Bool clause body; or `Vec<T,3>` vs `Vec<T,5>` | Type Mismatch (A03xxx) | clauses.rs, checkers/info_flow.rs |
-| A04001 | smt+types | assura-smt / assura-types | Precondition may not hold | `requires` clause violated | Refinement Violation (A04xxx) | entry/, z3_backend/, refinement paths |
-| A04002 | smt+types | assura-smt / assura-types | Postcondition may not hold | `ensures` clause violated | Refinement Violation (A04xxx) | entry/, z3_backend/, refinement paths |
-| A04003 | smt+types | assura-smt / assura-types | Refinement subtype check failed | `{v: T \ | Refinement Violation (A04xxx) | entry/, z3_backend/, refinement paths |
-| A04004 | smt+types | assura-smt / assura-types | Division by zero possible | Divisor may be 0 | Refinement Violation (A04xxx) | entry/, z3_backend/, refinement paths |
-| A04005 | smt+types | assura-smt / assura-types | Index out of bounds possible | Index may exceed length | Refinement Violation (A04xxx) | entry/, z3_backend/, refinement paths |
-| A04006 | smt+types | assura-smt / assura-types | Arithmetic overflow possible | Result may exceed bounds | Refinement Violation (A04xxx) | entry/, z3_backend/, refinement paths |
-| A04007 | smt+types | assura-smt / assura-types | Refinement timeout | SMT solver timed out | Refinement Violation (A04xxx) | entry/, z3_backend/, refinement paths |
 | A05001 | types | assura-types | Linear variable `X` used twice | Grade 1, used 2+ times | Linearity (A05xxx) | checks/linear_typestate.rs, checkers/linear.rs |
 | A05002 | types | assura-types | Linear variable `X` not used | Grade 1, never consumed | Linearity (A05xxx) | checks/linear_typestate.rs, checkers/linear.rs |
 | A05003 | types | assura-types | Grade mismatch: expected `N`, used `M` | Exact count violated | Linearity (A05xxx) | checks/linear_typestate.rs, checkers/linear.rs |
 | A05004 | types | assura-types | Cannot copy linear value | Tried to duplicate | Linearity (A05xxx) | checks/linear_typestate.rs, checkers/linear.rs |
-| A05005 | types | assura-types | Linear value dropped without consuming | Resource leak | Linearity (A05xxx) | checks/linear_typestate.rs, checkers/linear.rs |
 | A06001 | types | assura-types | Invalid transition: `S1` -> `S2` | Not in state machine | Typestate (A06xxx) | checks/linear_typestate.rs, checkers/typestate.rs |
 | A06002 | types | assura-types | Operation requires state `S`, found `S'` | Wrong current state | Typestate (A06xxx) | checks/linear_typestate.rs, checkers/typestate.rs |
 | A06003 | types | assura-types | Object not in final state at end of scope | Protocol incomplete | Typestate (A06xxx) | checks/linear_typestate.rs, checkers/typestate.rs |
 | A06004 | types | assura-types | Ambiguous state after branch | Different states in if/else | Typestate (A06xxx) | checks/linear_typestate.rs, checkers/typestate.rs |
-| A06005 | types | assura-types | Missing transition guard | Required predicate missing | Typestate (A06xxx) | checks/linear_typestate.rs, checkers/typestate.rs |
 | A07001 | types | assura-types | Undeclared effect `E` | Effect not in function signature | Effect Violation (A07xxx) | checks/effects.rs, checkers/effects.rs |
 | A07002 | types | assura-types | Pure function performs effect `E` | Side effect in pure context | Effect Violation (A07xxx) | checks/effects.rs, checkers/effects.rs |
 | A07003 | types | assura-types | Effect `E` in must-not list | Explicitly forbidden effect | Effect Violation (A07xxx) | checks/effects.rs, checkers/effects.rs |
-| A07004 | types | assura-types | Effect handler missing for `E` | Unhandled effect | Effect Violation (A07xxx) | checks/effects.rs, checkers/effects.rs |
-| A07005 | types | assura-types | Effect hierarchy violation | Sub-effect used but parent not declared | Effect Violation (A07xxx) | checks/effects.rs, checkers/effects.rs |
 | A08001 | types | assura-types | Data flow violation: `L1` to `L2` | High to low flow | Information Flow (A08xxx) | checks/info_flow.rs, checkers/taint.rs, checkers/info_flow.rs |
 | A08002 | types | assura-types | PII leaked to logs | Restricted data in Public sink | Information Flow (A08xxx) | checks/info_flow.rs, checkers/taint.rs, checkers/info_flow.rs |
 | A08003 | types | assura-types | Implicit flow via branch | Secret in branch condition | Information Flow (A08xxx) | checks/info_flow.rs, checkers/taint.rs, checkers/info_flow.rs |
@@ -92,7 +74,6 @@
 | A13001 | types | assura-types | Unit mismatch: `U1` vs `U2` | e.g., USD + EUR | Numerical Precision (A13xxx) | checks/numeric.rs, domain/numeric.rs |
 | A13002 | types | assura-types | Dimensionally invalid operation | e.g., Money * Money | Numerical Precision (A13xxx) | checks/numeric.rs, domain/numeric.rs |
 | A13003 | types | assura-types | Float used where fixed-point required | Precision loss | Numerical Precision (A13xxx) | checks/numeric.rs, domain/numeric.rs |
-| A13004 | types | assura-types | Integer overflow possible | Arithmetic exceeds bounds | Numerical Precision (A13xxx) | checks/numeric.rs, domain/numeric.rs |
 | A16001 | ? | ? | Purpose violation | Data used outside declared purposes | Privacy (A16xxx) | rg code in crates |
 | A16002 | ? | ? | Retention policy missing | No retention declared for PII | Privacy (A16xxx) | rg code in crates |
 | A16003 | ? | ? | Anonymization required | Retention period expired | Privacy (A16xxx) | rg code in crates |
@@ -204,7 +185,6 @@ this table over guessing the phase.
 | A37001 | types | assura-types | Monotonicity violation | domain/storage/monotonic_state.rs |
 | A30003 | types | assura-types | Protocol missing required field | domain/format/protocol_grammar.rs |
 
-| A26002 | types | assura-types | Incomplete i18n coverage | domain/format/binary_format.rs |
 | A15004 | types | assura-types | Operation may violate invariant | checkers/security/structural_invariant.rs |
 | A15001 | types | assura-types | Structural invariant on non-recursive type | checkers/security/structural_invariant.rs |
 | A18002 | types | assura-types | Shared memory write without exclusive | checkers/security/shared_mem.rs |
@@ -303,7 +283,7 @@ table with a real start path and **remove the code from**
 `scripts/catalog-hollow-allowlist.txt` (guards section 15 freezes that set;
 see #1490).
 
-**Authoritative hollow set:** `scripts/catalog-hollow-allowlist.txt` (93 codes
+**Authoritative hollow set:** `scripts/catalog-hollow-allowlist.txt` (94 codes
 as of #1490). Some SPEC series codes may still appear in the tables above for
 phase lookup; if a code is on the allowlist it is not emitted. Section 15
 fails CI if the hollow set grows without an allowlist update.
@@ -314,6 +294,7 @@ fails CI if the hollow set grows without an allowlist update.
 | A44005 | types | assura-types | Dirtying unpinned page | not emitted |
 | A42005 | types | assura-types | Proof obligation references out-of-scope variable | not emitted |
 | A52005 | types | assura-types | No codec matches input | not emitted |
+| A02002 | resolve | assura-resolve | Undefined type (catalog-only / test-only construction) | not emitted |
 | A02009 | resolve | assura-resolve | Visibility violation | not emitted |
 | A55004 | types | assura-types | Lemma has side effects | not emitted |
 | A50004 | types | assura-types | Generating function is not total over range | not emitted |
@@ -384,3 +365,22 @@ fails CI if the hollow set grows without an allowlist update.
 | A40002 | types | assura-types | Incremental value not finalized | not emitted |
 | A04009 | types | assura-types | Feature_max constant in verification clause | not emitted |
 | A59003 | types | assura-types | Opaque function contract insufficient | not emitted |
+| A01003 | parser | assura-parser | Invalid numeric literal | not emitted |
+| A01004 | parser | assura-parser | Reserved keyword used as identifier | not emitted |
+| A01005 | parser | assura-parser | Mismatched braces | not emitted |
+| A02004 | resolve | assura-resolve | Ambiguous import `X` | not emitted |
+| A03003 | types | assura-types | Cannot unify `T1` with `T2` | not emitted |
+| A03004 | types | assura-types | Missing field `F` in struct | not emitted |
+| A04001 | smt+types | assura-smt / assura-types | Precondition may not hold | not emitted |
+| A04002 | smt+types | assura-smt / assura-types | Postcondition may not hold | not emitted |
+| A04003 | smt+types | assura-smt / assura-types | Refinement subtype check failed | not emitted |
+| A04004 | smt+types | assura-smt / assura-types | Division by zero possible | not emitted |
+| A04005 | smt+types | assura-smt / assura-types | Index out of bounds possible | not emitted |
+| A04006 | smt+types | assura-smt / assura-types | Arithmetic overflow possible | not emitted |
+| A04007 | smt+types | assura-smt / assura-types | Refinement timeout | not emitted |
+| A05005 | types | assura-types | Linear value dropped without consuming | not emitted |
+| A06005 | types | assura-types | Missing transition guard | not emitted |
+| A07004 | types | assura-types | Effect handler missing for `E` | not emitted |
+| A07005 | types | assura-types | Effect hierarchy violation | not emitted |
+| A13004 | types | assura-types | Integer overflow possible | not emitted |
+| A26002 | types | assura-types | Incomplete i18n coverage | not emitted |

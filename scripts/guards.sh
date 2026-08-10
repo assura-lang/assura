@@ -564,9 +564,15 @@ if [[ -f crates/assura-diagnostics/src/catalog.rs && -f scripts/catalog-hollow-a
         s15_fail=1
         ;;
       stale)
-        die "stale hollow allowlist entry $code (now has a production emit site)"
-        die "  fix: remove $code from scripts/catalog-hollow-allowlist.txt and add a high-traffic error-codes row"
+        die "stale hollow allowlist entry $code (emitted in production, or no longer hollow)"
+        die "  fix: remove $code from scripts/catalog-hollow-allowlist.txt; add a high-traffic error-codes row if still cataloged"
         jfind 15 "scripts/catalog-hollow-allowlist.txt" "stale hollow $code"
+        s15_fail=1
+        ;;
+      orphan)
+        die "orphan hollow allowlist entry $code (not in diagnostics catalog)"
+        die "  fix: remove $code from scripts/catalog-hollow-allowlist.txt"
+        jfind 15 "scripts/catalog-hollow-allowlist.txt" "orphan hollow $code"
         s15_fail=1
         ;;
     esac
@@ -593,6 +599,43 @@ for line in Path("scripts/catalog-hollow-allowlist.txt").read_text(
         continue
     allow.add(line)
 
+
+def strip_test_regions(text: str) -> str:
+    """Drop #[cfg(test)] modules so unit-test diagnostics do not count as emit."""
+    lines = text.splitlines(keepends=True)
+    out = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if re.search(r"#\[cfg\(test\)\]", line):
+            # skip cfg(test) + following mod / fn block if present
+            i += 1
+            while i < len(lines) and lines[i].strip() == "":
+                i += 1
+            if i < len(lines) and re.match(r"\s*(?:pub\s+)?mod\s+\w+", lines[i]):
+                # brace-count skip module body
+                depth = 0
+                started = False
+                while i < len(lines):
+                    for ch in lines[i]:
+                        if ch == "{":
+                            depth += 1
+                            started = True
+                        elif ch == "}":
+                            depth -= 1
+                    i += 1
+                    if started and depth <= 0:
+                        break
+                continue
+            # bare cfg(test) on a single item: skip until blank or next item (best-effort)
+            while i < len(lines) and lines[i].strip() != "":
+                i += 1
+            continue
+        out.append(line)
+        i += 1
+    return "".join(out)
+
+
 emit = set()
 test_markers = (
     "/tests/",
@@ -618,7 +661,7 @@ for p in Path("crates").rglob("*.rs"):
     sp = str(p)
     if any(m in sp for m in test_markers):
         continue
-    text = p.read_text(encoding="utf-8", errors="ignore")
+    text = strip_test_regions(p.read_text(encoding="utf-8", errors="ignore"))
     for pat in emit_patterns:
         for m in pat.finditer(text):
             emit.add(m.group(1))
@@ -628,16 +671,17 @@ if cli.is_dir():
     for p in cli.rglob("*.rs"):
         if any(m in str(p) for m in test_markers):
             continue
-        text = p.read_text(encoding="utf-8", errors="ignore")
+        text = strip_test_regions(p.read_text(encoding="utf-8", errors="ignore"))
         for m in re.finditer(r'["\'](A\d{5})["\']', text):
             line_start = text.rfind("\n", 0, m.start()) + 1
             line_end = text.find("\n", m.end())
             if line_end < 0:
                 line_end = len(text)
             line = text[line_start:line_end]
+            # Require a diagnostic-construction keyword; do not match bare A0xxxx alone.
             if any(
                 k in line
-                for k in ("code", "ErrorCode", "A0", "error", "Diagnostic", "severity")
+                for k in ("code", "ErrorCode", "error", "Diagnostic", "severity")
             ):
                 emit.add(m.group(1))
 
@@ -645,12 +689,10 @@ hollow = catalog - emit - sentinels
 for code in sorted(hollow - allow):
     print(f"new\t{code}")
 for code in sorted(allow - hollow):
-    # allowlist entry that is no longer hollow (or never was)
     if code in catalog:
         print(f"stale\t{code}")
     else:
-        # code removed from catalog entirely
-        print(f"stale\t{code}")
+        print(f"orphan\t{code}")
 PY
   )
 elif [[ -f crates/assura-diagnostics/src/catalog.rs ]]; then

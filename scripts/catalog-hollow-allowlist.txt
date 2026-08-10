@@ -4,10 +4,12 @@
 # file in the same PR. Do not add codes here without a product decision to
 # keep them catalog-only (prefer implement+emit over growing this list).
 # Sentinels A00000/A88888/A99999 are never listed.
+# Production emit excludes #[cfg(test)] modules and dedicated test files.
 # Ref: issue #1490, phantom ban #1489.
 A01003
 A01004
 A01005
+A02002
 A02004
 A02009
 A03003
