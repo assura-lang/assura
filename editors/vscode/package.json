@@ -80,7 +80,7 @@
     "typescript": "^7.0.2",
     "@vscode/vsce": "^3.0.0",
     "@vscode/test-electron": "^3.1.0",
-    "mocha": "^11.7.6",
+    "mocha": "^11.8.0",
     "glob": "^13.0.6"
   },
   "overrides": {
