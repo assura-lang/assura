@@ -206,7 +206,7 @@ contract BuildHuffmanTableContract {
                 let secondary_size = pow(2, len - root_bits)
                 // COMPILE-TIME CHECK: offset + secondary_size <= TableSize
                 // This is where the verifier catches the bug.
-                // If K_TABLE_SIZE was wrong, this proof obligation FAILS (A13004),
+                // If K_TABLE_SIZE was wrong, this proof obligation FAILS (overflow / bound check),
                 // and the code does not compile.
                 table.write_u32(offset, build_entry(symbol, len))
                 offset = offset + secondary_size
@@ -271,7 +271,7 @@ effects: io.read
 
     // 3. Build table — Region<Size> prevents any out-of-bounds write
     //    Precondition: TOTAL_TABLE_SIZE >= K_TABLE_SIZE[280]
-    //    Verified at compile time. If false, error A13004.
+    //    Verified at compile time. If false, a compile-time overflow error.
     let written = build_huffman_table(table_buf, ROOT_BITS, validated)
 
     HuffmanGroup { table: table_buf.slice(0, written) }
@@ -289,11 +289,11 @@ effects: io.read
 //
 // 3. MEM.1 (memory regions): huffman_tables is a Region<Size>. Every write
 //    requires a proof that offset + write_size <= Size. Out-of-bounds
-//    writes are A13004 at compile time.
+//    writes are rejected at compile time.
 //
 // 4. CORE.4 (axioms): The mathematical bound on secondary table entries
 //    is defined axiomatically. kTableSize is verified against this bound.
-//    An incorrect bound is A57003.
+//    An incorrect bound is rejected (axiom/bound inconsistency).
 //
 // Result: CVE-2023-4863 cannot exist in Assura. The contract system catches
 // it at THREE independent points before any code runs.

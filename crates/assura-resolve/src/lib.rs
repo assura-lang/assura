@@ -4,7 +4,7 @@
 //! `SymbolTable`, detects duplicate names (A02003), registers built-in
 //! types, resolves import declarations, and checks type references
 //! (A02001 for unknown types). Full expression-level name resolution
-//! (ambiguous A02002) is deferred to later tasks.
+//! (ambiguous imports) are deferred to later tasks.
 
 mod clause_names;
 mod errors;

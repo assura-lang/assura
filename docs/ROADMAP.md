@@ -16,9 +16,9 @@ The full specification defines:
 - 50 verification features across 12 categories + 8 CORE
 - 195 EBNF grammar productions, ~199 keywords
 - 6-feature type system (refinement, dependent, linear, typestate,
-  effect rows, information flow)
+ effect rows, information flow)
 - 3-layer verification: Layer 0 (<10ms), Layer 1 (<200ms), Layer 2
-  (<10s), Layer 3 (BMC/k-induction)
+ (<10s), Layer 3 (BMC/k-induction)
 - ~278 error codes with structured JSON output
 - CLI, AI Agent API (gRPC), LSP server
 
@@ -55,19 +55,19 @@ and reports syntax errors with error codes.
 | Lexer | 1 week | ~199 keywords (Section 1.1). Tokenize identifiers, literals, operators, comments. Decision: hand-rolled lexer in Rust vs `logos` crate. Recommend `logos` for speed and simplicity; it handles keyword disambiguation well. |
 | Parser | 2-3 weeks | Recursive descent for the core EBNF (Sections 1.2-1.11). Start with a subset: `SourceFile`, `ServiceDecl`, `ContractDecl`, `TypeDecl`, `EnumDecl`, `OperationDecl`, `QueryDecl`, `RequiresClause`, `EnsuresClause`, `EffectsClause`, `Predicate`, `Expr`. Skip Layers 8-21 (extended contract layers) initially. |
 | AST types | 1 week | Define Rust structs for every AST node. Use `Span` annotations for source locations on every node. Derive `Debug`, `Clone`, `PartialEq`. |
-| Error reporting | 1 week | Implement error codes A01001-A01005 (syntax errors). JSON output format from Section 7.3. Human-readable mode with `ariadne` or `miette` crate. |
+| Error reporting | 1 week | Implement error codes A01001- (syntax errors). JSON output format from Section 7.3. Human-readable mode with `ariadne` or `miette` crate. |
 
 **Key decisions**:
 
 - **Parser generator vs hand-rolled**: Hand-rolled recursive descent.
-  The grammar has enough context sensitivity (refinement types,
-  effect rows, where clauses) that parser generators add friction.
-  Gleam, Rust, and Swift all use hand-rolled parsers. A PEG/parser
-  combinator (`chumsky`, `winnow`) is a reasonable middle ground.
+ The grammar has enough context sensitivity (refinement types,
+ effect rows, where clauses) that parser generators add friction.
+ Gleam, Rust, and Swift all use hand-rolled parsers. A PEG/parser
+ combinator (`chumsky`, `winnow`) is a reasonable middle ground.
 - **tree-sitter**: Build a tree-sitter grammar in parallel for editor
-  support, but do NOT use it as the compiler's parser. tree-sitter
-  is error-tolerant (good for editors, bad for a verification compiler
-  that needs exact parses).
+ support, but do NOT use it as the compiler's parser. tree-sitter
+ is error-tolerant (good for editors, bad for a verification compiler
+ that needs exact parses).
 
 **Risk**: The grammar is large (195 productions). Prioritize the
 contract language (what humans write) before the IR grammar (what AI
@@ -106,11 +106,11 @@ conditions become `debug_assert!` calls.
 
 ```assura
 contract SafeDivision {
-  input(a: Int, b: Int)
-  output(result: Int)
-  requires { b != 0 }
-  ensures  { result * b + (a mod b) == a }
-  effects  { pure }
+ input(a: Int, b: Int)
+ output(result: Int)
+ requires { b != 0 }
+ ensures { result * b + (a mod b) == a }
+ effects { pure }
 }
 ```
 
@@ -135,9 +135,9 @@ effect containment without invoking Z3.
 
 | Task | Effort | Details |
 |------|--------|---------|
-| Linear type checker | 2 weeks | Implement context splitting (Section 2.5). Track usage grades: 0 (erased), 1 (linear), n (exact), omega (unlimited). Emit A05001-A05005. The key insight: refinement predicates are ghost (grade 0), not computational. See Test Case 1 in Section 13. |
+| Linear type checker | 2 weeks | Implement context splitting (Section 2.5). Track usage grades: 0 (erased), 1 (linear), n (exact), omega (unlimited). Emit A05001–A05004. The key insight: refinement predicates are ghost (grade 0), not computational. See Test Case 1 in Section 13. |
 | Typestate checker | 1 week | Finite state machine DFA per typestate variable (Section 2.6). Track state through branches; reject ambiguous states after diverging branches (A06004). Typestate variables must be linear. |
-| Effect checker | 1 week | Set inclusion check. Each function's body effects must be a subset of its declared effect row (Section 3.5). Implement effect hierarchy (`io` = union of all IO sub-effects, Section 3.6). Emit A07001-A07005. |
+| Effect checker | 1 week | Set inclusion check. Each function's body effects must be a subset of its declared effect row (Section 3.5). Implement effect hierarchy (`io` = union of all IO sub-effects, Section 3.6). Emit A07001-. |
 
 **Interaction priority**: Implement Linear + Typestate first (typestate
 requires linearity), then Linear + Effect (resource-scoped effects).
@@ -172,8 +172,8 @@ domain-specific features composable.
 
 | Task | Effort | Details |
 |------|--------|---------|
-| CORE.1 Ghost code | 1.5 weeks | Ghost variables, functions, and blocks (Section 14.CORE.1). Enforce erasure: ghost code cannot affect runtime. Ghost functions must be pure. Ghost assertions become SMT obligations. Codegen: completely erased (or `debug_assert` in debug mode). Error codes A54001-A54005. |
-| CORE.2 Lemmas | 1.5 weeks | Proof functions that generate no runtime code (Section 14.CORE.2). `apply lemma_name(args)` adds the lemma's ensures as an assumption. `induction var` generates base/inductive cases. Error codes A55001-A55005. |
+| CORE.1 Ghost code | 1.5 weeks | Ghost variables, functions, and blocks (Section 14.CORE.1). Enforce erasure: ghost code cannot affect runtime. Ghost functions must be pure. Ghost assertions become SMT obligations. Codegen: completely erased (or `debug_assert` in debug mode). Error codes A54001-. |
+| CORE.2 Lemmas | 1.5 weeks | Proof functions that generate no runtime code (Section 14.CORE.2). `apply lemma_name(args)` adds the lemma's ensures as an assumption. `induction var` generates base/inductive cases. Error codes A55001-. |
 | CORE.3 Frame conditions | 1 week | `modifies` clauses declaring what a function changes (Section 14.CORE.3). Everything else is implicitly unchanged. This is critical for modular verification: without frame conditions, the verifier must re-prove all invariants after every call. |
 
 **Why these matter**: In the stress-testing rounds (INVESTIGATION.md),
@@ -214,21 +214,21 @@ get a verified Rust implementation:
 
 ```assura
 service HuffmanDecoder {
-  type BitReader {
-    data: Bytes,
-    pos: Nat,
-    ghost remaining: Nat
-  }
+ type BitReader {
+ data: Bytes,
+ pos: Nat,
+ ghost remaining: Nat
+ }
 
-  operation decode_table {
-    input(reader: BitReader, code_lengths: List<Nat>)
-    output(table: HuffmanTable)
+ operation decode_table {
+ input(reader: BitReader, code_lengths: List<Nat>)
+ output(table: HuffmanTable)
 
-    requires { reader.pos < reader.data.len() }
-    requires { forall cl in code_lengths: cl <= 15 }
-    ensures  { table.entries.len() <= MAX_TABLE_SIZE }
-    effects  { pure }
-  }
+ requires { reader.pos < reader.data.len() }
+ requires { forall cl in code_lengths: cl <= 15 }
+ ensures { table.entries.len() <= MAX_TABLE_SIZE }
+ effects { pure }
+ }
 }
 ```
 
@@ -398,28 +398,28 @@ minimum calendar time.
 
 ```
 Parser ─────────────────────────────────────────────────────────────►
-  │
-  ├─► AST ──► Name Resolution ──► Core Type Checker
-  │                                      │
-  │              ┌───────────────────────┘
-  │              │
-  │              ├─► Linearity ──► Typestate ──► Effect Checker
-  │              │        │              │              │
-  │              │        │    ┌─────────┘              │
-  │              │        │    │                        │
-  │              ├─► Z3 Integration ──► Layer 1 ──► Layer 2 ──► Layer 3
-  │              │        │                │
-  │              │        ├─► MEM.1 ◄──────┘
-  │              │        │
-  │              │        ├─► SEC.1
-  │              │        │
-  │              │        └─► CORE.1-3 (ghost, lemmas, frames)
-  │              │
-  │              └─► Rust Codegen ──► Cargo Integration
-  │                       │
-  │                       └─► End-to-End Pipeline
-  │
-  └─► tree-sitter Grammar ──► LSP Server ──► VS Code Extension
+ │
+ ├─► AST ──► Name Resolution ──► Core Type Checker
+ │ │
+ │ ┌───────────────────────┘
+ │ │
+ │ ├─► Linearity ──► Typestate ──► Effect Checker
+ │ │ │ │ │
+ │ │ │ ┌─────────┘ │
+ │ │ │ │ │
+ │ ├─► Z3 Integration ──► Layer 1 ──► Layer 2 ──► Layer 3
+ │ │ │ │
+ │ │ ├─► MEM.1 ◄──────┘
+ │ │ │
+ │ │ ├─► SEC.1
+ │ │ │
+ │ │ └─► CORE.1-3 (ghost, lemmas, frames)
+ │ │
+ │ └─► Rust Codegen ──► Cargo Integration
+ │ │
+ │ └─► End-to-End Pipeline
+ │
+ └─► tree-sitter Grammar ──► LSP Server ──► VS Code Extension
 ```
 
 **The bottleneck is Z3 integration.** Everything before it is
@@ -588,13 +588,13 @@ but not implementation.
 ### SMT Strategy: Z3 Primary, CVC5 Fallback
 
 - **Z3** (primary): 15+ years mature. Best Rust bindings (`z3` crate).
-  Handles QF_UFLIA, QF_DT, AUFLIA well. Default solver.
+ Handles QF_UFLIA, QF_DT, AUFLIA well. Default solver.
 - **CVC5** (fallback): Competitive on quantified formulas. Better at
-  some datatype theories. Use when Z3 times out. The `cvc5` crate
-  exists but is less mature.
+ some datatype theories. Use when Z3 times out. The `cvc5` crate
+ exists but is less mature.
 - **Portfolio mode** (future): Run both solvers in parallel, take the
-  first result. Verus does this and reports significant reliability
-  improvements.
+ first result. Verus does this and reports significant reliability
+ improvements.
 
 **Encoding strategy**: Study Dafny's Boogie-to-Z3 encoding (open
 source, well-documented) and Verus's direct Z3 encoding (also open
@@ -616,14 +616,14 @@ Generated projects are standard Cargo workspaces:
 
 ```
 project/
-  Cargo.toml           # workspace
-  contracts/           # human-written .assura files
-  generated/           # compiler output (Rust source)
-    Cargo.toml
-    src/lib.rs
-  app/                 # hand-written Rust (optional)
-    Cargo.toml
-    src/main.rs
+ Cargo.toml # workspace
+ contracts/ # human-written .assura files
+ generated/ # compiler output (Rust source)
+ Cargo.toml
+ src/lib.rs
+ app/ # hand-written Rust (optional)
+ Cargo.toml
+ src/main.rs
 ```
 
 This is the interop model from INVESTIGATION.md. The `generated/`
@@ -632,50 +632,50 @@ crate is a dependency of `app/`. Normal Cargo semantics.
 ### Error Reporting: `ariadne` for Human, JSON for AI
 
 - **Human mode** (`--human`): Use `ariadne` crate for rich terminal
-  diagnostics with source snippets, underlines, and suggested fixes.
+ diagnostics with source snippets, underlines, and suggested fixes.
 - **AI mode** (`--json`, default): Structured JSON per Section 7.3.
-  Error code, location, counterexample, suggested fixes with
-  confidence scores.
+ Error code, location, counterexample, suggested fixes with
+ confidence scores.
 
 ### Testing Strategy for the Compiler Itself
 
 - **Unit tests**: Each parser production, each type checker rule, each
-  SMT encoding. Use Rust's `#[test]` framework.
+ SMT encoding. Use Rust's `#[test]` framework.
 - **Snapshot tests**: Parse a `.assura` file, serialize the AST, compare
-  to a golden file. Use `insta` crate for snapshot testing.
+ to a golden file. Use `insta` crate for snapshot testing.
 - **Integration tests**: Each of the 11 type interaction test cases from
-  Section 13. Each test is a `.assura` file with `// MUST COMPILE` or
-  `// MUST REJECT <error code>` annotations.
+ Section 13. Each test is a `.assura` file with `// MUST COMPILE` or
+ `// MUST REJECT <error code>` annotations.
 - **Fuzzing**: Fuzz the parser with `cargo-fuzz`. Fuzz the type checker
-  with randomly generated ASTs. Fuzz the Z3 encoding by generating
-  random contracts and checking that verification terminates.
+ with randomly generated ASTs. Fuzz the Z3 encoding by generating
+ random contracts and checking that verification terminates.
 
 ---
 
 ## What to Read Before Starting
 
 1. **Gleam compiler source** (github.com/gleam-lang/gleam): The closest
-   architectural precedent. Rust compiler that transpiles to another
-   language. Study its parser, type checker, and codegen structure.
+ architectural precedent. Rust compiler that transpiles to another
+ language. Study its parser, type checker, and codegen structure.
 
 2. **Verus source** (github.com/verus-lang/verus): SMT-based Rust
-   verification. Study its Z3 encoding strategy, especially how it
-   handles quantifiers and triggers.
+ verification. Study its Z3 encoding strategy, especially how it
+ handles quantifiers and triggers.
 
 3. **Dafny source** (github.com/dafny-lang/dafny): The most mature
-   verification language. Study its Boogie IR and Z3 encoding. The
-   OOPSLA papers on Dafny's verification methodology are essential.
+ verification language. Study its Boogie IR and Z3 encoding. The
+ OOPSLA papers on Dafny's verification methodology are essential.
 
 4. **Liquid Haskell papers**: The foundational work on refinement type
-   checking via SMT. The encoding strategy (subtyping -> SMT validity)
-   is exactly what Assura needs.
+ checking via SMT. The encoding strategy (subtyping -> SMT validity)
+ is exactly what Assura needs.
 
 5. **Koka effect system**: Row-polymorphic effects. Study how Koka
-   encodes effect rows and how it handles effect handlers.
+ encodes effect rows and how it handles effect handlers.
 
 6. **Section 13 of SPECIFICATION.md**: The 11 type interaction test
-   cases. These are the specification for the hardest part of the
-   type checker. Implement them as tests before writing the code.
+ cases. These are the specification for the hardest part of the
+ type checker. Implement them as tests before writing the code.
 
 ---
 

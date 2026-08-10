@@ -1676,18 +1676,13 @@ format is `ANNSSS` where `A` = Assura, `NN` = category (2 digits),
 |---|---|---|
 | A01001 | Unexpected token | Parser error |
 | A01002 | Unterminated string literal | Missing closing quote |
-| A01003 | Invalid numeric literal | Malformed number |
-| A01004 | Reserved keyword used as identifier | Naming conflict |
-| A01005 | Mismatched braces | Unbalanced `{}` |
 
 #### Name Resolution (A02xxx)
 
 | Code | Message | Cause |
 |---|---|---|
 | A02001 | Undefined identifier `X` | Name not in scope |
-| A02002 | Undefined type `X` | Type not declared |
 | A02003 | Duplicate definition of `X` | Name collision |
-| A02004 | Ambiguous import `X` | Multiple modules export same name |
 | A02005 | Circular import | Module A imports B imports A |
 
 #### Type Mismatch (A03xxx)
@@ -1696,8 +1691,6 @@ format is `ANNSSS` where `A` = Assura, `NN` = category (2 digits),
 |---|---|---|
 | A03001 | Expected `T1`, found `T2` | Incompatible types |
 | A03002 | Type parameter count mismatch | Wrong number of generics |
-| A03003 | Cannot unify `T1` with `T2` | Failed unification |
-| A03004 | Missing field `F` in struct | Incomplete construction |
 | A03005 | Unknown field `F` in type `T` | Field does not exist |
 | A03006 | Dependent index mismatch | `Vec<T, 3>` vs `Vec<T, 5>` |
 
@@ -1705,13 +1698,6 @@ format is `ANNSSS` where `A` = Assura, `NN` = category (2 digits),
 
 | Code | Message | Cause |
 |---|---|---|
-| A04001 | Precondition may not hold | `requires` clause violated |
-| A04002 | Postcondition may not hold | `ensures` clause violated |
-| A04003 | Refinement subtype check failed | `{v: T \| P}` not subtype |
-| A04004 | Division by zero possible | Divisor may be 0 |
-| A04005 | Index out of bounds possible | Index may exceed length |
-| A04006 | Arithmetic overflow possible | Result may exceed bounds |
-| A04007 | Refinement timeout | SMT solver timed out |
 
 #### Linearity (A05xxx)
 
@@ -1721,7 +1707,6 @@ format is `ANNSSS` where `A` = Assura, `NN` = category (2 digits),
 | A05002 | Linear variable `X` not used | Grade 1, never consumed |
 | A05003 | Grade mismatch: expected `N`, used `M` | Exact count violated |
 | A05004 | Cannot copy linear value | Tried to duplicate |
-| A05005 | Linear value dropped without consuming | Resource leak |
 
 #### Typestate (A06xxx)
 
@@ -1731,7 +1716,6 @@ format is `ANNSSS` where `A` = Assura, `NN` = category (2 digits),
 | A06002 | Operation requires state `S`, found `S'` | Wrong current state |
 | A06003 | Object not in final state at end of scope | Protocol incomplete |
 | A06004 | Ambiguous state after branch | Different states in if/else |
-| A06005 | Missing transition guard | Required predicate missing |
 
 #### Effect Violation (A07xxx)
 
@@ -1740,8 +1724,6 @@ format is `ANNSSS` where `A` = Assura, `NN` = category (2 digits),
 | A07001 | Undeclared effect `E` | Effect not in function signature |
 | A07002 | Pure function performs effect `E` | Side effect in pure context |
 | A07003 | Effect `E` in must-not list | Explicitly forbidden effect |
-| A07004 | Effect handler missing for `E` | Unhandled effect |
-| A07005 | Effect hierarchy violation | Sub-effect used but parent not declared |
 
 #### Information Flow (A08xxx)
 
@@ -1786,7 +1768,6 @@ format is `ANNSSS` where `A` = Assura, `NN` = category (2 digits),
 | A13001 | Unit mismatch: `U1` vs `U2` | e.g., USD + EUR |
 | A13002 | Dimensionally invalid operation | e.g., Money * Money |
 | A13003 | Float used where fixed-point required | Precision loss |
-| A13004 | Integer overflow possible | Arithmetic exceeds bounds |
 
 #### Privacy (A16xxx)
 
@@ -2732,7 +2713,7 @@ guard. If typestate fails, refinement is not checked (no point).
 fn bad1(loan: Loan<Applied> :_1) -> Loan<Approved> :_1
 { approve(loan, Money.new(1000)) }
 
--- MUST REJECT A04001: credit_score may be < 650
+-- MUST REJECT: credit_score may be < 650 (refinement/precondition)
 fn bad2(loan: Loan<UnderReview> :_1) -> Loan<Approved> :_1
 { approve(loan, Money.new(1000)) }
 
@@ -2783,7 +2764,7 @@ fn test3() -> (Vec<Int, 3>, Vec<Int, 2>)
   split_at(v, 3)
 }
 
--- MUST REJECT A04005: index may exceed length
+-- MUST REJECT: index may exceed length (bounds check)
 fn bad3<T>(v: Vec<T, n>, i: Nat) -> (Vec<T, i>, Vec<T, n - i>)
   effects: pure
 { split_at(v, i) }
@@ -3535,8 +3516,6 @@ fn binary_search(arr: &[I32], target: I32) -> Option<U32>
 | A54001 | Ghost variable `V` used in non-ghost context | Runtime code depends on verification-only state |
 | A54002 | Ghost function `F` called from non-ghost code | Runtime code calls verification-only function |
 | A54003 | Ghost block has side effects | Ghost code must be pure |
-| A54004 | Ghost variable not updated to match runtime state | Invariant links ghost and runtime but ghost lags |
-| A54005 | Ghost type used in runtime signature | Function parameter or return uses ghost type |
 
 ##### Rust Codegen
 
@@ -3681,8 +3660,6 @@ fn merge_sorted(a: &[I32], b: &[I32]) -> Vec<I32>
 | A55001 | Lemma `L` could not be verified | SMT cannot prove ensures from requires |
 | A55002 | Lemma applied with unsatisfied preconditions | `apply` used where requires not met |
 | A55003 | Induction variable not inductively defined | `induction` on non-recursive type |
-| A55004 | Lemma has side effects | Lemmas must be pure |
-| A55005 | Circular lemma dependency | Lemma A depends on B which depends on A |
 
 ##### Rust Codegen
 
@@ -3817,11 +3794,6 @@ fn lookup(cache: &PageCache, page_id: U32) -> Option<&Page>
 
 | Code | Message | Cause |
 |---|---|---|
-| A56001 | Function modifies `X` not in modifies clause | Write to undeclared target |
-| A56002 | Called function modifies `X` outside caller's frame | Callee escapes caller's modifies set |
-| A56003 | Function reads `X` not in reads clause | Read from undeclared source |
-| A56004 | Modifies clause on pure function | Pure functions cannot have modifies |
-| A56005 | Frame condition conflict with effects | modifies contradicts effects declaration |
 
 ##### Rust Codegen
 
@@ -3945,11 +3917,6 @@ fn btree_insert(tree: &mut BTree, key: I64)
 
 | Code | Message | Cause |
 |---|---|---|
-| A57001 | Axiom `A` is inconsistent | Definition is self-contradictory |
-| A57002 | Recursive axiom not well-founded | No structural decrease in recursion |
-| A57003 | Axiom property does not follow from definition | Property clause not provable |
-| A57004 | Axiom used at runtime | Axiom referenced in non-ghost, non-contract context |
-| A57005 | Conflicting axiom definitions | Two axioms define the same concept differently |
 
 ##### Rust Codegen
 
@@ -4049,10 +4016,10 @@ fn contains_all(subset: &[I32], superset: &[I32]) -> Bool
 
 1. **Trigger validity**: Trigger patterns must mention the bound
    variable of the quantifier. A trigger that does not reference
-   the quantified variable is useless (A58001)
+   the quantified variable is useless (missing useful trigger)
 2. **Trigger coverage**: The trigger must be specific enough to
    avoid matching loops (where instantiation creates new matches).
-   The verifier warns on potential matching loops (A58002)
+   The verifier warns on potential matching loops
 3. **Auto-trigger fallback**: If no trigger is specified and
    `#[auto_trigger]` is not present, the verifier uses Z3/CVC5's
    built-in heuristic but warns that explicit triggers are
@@ -4065,11 +4032,6 @@ fn contains_all(subset: &[I32], superset: &[I32]) -> Bool
 
 | Code | Message | Cause |
 |---|---|---|
-| A58001 | Trigger does not mention bound variable `V` | Useless trigger pattern |
-| A58002 | Potential matching loop in trigger | Trigger may cause infinite instantiation |
-| A58003 | Quantifier timeout (no trigger specified) | Solver timed out; add explicit trigger |
-| A58004 | Conflicting triggers on same quantifier | Multiple trigger annotations conflict |
-| A58005 | Trigger pattern not found in formula | Trigger references expression not in quantifier body |
 
 ##### Rust Codegen
 
@@ -4193,11 +4155,6 @@ fn bloom_may_contain(filter: &BloomFilter, item: &[U8]) -> Bool
 
 | Code | Message | Cause |
 |---|---|---|
-| A59001 | Cannot prove property: function `F` is opaque | Caller needs body but function is hidden; use `reveal` |
-| A59002 | Reveal of non-opaque function | `reveal` on a transparent function (no-op warning) |
-| A59003 | Opaque function contract insufficient | Body satisfies a property the contract does not expose |
-| A59004 | Recursive reveal exceeded fuel | `reveal` on recursive function hit unfolding limit |
-| A59005 | Opaque type field accessed externally | Code outside the module accesses hidden field |
 
 ##### Rust Codegen
 
@@ -4691,11 +4648,11 @@ fn alloc_size(count: U64, element_size: U64) -> USize
 {
   let total: U64 = count * element_size
   -- Compiler emits SMT query: count * element_size <= U64_MAX
-  -- If caller can't prove it, error A13004
+  -- If caller can't prove it, reject (numerical overflow)
 
   narrow_u64_to_usize(total)
   -- Compiler emits: total <= USIZE_MAX
-  -- If 32-bit target and total > U32_MAX, error A13004
+  -- If 32-bit target and total > U32_MAX, reject (overflow)
 }
 ```
 
@@ -5323,7 +5280,7 @@ fn bad_cleanup(stmt: Statement :_1)
   effects: database.read
 {
   stmt.reset()
-  // A48004: return value of sqlite3_reset not checked
+  // reject: return value of sqlite3_reset not checked
   // (it carries the error from the last sqlite3_step)
 }
 
@@ -5352,7 +5309,7 @@ fn handle_constraint_error(
   ensures {
     // Extended code must survive
     result.extended_code == err.extended_code
-    // A48005: must_preserve_detail violated if extended code is lost
+    // reject: must_preserve_detail violated if extended code is lost
   }
 {
   SqlError {
@@ -5400,8 +5357,6 @@ fn optional_optimization(db: Database :_1) -> Database :_1
 | A48001 | Must-propagate error `E` swallowed | Catching and hiding a critical error |
 | A48002 | Error `E` masked as `F` | Forbidden error translation |
 | A48003 | Error detail lost: extended code dropped | must_preserve_detail violation |
-| A48004 | Return value of `F` not checked | Ignoring must-check function result |
-| A48005 | Undocumented error swallow | Error suppressed without #[swallow] annotation |
 
 ##### Rust Codegen
 
@@ -5791,8 +5746,6 @@ ffi "C" SqliteApi {
 | A37001 | FFI caller guarantee not provable at call site | Caller can't prove pointer validity |
 | A37002 | FFI callee guarantee not satisfied by implementation | Implementation violates promised postcondition |
 | A37003 | FFI memory ownership conflict | Double-free or leak at FFI boundary |
-| A37004 | FFI null pointer not checked | Nullable pointer used without null check |
-| A37005 | FFI thread safety violation | Function called from wrong threading context |
 
 ##### Rust Codegen
 
@@ -6302,8 +6255,6 @@ timeout_ms = 30000             # 30s budget for model checking
 | A29001 | Data race on shared field `F` | Unprotected concurrent access |
 | A29002 | Deadlock possible | Lock ordering violation |
 | A29003 | Stale read: `F` may be modified between load and use | Missing lock or atomic |
-| A29004 | Protocol violation: step `S` out of order | Process doesn't follow protocol |
-| A29005 | Reader may see partial write | Non-atomic multi-field update |
 
 ##### Rust Codegen
 
@@ -6480,8 +6431,6 @@ service Database {
 | A34001 | Callback `C` re-enters `T` via call chain `F1->F2->...` | Re-entrancy detected in transitive call graph |
 | A34002 | Callback `C` calls prohibited function `F` | Direct or indirect call to must_not_call target |
 | A34003 | Callback `C` is not deterministic | Non-deterministic operation in callback body |
-| A34004 | Callback `C` may fail but is marked infallible | Error path exists in callback body |
-| A34005 | Callback invariant not satisfiable | Transitivity/antisymmetry not provable |
 
 ##### Rust Codegen
 
@@ -6652,8 +6601,6 @@ call to these from a `#[deterministic]` function is a compile error:
 | A35001 | Non-deterministic collection in deterministic context | HashMap/HashSet used |
 | A35002 | Platform-dependent float in deterministic context | Transcendental function used |
 | A35003 | Time/random source in deterministic context | Instant, SystemTime, or RNG used |
-| A35004 | Pointer-derived value in deterministic context | Address used in computation |
-| A35005 | Callee `F` is not deterministic | Calling non-deterministic function |
 
 ##### Rust Codegen
 
@@ -7178,7 +7125,6 @@ with the number of declared crash points.
 | A32001 | Crash point `P` has no recovery path | Recovery procedure doesn't handle this state |
 | A32002 | Recovery may not restore invariant `I` | Post-recovery predicate not provable |
 | A32003 | Durable state modified without crash point | Write to disk without declaring what happens on crash |
-| A32004 | Recovery procedure has side effects beyond repair | Recovery does more than restore consistency |
 
 ##### Rust Codegen
 
@@ -7419,8 +7365,6 @@ fn good_page_use(
 | A44001 | Accessing data from unpinned cache entry | Use after unpin (may be evicted) |
 | A44002 | Evicting pinned page | Pin count > 0 when evict called |
 | A44003 | Evicting dirty unjournaled page | Data loss: dirty page not written |
-| A44004 | Double unpin: pin count already zero | Unpin called more times than pin |
-| A44005 | Dirtying unpinned page | make_dirty on entry with pin_count 0 |
 
 ##### Rust Codegen
 
@@ -7643,8 +7587,6 @@ fn concurrent_writers(
 | A45001 | Page read outside transaction context | No snapshot version for consistency |
 | A45002 | Mixed versions in single transaction | Pages from different snapshots |
 | A45003 | Concurrent writer conflict | Second writer while first is active |
-| A45004 | Stale snapshot: version `V` no longer available | WAL checkpoint removed old version |
-| A45005 | Write to read-only transaction | Modifying page in non-writer txn |
 
 ##### Rust Codegen
 
@@ -7822,7 +7764,6 @@ fn execute_insert_statement(
 | A36001 | Atomic function `F` has unrecoverable error path | Error path exists that cannot restore pre-state |
 | A36002 | Savepoint `S` escapes atomic scope | Savepoint used outside its #[atomic] function |
 | A36003 | Partial state modified without rollback path | Mutable state changed before error check |
-| A36004 | Nested atomic function `F` swallows error | Inner failure caught without propagating to outer |
 
 ##### Rust Codegen
 
@@ -8014,7 +7955,6 @@ fn append_wal_frame(
 | A47001 | Monotonic value `V` decreased | Assignment violates non_decreasing |
 | A47002 | Monotonic value `V` reused | Assignment violates increasing (strict) |
 | A47003 | Monotonic value `V` decreased outside wrap | Decrease without wraps_at or not at boundary |
-| A47004 | Monotonic value `V` overflows without wrap policy | Saturates_at or wraps_at not declared |
 
 ##### Rust Codegen
 
@@ -8311,8 +8251,6 @@ format_test DatabaseHeader {
 | A31001 | Frozen format field modified | Changed offset/size/meaning |
 | A31002 | Format field overlaps | Two fields share byte range |
 | A31003 | Gap in format layout | Unaccounted bytes between fields |
-| A31004 | Format exceeds expected size | Header larger than spec |
-| A31005 | Reserved space violated | Non-zero value in reserved field |
 
 ##### Rust Codegen
 
@@ -8478,8 +8416,6 @@ fn read_lzw_code(
 | A49001 | Bit read exceeds remaining bits | `read_bits(N)` where `bits_remaining < N` |
 | A49002 | Bit field width must be constant or bounded | Variable-width field without upper bound |
 | A49003 | Invalid bit alignment target | `align_to(0)` or non-power-of-2 alignment |
-| A49004 | Bit cursor used after byte-level read | Mixing bit and byte reads without re-alignment |
-| A49005 | Bit field constraint not satisfiable | `where` predicate on bit field is always false |
 
 ##### Rust Codegen
 
@@ -9002,8 +8938,6 @@ fn decode_image(
 | A52001 | Overlapping magic patterns for codecs `A` and `B` | Ambiguous dispatch |
 | A52002 | Codec decoder does not return registry output type | Return type mismatch |
 | A52003 | Codec-specific contract violated by decoder | Format-specific ensures failed |
-| A52004 | Probe function has side effects | Probe must be pure |
-| A52005 | No codec matches input | All magic patterns failed, no fallback |
 
 ##### Rust Codegen
 
@@ -9399,8 +9333,6 @@ fn srgb_to_linear(srgb: F32) -> F32
 | A51001 | Absolute error exceeds bound: actual `E`, max `M` | Output deviates from reference beyond max_abs_error |
 | A51002 | ULP error exceeds bound: actual `E`, max `M` | Floating-point result too far from exact value |
 | A51003 | RMS error exceeds bound across test set | Aggregate precision below standard |
-| A51004 | No reference function for precision contract | `precision` block has no `reference` |
-| A51005 | Reference function uses restricted operations | Reference must be `deterministic` and total |
 
 ##### Rust Codegen
 
@@ -9571,8 +9503,6 @@ fn scaled_quant_table(
 | A50001 | Table entry `T[i]` does not match generating function | `T[i] != gen(i)` for some i |
 | A50002 | Generating function is not deterministic | `precompute` requires `must_be deterministic` |
 | A50003 | Table index range exceeds type bounds | Index type cannot hold the range |
-| A50004 | Generating function is not total over range | Function may fail for some index in range |
-| A50005 | Table size mismatch | Declared size does not match range |
 
 ##### Rust Codegen
 
@@ -9929,7 +9859,6 @@ fn search_if_available(db: Database, query: String) -> List<Row>
 | A38001 | Feature `F` not enabled | Using feature-gated item without gate |
 | A38002 | Feature `F` requires `G` which is disabled | Dependency not met |
 | A38003 | Features `F` and `G` are mutually exclusive | Exclusion violated |
-| A38004 | Feature max `M` too small for invariant | Max value makes contract unsatisfiable |
 
 ##### Rust Codegen
 
@@ -10114,10 +10043,6 @@ fn vdbe_execute(
 
 | Code | Message | Cause |
 |---|---|---|
-| A39001 | Limit `L` may be exceeded without check | No bounds check before limit-bounded operation |
-| A39002 | Limit default outside [min, max] | Invalid limit configuration |
-| A39003 | Limit max exceeds compile-time feature_max | Runtime max above static maximum |
-| A39004 | Limit change may invalidate existing state | Lowering limit after creating objects at old limit |
 
 ##### Rust Codegen
 
@@ -10304,8 +10229,6 @@ fn bad_parse(
 | A42001 | Bounds proof not satisfiable for `R[a..b]` | Cannot prove index range is valid |
 | A42002 | Alignment proof not satisfiable for `P` | Cannot prove pointer is aligned |
 | A42003 | No-alias proof not satisfiable for `P, Q` | Cannot prove pointers don't alias |
-| A42004 | Unsafe escape without proof obligation | Using escape hatch without any proof |
-| A42005 | Proof obligation references out-of-scope variable | Proof variable not accessible |
 
 ##### Rust Codegen
 
@@ -10524,7 +10447,6 @@ empirically validate complexity claims.
 | A46001 | Implementation may exceed `O(X)` bound | Loop structure suggests higher complexity |
 | A46002 | Recursive call does not reduce input | Recursion without decreasing measure |
 | A46003 | Callee `F` with `O(X)` inside `O(Y)` loop | Composition exceeds declared bound |
-| A46004 | IO bound exceeded: `O(X)` declared but `O(Y)` observed | More reads/writes than promised |
 
 ##### Rust Codegen
 
@@ -10967,11 +10889,6 @@ both implementations). Instead, the compiler generates:
 
 | Code | Message | Cause |
 |---|---|---|
-| A41001 | Output divergence detected | Implementations produce different results |
-| A41002 | Error code mismatch | Different error for same invalid input |
-| A41003 | Row ordering difference | Same rows but different order |
-| A41004 | Type coercion difference | Same value, different SQLite type affinity |
-| A41005 | Undocumented exclusion | Divergence found that isn't in `except` list |
 
 ##### Rust Codegen
 
@@ -11176,8 +11093,6 @@ refinement PngAdam7 {
 | A53001 | Quality decreased after pass `N` | Refinement pass worsened output |
 | A53002 | After-each invariant violated at pass `N` | Partial result is invalid |
 | A53003 | After-all predicate not satisfied | Final output does not match expected |
-| A53004 | Pass count exceeds declared maximum | More passes than `passes` specifies |
-| A53005 | Refinement state not initialized before first pass | Missing initialization |
 | A53006 | Quantifier missing trigger annotation | Quantifier has no `triggers` clause for verification performance |
 
 ##### Rust Codegen
@@ -11403,10 +11318,6 @@ fn query_all_rows(
 
 | Code | Message | Cause |
 |---|---|---|
-| A40001 | Step called in invalid state `S` | Stepping after Done or Aborted |
-| A40002 | Incremental value not finalized | Value dropped without reaching Done or Aborted |
-| A40003 | Incremental progress not guaranteed | Step may loop without yielding or completing |
-| A40004 | Resources not released on terminal state | Held locks or temp tables survive abort |
 
 ##### Rust Codegen
 
