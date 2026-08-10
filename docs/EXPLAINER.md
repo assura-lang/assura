@@ -303,7 +303,7 @@ graph TD
     subgraph "Pass 2: Checking"
         D["For each function body"] --> E["Track taint through\nexpressions"]
         E --> F{Tainted data at\nsensitive position?}
-        F -->|Yes| G["Error A09101-A09104"]
+        F -->|Yes| G["Error A09101-A09103"]
         F -->|No| H["OK"]
     end
     B --> D
@@ -353,7 +353,6 @@ The fix: wrap `index` in a `validate` block that bounds-checks it:
 | A09101 | Tainted array index | Buffer overflow (CVE-2023-4863) |
 | A09102 | Tainted allocation size | Integer overflow in malloc |
 | A09103 | Tainted data at trusted sink | SQL injection, command injection |
-| A09104 | Incomplete validation | Partial sanitization bypass |
 
 ---
 
@@ -756,7 +755,7 @@ graph TD
 
     NR --> HIR["4. HIR Lowering\nNormalize taint annotation\ninto canonical form"]
 
-    HIR --> TC["5. Type Checker\nRun TaintChecker:\nA09101-A09104 errors"]
+    HIR --> TC["5. Type Checker\nRun TaintChecker:\nA09101-A09103 errors"]
 
     TC --> PW["6. Pipeline Wiring\nEnsure run_taint_checks()\nis called"]
 

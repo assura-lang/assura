@@ -479,6 +479,71 @@ else
   jsec 13 "IR template single source" "ok" "crate-local IR templates present; root has no pattern bodies"
 fi
 
+# ---------------------------------------------------------------------------
+# 14) No phantom Axxxxx codes outside the diagnostics catalog.
+#     Agents must not invent error codes in module docs, comments, or docs/
+#     before the code is implemented + registered in catalog.rs in the same
+#     change. Allowlist intentional sentinels only (unknown / test).
+#     Scans crates/**/*.{rs,md} and docs/**/*.md (catalog.rs excluded).
+# ---------------------------------------------------------------------------
+s14_fail=0
+if [[ -f crates/assura-diagnostics/src/catalog.rs ]]; then
+  # Extract catalog codes and every Axxxxx mention under crates/ + docs/.
+  # Fail if a mention is not in the catalog and not allowlisted.
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    code="${line%%	*}"
+    file="${line#*	}"
+    case "$code" in
+      A00000|A88888|A99999) continue ;; # unknown / test sentinels
+    esac
+    die "phantom error code $code (not in diagnostics catalog): $file"
+    die "  fix: implement the check + add catalog entry in the same PR, or remove the code number from docs"
+    jfind 14 "$file" "phantom $code not in catalog"
+    s14_fail=1
+  done < <(
+    python3 - <<'PY'
+import re
+from pathlib import Path
+
+catalog = set(
+    re.findall(
+        r'code:\s*"(A\d{5})"',
+        Path("crates/assura-diagnostics/src/catalog.rs").read_text(encoding="utf-8", errors="ignore"),
+    )
+)
+# Intentional non-catalog sentinels (also allowlisted in bash above).
+allow = {"A00000", "A88888", "A99999"}
+seen = set()
+roots = [
+    (Path("crates"), ("*.rs", "*.md")),
+    (Path("docs"), ("*.md",)),
+]
+for root, globs in roots:
+    if not root.is_dir():
+        continue
+    for g in globs:
+        for p in root.rglob(g):
+            if p.name == "catalog.rs" and "assura-diagnostics" in p.parts:
+                continue
+            text = p.read_text(encoding="utf-8", errors="ignore")
+            for code in set(re.findall(r"\bA\d{5}\b", text)):
+                if code in catalog or code in allow:
+                    continue
+                key = (code, str(p))
+                if key in seen:
+                    continue
+                seen.add(key)
+                print(f"{code}\t{p}")
+PY
+  )
+fi
+if [[ $s14_fail -eq 1 ]]; then
+  jsec 14 "no phantom Axxxxx codes" "fail" "Axxxxx mentioned outside catalog without allowlist"
+else
+  jsec 14 "no phantom Axxxxx codes" "ok" "all mentioned Axxxxx are cataloged or allowlisted sentinels"
+fi
+
 # ── Final output ─────────────────────────────────────────────────────────────
 if $json_mode; then
   python3 - "$_jdata" << 'PYEOF'
