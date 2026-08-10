@@ -1,8 +1,12 @@
 name: Auto-approve
 
-# pull_request_target: secrets available for fork PRs (pull_request has Secret source: None).
+# pull_request: same-repo / Dependabot (workflow file from PR head must keep this
+# so open PRs that touch this file still fire auto-approve).
+# pull_request_target: secrets for fork PRs (pull_request has Secret source: None).
 # Safe: no checkout of untrusted PR head; only gh approve/merge via App token.
 on:
+  pull_request:
+    types: [opened, synchronize, reopened]
   pull_request_target:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
