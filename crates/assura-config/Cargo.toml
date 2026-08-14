@@ -3,6 +3,7 @@ name = "assura-config"
 description = "Project configuration and output mode types for the Assura compiler"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true

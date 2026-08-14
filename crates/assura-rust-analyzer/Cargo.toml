@@ -3,6 +3,7 @@ name = "assura-rust-analyzer"
 description = "Parse inline contract annotations from Rust doc comments"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
