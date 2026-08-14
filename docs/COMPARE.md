@@ -44,7 +44,7 @@ That is real, but it is **not** the same product as Verus:
 
 **Prefer Assura** when you want a separate contract language and/or an
 agent-friendly check loop, including optional inline annotations on Rust
-with honest body modeling limits (see
+with explicit body modeling limits (see
 [`check-rust` supported surface](CHECK-RUST-SURFACE.md),
 [What we prove](WHAT-WE-PROVE.md), and CONTRIBUTING "check-rust body proof").
 
@@ -63,6 +63,7 @@ with honest body modeling limits (see
 | Need | Prefer |
 |------|--------|
 | Deep **borrow-aware** proofs of existing Rust as the main workflow | [Verus](https://github.com/verus-lang/verus) |
+| Memory safety / UB proofs of **existing** `core`/`alloc` (e.g. [verify-rust-std](https://github.com/model-checking/verify-rust-std)) | [Kani](https://github.com/model-checking/kani), [VeriFast](https://github.com/verifast/verifast), [Flux](https://flux-rs.github.io/), or ESBMC. Assura is not an accepted tool there and does not encode Rust's memory or unsafe model |
 | Mature multi-target verified language with large libraries | [Dafny](https://dafny.org/) |
 | Refinement types inside Haskell | [Liquid Haskell](https://ucsd-progsys.github.io/liquidhaskell/) |
 | Fast feedback without SMT, or non-modeled effects | Property tests / fuzzing (still useful *with* Assura) |
@@ -76,6 +77,11 @@ Assura does **not** claim:
 - That `check-rust` is a drop-in Verus substitute for verifying arbitrary
   Rust crates (partial body model; unmodeled paths fail closed as
   `body_not_modeled`).
+- That Assura can verify the Rust standard library or enter
+  [verify-rust-std](https://github.com/model-checking/verify-rust-std)
+  challenges. Those proofs need a Rust memory and unsafe model (Kani,
+  VeriFast, Flux, ESBMC). Name peels such as `wrapping_add` restate a
+  spec; they do not prove `library/core`.
 - That every green check means full mathematical coverage of all features.
 
 For competitive research notes (internal depth), see
