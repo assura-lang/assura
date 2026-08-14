@@ -547,6 +547,40 @@ fn audit_no_cargo_toml_fails() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// `audit --json` without Cargo.toml must emit JSON (`error: no_cargo_toml`).
+#[test]
+fn audit_no_cargo_toml_json() {
+    let tmp = unique_temp("assura_audit_no_cargo_json");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["audit", tmp.to_str().unwrap(), "--json"])
+        .output()
+        .expect("failed to run assura audit --json");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "audit --json without Cargo.toml should exit 2: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!(
+            "audit --json missing Cargo.toml must be JSON: {e}\nstdout={stdout}\nstderr={stderr}"
+        )
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error"], "no_cargo_toml", "{v}");
+    assert!(
+        !stderr.contains("no Cargo.toml"),
+        "human audit error must not leak under --json: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 #[test]
 fn audit_empty_src_fails() {
     let tmp = unique_temp("assura_audit_empty_src");
