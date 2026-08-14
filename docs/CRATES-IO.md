@@ -22,6 +22,9 @@ Versions share `[workspace.package] version`. After a release, co-publish
 uploads any package whose version is not yet on crates.io (idempotent skips
 for already-published members).
 
+Published crates inherit `rust-version = "1.85.0"` (edition 2024). That is
+the MSRV shown on crates.io and the rustc `cargo` rejects below that.
+
 ## What ships on crates.io
 
 Publish order is graph-derived by `scripts/publish-crates.sh` (all path deps
