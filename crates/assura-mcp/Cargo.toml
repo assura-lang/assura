@@ -3,6 +3,7 @@ name = "assura-mcp"
 description = "MCP (Model Context Protocol) server for Assura AI agent integration"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true

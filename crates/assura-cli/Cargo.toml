@@ -3,6 +3,7 @@ name = "assura"
 description = "Contract-first AI-native language. Write what it should do. AI proves it does."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true

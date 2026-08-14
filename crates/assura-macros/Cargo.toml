@@ -3,6 +3,7 @@ name = "assura-macros"
 description = "Proc macros for inline Assura contract annotations in Rust"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true

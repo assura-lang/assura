@@ -3,6 +3,7 @@ name = "assura-test-support"
 description = "Shared test helpers for Assura compiler crates (parse/resolve/typecheck/verify shims)"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false

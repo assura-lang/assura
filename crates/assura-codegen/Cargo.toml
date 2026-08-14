@@ -3,6 +3,7 @@ name = "assura-codegen"
 description = "Rust code generation from type-checked Assura contracts"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true

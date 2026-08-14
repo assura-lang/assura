@@ -5,7 +5,10 @@ need to set up, build, test, and submit changes.
 
 ## Prerequisites
 
-- **Rust 1.85+** (edition 2024)
+- **Rust 1.87+** (edition 2024). Workspace `rust-version` is `1.87.0`;
+  `cargo build` on an older rustc fails with a clear MSRV error.
+  Edition 2024 starts at 1.85; the crate MSRV is 1.87 because the
+  compiler uses APIs such as `is_multiple_of` (stable in 1.87).
 
 The Z3 SMT solver is downloaded automatically during `cargo build` (via
 the `z3` crate's `gh-release` feature), so no manual Z3 installation is

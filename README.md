@@ -83,7 +83,7 @@ Three verification tiers, fastest first:
 cargo install assura --locked
 ```
 
-Requires a [Rust toolchain](https://rustup.rs/) (edition 2024 / rustc 1.85+).
+Requires a [Rust toolchain](https://rustup.rs/) (edition 2024 / rustc 1.87+).
 The first build downloads a Z3 prebuilt via the `z3` crate (`gh-release`); no
 manual Z3 install is needed for normal use. See
 [docs/CRATES-IO.md](docs/CRATES-IO.md).

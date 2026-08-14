@@ -14,7 +14,7 @@ A hands-on guide to writing, checking, and building Assura contracts.
 cargo install assura --locked
 ```
 
-Requires Rust 1.85+ (edition 2024). The first build may download a Z3
+Requires Rust 1.87+ (edition 2024). The first build may download a Z3
 prebuilt automatically.
 
 ### Prebuilt binary

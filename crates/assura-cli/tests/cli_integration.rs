@@ -547,6 +547,40 @@ fn audit_no_cargo_toml_fails() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// `audit --json` without Cargo.toml must emit JSON (`error: no_cargo_toml`).
+#[test]
+fn audit_no_cargo_toml_json() {
+    let tmp = unique_temp("assura_audit_no_cargo_json");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["audit", tmp.to_str().unwrap(), "--json"])
+        .output()
+        .expect("failed to run assura audit --json");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "audit --json without Cargo.toml should exit 2: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!(
+            "audit --json missing Cargo.toml must be JSON: {e}\nstdout={stdout}\nstderr={stderr}"
+        )
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error"], "no_cargo_toml", "{v}");
+    assert!(
+        !stderr.contains("no Cargo.toml"),
+        "human audit error must not leak under --json: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 #[test]
 fn audit_empty_src_fails() {
     let tmp = unique_temp("assura_audit_empty_src");
@@ -3257,4 +3291,112 @@ fn ir_json_write_fail_is_parseable() {
         "human write error must not leak under --json: {stderr}"
     );
     let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `check-rust --json` on a missing path must emit JSON (`error: not_found`), not bare stderr.
+#[test]
+fn check_rust_missing_path_json() {
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "/no/such/check_rust/path.rs", "--json"])
+        .output()
+        .expect("failed to run assura check-rust --json missing");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "missing path should exit 1: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check-rust --json missing must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error"], "not_found", "{v}");
+    assert_eq!(v["path"], "/no/such/check_rust/path.rs");
+    assert!(
+        !stderr.contains("is not a file or directory"),
+        "human missing-path error must not leak under --json: {stderr}"
+    );
+}
+
+/// `check-rust --json --layer 99` must emit JSON and exit 2 (same gate as `check`).
+#[test]
+fn check_rust_invalid_layer_json() {
+    let tmp = unique_temp("assura_check_rust_layer");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("ok.rs");
+    std::fs::write(
+        &src,
+        "/// @ensures result == x\npub fn id(x: i64) -> i64 { x }\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args([
+            "check-rust",
+            src.to_str().unwrap(),
+            "--layer",
+            "99",
+            "--json",
+        ])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust --layer 99 --json");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "invalid layer should exit 2: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!(
+            "check-rust invalid layer --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}"
+        )
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error"], "invalid_layer", "{v}");
+    assert_eq!(v["layer"], 99);
+    assert!(
+        !stderr.contains("invalid --layer"),
+        "human layer error must not leak under --json: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `infer --json` on a missing Rust file must emit JSON and exit 2.
+#[test]
+fn infer_missing_file_json() {
+    let out = Command::new(assura_bin())
+        .args(["infer", "/no/such/infer/path.rs", "--json"])
+        .output()
+        .expect("failed to run assura infer --json missing");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "missing infer path should exit 2: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("infer --json missing must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["success"], false, "{v}");
+    assert_eq!(v["file"], "/no/such/infer/path.rs");
+    assert!(
+        v["error"].as_str().is_some_and(|e| !e.is_empty()),
+        "expected error field: {v}"
+    );
+    assert!(
+        !stderr.contains("Error:"),
+        "human infer error must not leak under --json: {stderr}"
+    );
 }
