@@ -26,7 +26,7 @@ assura check-rust demos/check-rust/ok
 
 ## 1. Install
 
-**Preferred (crates.io):** requires Rust 1.85+ (edition 2024). Z3 is
+**Preferred (crates.io):** requires Rust 1.87+ (edition 2024). Z3 is
 pulled in automatically for verification builds.
 
 ```bash
@@ -55,7 +55,7 @@ If you only want to see a check result before installing:
    cargo install --path crates/assura-cli --locked
    assura check demos/showcase-echo.assura
    ```
-   Same commands work on any machine that already has Rust 1.85+ and Z3.
+   Same commands work on any machine that already has Rust 1.87+ and Z3.
 2. **Watch the demo GIF** (no install):  
    https://github.com/assura-lang/assura/blob/main/assets/demo/assura-check.gif
 3. **Copy-paste the showcase** from section 2 into a file after
