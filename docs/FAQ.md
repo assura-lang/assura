@@ -72,6 +72,21 @@ rustup update stable
 
 ## Verification
 
+### Can Assura verify the Rust standard library (or Kani challenges)?
+
+**No.** Assura proves contracts you write (`.assura` or `/// @ensures` on
+a modeled Rust body). It does not prove rustc's `library/core` against
+undefined behavior.
+
+The [verify-rust-std](https://github.com/model-checking/verify-rust-std)
+contest uses [Kani](https://github.com/model-checking/kani), Flux,
+VeriFast, and ESBMC on the real std sources. Assura is not an accepted
+tool there. `check-rust` mapping `x.wrapping_add(y)` to modular
+arithmetic restates a spec; it does not check the std implementation.
+
+Use Assura for new contracts and AI-written code. Use Kani or Verus to
+prove existing unsafe Rust in place. See [COMPARE.md](COMPARE.md).
+
 ### Solver timeout on a contract
 
 **Symptom:** Verification result says `Timeout` instead of `Verified`
