@@ -26,12 +26,9 @@ pub(crate) fn plan_if_encode(has_else: bool) -> IfEncodePlan {
 
 /// Encode `if cond then t [else e]` as SMT-LIB2 (`ite` or implication).
 pub(crate) fn encode_if_smtlib(cond: &str, then_branch: &str, else_branch: Option<&str>) -> String {
-    match plan_if_encode(else_branch.is_some()) {
-        IfEncodePlan::Ite => {
-            let e = else_branch.expect("Ite plan requires else_branch");
-            format!("(ite {cond} {then_branch} {e})")
-        }
-        IfEncodePlan::ImpliesThenOnly => format!("(=> {cond} {then_branch})"),
+    match else_branch {
+        Some(e) => format!("(ite {cond} {then_branch} {e})"),
+        None => format!("(=> {cond} {then_branch})"),
     }
 }
 

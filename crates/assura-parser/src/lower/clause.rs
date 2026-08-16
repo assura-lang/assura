@@ -196,19 +196,13 @@ pub(super) fn lower_clause_body(n: &SyntaxNode) -> SpExpr {
         }
     }
 
-    let expr = if tokens.is_empty() {
-        Expr::Raw(vec![])
-    } else if tokens.len() == 1 && tokens[0].chars().all(|c| c.is_alphanumeric() || c == '_') {
-        // Single identifier token: promote to Expr::Ident so downstream
-        // checkers can pattern-match on Expr::Ident rather than Raw.
-        Expr::Ident(
-            tokens
-                .into_iter()
-                .next()
-                .expect("tokens.len() == 1 guarantees at least one element"),
-        )
-    } else {
-        Expr::Raw(tokens)
+    // Single identifier token: promote to Expr::Ident so downstream
+    // checkers can pattern-match on Expr::Ident rather than Raw.
+    let expr = match tokens.as_slice() {
+        [ident] if ident.chars().all(|c| c.is_alphanumeric() || c == '_') => {
+            Expr::Ident(ident.clone())
+        }
+        _ => Expr::Raw(tokens),
     };
     super::spanned(expr, n)
 }

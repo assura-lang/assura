@@ -19,9 +19,8 @@ pub(crate) fn encode_if_cvc5<'a>(
 ) -> cvc5::Term<'a> {
     use crate::encode_if_policy::{IfEncodePlan, plan_if_encode};
 
-    match plan_if_encode(else_branch.is_some()) {
-        IfEncodePlan::Ite => {
-            let e = else_branch.expect("Ite plan requires else_branch");
+    match (plan_if_encode(else_branch.is_some()), else_branch) {
+        (IfEncodePlan::Ite, Some(e)) => {
             let (t_final, e_final) = if then_branch.sort().is_real() && e.sort().is_integer() {
                 (then_branch, tm.mk_term(cvc5::Kind::ToReal, &[e]))
             } else if then_branch.sort().is_integer() && e.sort().is_real() {
@@ -31,7 +30,7 @@ pub(crate) fn encode_if_cvc5<'a>(
             };
             tm.mk_term(cvc5::Kind::Ite, &[cond, t_final, e_final])
         }
-        IfEncodePlan::ImpliesThenOnly => tm.mk_term(cvc5::Kind::Implies, &[cond, then_branch]),
+        _ => tm.mk_term(cvc5::Kind::Implies, &[cond, then_branch]),
     }
 }
 

@@ -2,10 +2,38 @@
 //!
 //! Converts parsed `IrModule` / `IrFunction` structures into Rust source text.
 
+use std::fmt::Write as _;
+
 use crate::ir::{
     IrArithOp, IrCmpOp, IrExprKind, IrFunction, IrLiteral, IrMatchPattern, IrModule, IrPred,
     IrPredArg,
 };
+
+fn ir_slot_name(slot: usize) -> String {
+    if slot == usize::MAX {
+        crate::encode_atom_policy::RESULT_VAR_NAME.to_string()
+    } else {
+        format!("slot_{slot}")
+    }
+}
+
+fn emit_ir_instructions(func: &IrFunction, code: &mut String) {
+    for instr in &func.body {
+        let target = ir_slot_name(instr.target);
+        let ty = ir_type_to_rust(&instr.ty);
+        let expr_code = ir_expr_to_rust(&instr.expr);
+        let _ = writeln!(code, "    let {target}: {ty} = {expr_code};");
+    }
+}
+
+fn emit_ir_return(func: &IrFunction, code: &mut String) {
+    if func.body.iter().any(|i| i.target == usize::MAX) {
+        let _ = writeln!(code, "    __result");
+    } else {
+        let default_val = ir_type_default(&func.return_type);
+        let _ = writeln!(code, "    {default_val}");
+    }
+}
 
 /// Placeholder `.ir` sidecar text for a declaration (AI replaces with real IR).
 ///
@@ -57,7 +85,7 @@ pub fn stub_ir_sidecar_text(
 /// for pre/post conditions.
 pub fn ir_to_rust(module: &IrModule) -> String {
     let mut code = String::new();
-    code.push_str(&format!("// Generated from IR module: {}\n\n", module.name));
+    let _ = writeln!(code, "// Generated from IR module: {}\n", module.name);
 
     for func in &module.functions {
         // Function signature
@@ -68,47 +96,30 @@ pub fn ir_to_rust(module: &IrModule) -> String {
             .collect();
 
         let ret_type = ir_type_to_rust(&func.return_type);
-        code.push_str(&format!(
-            "fn ir_{}({}) -> {} {{\n",
+        let _ = writeln!(
+            code,
+            "fn ir_{}({}) -> {} {{",
             func.id.trim_start_matches('#'),
             params.join(", "),
             ret_type
-        ));
+        );
 
         // Pre-condition
         if let Some(ref pre) = func.pre {
             let pre_rust = pred_to_rust(pre);
-            code.push_str(&format!("    debug_assert!({pre_rust});\n"));
+            let _ = writeln!(code, "    debug_assert!({pre_rust});");
         }
 
-        // Body instructions
-        for instr in &func.body {
-            let target = if instr.target == usize::MAX {
-                crate::encode_atom_policy::RESULT_VAR_NAME.to_string()
-            } else {
-                format!("slot_{}", instr.target)
-            };
-            let ty = ir_type_to_rust(&instr.ty);
-            let expr_code = ir_expr_to_rust(&instr.expr);
-            code.push_str(&format!("    let {target}: {ty} = {expr_code};\n"));
-        }
+        emit_ir_instructions(func, &mut code);
 
         // Post-condition
         if let Some(ref post) = func.post {
             let post_rust = pred_to_rust(post);
-            code.push_str(&format!("    debug_assert!({post_rust});\n"));
+            let _ = writeln!(code, "    debug_assert!({post_rust});");
         }
 
-        // Return $result if it was assigned, otherwise use a default value
-        if func.body.iter().any(|i| i.target == usize::MAX) {
-            code.push_str("    __result\n");
-        } else {
-            // Generate a type-appropriate default return value
-            let default_val = ir_type_default(&func.return_type);
-            code.push_str(&format!("    {default_val}\n"));
-        }
-
-        code.push_str("}\n\n");
+        emit_ir_return(func, &mut code);
+        let _ = writeln!(code, "}}\n");
     }
 
     code
@@ -128,42 +139,24 @@ pub fn ir_function_body_to_rust(func: &IrFunction) -> String {
     if let Some(ref pre) = func.pre {
         let pre_rust = pred_to_rust(pre);
         if pre_rust != "true" {
-            code.push_str(&format!(
-                "    debug_assert!({pre_rust}, \"IR pre-condition\");\n"
-            ));
+            let _ = writeln!(code, "    debug_assert!({pre_rust}, \"IR pre-condition\");");
         }
     }
 
-    // Body instructions
-    for instr in &func.body {
-        let target = if instr.target == usize::MAX {
-            crate::encode_atom_policy::RESULT_VAR_NAME.to_string()
-        } else {
-            format!("slot_{}", instr.target)
-        };
-        let ty = ir_type_to_rust(&instr.ty);
-        let expr_code = ir_expr_to_rust(&instr.expr);
-        code.push_str(&format!("    let {target}: {ty} = {expr_code};\n"));
-    }
+    emit_ir_instructions(func, &mut code);
 
     // Post-condition
     if let Some(ref post) = func.post {
         let post_rust = pred_to_rust(post);
         if post_rust != "true" {
-            code.push_str(&format!(
-                "    debug_assert!({post_rust}, \"IR post-condition\");\n"
-            ));
+            let _ = writeln!(
+                code,
+                "    debug_assert!({post_rust}, \"IR post-condition\");"
+            );
         }
     }
 
-    // Return __result if it was assigned
-    if func.body.iter().any(|i| i.target == usize::MAX) {
-        code.push_str("    __result\n");
-    } else {
-        let default_val = ir_type_default(&func.return_type);
-        code.push_str(&format!("    {default_val}\n"));
-    }
-
+    emit_ir_return(func, &mut code);
     code
 }
 
@@ -198,9 +191,10 @@ pub fn ir_module_to_embedded_body(module: &IrModule) -> String {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        code.push_str(&format!(
-            "    let block_{id} = || -> {ret_ty} {{\n{indented}\n    }};\n"
-        ));
+        let _ = writeln!(code, "    let block_{id} = || -> {ret_ty} {{");
+        code.push_str(&indented);
+        code.push('\n');
+        let _ = writeln!(code, "    }};");
     }
 
     // Main function body (may call block_N()).
