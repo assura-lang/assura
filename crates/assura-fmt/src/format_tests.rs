@@ -246,8 +246,10 @@ fn nested_binary_ops_preserved() {
 fn logical_ops_preserved() {
     let src = "contract L { requires { a > 0 && b > 0 || c == 0 } }\n";
     let out = fmt(src);
-    assert!(out.contains("&&"));
-    assert!(out.contains("||"));
+    assert!(
+        out.contains("a > 0 && b > 0 || c == 0"),
+        "logical ops rewritten or dropped: {out}"
+    );
 }
 
 #[test]

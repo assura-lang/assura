@@ -184,6 +184,7 @@ contract SafeDivision {
     });
 
     // Report what was created
+    let next = init_next_steps(project_name);
     if json {
         let report = serde_json::json!({
             "ok": true,
@@ -193,6 +194,7 @@ contract SafeDivision {
                 contract_path.display().to_string(),
                 ir_path.display().to_string(),
             ],
+            "next": next,
         });
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
     } else {
@@ -200,7 +202,20 @@ contract SafeDivision {
         println!("  {}", toml_path.display());
         println!("  {}", contract_path.display());
         println!("  {}", ir_path.display());
+        println!();
+        println!("Next:");
+        for step in next {
+            println!("  {step}");
+        }
     }
+}
+
+/// First commands after `assura init` (human + JSON).
+fn init_next_steps(project_name: &str) -> [String; 2] {
+    [
+        format!("cd {project_name}"),
+        "assura check contracts/lib.assura".to_string(),
+    ]
 }
 
 pub(crate) fn run_explain(code: &str, output_mode: OutputMode) {
@@ -263,7 +278,14 @@ pub(crate) fn run_explain(code: &str, output_mode: OutputMode) {
 
 #[cfg(test)]
 mod init_name_tests {
-    use super::validate_project_name;
+    use super::{init_next_steps, validate_project_name};
+
+    #[test]
+    fn next_steps_point_at_scaffold_check() {
+        let steps = init_next_steps("demo");
+        assert_eq!(steps[0], "cd demo");
+        assert_eq!(steps[1], "assura check contracts/lib.assura");
+    }
 
     #[test]
     fn accepts_simple_names() {

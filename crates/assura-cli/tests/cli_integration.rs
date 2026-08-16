@@ -707,6 +707,34 @@ fn doctor_output_contains_rustc() {
 }
 
 #[test]
+fn doctor_json_marks_toolchain_and_solver_clis_optional() {
+    let out = Command::new(assura_bin())
+        .args(["doctor", "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura doctor --json");
+    assert!(
+        out.status.success(),
+        "doctor should exit 0 even when optional CLIs are missing: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).expect("doctor json");
+    assert_eq!(v["ok"], true, "doctor json ok: {v}");
+    let checks = v["checks"].as_array().expect("checks");
+    for name in ["rustc", "cargo", "z3", "cvc5"] {
+        let row = checks
+            .iter()
+            .find(|c| c["name"] == name)
+            .unwrap_or_else(|| panic!("missing check {name}"));
+        assert_eq!(
+            row["required"], false,
+            "{name} should be optional (assura check links Z3; rustc is for build): {row}"
+        );
+    }
+}
+
+#[test]
 fn doctor_output_contains_z3() {
     let out = Command::new(assura_bin())
         .arg("doctor")
@@ -2219,6 +2247,12 @@ fn init_creates_project_structure() {
         "co-located SafeDivision.ir should exist for result ensures"
     );
 
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("cd test-project") && stdout.contains("assura check contracts/lib.assura"),
+        "init should print the first check command: {stdout}"
+    );
+
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
@@ -2903,6 +2937,30 @@ fn check_missing_file_json_envelope() {
     assert_eq!(diags.len(), 1);
     assert_eq!(diags[0]["code"], "A01000");
     assert!(v["verification"].is_array());
+}
+
+#[test]
+fn check_timeout_flag_is_accepted() {
+    let out = Command::new(assura_bin())
+        .args([
+            "check",
+            "/no/such/check/timeout.assura",
+            "--json",
+            "--timeout",
+            "2000",
+        ])
+        .output()
+        .expect("failed to run assura check --timeout");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("unexpected argument") && !stdout.contains("unexpected argument"),
+        "SPEC documents check --timeout; clap must accept it: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("missing path --json must still be a JSON object");
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(v["file_info"]["success"], false);
 }
 
 #[test]

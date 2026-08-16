@@ -17,6 +17,8 @@ pub(crate) struct CheckOptions<'a> {
     pub(crate) strict: bool,
     /// Directory mode: only files whose header marks SHOWCASE.
     pub(crate) showcase_only: bool,
+    /// SMT timeout in milliseconds. `None` keeps assura.toml / default.
+    pub(crate) timeout: Option<u64>,
 }
 
 /// Context for verification + diagnostic reporting.

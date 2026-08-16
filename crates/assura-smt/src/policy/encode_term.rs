@@ -792,15 +792,40 @@ mod tests {
 #[cfg(all(test, feature = "z3-verify"))]
 mod tests_z3_encode_term {
     use super::*;
-    use crate::z3_backend::encoder::Encoder;
+    use crate::z3_backend::encoder::{Encoder, Z3Value};
+
+    fn z3_kind(v: &Z3Value) -> &'static str {
+        match v {
+            Z3Value::Bool(_) => "Bool",
+            Z3Value::Int(_) => "Int",
+            Z3Value::Real(_) => "Real",
+            Z3Value::Str(_) => "Str",
+            Z3Value::Bv(_, _) => "Bv",
+        }
+    }
+
+    fn expect_int(v: Option<Z3Value>, why: &str) {
+        match v {
+            Some(Z3Value::Int(_)) => {}
+            Some(other) => panic!("{why}: expected Int, got {}", z3_kind(&other)),
+            None => panic!("{why}: None"),
+        }
+    }
+
+    fn expect_bool(v: Option<Z3Value>, why: &str) {
+        match v {
+            Some(Z3Value::Bool(_)) => {}
+            Some(other) => panic!("{why}: expected Bool, got {}", z3_kind(&other)),
+            None => panic!("{why}: None"),
+        }
+    }
 
     #[test]
     fn z3_encode_term_int_literal() {
         z3::with_z3_config(&z3::Config::new(), || {
             let mut enc = Encoder::new();
             let expr = Spanned::no_span(Expr::Literal(Literal::Int("42".into())));
-            let result = encode_expr_shared(&mut enc, &expr);
-            assert!(result.is_some(), "Z3 should encode int literal");
+            expect_int(encode_expr_shared(&mut enc, &expr), "int literal");
         });
     }
 
@@ -809,8 +834,7 @@ mod tests_z3_encode_term {
         z3::with_z3_config(&z3::Config::new(), || {
             let mut enc = Encoder::new();
             let expr = Spanned::no_span(Expr::Literal(Literal::Bool(true)));
-            let result = encode_expr_shared(&mut enc, &expr);
-            assert!(result.is_some(), "bool literal should encode");
+            expect_bool(encode_expr_shared(&mut enc, &expr), "bool literal");
         });
     }
 
@@ -819,8 +843,7 @@ mod tests_z3_encode_term {
         z3::with_z3_config(&z3::Config::new(), || {
             let mut enc = Encoder::new();
             let expr = Spanned::no_span(Expr::Ident("x".into()));
-            let result = encode_expr_shared(&mut enc, &expr);
-            assert!(result.is_some(), "ident should encode");
+            expect_int(encode_expr_shared(&mut enc, &expr), "ident");
             // Variable should be registered
             assert!(enc.vars.contains_key("x"));
         });
@@ -835,8 +858,7 @@ mod tests_z3_encode_term {
                 op: BinOp::Add,
                 rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
             });
-            let result = encode_expr_shared(&mut enc, &expr);
-            assert!(result.is_some(), "Z3 should encode addition");
+            expect_int(encode_expr_shared(&mut enc, &expr), "addition");
         });
     }
 
@@ -849,8 +871,7 @@ mod tests_z3_encode_term {
                 op: BinOp::Lt,
                 rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
             });
-            let result = encode_expr_shared(&mut enc, &expr);
-            assert!(result.is_some(), "Z3 should encode comparison");
+            expect_bool(encode_expr_shared(&mut enc, &expr), "comparison");
         });
     }
 
@@ -865,8 +886,7 @@ mod tests_z3_encode_term {
                     "0".into(),
                 ))))),
             });
-            let result = encode_expr_shared(&mut enc, &expr);
-            assert!(result.is_some(), "Z3 should encode if-then-else");
+            expect_int(encode_expr_shared(&mut enc, &expr), "if-then-else");
         });
     }
 
@@ -876,8 +896,7 @@ mod tests_z3_encode_term {
             let mut enc = Encoder::new();
             let inner = Box::new(Spanned::no_span(Expr::Literal(Literal::Int("7".into()))));
             let expr = Spanned::no_span(Expr::Ghost(inner));
-            let result = encode_expr_shared(&mut enc, &expr);
-            assert!(result.is_some(), "Ghost should be transparent");
+            expect_int(encode_expr_shared(&mut enc, &expr), "Ghost");
         });
     }
 
@@ -889,8 +908,7 @@ mod tests_z3_encode_term {
                 op: assura_ast::UnaryOp::Neg,
                 expr: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("5".into())))),
             });
-            let result = encode_expr_shared(&mut enc, &expr);
-            assert!(result.is_some(), "Z3 should encode unary neg");
+            expect_int(encode_expr_shared(&mut enc, &expr), "unary neg");
         });
     }
 
@@ -931,6 +949,16 @@ mod tests_cvc5_encode_term {
     use crate::cvc5_encoder_state::default_cvc5_encoder_state;
     use std::collections::HashMap;
 
+    fn expect_int(term: Option<cvc5::Term<'_>>, why: &str) {
+        let t = term.unwrap_or_else(|| panic!("{why}: None"));
+        assert!(t.sort().is_integer(), "{why}: expected integer sort");
+    }
+
+    fn expect_bool(term: Option<cvc5::Term<'_>>, why: &str) {
+        let t = term.unwrap_or_else(|| panic!("{why}: None"));
+        assert!(t.sort().is_boolean(), "{why}: expected boolean sort");
+    }
+
     #[test]
     fn cvc5_encode_term_int_literal() {
         let tm = cvc5::TermManager::new();
@@ -942,8 +970,7 @@ mod tests_cvc5_encode_term {
             state: &mut state,
         };
         let expr = Spanned::no_span(Expr::Literal(Literal::Int("42".into())));
-        let result = encode_expr_shared(&mut builder, &expr);
-        assert!(result.is_some(), "CVC5 should encode int literal");
+        expect_int(encode_expr_shared(&mut builder, &expr), "int literal");
     }
 
     #[test]
@@ -957,8 +984,7 @@ mod tests_cvc5_encode_term {
             state: &mut state,
         };
         let expr = Spanned::no_span(Expr::Literal(Literal::Bool(true)));
-        let result = encode_expr_shared(&mut builder, &expr);
-        assert!(result.is_some(), "CVC5 should encode bool literal");
+        expect_bool(encode_expr_shared(&mut builder, &expr), "bool literal");
     }
 
     #[test]
@@ -972,8 +998,7 @@ mod tests_cvc5_encode_term {
             state: &mut state,
         };
         let expr = Spanned::no_span(Expr::Ident("x".into()));
-        let result = encode_expr_shared(&mut builder, &expr);
-        assert!(result.is_some(), "CVC5 should encode ident");
+        expect_int(encode_expr_shared(&mut builder, &expr), "ident");
         assert!(vars.contains_key("x"), "x should be registered");
     }
 
@@ -992,8 +1017,7 @@ mod tests_cvc5_encode_term {
             op: BinOp::Add,
             rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
         });
-        let result = encode_expr_shared(&mut builder, &expr);
-        assert!(result.is_some(), "CVC5 should encode addition");
+        expect_int(encode_expr_shared(&mut builder, &expr), "addition");
     }
 
     #[test]
@@ -1011,8 +1035,7 @@ mod tests_cvc5_encode_term {
             op: BinOp::Lt,
             rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
         });
-        let result = encode_expr_shared(&mut builder, &expr);
-        assert!(result.is_some(), "CVC5 should encode comparison");
+        expect_bool(encode_expr_shared(&mut builder, &expr), "comparison");
     }
 
     #[test]
@@ -1032,8 +1055,7 @@ mod tests_cvc5_encode_term {
                 "0".into(),
             ))))),
         });
-        let result = encode_expr_shared(&mut builder, &expr);
-        assert!(result.is_some(), "CVC5 should encode if-then-else");
+        expect_int(encode_expr_shared(&mut builder, &expr), "if-then-else");
     }
 
     #[test]
@@ -1048,8 +1070,7 @@ mod tests_cvc5_encode_term {
         };
         let inner = Box::new(Spanned::no_span(Expr::Literal(Literal::Int("7".into()))));
         let expr = Spanned::no_span(Expr::Ghost(inner));
-        let result = encode_expr_shared(&mut builder, &expr);
-        assert!(result.is_some(), "CVC5 Ghost should be transparent");
+        expect_int(encode_expr_shared(&mut builder, &expr), "Ghost");
     }
 
     #[test]
@@ -1066,8 +1087,7 @@ mod tests_cvc5_encode_term {
             op: assura_ast::UnaryOp::Neg,
             expr: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("5".into())))),
         });
-        let result = encode_expr_shared(&mut builder, &expr);
-        assert!(result.is_some(), "CVC5 should encode unary neg");
+        expect_int(encode_expr_shared(&mut builder, &expr), "unary neg");
     }
 
     #[test]

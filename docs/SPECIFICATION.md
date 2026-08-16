@@ -2189,12 +2189,10 @@ Create a new Assura project.
 
 Generated structure:
   <name>/
-    assura.toml          # project configuration
+    assura.toml              # project configuration
     contracts/
-      main.assura        # initial contract file
-    src/
-      main.rs            # hand-written Rust entry point
-    Cargo.toml           # workspace manifest
+      lib.assura             # starter contract (SafeDivision)
+      SafeDivision.ir        # co-located IR so `result` ensures verify
 ```
 
 #### `assura explain`
@@ -2226,24 +2224,18 @@ Fix: Split into separate functions, each receiving its own connection.
 `assura.toml` at the project root:
 
 ```toml
-[project]
+[package]
 name = "my-service"
 version = "0.1.0"
-assura-version = "0.1"
-
-[contracts]
-path = "contracts/"
 
 [build]
-target = "native"           # or "wasm32-wasi"
-generated-dir = "generated/"
-keep-generated = false
+target = "native"           # or "wasm" / "wasm32-wasip1"
+output = "generated"
 
 [verify]
-default-layer = 1           # default for `assura check`
+layer = 1                   # default for `assura check`
 smt-solver = "z3"
-smt-timeout-ms = 5000
-fuel = 5
+timeout = 1000              # milliseconds; `assura check --timeout` overrides
 
 [effects]
 [effects.custom]

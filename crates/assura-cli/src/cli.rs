@@ -98,6 +98,10 @@ enum Commands {
         /// When FILE is a directory, only check demos marked SHOWCASE (must-pass)
         #[arg(long)]
         showcase_only: bool,
+
+        /// SMT solver timeout in milliseconds (overrides assura.toml [verify] timeout)
+        #[arg(long, value_name = "MS")]
+        timeout: Option<u64>,
     },
 
     /// Verify inline contract annotations in Rust source files
@@ -480,6 +484,7 @@ pub fn run() {
             show_cores,
             strict,
             showcase_only,
+            timeout,
         } => run_check(CheckOptions {
             filename: &file,
             output_mode,
@@ -492,6 +497,7 @@ pub fn run() {
             show_cores,
             strict,
             showcase_only,
+            timeout,
         }),
         Commands::CheckRust {
             path,
