@@ -707,6 +707,34 @@ fn doctor_output_contains_rustc() {
 }
 
 #[test]
+fn doctor_json_marks_toolchain_and_solver_clis_optional() {
+    let out = Command::new(assura_bin())
+        .args(["doctor", "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run assura doctor --json");
+    assert!(
+        out.status.success(),
+        "doctor should exit 0 even when optional CLIs are missing: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).expect("doctor json");
+    assert_eq!(v["ok"], true, "doctor json ok: {v}");
+    let checks = v["checks"].as_array().expect("checks");
+    for name in ["rustc", "cargo", "z3", "cvc5"] {
+        let row = checks
+            .iter()
+            .find(|c| c["name"] == name)
+            .unwrap_or_else(|| panic!("missing check {name}"));
+        assert_eq!(
+            row["required"], false,
+            "{name} should be optional (assura check links Z3; rustc is for build): {row}"
+        );
+    }
+}
+
+#[test]
 fn doctor_output_contains_z3() {
     let out = Command::new(assura_bin())
         .arg("doctor")

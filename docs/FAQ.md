@@ -34,31 +34,23 @@ assura --version
 assura doctor
 ```
 
-### Z3 is not found
+### `assura doctor` says z3 / rustc / cargo is not found
 
-**Symptom:** `assura check` prints "Z3 is required for SMT verification"
-or verification results are all `Timeout`.
+**This is not a check failure.** `assura check` links Z3 through the
+`z3` crate (`gh-release` prebuilt at `cargo install` time). The
+standalone `z3` binary on your `PATH` is only for inspecting SMT-LIB
+dumps yourself.
 
-**Fix:**
+`rustc` and `cargo` are needed for `assura build` (generated Rust).
+They are not required after the prebuilt shell installer if you only
+run `assura check`.
 
 ```bash
-# macOS
+# Optional standalone Z3 CLI (macOS / Ubuntu)
 brew install z3
-
-# Ubuntu/Debian
 sudo apt-get install -y libz3-dev
-
-# Verify
 z3 --version
 assura doctor
-```
-
-If Z3 is installed but not found, check that the `z3` binary is on
-your `$PATH`. On Linux, you may also need `libz3.so` in the library
-path:
-
-```bash
-export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
 ```
 
 ### Rust toolchain version

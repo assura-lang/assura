@@ -21,7 +21,6 @@ pub(crate) fn run_lsp() {
 
 pub(crate) fn run_doctor(output_mode: OutputMode, verbosity: Verbosity) {
     let mut checks: Vec<serde_json::Value> = Vec::new();
-    let mut all_ok = true;
 
     let version = env!("CARGO_PKG_VERSION");
 
@@ -33,14 +32,11 @@ pub(crate) fn run_doctor(output_mode: OutputMode, verbosity: Verbosity) {
                 let ver = ver.trim().strip_prefix("rustc ").unwrap_or(ver.trim());
                 ("ok", ver.to_string())
             }
-            _ => {
-                all_ok = false;
-                ("missing", "not found".into())
-            }
+            _ => ("optional", "not found".into()),
         };
     checks.push(serde_json::json!({
         "name": "rustc", "status": rustc_status, "detail": rustc_detail,
-        "required": true,
+        "required": false,
     }));
 
     // cargo
@@ -51,14 +47,11 @@ pub(crate) fn run_doctor(output_mode: OutputMode, verbosity: Verbosity) {
                 let ver = ver.trim().strip_prefix("cargo ").unwrap_or(ver.trim());
                 ("ok", ver.to_string())
             }
-            _ => {
-                all_ok = false;
-                ("missing", "not found".into())
-            }
+            _ => ("optional", "not found".into()),
         };
     checks.push(serde_json::json!({
         "name": "cargo", "status": cargo_status, "detail": cargo_detail,
-        "required": true,
+        "required": false,
     }));
 
     // z3
@@ -72,14 +65,11 @@ pub(crate) fn run_doctor(output_mode: OutputMode, verbosity: Verbosity) {
                 .unwrap_or(ver);
             ("ok", short.to_string())
         }
-        _ => {
-            all_ok = false;
-            ("missing", "not found".into())
-        }
+        _ => ("optional", "not found".into()),
     };
     checks.push(serde_json::json!({
         "name": "z3", "status": z3_status, "detail": z3_detail,
-        "required": true,
+        "required": false,
     }));
 
     // cvc5 (optional)
@@ -120,7 +110,7 @@ pub(crate) fn run_doctor(output_mode: OutputMode, verbosity: Verbosity) {
     if output_mode == OutputMode::Json {
         let json = serde_json::json!({
             "assura": version,
-            "ok": all_ok,
+            "ok": true,
             "checks": checks,
         });
         println!(
@@ -149,12 +139,22 @@ pub(crate) fn run_doctor(output_mode: OutputMode, verbosity: Verbosity) {
             };
             // Match historical layout: "  rustc:        1.97.0 ... OK"
             println!("  {label:<pad$} {detail} ... {status_label}");
-            if status == "missing" && name == "rustc" {
-                println!("                Install: https://rustup.rs/");
+            if name == "rustc" && status != "ok" {
+                println!(
+                    "                Optional: needed for `assura build` (https://rustup.rs/)."
+                );
+                println!("                `assura check` works without a local rustc.");
             }
-            if status == "missing" && name == "z3" {
-                println!("                Install: brew install z3  (macOS)");
-                println!("                         sudo apt-get install -y libz3-dev  (Ubuntu)");
+            if name == "cargo" && status != "ok" {
+                println!(
+                    "                Optional: needed for `assura build` / `cargo test` on generated Rust."
+                );
+            }
+            if name == "z3" && status != "ok" {
+                println!(
+                    "                Optional: standalone `z3` CLI (brew install z3 / libz3-dev)."
+                );
+                println!("                `assura check` already links Z3 via the z3 crate.");
             }
             if name == "cvc5" && status != "ok" {
                 println!("                Install: bash scripts/setup-cvc5.sh");
@@ -164,28 +164,8 @@ pub(crate) fn run_doctor(output_mode: OutputMode, verbosity: Verbosity) {
             }
         }
         println!();
-        if all_ok {
-            println!("All required dependencies are installed.");
-        } else {
-            println!(
-                "Some required dependencies are missing. Install them and re-run `assura doctor`."
-            );
-        }
-    } else if !all_ok {
-        // Quiet human: only surface failure (required deps missing).
-        eprintln!("assura doctor: required dependencies missing");
-        for c in &checks {
-            let status = c["status"].as_str().unwrap_or("?");
-            let required = c["required"].as_bool().unwrap_or(false);
-            if required && status == "missing" {
-                let name = c["name"].as_str().unwrap_or("?");
-                eprintln!("  missing: {name}");
-            }
-        }
-    }
-
-    if !all_ok {
-        process::exit(1);
+        println!("`assura check` is ready. rustc/cargo are for `assura build`;");
+        println!("the standalone `z3` CLI and cvc5 are optional.");
     }
 }
 
