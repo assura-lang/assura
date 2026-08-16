@@ -2247,6 +2247,12 @@ fn init_creates_project_structure() {
         "co-located SafeDivision.ir should exist for result ensures"
     );
 
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("cd test-project") && stdout.contains("assura check contracts/lib.assura"),
+        "init should print the first check command: {stdout}"
+    );
+
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
