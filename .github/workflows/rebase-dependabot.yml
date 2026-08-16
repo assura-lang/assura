@@ -2,7 +2,9 @@ name: Rebase Dependabot
 
 # After a merge, strict required checks leave other Dependabot PRs BEHIND.
 # Dependabot rebase-strategy: auto is slow, so auto-merge sits armed forever.
-# Comment @dependabot rebase on those PRs when main moves (and hourly backup).
+# Replay each behind branch onto origin/main. Do not comment
+# @dependabot rebase: github-actions[bot] and the auto-approve App are
+# both rejected ("only users with push access", #1508 / #1509).
 
 on:
   push:
@@ -21,33 +23,30 @@ permissions:
 jobs:
   rebase:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: write
-      pull-requests: write
+      pull-requests: read
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: audit
 
-      # GITHUB_TOKEN comments as github-actions[bot]. Dependabot replies
-      # "only users with push access can use that command" (#1508 first run).
-      # Use the same App token as auto-approve (contents + pull-requests).
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        id: app-token
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
-          private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
-          permission-contents: write
-          permission-pull-requests: write
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Rebase Dependabot PRs that are behind main
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           nums=$(gh pr list --repo "${REPO}" --author "app/dependabot" --state open \
             --json number,mergeStateStatus \
             --jq '[.[] | select(.mergeStateStatus == "BEHIND") | .number] | .[]')
@@ -55,7 +54,19 @@ jobs:
             echo "No Dependabot PRs behind main."
             exit 0
           fi
+
+          git fetch origin main
           for n in ${nums}; do
-            echo "Requesting rebase of #${n}"
-            gh pr comment "${n}" --repo "${REPO}" --body "@dependabot rebase"
+            branch=$(gh pr view "${n}" --repo "${REPO}" --json headRefName --jq .headRefName)
+            echo "Rebasing #${n} (${branch}) onto origin/main"
+            git fetch origin "${branch}"
+            git checkout -B "${branch}" "origin/${branch}"
+            if ! git rebase origin/main; then
+              echo "Conflict on #${n}; leaving it for a human."
+              git rebase --abort
+              continue
+            fi
+            git push --force-with-lease \
+              "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" \
+              "HEAD:refs/heads/${branch}"
           done
