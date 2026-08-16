@@ -16,8 +16,11 @@ on:
         required: false
         type: string
 
+# Include event name so pull_request and pull_request_target never cancel
+# each other. A cancelled twin shows as a red Auto-approve check even when
+# the winner succeeded (Dependabot #1505 / #1507).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.inputs.pr_number }}-${{ github.event_name }}
   cancel-in-progress: true
 
 permissions:
@@ -32,9 +35,16 @@ jobs:
       pull-requests: write
     # Skip self-approve deadlock. Run for maintainer actor, Dependabot, bots,
     # or any PR when dispatched manually with pr_number.
+    # Same-repo PRs (Dependabot) use pull_request only. Forks use
+    # pull_request_target only (secrets). Running both on the same PR
+    # cancelled one job and painted a false red check.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.pull_request.user.login != 'github-actions[bot]' &&
+       ((github.event_name == 'pull_request' &&
+         github.event.pull_request.head.repo.full_name == github.repository) ||
+        (github.event_name == 'pull_request_target' &&
+         github.event.pull_request.head.repo.full_name != github.repository)) &&
        (github.actor == 'SebTardif' ||
         github.event.pull_request.user.login == 'dependabot[bot]' ||
         endsWith(github.event.pull_request.user.login, '[bot]')))
