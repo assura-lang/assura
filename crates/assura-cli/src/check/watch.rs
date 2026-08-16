@@ -12,7 +12,7 @@ pub(crate) fn check_file_once(
     filename: &str,
     output_mode: OutputMode,
     verbosity: Verbosity,
-    layer: u8,
+    verify_options: assura_config::VerifyOptions,
 ) -> bool {
     let source = match fs::read_to_string(filename) {
         Ok(s) => s,
@@ -64,11 +64,7 @@ pub(crate) fn check_file_once(
         has_errors: &mut has_errors,
         output_mode,
         verbosity,
-        verify_options: assura_config::VerifyOptions {
-            layer,
-            solver: assura_smt::SolverChoice::Z3,
-            ..Default::default()
-        },
+        verify_options,
         show_cores: false,
         strict: false,
     });
@@ -90,7 +86,7 @@ pub(crate) fn run_watch_loop(
     filename: &str,
     output_mode: OutputMode,
     verbosity: Verbosity,
-    layer: u8,
+    verify_options: assura_config::VerifyOptions,
 ) -> ! {
     use notify::{Event, EventKind, RecursiveMode, Watcher};
 
@@ -126,7 +122,7 @@ pub(crate) fn run_watch_loop(
         incremental.register_module(filename.to_string(), last_hash.clone());
     }
     // In watch mode, we continue regardless of errors (intentionally ignoring result)
-    let _had_errors = check_file_once(filename, output_mode, verbosity, layer);
+    let _had_errors = check_file_once(filename, output_mode, verbosity, verify_options.clone());
     incremental.mark_checked(filename, 1);
     if !json {
         eprintln!();
@@ -220,12 +216,33 @@ pub(crate) fn run_watch_loop(
             eprintln!("[watch] File changed, re-checking {filename}...");
             eprintln!();
         }
-        let _had_errors = check_file_once(filename, output_mode, verbosity, layer);
+        let _had_errors = check_file_once(filename, output_mode, verbosity, verify_options.clone());
         incremental.mark_checked(filename, iteration);
         iteration += 1;
         if !json {
             eprintln!();
             eprintln!("[watch] Watching for changes. Press Ctrl+C to stop.");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_file_once_uses_passed_verify_options() {
+        let mut opts = assura_config::VerifyOptions::default();
+        opts.timeout_ms = 250;
+        opts.solver = assura_smt::SolverChoice::Cvc5;
+        assert!(
+            check_file_once(
+                "/no/such/watch/unit.assura",
+                OutputMode::Json,
+                Verbosity::Quiet,
+                opts,
+            ),
+            "missing path should count as a check error"
+        );
     }
 }

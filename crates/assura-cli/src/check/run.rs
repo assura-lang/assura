@@ -88,7 +88,12 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
             }
             process::exit(2);
         }
-        run_watch_loop(filename, output_mode, verbosity, layer);
+        run_watch_loop(
+            filename,
+            output_mode,
+            verbosity,
+            compiler_config.verify.clone(),
+        );
         // run_watch_loop never returns (loops until interrupted)
     }
 
