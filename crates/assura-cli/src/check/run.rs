@@ -21,6 +21,7 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
         show_cores,
         strict,
         showcase_only,
+        timeout: cli_timeout,
     } = opts;
     // Load project config (assura.toml) if available
     let project = load_project_config(Path::new(filename));
@@ -50,6 +51,9 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
         let mut cc = CompilerConfig::from_project(proj, output_mode, verbosity);
         cc.verify.layer = layer;
         cc.verify.solver = solver;
+        if let Some(ms) = cli_timeout {
+            cc.verify.timeout_ms = ms;
+        }
         cc
     } else {
         CompilerConfig {
@@ -58,6 +62,8 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
             verify: assura_config::VerifyOptions {
                 layer,
                 solver,
+                timeout_ms: cli_timeout
+                    .unwrap_or(assura_config::VerifyOptions::default().timeout_ms),
                 ..Default::default()
             },
             ..Default::default()

@@ -2940,6 +2940,30 @@ fn check_missing_file_json_envelope() {
 }
 
 #[test]
+fn check_timeout_flag_is_accepted() {
+    let out = Command::new(assura_bin())
+        .args([
+            "check",
+            "/no/such/check/timeout.assura",
+            "--json",
+            "--timeout",
+            "2000",
+        ])
+        .output()
+        .expect("failed to run assura check --timeout");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("unexpected argument") && !stdout.contains("unexpected argument"),
+        "SPEC documents check --timeout; clap must accept it: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value =
+        serde_json::from_str(&stdout).expect("missing path --json must still be a JSON object");
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(v["file_info"]["success"], false);
+}
+
+#[test]
 fn check_showcase_only_filters_by_header() {
     let tmp = unique_temp("assura_showcase_only");
     let _ = std::fs::remove_dir_all(&tmp);
