@@ -1,0 +1,49 @@
+name: Rebase Dependabot
+
+# After a merge, strict required checks leave other Dependabot PRs BEHIND.
+# Dependabot rebase-strategy: auto is slow, so auto-merge sits armed forever.
+# Comment @dependabot rebase on those PRs when main moves (and hourly backup).
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rebase:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        with:
+          egress-policy: audit
+
+      - name: Rebase Dependabot PRs that are behind main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          nums=$(gh pr list --repo "${REPO}" --author "app/dependabot" --state open \
+            --json number,mergeStateStatus \
+            --jq '[.[] | select(.mergeStateStatus == "BEHIND") | .number] | .[]')
+          if [ -z "${nums}" ]; then
+            echo "No Dependabot PRs behind main."
+            exit 0
+          fi
+          for n in ${nums}; do
+            echo "Requesting rebase of #${n}"
+            gh pr comment "${n}" --repo "${REPO}" --body "@dependabot rebase"
+          done

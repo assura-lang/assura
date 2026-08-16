@@ -6,6 +6,7 @@ updates:
       interval: weekly
     # Keep open PRs rebased when main moves so strict status checks +
     # auto-merge can land without manual update-branch thrash.
+    # Backup when Dependabot is slow: .github/workflows/rebase-dependabot.yml
     rebase-strategy: auto
     # Groups collapse many lockfile PRs into one; limit still caps majors
     # and any ungrouped updates that remain solo.
