@@ -36,6 +36,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Rebase Dependabot PRs that are behind main
         env:
@@ -65,5 +66,7 @@ jobs:
               git rebase --abort
               continue
             fi
-            git push --force-with-lease origin "${branch}"
+            git push --force-with-lease \
+              "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" \
+              "HEAD:refs/heads/${branch}"
           done
