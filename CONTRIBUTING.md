@@ -148,10 +148,10 @@ implementation scope (title/body + creator/maintainer comments only).
 
 Patch and minor dependency PRs are approved and auto-merged when the
 required `ci` check is green on current `main`. After another PR lands,
-`.github/workflows/rebase-dependabot.yml` asks Dependabot to rebase any
-open bump that is behind so auto-merge can continue. Do not merge
-`main` into those branches by hand. Leave release-please PRs
-(`autorelease: pending`) for an explicit human merge.
+`.github/workflows/rebase-dependabot.yml` rebases any open bump that is
+behind so auto-merge can continue. Do not merge `main` into those
+branches by hand. Leave release-please PRs (`autorelease: pending`)
+for an explicit human merge.
 
 ### 1. Make your change
 
