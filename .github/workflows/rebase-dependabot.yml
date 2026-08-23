@@ -56,17 +56,32 @@ jobs:
           fi
 
           git fetch origin main
+          remote_url="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
           for n in ${nums}; do
             branch=$(gh pr view "${n}" --repo "${REPO}" --json headRefName --jq .headRefName)
             echo "Rebasing #${n} (${branch}) onto origin/main"
-            git fetch origin "${branch}"
+            # Named-remote lease needs a tracking SHA. Pushing to a URL has none,
+            # so bare --force-with-lease reports stale info and aborts (#1513).
+            git fetch origin "refs/heads/${branch}:refs/remotes/origin/${branch}"
+            expected=$(git rev-parse "origin/${branch}")
             git checkout -B "${branch}" "origin/${branch}"
             if ! git rebase origin/main; then
               echo "Conflict on #${n}; leaving it for a human."
               git rebase --abort
               continue
             fi
-            git push --force-with-lease \
-              "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" \
-              "HEAD:refs/heads/${branch}"
+            if ! git push --force-with-lease="refs/heads/${branch}:${expected}" \
+              "${remote_url}" "HEAD:refs/heads/${branch}"; then
+              echo "Lease rejected on #${n}; refetch and retry once."
+              git fetch origin "refs/heads/${branch}:refs/remotes/origin/${branch}"
+              expected=$(git rev-parse "origin/${branch}")
+              git checkout -B "${branch}" "origin/${branch}"
+              if ! git rebase origin/main; then
+                echo "Conflict on #${n} after retry; leaving it for a human."
+                git rebase --abort
+                continue
+              fi
+              git push --force-with-lease="refs/heads/${branch}:${expected}" \
+                "${remote_url}" "HEAD:refs/heads/${branch}"
+            fi
           done
