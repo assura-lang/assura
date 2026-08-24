@@ -696,7 +696,11 @@ is forbidden; cleanup sat in `REVIEW_REQUIRED` after v0.4.2 #1499).
 Correct pattern in `.github/workflows/release.yml` `cleanup-release-notes`:
 
 1. Create branch / commit / PR with `GITHUB_TOKEN` (`github-actions[bot]`)
-2. Approve + `gh pr merge --auto` with the App token (different identity)
+2. Start required checks as the **App** (`scripts/start-cleanup-pr-ci.sh`:
+   approve `action_required` stubs, empty commit so `synchronize` runs
+   as the App). A GITHUB_TOKEN-authored `pull_request` does not start
+   jobs; review alone leaves the PR `BLOCKED` (#1516 / #1517).
+3. Approve + `gh pr merge --auto` with the App token (different identity)
 
 Do not merge release-please PRs without explicit user approval. Full
 pattern: `ci-build-release` skill (RELEASE_NOTES dual-token section).
