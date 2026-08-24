@@ -3,6 +3,15 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.3](https://github.com/assura-lang/assura/compare/v0.4.2...v0.4.3) (2026-08-24)
+
+
+### Bug Fixes
+
+* **ci:** cleanup release notes PR must not self-approve ([#1500](https://github.com/assura-lang/assura/issues/1500)) ([d2d3f95](https://github.com/assura-lang/assura/commit/d2d3f95273d5311ac136973b69d51a86dad27f95))
+* **cli:** doctor optional deps, init next step, and check --timeout ([#1504](https://github.com/assura-lang/assura/issues/1504)) ([769a728](https://github.com/assura-lang/assura/commit/769a7281462c3c3c5d3e73f3920f73b24a107c9e))
+* **smt:** snapshot compound old() as pre-state ([#1514](https://github.com/assura-lang/assura/issues/1514)) ([cefd016](https://github.com/assura-lang/assura/commit/cefd016218aa97187000d4928a27845e25b97a56))
+
 ## [0.4.2](https://github.com/assura-lang/assura/compare/v0.4.1...v0.4.2) (2026-08-10)
 
 
