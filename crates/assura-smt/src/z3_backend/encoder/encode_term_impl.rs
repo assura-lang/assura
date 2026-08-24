@@ -658,7 +658,10 @@ impl EncodeTerm for Encoder {
                     result.as_int().unwrap_or_else(|| Encoder::fresh_int(self)),
                 ))
             }
-            crate::encode_old_policy::OldAccessPlan::Other => encode_sub(self, inner),
+            crate::encode_old_policy::OldAccessPlan::Other => {
+                let rewritten = crate::encode_old_policy::rewrite_expr_under_old(inner);
+                encode_sub(self, &rewritten)
+            }
         }
     }
 

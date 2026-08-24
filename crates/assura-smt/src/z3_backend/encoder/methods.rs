@@ -180,7 +180,9 @@ impl Encoder {
                     return (Z3Value::Int(val), end);
                 }
                 crate::encode_old_policy::RawOldPlan::Complex => {
-                    let (val, _) = self.parse_raw_expr(inner_tokens, 0);
+                    let rewritten =
+                        crate::encode_old_policy::rewrite_raw_tokens_under_old(inner_tokens);
+                    let (val, _) = self.parse_raw_expr(&rewritten, 0);
                     return (val, end);
                 }
             }

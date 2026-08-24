@@ -386,6 +386,24 @@ fn test_smtlib_old_adds_suffix() {
 }
 
 #[test]
+fn test_smtlib_old_compound_binop_uses_prestate() {
+    let inner = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+        op: BinOp::Add,
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+    });
+    let expr = Spanned::no_span(Expr::Old(Box::new(inner)));
+    assert_eq!(expr_to_smtlib(&expr), Some("(+ x__old 1)".into()));
+}
+
+#[test]
+fn test_smtlib_old_raw_compound_binop_uses_prestate() {
+    let inner = Spanned::no_span(Expr::Raw(vec!["x".into(), "+".into(), "1".into()]));
+    let expr = Spanned::no_span(Expr::Old(Box::new(inner)));
+    assert_eq!(expr_to_smtlib(&expr), Some("(+ x__old 1)".into()));
+}
+
+#[test]
 fn test_smtlib_literal_int() {
     let expr = Spanned::no_span(Expr::Literal(Literal::Int("5".into())));
     assert_eq!(expr_to_smtlib(&expr), Some("5".into()));

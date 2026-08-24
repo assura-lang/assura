@@ -211,3 +211,43 @@ fn test_old_unmodified_var_verified() {
         results[0]
     );
 }
+
+#[test]
+fn test_old_of_sum_with_literal() {
+    // old(x + 1) must snapshot x, so it equals old(x) + 1 even when x is
+    // in the modifies set (havoc'd post-state).
+    let src = r#"
+        contract OldSum {
+            input { x: Int }
+            modifies { x }
+            ensures { old(x + 1) == old(x) + 1 }
+        }
+    "#;
+    let results = verify_source(src);
+    assert!(!results.is_empty(), "should produce verification results");
+    assert!(
+        matches!(results[0], VerificationResult::Verified { .. }),
+        "old(x + 1) == old(x) + 1 should verify, got: {:?}",
+        results[0]
+    );
+}
+
+#[test]
+fn test_old_compound_does_not_collapse_to_poststate() {
+    // If old(x + 0) were encoded as live x + 0, this would falsely verify
+    // after havoc. Pre-state snapshot must leave x != old(x + 0) possible.
+    let src = r#"
+        contract OldNotPost {
+            input { x: Int }
+            modifies { x }
+            ensures { x == old(x + 0) }
+        }
+    "#;
+    let results = verify_source(src);
+    assert!(!results.is_empty(), "should produce verification results");
+    assert!(
+        matches!(results[0], VerificationResult::Counterexample { .. }),
+        "x == old(x + 0) under modifies x should be a counterexample, got: {:?}",
+        results[0]
+    );
+}
