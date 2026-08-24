@@ -144,7 +144,13 @@ fn rewrite_under_old(expr: &SpExpr, bound: &[String]) -> SpExpr {
                 }))
             }
         }
-        Expr::Field(_, _) => Expr::Old(Box::new(expr.clone())),
+        Expr::Field(base, field) => {
+            if expr_mentions_bound(base, bound) {
+                Expr::Field(Box::new(rewrite_under_old(base, bound)), field.clone())
+            } else {
+                Expr::Old(Box::new(expr.clone()))
+            }
+        }
         Expr::MethodCall {
             receiver,
             method,
@@ -256,6 +262,61 @@ fn rewrite_under_old(expr: &SpExpr, bound: &[String]) -> SpExpr {
     }
 }
 
+/// True if `expr` uses a name from `bound` (so wrapping the whole node as
+/// `old(...)` would snapshot a binder as if it were pre-state).
+fn expr_mentions_bound(expr: &SpExpr, bound: &[String]) -> bool {
+    if bound.is_empty() {
+        return false;
+    }
+    match &expr.node {
+        Expr::Ident(name) => bound.iter().any(|b| b == name),
+        Expr::Field(base, _)
+        | Expr::UnaryOp { expr: base, .. }
+        | Expr::Old(base)
+        | Expr::Ghost(base)
+        | Expr::Cast { expr: base, .. } => expr_mentions_bound(base, bound),
+        Expr::Index { expr: coll, index } => {
+            expr_mentions_bound(coll, bound) || expr_mentions_bound(index, bound)
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            expr_mentions_bound(lhs, bound) || expr_mentions_bound(rhs, bound)
+        }
+        Expr::MethodCall { receiver, args, .. } => {
+            expr_mentions_bound(receiver, bound)
+                || args.iter().any(|a| expr_mentions_bound(a, bound))
+        }
+        Expr::Call { func, args } => {
+            expr_mentions_bound(func, bound) || args.iter().any(|a| expr_mentions_bound(a, bound))
+        }
+        Expr::List(items) | Expr::Tuple(items) | Expr::Block(items) => {
+            items.iter().any(|e| expr_mentions_bound(e, bound))
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expr_mentions_bound(cond, bound)
+                || expr_mentions_bound(then_branch, bound)
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|e| expr_mentions_bound(e, bound))
+        }
+        Expr::Apply { args, .. } => args.iter().any(|a| expr_mentions_bound(a, bound)),
+        Expr::Forall { domain, body, .. } | Expr::Exists { domain, body, .. } => {
+            expr_mentions_bound(domain, bound) || expr_mentions_bound(body, bound)
+        }
+        Expr::Let { value, body, .. } => {
+            expr_mentions_bound(value, bound) || expr_mentions_bound(body, bound)
+        }
+        Expr::Match { scrutinee, arms } => {
+            expr_mentions_bound(scrutinee, bound)
+                || arms.iter().any(|a| expr_mentions_bound(&a.body, bound))
+        }
+        Expr::Literal(_) | Expr::Raw(_) => false,
+    }
+}
+
 fn collect_pattern_binds(pattern: &Pattern, bound: &mut Vec<String>) {
     match pattern {
         Pattern::Ident(name) => bound.push(name.clone()),
@@ -326,8 +387,8 @@ fn is_raw_old_non_state_token(tok: &str) -> bool {
 ///
 /// `["x", "+", "1"]` becomes `["x__old", "+", "1"]`. Nested `old ( y )`
 /// collapses to the snapshot. Field names after `.` and names followed
-/// by `(` stay live. Bound vars of raw `forall` / `exists` / `let` are
-/// not snapshotted.
+/// by `(` stay live. Raw `forall` / `let` binders are heuristic (the
+/// rest of the token slice); precise binders need the AST rewrite.
 pub(crate) fn rewrite_raw_tokens_under_old(tokens: &[String]) -> Vec<String> {
     rewrite_raw_tokens_under_old_bound(tokens, &HashSet::new())
 }
@@ -626,6 +687,34 @@ mod tests {
             &rewritten.node,
             Expr::Old(inner) if matches!(&inner.node, Expr::Ident(n) if n == "x")
         ));
+    }
+
+    #[test]
+    fn rewrite_bound_field_does_not_snapshot_binder() {
+        let field = Spanned::no_span(Expr::Field(
+            Box::new(Spanned::no_span(Expr::Ident("t".into()))),
+            "n".into(),
+        ));
+        let inner = Spanned::no_span(Expr::Let {
+            name: "t".into(),
+            value: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+            body: Box::new(field),
+        });
+        let rewritten = rewrite_expr_under_old(&inner);
+        let Expr::Let { body, .. } = &rewritten.node else {
+            panic!("expected let");
+        };
+        assert!(
+            matches!(&body.node, Expr::Field(_, f) if f == "n"),
+            "bound t.n must stay a field of t, not old(t.n): {body:?}"
+        );
+        let Expr::Field(base, _) = &body.node else {
+            panic!("expected field");
+        };
+        assert!(
+            matches!(&base.node, Expr::Ident(n) if n == "t"),
+            "binder t must stay live: {base:?}"
+        );
     }
 
     #[test]
