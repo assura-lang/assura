@@ -474,8 +474,9 @@ jobs:
   # 2. After GITHUB_TOKEN opens the PR, start CI as the App. A
   #    GITHUB_TOKEN-authored pull_request sits action_required with zero
   #    jobs; review alone does not start checks.
-  # Create as github-actions[bot], then App: empty commit + approve stubs
+  # Create as github-actions[bot], then App: approve stub runs
   # (scripts/start-cleanup-pr-ci.sh), then App approve + auto-merge.
+  # Do not push an empty App commit (last-push approval, #1520).
   # Non-fatal: notes left on main only affect the next release override window.
   cleanup-release-notes:
     needs:
@@ -499,7 +500,7 @@ jobs:
         with:
           client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
           private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
-          # Approve + auto-merge + start CI (empty commit / approve stubs).
+          # Approve + auto-merge + approve stub workflow runs.
           # PR author must stay GITHUB_TOKEN bot so the App can review.
           permission-contents: write
           permission-pull-requests: write

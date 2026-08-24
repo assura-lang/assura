@@ -697,9 +697,10 @@ Correct pattern in `.github/workflows/release.yml` `cleanup-release-notes`:
 
 1. Create branch / commit / PR with `GITHUB_TOKEN` (`github-actions[bot]`)
 2. Start required checks as the **App** (`scripts/start-cleanup-pr-ci.sh`:
-   approve `action_required` stubs, empty commit so `synchronize` runs
-   as the App). A GITHUB_TOKEN-authored `pull_request` does not start
-   jobs; review alone leaves the PR `BLOCKED` (#1516 / #1517).
+   approve `action_required` stubs). A GITHUB_TOKEN-authored
+   `pull_request` does not start jobs; review alone leaves the PR
+   `BLOCKED` (#1516 / #1517). Do **not** push an empty commit as the
+   App (`require_last_push_approval` dismisses the App review, #1520).
 3. Approve + `gh pr merge --auto` with the App token (different identity)
 
 Do not merge release-please PRs without explicit user approval. Full
