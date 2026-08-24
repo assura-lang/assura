@@ -3,9 +3,12 @@
 #
 # Dual-token review (GITHUB_TOKEN authors the PR, App approves it) does
 # not start CI. GitHub leaves those pull_request runs at action_required
-# with zero jobs. This script uses APP_TOKEN to:
-#   1. Approve any stub action_required runs on the branch
-#   2. Push an empty commit as the App so synchronize starts real jobs
+# with zero jobs. This script uses APP_TOKEN to approve those stub runs.
+#
+# Do not push an empty commit as the App. main-branch-protection has
+# require_last_push_approval and dismiss_stale_reviews_on_push. If the
+# App is the last pusher, its review is dismissed and it cannot approve
+# itself (#1520, same class as #1499).
 #
 # Usage (from repo root, or any cwd; no checkout required for API path):
 #   GH_REPO=assura-lang/assura BRANCH=chore/cleanup-release-notes-vX.Y.Z \
@@ -14,12 +17,10 @@
 set -euo pipefail
 
 self_test() {
-  local payload
-  payload=$(jq -n --arg msg "ci: start cleanup checks as App" \
-    --arg tree "abc" --arg parent "def" \
-    '{message:$msg, tree:$tree, parents:[$parent]}')
-  echo "$payload" | jq -e '.parents | type == "array" and length == 1' >/dev/null
-  echo "$payload" | jq -e '.message == "ci: start cleanup checks as App"' >/dev/null
+  if grep -qE '^empty_commit_as_app\(\)' "$0"; then
+    echo "FAIL: empty_commit_as_app function still present"
+    exit 1
+  fi
   echo "OK: start-cleanup-pr-ci self-test"
 }
 
@@ -31,13 +32,13 @@ fi
 : "${GH_REPO:?set GH_REPO}"
 : "${BRANCH:?set BRANCH}"
 if [[ -z "${APP_TOKEN:-}" ]]; then
-  echo "FAIL: APP_TOKEN unset; cannot start cleanup CI as App"
+  echo "FAIL: APP_TOKEN unset; cannot approve cleanup CI stubs as App"
   exit 1
 fi
 
 export GH_TOKEN="$APP_TOKEN"
 
-echo "PLAN: start cleanup CI as App repo=${GH_REPO} branch=${BRANCH}"
+echo "PLAN: approve cleanup stub runs as App repo=${GH_REPO} branch=${BRANCH}"
 
 approve_stub_runs() {
   local ids id
@@ -60,27 +61,5 @@ approve_stub_runs() {
   done <<<"${ids}"
 }
 
-empty_commit_as_app() {
-  local head_sha tree msg new_sha
-  head_sha=$(gh api "repos/${GH_REPO}/git/ref/heads/${BRANCH}" --jq '.object.sha')
-  tree=$(gh api "repos/${GH_REPO}/git/commits/${head_sha}" --jq '.tree.sha')
-  msg=$(gh api "repos/${GH_REPO}/git/commits/${head_sha}" --jq '.message')
-  if [[ "${msg}" == "ci: start cleanup checks as App" ]]; then
-    echo "OK: App empty commit already present sha=${head_sha}"
-    echo "DONE: actor=app branch=${BRANCH} sha=${head_sha}"
-    return 0
-  fi
-  echo "DO: empty commit as App on ${BRANCH}"
-  new_sha=$(
-    jq -n --arg msg "ci: start cleanup checks as App" \
-      --arg tree "${tree}" --arg parent "${head_sha}" \
-      '{message:$msg, tree:$tree, parents:[$parent]}' \
-      | gh api "repos/${GH_REPO}/git/commits" --input - --jq '.sha'
-  )
-  gh api --method PATCH "repos/${GH_REPO}/git/refs/heads/${BRANCH}" \
-    -f sha="${new_sha}" >/dev/null
-  echo "DONE: actor=app branch=${BRANCH} sha=${new_sha}"
-}
-
 approve_stub_runs
-empty_commit_as_app
+echo "DONE: actor=app branch=${BRANCH} (stub approve only)"
