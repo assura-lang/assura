@@ -41,3 +41,4 @@ Used for issue triage and parity verification.
 |--------|---------|-------------|
 | `audit-cvc5-parity-closures.sh` | Check CVC5 parity issue closure coverage | When auditing CVC5 feature completeness |
 | `wait-for-ci-cvc5.sh <sha>` | Wait for CI CVC5 job to complete on a commit | Before closing `cvc5-parity` issues (#304 rule) |
+| `start-cleanup-pr-ci.sh` | App-actor empty commit + approve stub runs on a GITHUB_TOKEN cleanup PR | Called from `release.yml` `cleanup-release-notes` (#1517) |

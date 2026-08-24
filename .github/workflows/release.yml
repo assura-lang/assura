@@ -469,12 +469,13 @@ jobs:
   # Remove curated RELEASE_NOTES.md from main after it was applied to the
   # GitHub Release body (host job). Branch protection requires a PR + review.
   #
-  # Root cause (v0.4.2 #1499): opening the cleanup PR with the same GitHub App
-  # that auto-approves means the App is the PR author. GitHub forbids
-  # self-approval, so auto-merge sat in REVIEW_REQUIRED forever.
-  #
-  # Fix: create branch/commit/PR as github-actions[bot] (GITHUB_TOKEN), then
-  # approve + enable auto-merge with the App token (different identity).
+  # Two identity rules (v0.4.2 #1499 and v0.4.3 #1516/#1517):
+  # 1. Do not open the PR as the same App that approves it (self-approval).
+  # 2. After GITHUB_TOKEN opens the PR, start CI as the App. A
+  #    GITHUB_TOKEN-authored pull_request sits action_required with zero
+  #    jobs; review alone does not start checks.
+  # Create as github-actions[bot], then App: empty commit + approve stubs
+  # (scripts/start-cleanup-pr-ci.sh), then App approve + auto-merge.
   # Non-fatal: notes left on main only affect the next release override window.
   cleanup-release-notes:
     needs:
@@ -498,9 +499,16 @@ jobs:
         with:
           client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
           private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
-          # Approve + auto-merge only (PR author must be GITHUB_TOKEN bot).
+          # Approve + auto-merge + start CI (empty commit / approve stubs).
+          # PR author must stay GITHUB_TOKEN bot so the App can review.
           permission-contents: write
           permission-pull-requests: write
+          permission-actions: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          # Dispatch after a workflow fix: use main tip. Tag push: tagged tree.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || needs.plan.outputs.tag }}
       - name: Open PR to remove RELEASE_NOTES.md
         continue-on-error: true
         env:
@@ -533,6 +541,16 @@ jobs:
             echo "RELEASE_NOTES.md already absent on ${BRANCH}"
           fi
 
+          start_cleanup_ci() {
+            if [ -z "${APP_TOKEN:-}" ]; then
+              echo "App token unavailable; cleanup CI may sit action_required."
+              return 0
+            fi
+            APP_TOKEN="${APP_TOKEN}" GH_REPO="${GH_REPO}" BRANCH="${BRANCH}" \
+              bash scripts/start-cleanup-pr-ci.sh \
+              || echo "start-cleanup-pr-ci failed; continuing."
+          }
+
           approve_and_automerge() {
             local pr_ref="$1"
             if [ -n "${APP_TOKEN:-}" ]; then
@@ -551,6 +569,7 @@ jobs:
             --json number --jq '.[0].number // empty')
           if [ -n "${EXISTING}" ]; then
             echo "Cleanup PR already open: #${EXISTING}"
+            start_cleanup_ci
             approve_and_automerge "${EXISTING}"
             exit 0
           fi
@@ -564,4 +583,5 @@ jobs:
             --title "chore: remove release notes override" \
             --body "Auto-cleanup after ${TAG}: curated RELEASE_NOTES.md was applied to the GitHub Release and should not stay on main for the next cut.")
           echo "Opened cleanup PR: ${PR_URL}"
+          start_cleanup_ci
           approve_and_automerge "${PR_URL}"
