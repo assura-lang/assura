@@ -119,7 +119,8 @@ fn parse_raw_atom_smtlib(
                 return Some((smt, end));
             }
             crate::encode_old_policy::RawOldPlan::Complex => {
-                if let Some((val, _)) = parse_raw_expr_smtlib(inner, 0, 0, fresh) {
+                let rewritten = crate::encode_old_policy::rewrite_raw_tokens_under_old(inner);
+                if let Some((val, _)) = parse_raw_expr_smtlib(&rewritten, 0, 0, fresh) {
                     return Some((val, end));
                 }
                 let fresh_name = crate::encode_old_policy::allocate_old_complex_fresh(fresh);
@@ -344,11 +345,8 @@ mod tests {
 
     #[test]
     fn old_complex_expr_parses_with_fresh_counter() {
-        // Complex inner expressions (more than 1 or 3 tokens) go through
-        // RawOldPlan::Complex which passes the fresh counter to the inner
-        // parse. The counter is used for fallback naming via
-        // allocate_old_complex_fresh (tested directly in encode_old_policy).
-        // Here we verify the parse path works correctly with the counter.
+        // Complex inner expressions go through RawOldPlan::Complex and
+        // rewrite_raw_tokens_under_old so free idents snapshot to *__old.
         let mut fresh = 0usize;
         let tokens = vec![
             "old".into(),
@@ -361,6 +359,6 @@ mod tests {
             "1".into(),
         ];
         let result = encode_raw_tokens_smtlib(&tokens, &mut fresh);
-        assert_eq!(result, Some("(+ (+ a b) 1)".into()));
+        assert_eq!(result, Some("(+ (+ a__old b__old) 1)".into()));
     }
 }

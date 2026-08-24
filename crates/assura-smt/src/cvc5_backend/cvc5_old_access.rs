@@ -28,7 +28,10 @@ where
             let old_recv = encode(&old_expr)?;
             Some(old_method_call_smtlib(&method, &old_recv))
         }
-        OldAccessPlan::Other => encode(inner),
+        OldAccessPlan::Other => {
+            let rewritten = crate::encode_old_policy::rewrite_expr_under_old(inner);
+            encode(&rewritten)
+        }
     }
 }
 
@@ -104,6 +107,9 @@ where
             let func_const = tm.mk_const(func_sort, &method);
             Some(tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, old_recv]))
         }
-        OldAccessPlan::Other => encode(inner, vars, state),
+        OldAccessPlan::Other => {
+            let rewritten = crate::encode_old_policy::rewrite_expr_under_old(inner);
+            encode(&rewritten, vars, state)
+        }
     }
 }

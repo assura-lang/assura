@@ -153,38 +153,9 @@ fn parse_raw_atom_cvc5<'a>(
                 return Some((result, end));
             }
             crate::encode_old_policy::RawOldPlan::Complex => {
-                let mut old_vars = vars.clone();
-                for inner_tok in inner_tokens {
-                    if inner_tok
-                        .chars()
-                        .next()
-                        .is_some_and(|c| c.is_alphabetic() || c == '_')
-                        && !matches!(
-                            inner_tok.as_str(),
-                            "true"
-                                | "false"
-                                | "old"
-                                | "forall"
-                                | "exists"
-                                | "result"
-                                | "not"
-                                | "and"
-                                | "or"
-                                | "implies"
-                                | "mod"
-                                | "div"
-                                | "in"
-                        )
-                    {
-                        let old_key = crate::encode_atom_policy::old_snapshot_name(inner_tok);
-                        old_vars
-                            .entry(old_key.clone())
-                            .or_insert_with(|| tm.mk_const(tm.integer_sort(), &old_key));
-                    }
-                }
-                if let Some((val, _)) =
-                    parse_raw_expr_cvc5(tm, inner_tokens, 0, 0, &mut old_vars, state)
-                {
+                let rewritten =
+                    crate::encode_old_policy::rewrite_raw_tokens_under_old(inner_tokens);
+                if let Some((val, _)) = parse_raw_expr_cvc5(tm, &rewritten, 0, 0, vars, state) {
                     return Some((val, end));
                 }
                 let fresh_name =
