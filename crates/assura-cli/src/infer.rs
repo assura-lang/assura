@@ -59,7 +59,7 @@ pub(crate) fn run_infer(
                     "suggestion_count": 0,
                     "suggestions": [],
                     "message": format!("No public function signatures found in {filename}"),
-                    "success": false,
+                    "success": true,
                     "vacuous": true,
                     "vacuous_reason": "no functions to infer",
                 }))
@@ -99,7 +99,7 @@ pub(crate) fn run_infer(
                     "suggestion_count": 0,
                     "suggestions": [],
                     "message": format!("No public function signatures found in {filename}"),
-                    "success": false,
+                    "success": true,
                     "vacuous": true,
                     "vacuous_reason": "no functions to infer",
                 }))
@@ -372,7 +372,7 @@ pub(crate) fn run_infer_heuristic(
                 "suggestions": [],
                 "message": format!("Nothing inferred for {filename}"),
                 "focus": focus,
-                "success": false,
+                "success": true,
                 "vacuous": true,
                 "vacuous_reason": vacuous_reason,
             });

@@ -1889,8 +1889,8 @@ fn infer_rust_no_risk_is_vacuous() {
     assert_eq!(v["vacuous"], true, "{v}");
     assert_eq!(v["suggestion_count"], 0, "{v}");
     assert_eq!(
-        v["success"], false,
-        "empty infer must not claim success: {v}"
+        v["success"], true,
+        "vacuous infer is empty work, not a failure: {v}"
     );
     let reason = v["vacuous_reason"].as_str().unwrap_or("");
     assert!(
@@ -3758,6 +3758,34 @@ fn check_rust_dir_unparseable_json() {
     assert!(
         !stderr.contains("Error:"),
         "human scan error must not leak under --json: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// Directory scan human stderr must name the unparseable file (fail-closed).
+#[test]
+fn check_rust_dir_unparseable_names_file() {
+    let tmp = unique_temp("assura_check_rust_dir_human");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(tmp.join("broken.rs"), "fn (\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check-rust", tmp.to_str().unwrap()])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust on dir with garbage");
+    assert_ne!(
+        out.status.code(),
+        Some(0),
+        "dir with unparseable .rs must not exit 0: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("broken.rs"),
+        "human dir scan must name the failing file: {stderr}"
     );
     let _ = std::fs::remove_dir_all(&tmp);
 }
