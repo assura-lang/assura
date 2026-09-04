@@ -354,7 +354,8 @@ Language Server Protocol server built with `tower-lsp` 0.20:
 
 Model Context Protocol server built with `rmcp` 1.7 (`assura mcp`):
 - `assura_check`: Parse, type-check, and verify a contract
-- `assura_infer`: Infer skeleton contracts from Rust source
+- `assura_infer`: Infer skeleton contracts from Rust source (JSON envelope:
+  `success`, `vacuous`, `text`; write `text` to `.assura`, not the envelope)
 - `assura_explain`: Look up error code descriptions
 - `assura_type_map`: Map a Rust type to an Assura type
 - `assura_ir_prompt`: Render an Implementation IR generation prompt

@@ -63,6 +63,41 @@ Tools: `assura_check`, `assura_infer`, `assura_explain`, `assura_type_map`,
 `assura_ir_prompt`, `assura_ir_verify`. List them from your MCP client after
 connecting. Prefer `assura check --json` when MCP is unavailable.
 
+### JSON envelopes (`assura_check`, `assura_infer`)
+
+Both tools return a JSON object, not raw diagnostic text or raw contract
+source. Shared fields:
+
+| Field | Meaning |
+|-------|---------|
+| `success` | Work completed without a hard error. Vacuous work is still `true`. |
+| `vacuous` | No contracts / no SMT obligations / nothing inferred. Not coverage. |
+| `vacuous_reason` | Why the run was empty (present when `vacuous` is true). |
+| `text` | (`assura_infer` only) inferred `.assura` source. |
+
+`assura_infer` is **not** a raw contract string. Write `result.text` to a
+`.assura` file, never the whole envelope. When infer is vacuous, `success`
+is true, `vacuous` is true, and `text` is empty or a "nothing found"
+placeholder. Branch on `vacuous` (and `vacuous_reason`), not on `success`.
+
+`success: false` means a real error (unknown `--function` on the CLI,
+parse/IO/LLM failure, or a jail reject below).
+
+### File jail
+
+`file` / `ir_file` arguments must be **relative to the MCP process cwd**.
+Allowed extensions: `.assura`, `.rs`, `.ir`. Absolute paths outside cwd,
+`../` escapes, missing files, and other extensions are rejected.
+
+Rejected paths return JSON (same shape as other JSON-tool errors):
+
+```json
+{"success": false, "error": "path not allowed", "error_kind": "PATH_NOT_ALLOWED"}
+```
+
+The error string does not include the requested filesystem path. Inline
+`source` / `ir` text is not jailed.
+
 ## Suggested agent checklist
 
 1. Prefer showcase demos over `*-audit.assura` (many audits are EXPECT FAIL).

@@ -53,6 +53,20 @@ Top-level keys commonly used by agents:
 
 See [What we prove](WHAT-WE-PROVE.md) and [SMT portfolio note](SMT-NOTE.md).
 
+### `assura infer` / MCP `assura_infer`
+
+CLI `--json` and MCP `assura_infer` return a JSON envelope, not raw
+`.assura` text.
+
+| Field | Meaning |
+|-------|---------|
+| `success` | No hard error. Vacuous infer (no functions / no-risk Rust) is `true`. |
+| `vacuous` / `vacuous_reason` | Nothing inferred; do not treat as a generated contract |
+| `text` | Inferred contract source. Write **this field** to a `.assura` file. |
+
+Vacuous infer: `success` true, `vacuous` true, `text` empty or a
+placeholder. `success: false` is parse/IO/LLM/unknown-function/jail only.
+
 ### `assura check-rust path --json`
 
 | Field | Meaning |
