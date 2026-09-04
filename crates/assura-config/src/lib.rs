@@ -142,6 +142,8 @@ impl Default for BuildConfig {
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct VerifyConfig {
+    /// SMT solver. Canonical toml key is `smt-solver`; `solver` is also accepted.
+    #[serde(alias = "solver")]
     pub smt_solver: SolverChoice,
     pub layer: u8,
     pub timeout: u64,

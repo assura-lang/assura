@@ -380,12 +380,16 @@ target = "native"    # or "wasm"
 [verify]
 timeout = 5000
 layer = 255          # 0=structural, 1=SMT, 255=all
-solver = "z3"        # "z3", "cvc5", or "portfolio"
+smt-solver = "z3"    # "z3", "cvc5", or "portfolio"
+# `solver` is also accepted as an alias for `smt-solver`
 
 [profile]
-parallel = true
-cache = true
+type = "minimal"     # parsed only; does not set parallel or cache
 ```
+
+`[profile]` only has `type`. Parallel verification defaults on and the
+disk verify cache defaults off (`VerifyOptions`). Choose the solver with
+`[verify] smt-solver` or `assura check --solver`.
 
 ### Creating a new project
 
