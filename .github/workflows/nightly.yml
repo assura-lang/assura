@@ -12,9 +12,12 @@ concurrency:
 permissions:
   contents: read
 
+# Daily CI (ci.yml schedule 0 3 * * *) already runs fmt, clippy, workspace
+# test, cargo-package, CVC5, demo check/codegen, and no-z3. Nightly keeps
+# only coverage CI still skips: examples/**/*.assura.
 jobs:
-  full-test:
-    name: Full test suite
+  examples:
+    name: E2E check all examples
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -31,8 +34,6 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
-        with:
-          components: clippy, rustfmt
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
@@ -41,7 +42,7 @@ jobs:
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get install -y protobuf-compiler libz3-dev z3 ripgrep
+        run: sudo apt-get install -y protobuf-compiler libz3-dev z3
         env:
           DEBIAN_FRONTEND: noninteractive
 
@@ -54,26 +55,8 @@ jobs:
             echo "LIBRARY_PATH=/usr/lib/x86_64-linux-gnu"
           } >> "$GITHUB_ENV"
 
-      - name: Format check
-        run: cargo fmt --check --all
-
-      - name: Clippy
-        run: cargo clippy --workspace --locked -- -D warnings
-
-      - name: Full test suite
-        run: cargo test --workspace --locked
-
       - name: Build compiler
         run: cargo build --locked --bin assura
-
-      - name: E2E check all demos
-        run: |
-          for demo in demos/*.assura; do
-            # Audit demos have intentional counterexamples (real CVE models); skip them
-            case "$demo" in *-audit*|*audit-*) echo "=== Skipping audit demo $demo ==="; continue;; esac
-            echo "=== Checking $demo ==="
-            cargo run --bin assura -- check "$demo"
-          done
 
       - name: E2E check all examples
         run: |
@@ -86,37 +69,3 @@ jobs:
             fi
           done
           exit $failed
-
-      - name: Codegen validation (demos)
-        run: |
-          for demo in demos/*.assura; do
-            case "$demo" in *-audit*|*audit-*) continue;; esac
-            echo "=== Building $demo ==="
-            cargo run --bin assura -- build --no-check "$demo"
-            # build writes to <input-parent>/generated/ (e.g. demos/generated/)
-            gen_dir="$(dirname "$demo")/generated"
-            echo "=== Checking generated Rust for $demo ==="
-            (cd "$gen_dir" && cargo check)
-            rm -rf "$gen_dir"
-          done
-
-  no-z3-fallback:
-    name: No-Z3 fallback
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Harden runner
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
-        with:
-          egress-policy: audit
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-        with:
-          shared-key: ci-nightly-no-z3
-      - name: Build without Z3
-        run: cargo check -p assura-smt --no-default-features --locked
