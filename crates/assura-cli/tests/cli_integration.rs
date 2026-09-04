@@ -3499,6 +3499,116 @@ fn check_rust_dir_unparseable_json() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// `suggest-from-crash --json` without crash input must emit `missing_crash_input`.
+#[test]
+fn suggest_from_crash_missing_input_json() {
+    let out = Command::new(assura_bin())
+        .args(["suggest-from-crash", "--target", "src/lib.rs", "--json"])
+        .output()
+        .expect("failed to run suggest-from-crash --json missing input");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "missing crash input should exit 1: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!(
+            "suggest-from-crash missing input --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}"
+        )
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error"], "missing_crash_input", "{v}");
+    assert!(
+        !stderr.contains("Error: specify --crash-input"),
+        "human missing-input error must not leak under --json: {stderr}"
+    );
+}
+
+/// `suggest-from-crash --json` on a missing crash file must emit JSON and exit 1.
+#[test]
+fn suggest_from_crash_missing_file_json() {
+    let out = Command::new(assura_bin())
+        .args([
+            "suggest-from-crash",
+            "--crash-input",
+            "/no/such/crash/artifact.bin",
+            "--target",
+            "src/lib.rs",
+            "--json",
+        ])
+        .output()
+        .expect("failed to run suggest-from-crash --json missing file");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "missing crash file should exit 1: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!(
+            "suggest-from-crash missing file --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}"
+        )
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error"], "crash_input_read_failed", "{v}");
+    assert_eq!(v["path"], "/no/such/crash/artifact.bin");
+    assert!(
+        !stderr.contains("Error reading crash artifact"),
+        "human crash-file error must not leak under --json: {stderr}"
+    );
+}
+
+/// `suggest-from-crash --json` on a missing target must emit `target_not_found`.
+#[test]
+fn suggest_from_crash_missing_target_json() {
+    let tmp = unique_temp("assura_suggest_crash_target");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let crash = tmp.join("crash-0001");
+    std::fs::write(&crash, b"AAAA").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args([
+            "suggest-from-crash",
+            "--crash-input",
+            crash.to_str().unwrap(),
+            "--target",
+            "/no/such/suggest/target.rs",
+            "--json",
+        ])
+        .output()
+        .expect("failed to run suggest-from-crash --json missing target");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "missing target should exit 1: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!(
+            "suggest-from-crash missing target --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}"
+        )
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error"], "target_not_found", "{v}");
+    assert_eq!(v["path"], "/no/such/suggest/target.rs");
+    assert!(
+        !stderr.contains("is not a file or directory"),
+        "human missing-target error must not leak under --json: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 /// `infer --json` on a missing Rust file must emit JSON and exit 2.
 #[test]
 fn infer_missing_file_json() {
