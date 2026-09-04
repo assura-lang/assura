@@ -126,7 +126,7 @@ impl AssuraMcpServer {
     fn assura_check(&self, Parameters(params): Parameters<CheckParams>) -> String {
         let (source, filename) = match resolve_source_with_path(params.source, params.file) {
             Ok(v) => v,
-            Err(e) => return e,
+            Err(e) => return tool_path_error_json(e),
         };
         let result = run_check_pipeline(&source, &filename);
         serde_json::to_string_pretty(&result).unwrap_or_default()
@@ -138,7 +138,7 @@ impl AssuraMcpServer {
     fn assura_infer(&self, Parameters(params): Parameters<InferParams>) -> String {
         let source = match resolve_source(params.source, params.file) {
             Ok(s) => s,
-            Err(e) => return e,
+            Err(e) => return tool_path_error_json(e),
         };
         infer_contracts_report(&source)
     }
@@ -232,6 +232,26 @@ fn resolve_source(inline: Option<String>, file: Option<String>) -> Result<String
 }
 
 const PATH_NOT_ALLOWED: &str = "path not allowed";
+
+/// JSON tools (`assura_check`, `assura_infer`) wrap jail/path errors so agents
+/// can branch on `success` instead of parsing a bare string.
+fn tool_path_error_json(err: String) -> String {
+    if err == PATH_NOT_ALLOWED {
+        serde_json::json!({
+            "success": false,
+            "error": PATH_NOT_ALLOWED,
+            "error_kind": "PATH_NOT_ALLOWED",
+        })
+        .to_string()
+    } else {
+        serde_json::json!({
+            "success": false,
+            "error": err,
+            "error_kind": "RESOLVE_FAILED",
+        })
+        .to_string()
+    }
+}
 /// Same 16 MiB cap as CLI `read_source_arg` / `MAX_SOURCE_BYTES`.
 const MAX_SOURCE_BYTES: u64 = 16 * 1024 * 1024;
 const SOURCE_TOO_LARGE: &str = "source exceeds maximum size";
@@ -419,7 +439,7 @@ fn infer_contracts_report(source: &str) -> String {
     let text = infer_contracts_from_rust(source);
     let vacuous = text.trim().is_empty() || text == "No public function signatures found.";
     serde_json::to_string_pretty(&serde_json::json!({
-        "success": !vacuous,
+        "success": true,
         "vacuous": vacuous,
         "vacuous_reason": if vacuous {
             Some("no functions to infer")
@@ -1084,9 +1104,55 @@ contract Bar {
         let result = server.assura_infer(Parameters(params));
         let v: serde_json::Value =
             serde_json::from_str(&result).unwrap_or_else(|e| panic!("JSON: {e}\n{result}"));
-        assert_eq!(v["success"], false, "{v}");
+        assert_eq!(
+            v["success"], true,
+            "vacuous infer is empty work, not a failure: {v}"
+        );
         assert_eq!(v["vacuous"], true, "empty infer must report vacuous: {v}");
         assert_eq!(v["vacuous_reason"], "no functions to infer", "{v}");
+    }
+
+    fn assert_path_not_allowed_json(result: &str, probe: &str) {
+        let v: serde_json::Value = serde_json::from_str(result).unwrap_or_else(|e| {
+            panic!("jail reject must be JSON, not a bare string: {e}\n{result}")
+        });
+        assert_eq!(v["success"], false, "{v}");
+        assert_eq!(v["error"], "path not allowed", "{v}");
+        assert_eq!(v["error_kind"], "PATH_NOT_ALLOWED", "{v}");
+        assert!(
+            !result.contains(probe),
+            "jail error must not leak the filesystem path: {result}"
+        );
+    }
+
+    #[test]
+    fn tool_check_jail_reject_is_json() {
+        let server = AssuraMcpServer::new();
+        let probe = std::env::temp_dir()
+            .join("assura_mcp_jail_check.assura")
+            .to_string_lossy()
+            .into_owned();
+        let params = CheckParams {
+            source: None,
+            file: Some(probe.clone()),
+        };
+        let result = server.assura_check(Parameters(params));
+        assert_path_not_allowed_json(&result, &probe);
+    }
+
+    #[test]
+    fn tool_infer_jail_reject_is_json() {
+        let server = AssuraMcpServer::new();
+        let probe = std::env::temp_dir()
+            .join("assura_mcp_jail_infer.rs")
+            .to_string_lossy()
+            .into_owned();
+        let params = InferParams {
+            source: None,
+            file: Some(probe.clone()),
+        };
+        let result = server.assura_infer(Parameters(params));
+        assert_path_not_allowed_json(&result, &probe);
     }
 
     // -----------------------------------------------------------------------
