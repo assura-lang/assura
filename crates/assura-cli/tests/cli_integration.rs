@@ -1900,6 +1900,47 @@ fn infer_rust_no_risk_is_vacuous() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// Legacy (non-`.rs`) infer with no function signatures is vacuous success.
+/// Must exit 0 with `success`/`vacuous` true (not JSON success then exit 1).
+#[test]
+fn infer_assura_no_functions_json_is_vacuous() {
+    let tmp = unique_temp("assura_infer_assura_vacuous");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(tmp.join("empty.assura"), "// no functions\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args([
+            "infer",
+            "--json",
+            tmp.join("empty.assura").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run assura infer --json on empty .assura");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "vacuous infer on .assura should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("infer --json empty .assura must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(
+        v["success"], true,
+        "vacuous infer is empty work, not a failure: {v}"
+    );
+    assert_eq!(v["vacuous"], true, "{v}");
+    assert_eq!(v["function_count"], 0, "{v}");
+    let reason = v["vacuous_reason"].as_str().unwrap_or("");
+    assert!(
+        !reason.is_empty(),
+        "vacuous infer must set vacuous_reason: {v}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 /// Unknown `--function` on a .rs file must exit 1 with the same not-found
 /// envelope as the legacy non-.rs path.
 #[test]

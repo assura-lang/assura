@@ -69,7 +69,7 @@ pub(crate) fn run_infer(
             eprintln!("Nothing inferred for {filename}");
             eprintln!("No public function signatures found in {filename}");
         }
-        process::exit(1);
+        return;
     }
 
     let filtered: Vec<&RustFnSig> = if let Some(name) = function_filter {
@@ -109,7 +109,7 @@ pub(crate) fn run_infer(
             eprintln!("Nothing inferred for {filename}");
             eprintln!("No public function signatures found in {filename}");
         }
-        process::exit(1);
+        return;
     }
 
     let module_path = derive_rust_module_path(filename);
