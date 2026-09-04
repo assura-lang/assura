@@ -5,6 +5,12 @@ name: Rebase Dependabot
 # Replay each behind branch onto origin/main. Do not comment
 # @dependabot rebase: github-actions[bot] and the auto-approve App are
 # both rejected ("only users with push access", #1508 / #1509).
+#
+# Push the rebase with GITHUB_TOKEN (not the App). require_last_push_approval
+# dismisses the last pusher's review. If the App pushed, it could not approve
+# (#1520). That GITHUB_TOKEN push leaves CI/Security/Auto-approve at
+# action_required with zero jobs (#1516 / #1522). The following step uses
+# the App token to approve those stubs and re-approve the PR.
 
 on:
   push:
@@ -26,7 +32,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
-      pull-requests: read
+      pull-requests: write
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
@@ -37,6 +43,19 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      # App is not last pusher (rebase uses GITHUB_TOKEN). That is required
+      # so this token can approve the PR under require_last_push_approval
+      # and start action_required stub runs (#1516 / #1522).
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        continue-on-error: true
+        with:
+          client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
+          private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
 
       - name: Rebase Dependabot PRs that are behind main
         env:
@@ -85,3 +104,51 @@ jobs:
                 "${remote_url}" "HEAD:refs/heads/${branch}"
             fi
           done
+
+      - name: Start CI and re-approve after GITHUB_TOKEN rebase
+        if: steps.app-token.outputs.token != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # GITHUB_TOKEN rebase leaves pull_request runs at action_required
+          # with zero jobs. User tokens 404 on run-approve; App token works
+          # (start-cleanup-pr-ci.sh). App is not last pusher, so it can also
+          # satisfy require_last_push_approval. Only touch PRs that already
+          # have auto-merge armed (skip unreviewed majors).
+          echo "PLAN: unstick Dependabot PRs with action_required stubs"
+          for _try in 1 2 3 4 5; do
+            found=0
+            nums=$(gh pr list --repo "${REPO}" --author "app/dependabot" \
+              --state open --json number,autoMergeRequest \
+              --jq '.[] | select(.autoMergeRequest != null) | .number')
+            for n in ${nums}; do
+              branch=$(gh pr view "${n}" --repo "${REPO}" --json headRefName \
+                --jq .headRefName)
+              ids=$(gh run list --repo "${REPO}" --branch "${branch}" --limit 15 \
+                --json databaseId,conclusion \
+                --jq '.[] | select(.conclusion == "action_required") | .databaseId')
+              if [ -z "${ids}" ]; then
+                continue
+              fi
+              found=1
+              echo "DO: approve stubs on #${n}"
+              while read -r id; do
+                [ -z "${id}" ] && continue
+                gh api -X POST "repos/${REPO}/actions/runs/${id}/approve" \
+                  >/dev/null && echo "OK: approved run ${id}" \
+                  || echo "FAIL: approve ${id} (continuing)"
+              done <<<"${ids}"
+              gh pr review --approve "${n}" --repo "${REPO}" \
+                || echo "Approve #${n} failed or already approved"
+              gh pr merge --auto --squash "${n}" --repo "${REPO}" \
+                || echo "auto-merge already armed or blocked on #${n}"
+            done
+            if [ "${found}" -eq 0 ]; then
+              echo "OK: no action_required Dependabot stubs"
+              break
+            fi
+            sleep 4
+          done
+          echo "DONE: Dependabot unstick pass"
