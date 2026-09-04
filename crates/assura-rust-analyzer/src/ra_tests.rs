@@ -1299,3 +1299,66 @@ fn scan_directory_fails_on_unparseable_rs() {
         other => panic!("expected Parse, got {other:?}"),
     }
 }
+
+#[test]
+fn parse_rust_source_default_skips_unannotated_functions() {
+    let source = "fn foo(x: i32) -> i32 { x }\n";
+    let items = parse_rust_source(source).unwrap();
+    assert!(
+        items.is_empty(),
+        "default scan must not collect unannotated functions: {items:?}"
+    );
+}
+
+#[test]
+fn parse_rust_source_include_unannotated_collects_functions() {
+    let source = "fn foo(x: i32) -> i32 { x }\n";
+    let items = parse_rust_source_with_options(
+        source,
+        ScanOptions {
+            include_unannotated: true,
+        },
+    )
+    .unwrap();
+    assert_eq!(items.len(), 1);
+    match &items[0].kind {
+        AnnotatedItemKind::Function { name, .. } => assert_eq!(name, "foo"),
+        other => panic!("expected Function, got {other:?}"),
+    }
+    assert!(items[0].contract.is_empty());
+}
+
+#[test]
+fn scan_directory_include_unannotated_keeps_empty_contract_files() {
+    let dir = std::env::temp_dir().join(format!(
+        "assura_ra_scan_unann_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("plain.rs"), "fn foo(x: i32) -> i32 { x }\n").unwrap();
+
+    let default_scan = scan_directory(&dir).unwrap();
+    assert!(
+        default_scan.is_empty(),
+        "default dir scan must drop files with no annotations: {default_scan:?}"
+    );
+
+    let suggest_scan = scan_directory_with_options(
+        &dir,
+        ScanOptions {
+            include_unannotated: true,
+        },
+    )
+    .unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(suggest_scan.len(), 1, "{suggest_scan:?}");
+    assert_eq!(suggest_scan[0].1.len(), 1);
+    match &suggest_scan[0].1[0].kind {
+        AnnotatedItemKind::Function { name, .. } => assert_eq!(name, "foo"),
+        other => panic!("expected Function, got {other:?}"),
+    }
+}

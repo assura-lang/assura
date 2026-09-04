@@ -3499,6 +3499,86 @@ fn check_rust_dir_unparseable_json() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// `check-rust --suggest` must collect unannotated functions, not treat them as
+/// a successful "no inline contract annotations found" scan.
+#[test]
+fn check_rust_suggest_includes_unannotated_function() {
+    let tmp = unique_temp("assura_check_rust_suggest_unann");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("plain.rs");
+    std::fs::write(&src, "fn foo(x: i32) -> i32 { x }\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check-rust", src.to_str().unwrap(), "--suggest", "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust --suggest on unannotated fn");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        !combined.contains("no inline contract annotations found"),
+        "--suggest must not treat unannotated functions as an empty success: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check-rust --suggest --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    let candidates = v
+        .get("suggest_candidates")
+        .and_then(|c| c.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let names: Vec<String> = candidates
+        .iter()
+        .filter_map(|c| c.get("name").and_then(|n| n.as_str()).map(str::to_string))
+        .collect();
+    assert!(
+        names.iter().any(|n| n == "foo") || combined.contains("`foo`"),
+        "unannotated foo must be a suggest candidate: names={names:?} json={v} stderr={stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `check-rust --suggest` on a file that is already fully annotated is vacuous:
+/// exit non-zero, do not report success.
+#[test]
+fn check_rust_suggest_annotated_only_exits_nonzero() {
+    let tmp = unique_temp("assura_check_rust_suggest_ann");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("ann.rs");
+    std::fs::write(
+        &src,
+        "/// @ensures result == x\npub fn id(x: i64) -> i64 { x }\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check-rust", src.to_str().unwrap(), "--suggest", "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust --suggest on annotated-only file");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_ne!(
+        out.status.code(),
+        Some(0),
+        "annotated-only --suggest must not exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let combined = format!("{stdout}{stderr}").to_ascii_lowercase();
+    assert!(
+        combined.contains("nothing to suggest") || combined.contains("no unannotated"),
+        "annotated-only --suggest must say there is nothing to suggest: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check-rust --suggest --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error"], "nothing_to_suggest", "{v}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 /// `suggest-from-crash --json` without crash input must emit `missing_crash_input`.
 #[test]
 fn suggest_from_crash_missing_input_json() {

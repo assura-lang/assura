@@ -217,8 +217,24 @@ fn offset_to_line(source: &str, offset: usize) -> usize {
     source[..clamped].chars().filter(|&c| c == '\n').count() + 1
 }
 
-/// Parse a Rust source string and extract all annotated items.
+/// Options for scanning Rust sources for contract items.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ScanOptions {
+    /// When true, include functions that have no contract annotations.
+    /// Used by `check-rust --suggest` so unannotated items are candidates.
+    pub include_unannotated: bool,
+}
+
+/// Parse a Rust source string and extract annotated items.
 pub fn parse_rust_source(source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyzerError> {
+    parse_rust_source_with_options(source, ScanOptions::default())
+}
+
+/// Parse a Rust source string, optionally including unannotated functions.
+pub fn parse_rust_source_with_options(
+    source: &str,
+    opts: ScanOptions,
+) -> Result<Vec<AnnotatedItem>, RustAnalyzerError> {
     let file = syn::parse_file(source).map_err(|e| RustAnalyzerError::Parse(format!("{e}")))?;
 
     let mut items = Vec::new();
@@ -230,7 +246,7 @@ pub fn parse_rust_source(source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyze
                 let mut contract = parse_doc_clauses(&doc_lines);
                 let attr_contract = extract_attr_clauses(&func.attrs, source);
                 merge_contracts(&mut contract, attr_contract);
-                if !contract.is_empty() {
+                if !contract.is_empty() || opts.include_unannotated {
                     let offset = func_span_offset(&func.sig, source);
                     items.push(AnnotatedItem {
                         contract,
@@ -307,7 +323,7 @@ pub fn parse_rust_source(source: &str) -> Result<Vec<AnnotatedItem>, RustAnalyze
                         let mut contract = parse_doc_clauses(&doc_lines);
                         let attr_contract = extract_attr_clauses(&method.attrs, source);
                         merge_contracts(&mut contract, attr_contract);
-                        if !contract.is_empty() {
+                        if !contract.is_empty() || opts.include_unannotated {
                             let offset = func_span_offset_method(&method.sig, source);
                             items.push(AnnotatedItem {
                                 contract,
@@ -360,21 +376,38 @@ fn line_col_to_offset(source: &str, line: usize, column: usize) -> usize {
 
 /// Parse a Rust source file from disk and extract all annotated items.
 pub fn parse_rust_file(path: &Path) -> Result<Vec<AnnotatedItem>, RustAnalyzerError> {
+    parse_rust_file_with_options(path, ScanOptions::default())
+}
+
+/// Parse a Rust source file, optionally including unannotated functions.
+pub fn parse_rust_file_with_options(
+    path: &Path,
+    opts: ScanOptions,
+) -> Result<Vec<AnnotatedItem>, RustAnalyzerError> {
     let source = std::fs::read_to_string(path)?;
-    parse_rust_source(&source)
+    parse_rust_source_with_options(&source, opts)
 }
 
 /// Scan a directory recursively for `.rs` files and extract all annotated items.
 pub fn scan_directory(
     dir: &Path,
 ) -> Result<Vec<(std::path::PathBuf, Vec<AnnotatedItem>)>, RustAnalyzerError> {
+    scan_directory_with_options(dir, ScanOptions::default())
+}
+
+/// Scan a directory, optionally including unannotated functions.
+pub fn scan_directory_with_options(
+    dir: &Path,
+    opts: ScanOptions,
+) -> Result<Vec<(std::path::PathBuf, Vec<AnnotatedItem>)>, RustAnalyzerError> {
     let mut results = Vec::new();
-    scan_dir_recursive(dir, &mut results)?;
+    scan_dir_recursive(dir, opts, &mut results)?;
     Ok(results)
 }
 
 fn scan_dir_recursive(
     dir: &Path,
+    opts: ScanOptions,
     results: &mut Vec<(std::path::PathBuf, Vec<AnnotatedItem>)>,
 ) -> Result<(), RustAnalyzerError> {
     let entries = std::fs::read_dir(dir)?;
@@ -387,13 +420,13 @@ fn scan_dir_recursive(
             if name.starts_with('.') || name == "target" || name == "generated" {
                 continue;
             }
-            scan_dir_recursive(&path, results)?;
+            scan_dir_recursive(&path, opts, results)?;
         } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
-            match parse_rust_file(&path) {
+            match parse_rust_file_with_options(&path, opts) {
                 Ok(items) if !items.is_empty() => {
                     results.push((path, items));
                 }
-                Ok(_) => {} // No annotations found
+                Ok(_) => {} // No matching items found
                 Err(e) => return Err(e),
             }
         }

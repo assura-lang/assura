@@ -47,10 +47,14 @@ pub(crate) fn run_check_rust(
     }
 
     let p = Path::new(path);
+    let scan_opts = assura_rust_analyzer::ScanOptions {
+        include_unannotated: llm_opts.suggest,
+    };
 
-    // Collect all annotated items from file or directory
+    // Collect items from file or directory. `--suggest` also keeps unannotated
+    // functions so they can be offered as candidates.
     let file_items: Vec<(std::path::PathBuf, Vec<AnnotatedItem>)> = if p.is_dir() {
-        match assura_rust_analyzer::scan_directory(p) {
+        match assura_rust_analyzer::scan_directory_with_options(p, scan_opts) {
             Ok(results) => results,
             Err(e) => {
                 if json {
@@ -68,9 +72,13 @@ pub(crate) fn run_check_rust(
             }
         }
     } else if p.is_file() {
-        match assura_rust_analyzer::parse_rust_file(p) {
+        match assura_rust_analyzer::parse_rust_file_with_options(p, scan_opts) {
             Ok(items) if !items.is_empty() => vec![(p.to_path_buf(), items)],
             Ok(_) => {
+                if llm_opts.suggest {
+                    report_nothing_to_suggest(path, json);
+                    process::exit(1);
+                }
                 if json {
                     let report = serde_json::json!({
                         "ok": true,
@@ -115,6 +123,10 @@ pub(crate) fn run_check_rust(
     };
 
     if file_items.is_empty() {
+        if llm_opts.suggest {
+            report_nothing_to_suggest(path, json);
+            process::exit(1);
+        }
         if json {
             let report = serde_json::json!({
                 "ok": true,
@@ -128,6 +140,23 @@ pub(crate) fn run_check_rust(
         }
         return;
     }
+
+    let suggest_candidates = if llm_opts.suggest {
+        let candidates = collect_suggest_candidates(&file_items, &llm_opts);
+        if candidates.is_empty() {
+            report_nothing_to_suggest(path, json);
+            process::exit(1);
+        }
+        if !json && verbosity != Verbosity::Quiet {
+            println!("  AI contract suggest candidates:");
+            for c in &candidates {
+                println!("    function `{}` (line {})", c.name, c.line);
+            }
+        }
+        candidates
+    } else {
+        Vec::new()
+    };
 
     let solver_choice = solver.unwrap_or(assura_smt::SolverChoice::Z3);
     let mut total_clauses = 0usize;
@@ -144,6 +173,10 @@ pub(crate) fn run_check_rust(
         }
 
         for item in items {
+            // Unannotated functions are suggest candidates only.
+            if item.contract.is_empty() {
+                continue;
+            }
             let (item_name, item_kind_str) = match &item.kind {
                 AnnotatedItemKind::Function { name, .. } => (name.clone(), "function"),
                 AnnotatedItemKind::Struct { name, .. } => (name.clone(), "struct"),
@@ -472,7 +505,7 @@ pub(crate) fn run_check_rust(
 
     // Summary
     if output_mode == OutputMode::Json {
-        let summary = serde_json::json!({
+        let mut summary = serde_json::json!({
             "files": file_items.len(),
             "items": file_items.iter().map(|(_, items)| items.len()).sum::<usize>(),
             "clauses": total_clauses,
@@ -482,6 +515,20 @@ pub(crate) fn run_check_rust(
             "results": all_results,
             "policy": "check-rust proves annotations against co-located .ir or encoded Rust bodies (arith/if/match/wrapping/bitops/checked_*/overflowing_*/rotate/is_power_of_two/ilog/isqrt/next_power_of_two, abs/min/max/clamp/signum/saturating, PartialOrd; see CONTRIBUTING check-rust body proof)",
         });
+        if llm_opts.suggest {
+            summary["suggest_candidates"] = serde_json::Value::Array(
+                suggest_candidates
+                    .iter()
+                    .map(|c| {
+                        serde_json::json!({
+                            "name": c.name,
+                            "line": c.line,
+                            "file": c.file,
+                        })
+                    })
+                    .collect(),
+            );
+        }
         println!("{}", serde_json::to_string_pretty(&summary).unwrap());
         if total_errors > 0 || total_body_not_modeled > 0 {
             process::exit(1);
@@ -531,6 +578,62 @@ pub(crate) fn run_check_rust(
         }
     } else if total_errors > 0 || total_body_not_modeled > 0 {
         process::exit(1);
+    }
+}
+
+struct SuggestCandidate {
+    name: String,
+    line: usize,
+    file: String,
+}
+
+fn collect_suggest_candidates(
+    file_items: &[(std::path::PathBuf, Vec<assura_rust_analyzer::AnnotatedItem>)],
+    opts: &LlmOpts<'_>,
+) -> Vec<SuggestCandidate> {
+    let mut candidates = Vec::new();
+    for (file_path, items) in file_items {
+        for item in items {
+            let assura_rust_analyzer::AnnotatedItemKind::Function {
+                name,
+                is_unsafe,
+                is_public,
+                ..
+            } = &item.kind
+            else {
+                continue;
+            };
+            if !item.contract.is_empty() {
+                continue;
+            }
+            if opts.unsafe_only && !is_unsafe {
+                continue;
+            }
+            if opts.public_only && !is_public {
+                continue;
+            }
+            candidates.push(SuggestCandidate {
+                name: name.clone(),
+                line: item.line,
+                file: file_path.display().to_string(),
+            });
+        }
+    }
+    candidates
+}
+
+fn report_nothing_to_suggest(path: &str, json: bool) {
+    let message = format!("nothing to suggest: no unannotated functions in {path}");
+    if json {
+        let report = serde_json::json!({
+            "ok": false,
+            "path": path,
+            "error": "nothing_to_suggest",
+            "message": message,
+        });
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    } else {
+        eprintln!("Error: {message}");
     }
 }
 
@@ -856,10 +959,7 @@ fn run_llm_analysis(
                 } = &item.kind
                 {
                     // Skip already-annotated functions
-                    if !item.contract.requires.is_empty()
-                        || !item.contract.ensures.is_empty()
-                        || !item.contract.invariants.is_empty()
-                    {
+                    if !item.contract.is_empty() {
                         continue;
                     }
 
