@@ -1957,6 +1957,62 @@ fn infer_assura_no_functions_json_is_vacuous() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+#[test]
+fn infer_assura_no_functions_human_hints() {
+    let tmp = unique_temp("assura_infer_assura_human");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(tmp.join("empty.assura"), "// no functions\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["infer", tmp.join("empty.assura").to_str().unwrap()])
+        .output()
+        .expect("failed to run assura infer on empty .assura");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "vacuous infer should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        combined.contains("hint: make the function pub, or pass --function NAME"),
+        "no-function infer must hint at pub/--function: {combined}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn infer_rust_no_risk_human_hints() {
+    let tmp = unique_temp("assura_infer_norisk_human");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("safe.rs"),
+        "pub fn add(a: i64, b: i64) -> i64 { a + b }\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["infer", tmp.join("safe.rs").to_str().unwrap()])
+        .output()
+        .expect("failed to run assura infer on no-risk rust");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "vacuous infer should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        combined.contains("hint: pass -o contracts.assura to write bind skeletons"),
+        "no-risk infer must hint at -o: {combined}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 /// Unknown `--function` on a .rs file must exit 1 with the same not-found
 /// envelope as the legacy non-.rs path.
 #[test]

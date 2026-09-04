@@ -68,6 +68,7 @@ pub(crate) fn run_infer(
         } else {
             eprintln!("Nothing inferred for {filename}");
             eprintln!("No public function signatures found in {filename}");
+            eprintln!("hint: make the function pub, or pass --function NAME");
         }
         return;
     }
@@ -108,6 +109,7 @@ pub(crate) fn run_infer(
         } else {
             eprintln!("Nothing inferred for {filename}");
             eprintln!("No public function signatures found in {filename}");
+            eprintln!("hint: make the function pub, or pass --function NAME");
         }
         return;
     }
@@ -380,6 +382,11 @@ pub(crate) fn run_infer_heuristic(
         } else {
             println!("Nothing inferred for {filename}");
             println!("No contract suggestions (no unwrap/division/index/unsafe/panic patterns).");
+            if public.is_empty() {
+                println!("hint: make the function pub, or pass --function NAME");
+            } else {
+                println!("hint: pass -o contracts.assura to write bind skeletons");
+            }
             if !focus.is_empty() {
                 println!("  (filtered by: {})", focus.join(", "));
             }
