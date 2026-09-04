@@ -231,6 +231,60 @@ fn resolve_source(inline: Option<String>, file: Option<String>) -> Result<String
     resolve_source_with_path(inline, file).map(|(s, _)| s)
 }
 
+const PATH_NOT_ALLOWED: &str = "path not allowed";
+
+fn is_allowed_source_ext(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| {
+            ext.eq_ignore_ascii_case("assura")
+                || ext.eq_ignore_ascii_case("rs")
+                || ext.eq_ignore_ascii_case("ir")
+        })
+}
+
+/// Strip Windows `\\?\` / `\\?\UNC\` prefixes so `starts_with` is prefix-safe.
+fn strip_verbatim_prefix(path: &std::path::Path) -> std::path::PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(rest) = raw.strip_prefix(r"\\?\") {
+        if let Some(unc) = rest.strip_prefix(r"UNC\") {
+            return std::path::PathBuf::from(format!(r"\\{unc}"));
+        }
+        return std::path::PathBuf::from(rest);
+    }
+    path.to_path_buf()
+}
+
+fn path_is_inside(path: &std::path::Path, root: &std::path::Path) -> bool {
+    strip_verbatim_prefix(path).starts_with(strip_verbatim_prefix(root))
+}
+
+fn read_jailed_source(path: &str) -> Result<String, String> {
+    let requested = std::path::Path::new(path);
+    if !is_allowed_source_ext(requested) {
+        return Err(PATH_NOT_ALLOWED.into());
+    }
+
+    let cwd = std::env::current_dir()
+        .and_then(|p| p.canonicalize())
+        .map_err(|_| PATH_NOT_ALLOWED.to_string())?;
+
+    let candidate = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        cwd.join(requested)
+    };
+
+    let canon = candidate
+        .canonicalize()
+        .map_err(|_| PATH_NOT_ALLOWED.to_string())?;
+    if !path_is_inside(&canon, &cwd) {
+        return Err(PATH_NOT_ALLOWED.into());
+    }
+
+    std::fs::read_to_string(&canon).map_err(|_| PATH_NOT_ALLOWED.to_string())
+}
+
 fn resolve_source_with_path(
     inline: Option<String>,
     file: Option<String>,
@@ -238,8 +292,7 @@ fn resolve_source_with_path(
     match (inline, file) {
         (Some(s), _) => Ok((s, "<inline>".into())),
         (None, Some(path)) => {
-            let content = std::fs::read_to_string(&path)
-                .map_err(|e| format!("Failed to read {path}: {e}"))?;
+            let content = read_jailed_source(&path)?;
             Ok((content, path))
         }
         (None, None) => Err("Provide either `source` (inline code) or `file` (path)".into()),
@@ -485,7 +538,7 @@ mod tests {
     fn resolve_source_missing_file() {
         let result = resolve_source(None, Some("/this/does/not/exist.assura".into()));
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Failed to read"));
+        assert_eq!(result.unwrap_err(), "path not allowed");
     }
 
     #[test]
@@ -504,7 +557,23 @@ mod tests {
             .parent()
             .unwrap();
         let demo = workspace.join("tests/fixtures/test_basic.assura");
-        let result = resolve_source(None, Some(demo.to_string_lossy().into()));
+        let cwd = std::env::current_dir().expect("cwd");
+        let cwd_canon = cwd.canonicalize().expect("canon cwd");
+        let demo_canon = demo.canonicalize().expect("canon demo");
+        let staged = cwd.join(format!(
+            "assura_mcp_real_file_{}.assura",
+            std::process::id()
+        ));
+        let (path, cleanup) = if path_is_inside(&demo_canon, &cwd_canon) {
+            (demo, false)
+        } else {
+            std::fs::copy(&demo, &staged).expect("stage test_basic.assura under cwd");
+            (staged, true)
+        };
+        let result = resolve_source(None, Some(path.to_string_lossy().into()));
+        if cleanup {
+            let _ = std::fs::remove_file(&path);
+        }
         assert!(
             result.is_ok(),
             "should read test_basic.assura: {:?}",
@@ -515,6 +584,60 @@ mod tests {
             content.contains("contract"),
             "demo file should contain contracts"
         );
+    }
+
+    #[test]
+    fn resolve_source_rejects_absolute_path_outside_cwd() {
+        let outside = std::env::temp_dir().join("assura_mcp_jail_outside.assura");
+        std::fs::write(&outside, "secret contract body\n").expect("write outside probe");
+        let result = resolve_source(None, Some(outside.to_string_lossy().into()));
+        let _ = std::fs::remove_file(&outside);
+        assert!(
+            result.is_err(),
+            "absolute path outside cwd must be rejected"
+        );
+        assert_eq!(result.unwrap_err(), "path not allowed");
+    }
+
+    #[test]
+    fn resolve_source_rejects_parent_escape() {
+        let cwd = std::env::current_dir().expect("cwd");
+        let outside = cwd
+            .parent()
+            .expect("cwd parent")
+            .join("assura_mcp_jail_escape.assura");
+        std::fs::write(&outside, "escaped secret\n").expect("write escape probe");
+        let result = resolve_source(None, Some("../assura_mcp_jail_escape.assura".into()));
+        let _ = std::fs::remove_file(&outside);
+        assert!(result.is_err(), "../ escape must be rejected");
+        assert_eq!(result.unwrap_err(), "path not allowed");
+    }
+
+    #[test]
+    fn resolve_source_rejects_disallowed_extensions() {
+        for name in [".env", "notes.txt", "secret.TXT", "config.ENV"] {
+            let result = resolve_source(None, Some(name.into()));
+            assert!(result.is_err(), "{name} must be rejected");
+            assert_eq!(
+                result.unwrap_err(),
+                "path not allowed",
+                "{name} must not leak existence or contents"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_source_allows_relative_assura_under_cwd() {
+        let name = format!("assura_mcp_jail_ok_{}.assura", std::process::id());
+        std::fs::write(&name, "contract JailOk {}\n").expect("write cwd probe");
+        let result = resolve_source(None, Some(name.clone()));
+        let _ = std::fs::remove_file(&name);
+        assert!(
+            result.is_ok(),
+            "relative .assura under cwd must work: {:?}",
+            result.err()
+        );
+        assert!(result.unwrap().contains("JailOk"));
     }
 
     // -----------------------------------------------------------------------
