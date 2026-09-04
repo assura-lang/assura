@@ -14,7 +14,11 @@ else
   DIR_NAME="cvc5-Linux-x86_64-static"
 fi
 
-URL="https://github.com/cvc5/cvc5/releases/latest/download/${ZIP_NAME}"
+# Pin to the CVC5 release that matches the cvc5 crate 0.4 bindings (1.3.1).
+# Do not use /releases/latest; a newer solver can break the FFI crate.
+# Override with CVC5_RELEASE_TAG if you need a different prebuilt.
+CVC5_RELEASE_TAG="${CVC5_RELEASE_TAG:-cvc5-1.3.1}"
+URL="https://github.com/cvc5/cvc5/releases/download/${CVC5_RELEASE_TAG}/${ZIP_NAME}"
 TMP_ZIP="$(mktemp -t cvc5.XXXXXX.zip)"
 
 cleanup() {
