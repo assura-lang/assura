@@ -3664,14 +3664,22 @@ fn fmt_accepts_directory() {
 }
 
 /// --dump-smt mkdir failure under --json must be parseable.
+/// Parent is a file so mkdir fails on Windows and Unix (`/no/write/path`
+/// is creatable on Windows).
 #[test]
 fn check_dump_smt_mkdir_fail_json() {
+    let tmp = unique_temp("assura_dump_smt_mkdir");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let blocker = tmp.join("not_a_dir");
+    std::fs::write(&blocker, b"x").unwrap();
+    let bad_dir = blocker.join("smt");
     let out = Command::new(assura_bin())
         .args([
             "check",
             "demos/heartbleed.assura",
             "--dump-smt",
-            "/no/write/path",
+            bad_dir.to_str().unwrap(),
             "--json",
         ])
         .current_dir(workspace_root())
@@ -3683,6 +3691,7 @@ fn check_dump_smt_mkdir_fail_json() {
         serde_json::from_str(&stdout).expect("dump-smt mkdir fail --json must be JSON");
     assert_eq!(v["ok"], false);
     assert_eq!(v["error"], "dump_smt_mkdir_failed");
+    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 /// `ir --json -o` write failure (unwritable path) must emit JSON, not bare stderr.
@@ -3703,10 +3712,18 @@ fn ir_json_write_fail_is_parseable() {
 "#,
     )
     .unwrap();
-    // Parent path that cannot be created on Unix/macOS.
-    let bad_out = "/no/such/assura_ir_out/lib.rs";
+    // Parent is a file so mkdir fails on Windows and Unix.
+    let blocker = tmp.join("not_a_dir");
+    std::fs::write(&blocker, b"x").unwrap();
+    let bad_out = blocker.join("lib.rs");
     let out = Command::new(assura_bin())
-        .args(["--json", "ir", ir_path.to_str().unwrap(), "-o", bad_out])
+        .args([
+            "--json",
+            "ir",
+            ir_path.to_str().unwrap(),
+            "-o",
+            bad_out.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to run assura --json ir -o");
     let stdout = String::from_utf8_lossy(&out.stdout);
