@@ -3210,6 +3210,41 @@ fn check_missing_file_json_envelope() {
     assert!(v["verification"].is_array());
 }
 
+/// Empty `.assura` check --json keeps `file_info.vacuous` and also emits
+/// top-level `vacuous` / `vacuous_reason` / `success` (MCP-aligned).
+#[test]
+fn check_empty_file_json_has_top_level_vacuous() {
+    let tmp = unique_temp("assura_check_empty_vacuous");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let path = tmp.join("empty.assura");
+    std::fs::write(&path, "// empty\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check", "--json", path.to_str().unwrap()])
+        .output()
+        .expect("failed to run assura check --json on empty file");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "empty check should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check --json empty must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(
+        v["file_info"]["vacuous"], true,
+        "legacy file_info.vacuous must remain: {v}"
+    );
+    assert_eq!(v["vacuous"], true, "top-level vacuous required: {v}");
+    assert_eq!(v["success"], true, "top-level success required: {v}");
+    let reason = v["vacuous_reason"].as_str().unwrap_or("");
+    assert!(!reason.is_empty(), "top-level vacuous_reason required: {v}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 #[test]
 fn check_timeout_flag_is_accepted() {
     let out = Command::new(assura_bin())
@@ -3649,9 +3684,50 @@ fn check_rust_no_annotations_json_is_vacuous() {
         )
     });
     assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(
+        v["success"], true,
+        "check-rust vacuous must set success next to ok: {v}"
+    );
     assert_eq!(v["items"], 0, "{v}");
     assert_eq!(v["vacuous"], true, "{v}");
     assert_eq!(v["vacuous_reason"], "no inline contract annotations", "{v}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// Non-empty `check-rust --json` must emit `vacuous: false` and `success`/`ok`.
+#[test]
+fn check_rust_annotated_json_has_success_and_not_vacuous() {
+    let tmp = unique_temp("assura_check_rust_not_vacuous");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("ann.rs");
+    std::fs::write(
+        &src,
+        "/// @requires a > 0\nfn only_positive(a: i32) -> i32 { a }\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check-rust", src.to_str().unwrap(), "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust --json on annotated file");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "annotated check-rust should succeed: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check-rust --json annotated must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(
+        v["vacuous"], false,
+        "non-empty summary must emit vacuous false: {v}"
+    );
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["success"], true, "{v}");
+    assert!(v["items"].as_u64().unwrap_or(0) >= 1, "{v}");
     let _ = std::fs::remove_dir_all(&tmp);
 }
 

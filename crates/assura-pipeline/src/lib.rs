@@ -795,7 +795,7 @@ pub fn run_at(source: &str, filename: &str) -> PipelineResult {
 }
 
 /// Same rules as CLI `file_info.vacuous` / `vacuous_reason`.
-fn vacuous_status(
+pub fn vacuous_status(
     file: Option<&assura_parser::ast::SourceFile>,
     verification: &[assura_smt::VerificationResult],
 ) -> (bool, Option<String>) {

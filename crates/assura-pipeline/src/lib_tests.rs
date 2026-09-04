@@ -915,6 +915,18 @@ fn pipeline_result_serializes_all_fields() {
 }
 
 #[test]
+fn vacuous_status_empty_file_is_public() {
+    let config = CompilerConfig::default();
+    let output = compile("// empty\n", "empty.assura", &config);
+    let (vacuous, reason) = vacuous_status(output.file.as_ref(), &output.verification);
+    assert!(vacuous);
+    assert_eq!(
+        reason.as_deref(),
+        Some("no contracts or functions to verify")
+    );
+}
+
+#[test]
 fn run_empty_source_is_vacuous_success() {
     let result = run("");
     assert!(result.success, "empty source is not a hard error");

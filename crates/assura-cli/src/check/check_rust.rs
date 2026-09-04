@@ -31,6 +31,7 @@ pub(crate) fn run_check_rust(
         if json {
             let report = serde_json::json!({
                 "ok": false,
+                "success": false,
                 "error": "invalid_layer",
                 "layer": layer,
                 "message": format!(
@@ -60,6 +61,7 @@ pub(crate) fn run_check_rust(
                 if json {
                     let report = serde_json::json!({
                         "ok": false,
+                        "success": false,
                         "path": path,
                         "error": "scan_failed",
                         "message": format!("Error scanning directory: {e}"),
@@ -82,6 +84,7 @@ pub(crate) fn run_check_rust(
                 if json {
                     let report = serde_json::json!({
                         "ok": true,
+                        "success": true,
                         "path": path,
                         "items": 0,
                         "message": format!("{path}: no inline contract annotations found"),
@@ -98,6 +101,7 @@ pub(crate) fn run_check_rust(
                 if json {
                     let report = serde_json::json!({
                         "ok": false,
+                        "success": false,
                         "path": path,
                         "error": "parse_failed",
                         "message": format!("Error parsing {path}: {e}"),
@@ -113,6 +117,7 @@ pub(crate) fn run_check_rust(
         if json {
             let report = serde_json::json!({
                 "ok": false,
+                "success": false,
                 "path": path,
                 "error": "not_found",
                 "message": format!("{path} is not a file or directory"),
@@ -132,6 +137,7 @@ pub(crate) fn run_check_rust(
         if json {
             let report = serde_json::json!({
                 "ok": true,
+                "success": true,
                 "path": path,
                 "items": 0,
                 "message": format!("No inline contract annotations found in {path}"),
@@ -509,7 +515,11 @@ pub(crate) fn run_check_rust(
 
     // Summary
     if output_mode == OutputMode::Json {
+        let ok = total_errors == 0 && total_body_not_modeled == 0;
         let mut summary = serde_json::json!({
+            "ok": ok,
+            "success": ok,
+            "vacuous": false,
             "files": file_items.len(),
             "items": file_items.iter().map(|(_, items)| items.len()).sum::<usize>(),
             "clauses": total_clauses,
@@ -631,6 +641,7 @@ fn report_nothing_to_suggest(path: &str, json: bool) {
     if json {
         let report = serde_json::json!({
             "ok": false,
+            "success": false,
             "path": path,
             "error": "nothing_to_suggest",
             "message": message,
