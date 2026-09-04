@@ -1295,7 +1295,12 @@ fn scan_directory_fails_on_unparseable_rs() {
     let err = scan_directory(&dir).expect_err("dir scan must not swallow parse errors");
     let _ = std::fs::remove_dir_all(&dir);
     match err {
-        crate::RustAnalyzerError::Parse(_) => {}
+        crate::RustAnalyzerError::Parse(msg) => {
+            assert!(
+                msg.contains("broken.rs"),
+                "parse error must name the failing file: {msg}"
+            );
+        }
         other => panic!("expected Parse, got {other:?}"),
     }
 }

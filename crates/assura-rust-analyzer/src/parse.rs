@@ -427,7 +427,9 @@ fn scan_dir_recursive(
                     results.push((path, items));
                 }
                 Ok(_) => {} // No matching items found
-                Err(e) => return Err(e),
+                Err(e) => {
+                    return Err(RustAnalyzerError::Parse(format!("{}: {e}", path.display())));
+                }
             }
         }
     }
