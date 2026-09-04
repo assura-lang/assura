@@ -393,8 +393,8 @@ fn scan_dir_recursive(
                 Ok(items) if !items.is_empty() => {
                     results.push((path, items));
                 }
-                Ok(_) => {}  // No annotations found
-                Err(_) => {} // Skip files that fail to parse
+                Ok(_) => {} // No annotations found
+                Err(e) => return Err(e),
             }
         }
     }

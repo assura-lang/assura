@@ -1247,3 +1247,55 @@ fn impossible(x: i32) -> i32 {
     assert_eq!(items[0].contract.requires[0].body, "x > 10");
     assert_eq!(items[0].contract.requires[1].body, "x < 5");
 }
+
+#[test]
+fn parse_rust_source_rejects_garbage() {
+    let err = parse_rust_source("fn (").expect_err("garbage must fail to parse");
+    match err {
+        crate::RustAnalyzerError::Parse(msg) => {
+            assert!(!msg.is_empty(), "parse error should describe the failure");
+        }
+        other => panic!("expected Parse, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_rust_file_rejects_garbage() {
+    let dir = std::env::temp_dir().join(format!(
+        "assura_ra_parse_file_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("broken.rs");
+    std::fs::write(&path, "fn (\n").unwrap();
+    let err = parse_rust_file(&path).expect_err("unparseable file must fail");
+    let _ = std::fs::remove_dir_all(&dir);
+    match err {
+        crate::RustAnalyzerError::Parse(_) => {}
+        other => panic!("expected Parse, got {other:?}"),
+    }
+}
+
+#[test]
+fn scan_directory_fails_on_unparseable_rs() {
+    let dir = std::env::temp_dir().join(format!(
+        "assura_ra_scan_dir_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("broken.rs"), "fn (\n").unwrap();
+    let err = scan_directory(&dir).expect_err("dir scan must not swallow parse errors");
+    let _ = std::fs::remove_dir_all(&dir);
+    match err {
+        crate::RustAnalyzerError::Parse(_) => {}
+        other => panic!("expected Parse, got {other:?}"),
+    }
+}

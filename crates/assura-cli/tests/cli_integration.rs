@@ -3427,6 +3427,78 @@ fn check_rust_invalid_layer_json() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// `check-rust --json` on unparseable Rust must emit `parse_failed` and exit 1.
+#[test]
+fn check_rust_parse_failed_json() {
+    let tmp = unique_temp("assura_check_rust_parse_failed");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("broken.rs");
+    std::fs::write(&src, "fn (\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check-rust", src.to_str().unwrap(), "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust --json on garbage");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "parse failure should exit 1: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check-rust parse fail --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error"], "parse_failed", "{v}");
+    assert!(
+        !stderr.contains("Error:"),
+        "human parse error must not leak under --json: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// Directory scan must not succeed when an annotated `.rs` file fails to parse.
+#[test]
+fn check_rust_dir_unparseable_json() {
+    let tmp = unique_temp("assura_check_rust_dir_parse");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(tmp.join("broken.rs"), "fn (\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check-rust", tmp.to_str().unwrap(), "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust --json on dir with garbage");
+    assert_ne!(
+        out.status.code(),
+        Some(0),
+        "dir with unparseable .rs must not exit 0: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check-rust dir parse --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert!(
+        v["error"] == "scan_failed" || v["error"] == "parse_failed",
+        "expected scan_failed or parse_failed, got {v}"
+    );
+    assert!(
+        !stderr.contains("Error:"),
+        "human scan error must not leak under --json: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 /// `infer --json` on a missing Rust file must emit JSON and exit 2.
 #[test]
 fn infer_missing_file_json() {
