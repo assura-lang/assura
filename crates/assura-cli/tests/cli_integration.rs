@@ -3144,12 +3144,16 @@ fn test_gen_write_fail_json() {
         "contract C { requires { true } ensures { true } fn f(x: Int) -> Int }\n",
     )
     .unwrap();
+    // Parent is a file so mkdir fails on Windows and Unix.
+    let blocker = tmp.join("not_a_dir");
+    std::fs::write(&blocker, b"x").unwrap();
+    let bad_out = blocker.join("out.rs");
     let out = Command::new(assura_bin())
         .args([
             "test-gen",
             tmp.join("c.assura").to_str().unwrap(),
             "-o",
-            "/no/write/out.rs",
+            bad_out.to_str().unwrap(),
             "--json",
         ])
         .output()
@@ -3160,6 +3164,7 @@ fn test_gen_write_fail_json() {
         serde_json::from_str(&stdout).expect("test-gen write fail --json must be JSON");
     assert_eq!(v["ok"], false);
     assert_eq!(v["error"], "write_failed");
+    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 /// #977: clap missing required args under global --json must be JSON.
@@ -3401,6 +3406,7 @@ fn check_showcase_only_vacuous_when_none_match() {
         serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).expect("json");
     assert_eq!(v["modules"], 0);
     assert_eq!(v["vacuous"], true);
+    assert_eq!(v["success"], true);
     assert_eq!(v["showcase_only"], true);
     assert!(
         v["vacuous_reason"]
@@ -4013,25 +4019,29 @@ fn check_rust_suggest_includes_unannotated_function() {
         .expect("failed to run check-rust --suggest on unannotated fn");
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
-    let combined = format!("{stdout}{stderr}");
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "--suggest with unannotated candidates should exit 0: stdout={stdout} stderr={stderr}"
+    );
     assert!(
-        !combined.contains("no inline contract annotations found"),
+        !format!("{stdout}{stderr}").contains("no inline contract annotations found"),
         "--suggest must not treat unannotated functions as an empty success: stdout={stdout} stderr={stderr}"
     );
     let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
         panic!("check-rust --suggest --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
     });
-    let candidates = v
-        .get("suggest_candidates")
-        .and_then(|c| c.as_array())
-        .cloned()
-        .unwrap_or_default();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["success"], true, "{v}");
+    let candidates = v["suggest_candidates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("suggest_candidates array required: {v}"));
     let names: Vec<String> = candidates
         .iter()
         .filter_map(|c| c.get("name").and_then(|n| n.as_str()).map(str::to_string))
         .collect();
     assert!(
-        names.iter().any(|n| n == "foo") || combined.contains("`foo`"),
+        names.iter().any(|n| n == "foo"),
         "unannotated foo must be a suggest candidate: names={names:?} json={v} stderr={stderr}"
     );
     let _ = std::fs::remove_dir_all(&tmp);
