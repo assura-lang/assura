@@ -866,9 +866,9 @@ dependencies = [
 
 [[package]]
 name = "cvc5"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad7c63e1e58002164d4ada2bdac7b5a64fa61e22d64dce586079bc131e10fbfc"
+checksum = "5910832371e5815584466cc640f79d491b8d114fdd49970db7972c562697f562"
 dependencies = [
  "cvc5-sys",
 ]
