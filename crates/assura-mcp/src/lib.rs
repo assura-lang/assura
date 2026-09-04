@@ -188,6 +188,7 @@ impl AssuraMcpServer {
     fn assura_ir_prompt(&self, Parameters(params): Parameters<IrPromptParams>) -> String {
         match render_ir_prompt_tool(params) {
             Ok(json) => json,
+            Err(e) if is_tool_path_error(&e) => tool_path_error_json(e),
             Err(e) => e,
         }
     }
@@ -198,11 +199,11 @@ impl AssuraMcpServer {
     fn assura_ir_verify(&self, Parameters(params): Parameters<IrVerifyParams>) -> String {
         let contract = match resolve_source_with_path(params.source, params.file) {
             Ok((s, _)) => s,
-            Err(e) => return format!("{{\"status\":\"error\",\"compile_errors\":[\"{e}\"]}}"),
+            Err(e) => return tool_path_error_json(e),
         };
         let ir = match resolve_source(params.ir, params.ir_file) {
             Ok(s) => s,
-            Err(e) => return format!("{{\"status\":\"error\",\"ir_errors\":[\"{e}\"]}}"),
+            Err(e) => return tool_path_error_json(e),
         };
         let config = assura_config::CompilerConfig::default();
         let result = assura_pipeline::verify_ir(&contract, &ir, &config);
@@ -233,8 +234,16 @@ fn resolve_source(inline: Option<String>, file: Option<String>) -> Result<String
 
 const PATH_NOT_ALLOWED: &str = "path not allowed";
 
-/// JSON tools (`assura_check`, `assura_infer`) wrap jail/path errors so agents
-/// can branch on `success` instead of parsing a bare string.
+/// True when `err` came from `resolve_source` / jail, not an IR compile failure.
+fn is_tool_path_error(err: &str) -> bool {
+    err == PATH_NOT_ALLOWED
+        || err == SOURCE_TOO_LARGE
+        || err == SOURCE_NOT_UTF8
+        || err.starts_with("Provide either")
+}
+
+/// JSON tools wrap jail/path errors so agents can branch on `success`
+/// instead of parsing a bare string.
 fn tool_path_error_json(err: String) -> String {
     if err == PATH_NOT_ALLOWED {
         serde_json::json!({
@@ -1248,6 +1257,40 @@ contract Bar {
             file: Some(probe.clone()),
         };
         let result = server.assura_infer(Parameters(params));
+        assert_path_not_allowed_json(&result, &probe);
+    }
+
+    #[test]
+    fn tool_ir_prompt_jail_reject_is_json() {
+        let server = AssuraMcpServer::new();
+        let probe = std::env::temp_dir()
+            .join("assura_mcp_jail_ir_prompt.assura")
+            .to_string_lossy()
+            .into_owned();
+        let params = IrPromptParams {
+            source: None,
+            file: Some(probe.clone()),
+            decl: None,
+            pattern: "auto".into(),
+        };
+        let result = server.assura_ir_prompt(Parameters(params));
+        assert_path_not_allowed_json(&result, &probe);
+    }
+
+    #[test]
+    fn tool_ir_verify_jail_reject_is_json() {
+        let server = AssuraMcpServer::new();
+        let probe = std::env::temp_dir()
+            .join("assura_mcp_jail_ir_verify.assura")
+            .to_string_lossy()
+            .into_owned();
+        let params = IrVerifyParams {
+            source: None,
+            file: Some(probe.clone()),
+            ir: Some("module X { }".into()),
+            ir_file: None,
+        };
+        let result = server.assura_ir_verify(Parameters(params));
         assert_path_not_allowed_json(&result, &probe);
     }
 
