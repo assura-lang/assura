@@ -34,36 +34,63 @@ jobs:
           persist-credentials: false
 
       # cargo-fuzz needs nightly (-Zsanitizer=address, coverage passes).
+      # Dated pin: floating `nightly` breaks when a rustc snapshot rejects sanitizers.
       - name: Install nightly + rust-src
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable action; pin toolchain below
         with:
-          toolchain: nightly
+          toolchain: nightly-2026-08-15
           components: rust-src
 
+      - name: Cache cargo and fuzz workspaces
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            .
+            fuzz
+          shared-key: fuzz
+          cache-on-failure: true
+
       - name: Install cargo-fuzz
-        run: cargo +nightly install cargo-fuzz --locked
+        uses: taiki-e/install-action@0c80bcf54d007ab0e714c95f3bcc43c387707535 # v2
+        with:
+          tool: cargo-fuzz
+        env:
+          HOME: ${{ runner.temp }}/install-action-home
+
+      - name: Build fuzz targets
+        env:
+          RUSTUP_TOOLCHAIN: nightly-2026-08-15
+        run: |
+          cargo +nightly-2026-08-15 fuzz build || (
+            echo "::warning::retrying fuzz build"
+            sleep 5
+            cargo +nightly-2026-08-15 fuzz build
+          )
 
       - name: Fuzz lexer
         env:
           FUZZ_DURATION: ${{ inputs.duration || '60' }}
+          RUSTUP_TOOLCHAIN: nightly-2026-08-15
         run: |
-          cargo +nightly fuzz run fuzz_lex -- \
+          cargo +nightly-2026-08-15 fuzz run fuzz_lex -- \
             -max_total_time="${FUZZ_DURATION}" \
             -max_len=4096
 
       - name: Fuzz parser
         env:
           FUZZ_DURATION: ${{ inputs.duration || '60' }}
+          RUSTUP_TOOLCHAIN: nightly-2026-08-15
         run: |
-          cargo +nightly fuzz run fuzz_parse -- \
+          cargo +nightly-2026-08-15 fuzz run fuzz_parse -- \
             -max_total_time="${FUZZ_DURATION}" \
             -max_len=4096
 
       - name: Fuzz type checker
         env:
           FUZZ_DURATION: ${{ inputs.duration || '60' }}
+          RUSTUP_TOOLCHAIN: nightly-2026-08-15
         run: |
-          cargo +nightly fuzz run fuzz_typecheck -- \
+          cargo +nightly-2026-08-15 fuzz run fuzz_typecheck -- \
             -max_total_time="${FUZZ_DURATION}" \
             -max_len=4096
 
