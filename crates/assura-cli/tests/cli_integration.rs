@@ -12,6 +12,22 @@ use common::{assura_bin, unique_temp, workspace_root};
 use std::process::Command;
 
 #[test]
+fn workspace_root_points_at_repo_not_crate() {
+    let root_s = workspace_root();
+    let root = std::path::Path::new(&root_s);
+    assert!(
+        root.join("Cargo.toml").is_file(),
+        "workspace_root must contain Cargo.toml: {}",
+        root.display()
+    );
+    assert!(
+        root.join("demos").is_dir(),
+        "workspace_root must contain demos/ (Unix-slash replace is a no-op on Windows): {}",
+        root.display()
+    );
+}
+
+#[test]
 fn build_cli_output_creates_custom_dir() {
     let tmp = unique_temp("assura_r007_custom_output");
     let _ = std::fs::remove_dir_all(&tmp);

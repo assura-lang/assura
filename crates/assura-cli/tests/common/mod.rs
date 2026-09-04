@@ -13,7 +13,12 @@ pub fn assura_bin() -> PathBuf {
 
 /// Workspace root (two levels up from crate manifest).
 pub fn workspace_root() -> String {
-    env!("CARGO_MANIFEST_DIR").replace("/crates/assura-cli", "")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("CARGO_MANIFEST_DIR is crates/assura-cli")
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// Unique temp dir (using tempfile for strong uniqueness across parallel tests).
