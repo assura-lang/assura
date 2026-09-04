@@ -189,7 +189,7 @@ impl AssuraMcpServer {
         match render_ir_prompt_tool(params) {
             Ok(json) => json,
             Err(e) if is_tool_path_error(&e) => tool_path_error_json(e),
-            Err(e) => e,
+            Err(e) => tool_error_json(e, "PROMPT_FAILED"),
         }
     }
 
@@ -244,6 +244,15 @@ fn is_tool_path_error(err: &str) -> bool {
 
 /// JSON tools wrap jail/path errors so agents can branch on `success`
 /// instead of parsing a bare string.
+fn tool_error_json(err: String, error_kind: &str) -> String {
+    serde_json::json!({
+        "success": false,
+        "error": err,
+        "error_kind": error_kind,
+    })
+    .to_string()
+}
+
 fn tool_path_error_json(err: String) -> String {
     let error_kind = if err == PATH_NOT_ALLOWED {
         "PATH_NOT_ALLOWED"
@@ -256,12 +265,7 @@ fn tool_path_error_json(err: String) -> String {
     } else {
         "RESOLVE_FAILED"
     };
-    serde_json::json!({
-        "success": false,
-        "error": err,
-        "error_kind": error_kind,
-    })
-    .to_string()
+    tool_error_json(err, error_kind)
 }
 /// Same 16 MiB cap as CLI `read_source_arg` / `MAX_SOURCE_BYTES`.
 const MAX_SOURCE_BYTES: u64 = 16 * 1024 * 1024;
@@ -1342,6 +1346,56 @@ contract Bar {
         };
         let result = server.assura_ir_prompt(Parameters(params));
         assert_path_not_allowed_json(&result, &probe);
+    }
+
+    #[test]
+    fn tool_ir_prompt_unknown_pattern_is_json() {
+        let server = AssuraMcpServer::new();
+        let params = IrPromptParams {
+            source: Some(
+                "contract Echo {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n"
+                    .into(),
+            ),
+            file: None,
+            decl: None,
+            pattern: "not-a-pattern".into(),
+        };
+        let result = server.assura_ir_prompt(Parameters(params));
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap_or_else(|e| {
+            panic!("non-path prompt error must be JSON, not a bare string: {e}\n{result}")
+        });
+        assert_eq!(v["success"], false, "{v}");
+        assert_eq!(v["error_kind"], "PROMPT_FAILED", "{v}");
+        let err = v["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("unknown pattern"),
+            "expected unknown-pattern error, got {v}"
+        );
+    }
+
+    #[test]
+    fn tool_ir_prompt_missing_decl_is_json() {
+        let server = AssuraMcpServer::new();
+        let params = IrPromptParams {
+            source: Some(
+                "contract Echo {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n"
+                    .into(),
+            ),
+            file: None,
+            decl: Some("Missing".into()),
+            pattern: "auto".into(),
+        };
+        let result = server.assura_ir_prompt(Parameters(params));
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap_or_else(|e| {
+            panic!("non-path prompt error must be JSON, not a bare string: {e}\n{result}")
+        });
+        assert_eq!(v["success"], false, "{v}");
+        assert_eq!(v["error_kind"], "PROMPT_FAILED", "{v}");
+        let err = v["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("no verification job named"),
+            "expected missing-decl error, got {v}"
+        );
     }
 
     #[test]
