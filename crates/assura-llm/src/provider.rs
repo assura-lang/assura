@@ -40,7 +40,7 @@ impl HttpProvider {
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(config.timeout_seconds))
             .build()
-            .map_err(|e| LlmError::Http(e.to_string()))?;
+            .map_err(|_| LlmError::Http("network error".into()))?;
 
         Ok(Self {
             config,
@@ -89,15 +89,15 @@ impl HttpProvider {
             .header("content-type", "application/json")
             .json(&body)
             .send()
-            .map_err(|e| LlmError::Http(e.to_string()))?;
+            .map_err(|_| LlmError::Http("network error".into()))?;
 
         if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().unwrap_or_default();
-            return Err(LlmError::Http(format!("{status}: {text}")));
+            return Err(LlmError::Http(http_error_message(resp.status())));
         }
 
-        let json: serde_json::Value = resp.json().map_err(|e| LlmError::Http(e.to_string()))?;
+        let json: serde_json::Value = resp
+            .json()
+            .map_err(|_| LlmError::Http("network error".into()))?;
 
         json["content"][0]["text"]
             .as_str()
@@ -134,15 +134,15 @@ impl HttpProvider {
             .header("content-type", "application/json")
             .json(&body)
             .send()
-            .map_err(|e| LlmError::Http(e.to_string()))?;
+            .map_err(|_| LlmError::Http("network error".into()))?;
 
         if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().unwrap_or_default();
-            return Err(LlmError::Http(format!("{status}: {text}")));
+            return Err(LlmError::Http(http_error_message(resp.status())));
         }
 
-        let json: serde_json::Value = resp.json().map_err(|e| LlmError::Http(e.to_string()))?;
+        let json: serde_json::Value = resp
+            .json()
+            .map_err(|_| LlmError::Http("network error".into()))?;
 
         json["choices"][0]["message"]["content"]
             .as_str()
@@ -151,6 +151,15 @@ impl HttpProvider {
                 LlmError::Parse("missing choices[0].message.content in response".to_string())
             })
     }
+}
+
+fn http_error_message(status: reqwest::StatusCode) -> String {
+    let class = match status.as_u16() {
+        401 | 403 => "unauthorized",
+        429 => "rate_limited",
+        _ => "upstream_error",
+    };
+    format!("{status}: {class}")
 }
 
 impl LlmProvider for HttpProvider {
@@ -349,5 +358,34 @@ mod tests {
         // Should be valid JSON
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert!(parsed["suggestions"].is_array());
+    }
+
+    #[test]
+    fn http_error_message_omits_provider_bodies() {
+        let leaked = "Incorrect API key provided: sk-secret-test-value";
+        let msg = http_error_message(reqwest::StatusCode::UNAUTHORIZED);
+        assert!(
+            msg.contains("unauthorized"),
+            "401 should classify as unauthorized: {msg}"
+        );
+        assert!(
+            !msg.contains("sk-"),
+            "error must not contain API key material: {msg}"
+        );
+        assert!(
+            !msg.contains(leaked),
+            "error must not include provider body text"
+        );
+        let rate = http_error_message(reqwest::StatusCode::TOO_MANY_REQUESTS);
+        assert!(
+            rate.contains("rate_limited"),
+            "429 should classify as rate_limited: {rate}"
+        );
+        assert!(!rate.contains("sk-"));
+        let upstream = http_error_message(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(
+            upstream.contains("upstream_error"),
+            "5xx should classify as upstream_error: {upstream}"
+        );
     }
 }
