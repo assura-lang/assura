@@ -100,10 +100,20 @@ jobs:
                 git rebase --abort
                 continue
               fi
-              git push --force-with-lease="refs/heads/${branch}:${expected}" \
-                "${remote_url}" "HEAD:refs/heads/${branch}"
+              if ! git push --force-with-lease="refs/heads/${branch}:${expected}" \
+                "${remote_url}" "HEAD:refs/heads/${branch}"; then
+                echo "Lease rejected again on #${n}; leaving it for a later run."
+                continue
+              fi
             fi
           done
+
+      - name: Require App token to unstick CI
+        if: steps.app-token.outputs.token == ''
+        run: |
+          echo "FAIL: App token is empty after rebase; cannot unstick Dependabot CI."
+          echo "Set AUTO_APPROVE_CLIENT_ID and AUTO_APPROVE_PRIVATE_KEY."
+          exit 1
 
       - name: Start CI and re-approve after GITHUB_TOKEN rebase
         if: steps.app-token.outputs.token != ''
