@@ -131,31 +131,32 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
     let contract_db = assura_llm::ContractDatabase::from_scan(&file_items);
 
     // Configure LLM provider
-    let config = match LlmConfig::from_provider(llm_provider, llm_model) {
-        Ok(c) => c,
-        Err(e) => {
-            if output_mode == OutputMode::Json {
-                let report = serde_json::json!({
-                    "ok": false,
-                    "error": "llm_provider",
-                    "message": format!("{e}"),
-                    "did_you_mean": crate::suggest::did_you_mean(
-                        llm_provider,
-                        crate::suggest::LLM_PROVIDERS
-                    ),
-                });
-                println!("{}", serde_json::to_string_pretty(&report).unwrap());
-            } else {
-                eprintln!("LLM provider error: {e}");
-                if let Some(hint) =
-                    crate::suggest::did_you_mean(llm_provider, crate::suggest::LLM_PROVIDERS)
-                {
-                    eprintln!("did you mean {hint}?");
-                }
+    if !crate::suggest::LLM_PROVIDERS
+        .iter()
+        .any(|p| *p == llm_provider.to_ascii_lowercase())
+    {
+        if output_mode == OutputMode::Json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": "llm_provider",
+                "message": format!("unknown LLM provider '{llm_provider}'"),
+                "did_you_mean": crate::suggest::did_you_mean(
+                    llm_provider,
+                    crate::suggest::LLM_PROVIDERS
+                ),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("LLM provider error: unknown LLM provider '{llm_provider}'");
+            if let Some(hint) =
+                crate::suggest::did_you_mean(llm_provider, crate::suggest::LLM_PROVIDERS)
+            {
+                eprintln!("did you mean {hint}?");
             }
-            process::exit(1);
         }
-    };
+        process::exit(1);
+    }
+    let config = LlmConfig::from_provider(llm_provider, llm_model);
 
     let cache = LlmCache::new(&config.cache_dir);
 

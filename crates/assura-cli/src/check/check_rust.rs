@@ -794,18 +794,19 @@ fn run_llm_analysis(
     }
 
     // Configure LLM provider
-    let config = match LlmConfig::from_provider(provider_name, model_override) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("  LLM: {e}");
-            if let Some(hint) =
-                crate::suggest::did_you_mean(provider_name, crate::suggest::LLM_PROVIDERS)
-            {
-                eprintln!("  did you mean {hint}?");
-            }
-            return;
+    if !crate::suggest::LLM_PROVIDERS
+        .iter()
+        .any(|p| *p == provider_name.to_ascii_lowercase())
+    {
+        eprintln!("  LLM: unknown provider '{provider_name}'");
+        if let Some(hint) =
+            crate::suggest::did_you_mean(provider_name, crate::suggest::LLM_PROVIDERS)
+        {
+            eprintln!("  did you mean {hint}?");
         }
-    };
+        return;
+    }
+    let config = LlmConfig::from_provider(provider_name, model_override);
 
     let cache = LlmCache::new(&config.cache_dir);
 

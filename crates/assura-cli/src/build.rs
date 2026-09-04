@@ -972,24 +972,23 @@ fn call_llm_for_ir(
             }
         } else {
             // API mode: use assura-llm HttpProvider
-            let llm_config = match assura_llm::LlmConfig::from_provider(
-                &ai_config.provider,
-                Some(&ai_config.model),
-            ) {
-                Ok(c) => c,
-                Err(e) => {
-                    if attempt == 0 {
-                        eprintln!("\n    error: LLM provider setup failed: {e}");
-                        if let Some(hint) = crate::suggest::did_you_mean(
-                            &ai_config.provider,
-                            crate::suggest::LLM_PROVIDERS,
-                        ) {
-                            eprintln!("    did you mean {hint}?");
-                        }
+            if !crate::suggest::LLM_PROVIDERS
+                .iter()
+                .any(|p| *p == ai_config.provider.to_ascii_lowercase())
+            {
+                if attempt == 0 {
+                    eprintln!("\n    error: unknown LLM provider '{}'", ai_config.provider);
+                    if let Some(hint) = crate::suggest::did_you_mean(
+                        &ai_config.provider,
+                        crate::suggest::LLM_PROVIDERS,
+                    ) {
+                        eprintln!("    did you mean {hint}?");
                     }
-                    return None;
                 }
-            };
+                return None;
+            }
+            let llm_config =
+                assura_llm::LlmConfig::from_provider(&ai_config.provider, Some(&ai_config.model));
             let provider = match assura_llm::HttpProvider::new(llm_config) {
                 Ok(p) => p,
                 Err(e) => {
