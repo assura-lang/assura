@@ -91,7 +91,17 @@ applies after `canonicalize` (a `leak.rs` symlink to `.env` is rejected).
 Absolute paths outside cwd, `../` escapes, missing files, and other
 extensions are rejected.
 
-Rejected paths return JSON (same shape as other JSON-tool errors):
+Rejected paths and other resolve failures return JSON (same shape as
+other JSON-tool errors). Branch on `error_kind`, not on the message
+string:
+
+| `error_kind` | When |
+|--------------|------|
+| `PATH_NOT_ALLOWED` | Escape, wrong extension, missing file, or symlink to a non-source target |
+| `SOURCE_TOO_LARGE` | File or inline source exceeds 16 MiB |
+| `SOURCE_NOT_UTF8` | File bytes are not valid UTF-8 |
+| `MISSING_SOURCE` | Neither `source`/`ir` nor `file`/`ir_file` was provided |
+| `PROMPT_FAILED` | `assura_ir_prompt` failed after a jailed read (unknown pattern, missing decl) |
 
 ```json
 {"success": false, "error": "path not allowed", "error_kind": "PATH_NOT_ALLOWED"}
@@ -99,8 +109,7 @@ Rejected paths return JSON (same shape as other JSON-tool errors):
 
 The error string does not include the requested filesystem path. Inline
 `source` / `ir` text is not jailed. File reads take at most 16 MiB of
-actual bytes (not a metadata-only check). Invalid UTF-8 is reported as
-`source is not valid UTF-8`, not as a jail reject.
+actual bytes (not a metadata-only check).
 
 ## Suggested agent checklist
 
