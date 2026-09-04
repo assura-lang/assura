@@ -10,16 +10,49 @@ pub(crate) fn load_project_config(
     assura_config::load_project_config(start_path, assura_resolve::find_project_root)
 }
 
+/// Maximum Assura/Rust source size accepted by CLI file and stdin readers.
+pub(crate) const MAX_SOURCE_BYTES: u64 = 16 * 1024 * 1024;
+
+fn source_too_large(max: u64) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("source exceeds maximum size of {max} bytes"),
+    )
+}
+
+/// Read a UTF-8 source file, failing if it is larger than `max` bytes.
+///
+/// The error is a plain `InvalidData` message (JSON-friendly; no file body).
+pub(crate) fn read_source_limited(path: impl AsRef<Path>, max: u64) -> io::Result<String> {
+    let file = std::fs::File::open(path)?;
+    let len = file.metadata()?.len();
+    if len > max {
+        return Err(source_too_large(max));
+    }
+    let mut buf = String::new();
+    file.take(max.saturating_add(1)).read_to_string(&mut buf)?;
+    if buf.len() as u64 > max {
+        return Err(source_too_large(max));
+    }
+    Ok(buf)
+}
+
 /// Read source from a path, or from stdin when `path` is `"-"`.
 ///
 /// Display name for diagnostics is `"<stdin>"` when reading from stdin.
+/// Both paths reject input larger than [`MAX_SOURCE_BYTES`].
 pub(crate) fn read_source_arg(path: &str) -> io::Result<(String, String)> {
     if path == "-" {
         let mut buf = String::new();
-        io::stdin().read_to_string(&mut buf)?;
+        io::stdin()
+            .take(MAX_SOURCE_BYTES.saturating_add(1))
+            .read_to_string(&mut buf)?;
+        if buf.len() as u64 > MAX_SOURCE_BYTES {
+            return Err(source_too_large(MAX_SOURCE_BYTES));
+        }
         Ok((buf, "<stdin>".to_string()))
     } else {
-        let source = std::fs::read_to_string(path)?;
+        let source = read_source_limited(path, MAX_SOURCE_BYTES)?;
         Ok((source, path.to_string()))
     }
 }
@@ -120,4 +153,54 @@ pub(crate) fn compile_with_config(
     config: &CompilerConfig,
 ) -> CompilationResult {
     assura_pipeline::compile(source, filename, config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn max_source_bytes_is_16_mib() {
+        assert_eq!(MAX_SOURCE_BYTES, 16 * 1024 * 1024);
+    }
+
+    #[test]
+    fn read_source_limited_ok_under_cap() {
+        let mut f = NamedTempFile::new().unwrap();
+        write!(f, "hello").unwrap();
+        f.flush().unwrap();
+        let s = read_source_limited(f.path(), 16).unwrap();
+        assert_eq!(s, "hello");
+    }
+
+    #[test]
+    fn read_source_limited_rejects_over_cap() {
+        let mut f = NamedTempFile::new().unwrap();
+        write!(f, "hello world").unwrap();
+        f.flush().unwrap();
+        let err = read_source_limited(f.path(), 4).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        let msg = err.to_string();
+        assert!(
+            msg.contains("maximum size"),
+            "expected size-cap message, got {msg}"
+        );
+        assert!(
+            !msg.contains("hello world"),
+            "error must not include file body: {msg}"
+        );
+    }
+
+    #[test]
+    fn read_source_arg_file_uses_limited_reader() {
+        let mut f = NamedTempFile::new().unwrap();
+        write!(f, "contract Foo {{}}\n").unwrap();
+        f.flush().unwrap();
+        let path = f.path().to_string_lossy().to_string();
+        let (source, display) = read_source_arg(&path).unwrap();
+        assert_eq!(source, "contract Foo {}\n");
+        assert_eq!(display, path);
+    }
 }

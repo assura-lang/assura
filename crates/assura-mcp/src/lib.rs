@@ -232,6 +232,26 @@ fn resolve_source(inline: Option<String>, file: Option<String>) -> Result<String
 }
 
 const PATH_NOT_ALLOWED: &str = "path not allowed";
+/// Same 16 MiB cap as CLI `read_source_arg` / `MAX_SOURCE_BYTES`.
+const MAX_SOURCE_BYTES: u64 = 16 * 1024 * 1024;
+const SOURCE_TOO_LARGE: &str = "source exceeds maximum size";
+
+fn source_len_allowed(len: u64) -> Result<(), String> {
+    if len > MAX_SOURCE_BYTES {
+        Err(SOURCE_TOO_LARGE.into())
+    } else {
+        Ok(())
+    }
+}
+
+/// Read a jailed path after the size check. `max` is overridable in tests.
+fn read_capped_source(path: &std::path::Path, max: u64) -> Result<String, String> {
+    let meta = std::fs::metadata(path).map_err(|_| PATH_NOT_ALLOWED.to_string())?;
+    if meta.len() > max {
+        return Err(SOURCE_TOO_LARGE.into());
+    }
+    std::fs::read_to_string(path).map_err(|_| PATH_NOT_ALLOWED.to_string())
+}
 
 fn is_allowed_source_ext(path: &std::path::Path) -> bool {
     path.extension()
@@ -282,7 +302,7 @@ fn read_jailed_source(path: &str) -> Result<String, String> {
         return Err(PATH_NOT_ALLOWED.into());
     }
 
-    std::fs::read_to_string(&canon).map_err(|_| PATH_NOT_ALLOWED.to_string())
+    read_capped_source(&canon, MAX_SOURCE_BYTES)
 }
 
 fn resolve_source_with_path(
@@ -290,7 +310,10 @@ fn resolve_source_with_path(
     file: Option<String>,
 ) -> Result<(String, String), String> {
     match (inline, file) {
-        (Some(s), _) => Ok((s, "<inline>".into())),
+        (Some(s), _) => {
+            source_len_allowed(s.len() as u64)?;
+            Ok((s, "<inline>".into()))
+        }
         (None, Some(path)) => {
             let content = read_jailed_source(&path)?;
             Ok((content, path))
@@ -655,6 +678,47 @@ mod tests {
             result.err()
         );
         assert!(result.unwrap().contains("JailOk"));
+    }
+
+    #[test]
+    fn source_len_allowed_matches_16_mib_cap() {
+        assert_eq!(MAX_SOURCE_BYTES, 16 * 1024 * 1024);
+        assert!(source_len_allowed(MAX_SOURCE_BYTES).is_ok());
+        assert_eq!(
+            source_len_allowed(MAX_SOURCE_BYTES + 1).unwrap_err(),
+            SOURCE_TOO_LARGE
+        );
+    }
+
+    #[test]
+    fn read_capped_source_rejects_over_max_without_leaking_body() {
+        let name = format!("assura_mcp_oversize_{}.assura", std::process::id());
+        std::fs::write(&name, "secret contract body that must not leak\n").expect("write probe");
+        let result = read_capped_source(std::path::Path::new(&name), 4);
+        let _ = std::fs::remove_file(&name);
+        assert!(result.is_err(), "over-cap file must be rejected");
+        let err = result.unwrap_err();
+        assert_eq!(err, SOURCE_TOO_LARGE);
+        assert!(
+            !err.contains("secret"),
+            "size error must not include file body: {err}"
+        );
+    }
+
+    #[test]
+    fn read_capped_source_allows_under_max() {
+        let name = format!("assura_mcp_size_ok_{}.assura", std::process::id());
+        std::fs::write(&name, "ok\n").expect("write probe");
+        let result = read_capped_source(std::path::Path::new(&name), 16);
+        let _ = std::fs::remove_file(&name);
+        assert_eq!(result.unwrap(), "ok\n");
+    }
+
+    #[test]
+    fn resolve_source_rejects_oversize_inline() {
+        let too_big = MAX_SOURCE_BYTES.saturating_add(1);
+        // Avoid allocating 16 MiB: the length check is what resolve_source uses.
+        assert_eq!(source_len_allowed(too_big).unwrap_err(), SOURCE_TOO_LARGE);
     }
 
     // -----------------------------------------------------------------------

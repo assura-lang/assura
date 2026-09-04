@@ -11,7 +11,7 @@ pub(crate) fn run_infer(
     focus: Option<&str>,
     output_mode: assura_config::OutputMode,
 ) {
-    let source = fs::read_to_string(filename).unwrap_or_else(|e| {
+    let source = read_source_limited(filename, MAX_SOURCE_BYTES).unwrap_or_else(|e| {
         if output_mode == assura_config::OutputMode::Json {
             let report = serde_json::json!({
                 "ok": false,
