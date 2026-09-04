@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 use super::*;
-use assura_ast::{ExprFolder, fold_arg_list, fold_joined, literal_to_string};
+use assura_ast::{ExprFolder, ExprVisitor, fold_arg_list, fold_joined, literal_to_string};
 
 /// Hygienic variable name for the contract return value in generated Rust.
 ///
@@ -19,49 +19,45 @@ pub(crate) const OLD_VAR_PREFIX: &str = "__assura_old_";
 /// Returns true if the expression contains a literal that exceeds i128 range
 /// (e.g. u128::MAX). Such literals cannot be wrapped in `i128::from(...)`.
 fn has_u128_literal(expr: &SpExpr) -> bool {
-    match &expr.node {
-        Expr::Literal(Literal::Int(s)) => s.parse::<i128>().is_err() && s.parse::<u128>().is_ok(),
-        Expr::BinOp { lhs, rhs, .. } => has_u128_literal(lhs) || has_u128_literal(rhs),
-        Expr::UnaryOp { expr: e, .. }
-        | Expr::Old(e)
-        | Expr::Cast { expr: e, .. }
-        | Expr::Field(e, _) => has_u128_literal(e),
-        _ => false,
+    struct Finder(bool);
+    impl ExprVisitor for Finder {
+        fn visit_literal(&mut self, lit: &Literal) {
+            if let Literal::Int(s) = lit {
+                self.0 |= s.parse::<i128>().is_err() && s.parse::<u128>().is_ok();
+            }
+        }
     }
+    let mut finder = Finder(false);
+    finder.visit_expr(expr);
+    finder.0
 }
 
 /// Returns true if the expression tree contains a Float literal or references
 /// a variable known to be float-typed. Used to skip `i128::from()` wrapping
 /// since `f64` does not implement `Into<i128>`.
 fn has_float_expr(expr: &SpExpr, float_vars: &HashSet<String>) -> bool {
-    match &expr.node {
-        Expr::Literal(Literal::Float(_)) => true,
-        Expr::Ident(name) => float_vars.contains(name.as_str()),
-        Expr::BinOp { lhs, rhs, .. } => {
-            has_float_expr(lhs, float_vars) || has_float_expr(rhs, float_vars)
-        }
-        Expr::UnaryOp { expr: e, .. }
-        | Expr::Old(e)
-        | Expr::Cast { expr: e, .. }
-        | Expr::Field(e, _) => has_float_expr(e, float_vars),
-        Expr::MethodCall { receiver, args, .. } => {
-            has_float_expr(receiver, float_vars)
-                || args.iter().any(|a| has_float_expr(a, float_vars))
-        }
-        Expr::Call { args, .. } => args.iter().any(|a| has_float_expr(a, float_vars)),
-        Expr::Let { body, .. } => has_float_expr(body, float_vars),
-        Expr::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            has_float_expr(then_branch, float_vars)
-                || else_branch
-                    .as_ref()
-                    .is_some_and(|e| has_float_expr(e, float_vars))
-        }
-        _ => false,
+    struct Finder<'a> {
+        float_vars: &'a HashSet<String>,
+        found: bool,
     }
+    impl ExprVisitor for Finder<'_> {
+        fn visit_literal(&mut self, lit: &Literal) {
+            if matches!(lit, Literal::Float(_)) {
+                self.found = true;
+            }
+        }
+        fn visit_ident(&mut self, name: &str) {
+            if self.float_vars.contains(name) {
+                self.found = true;
+            }
+        }
+    }
+    let mut finder = Finder {
+        float_vars,
+        found: false,
+    };
+    finder.visit_expr(expr);
+    finder.found
 }
 
 /// Returns true if the folded Rust string already contains i128 widening.
@@ -489,12 +485,20 @@ impl ExprFolder for RustCodegenFolder {
     }
 
     fn fold_let(&mut self, name: &str, value: &SpExpr, body: &SpExpr) -> String {
-        format!(
+        let bind_float = has_float_expr(value, &self.float_vars);
+        if bind_float {
+            self.float_vars.insert(name.to_string());
+        }
+        let result = format!(
             "{{ let {} = {}; {} }}",
             name,
             self.fold_expr(value),
             self.fold_expr(body)
-        )
+        );
+        if bind_float {
+            self.float_vars.remove(name);
+        }
+        result
     }
 
     fn fold_match(&mut self, scrutinee: &SpExpr, arms: &[assura_ast::MatchArm]) -> String {
