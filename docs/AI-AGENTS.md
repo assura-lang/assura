@@ -98,7 +98,9 @@ Rejected paths return JSON (same shape as other JSON-tool errors):
 ```
 
 The error string does not include the requested filesystem path. Inline
-`source` / `ir` text is not jailed.
+`source` / `ir` text is not jailed. File reads take at most 16 MiB of
+actual bytes (not a metadata-only check). Invalid UTF-8 is reported as
+`source is not valid UTF-8`, not as a jail reject.
 
 ## Suggested agent checklist
 

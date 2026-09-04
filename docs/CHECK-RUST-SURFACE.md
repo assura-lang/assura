@@ -33,7 +33,10 @@ assura check-rust src/ --suggest   # suggest contracts for unannotated items
 ### Directory scans
 
 A directory argument walks `.rs` files recursively (`target/`, `generated/`,
-and hidden dirs are skipped). **The scan fails closed:** if any `.rs` file
+and hidden dirs are skipped). Symlink and junction directories are not
+followed; already-visited canonical paths are skipped so cycles cannot hang.
+Each file is read with the same 16 MiB cap as the CLI and MCP (actual
+bytes, not metadata only). **The scan fails closed:** if any `.rs` file
 cannot be parsed as a complete crate (`syn::parse_file`), `check-rust`
 exits **1**. Human stderr names the failing file. JSON uses `scan_failed`
 or `parse_failed`.

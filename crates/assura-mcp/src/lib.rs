@@ -255,6 +255,7 @@ fn tool_path_error_json(err: String) -> String {
 /// Same 16 MiB cap as CLI `read_source_arg` / `MAX_SOURCE_BYTES`.
 const MAX_SOURCE_BYTES: u64 = 16 * 1024 * 1024;
 const SOURCE_TOO_LARGE: &str = "source exceeds maximum size";
+const SOURCE_NOT_UTF8: &str = "source is not valid UTF-8";
 
 fn source_len_allowed(len: u64) -> Result<(), String> {
     if len > MAX_SOURCE_BYTES {
@@ -264,13 +265,18 @@ fn source_len_allowed(len: u64) -> Result<(), String> {
     }
 }
 
-/// Read a jailed path after the size check. `max` is overridable in tests.
+/// Read a jailed path, taking at most `max` bytes. `max` is overridable in tests.
 fn read_capped_source(path: &std::path::Path, max: u64) -> Result<String, String> {
-    let meta = std::fs::metadata(path).map_err(|_| PATH_NOT_ALLOWED.to_string())?;
-    if meta.len() > max {
+    use std::io::Read;
+    let file = std::fs::File::open(path).map_err(|_| PATH_NOT_ALLOWED.to_string())?;
+    let mut buf = Vec::new();
+    file.take(max.saturating_add(1))
+        .read_to_end(&mut buf)
+        .map_err(|_| PATH_NOT_ALLOWED.to_string())?;
+    if buf.len() as u64 > max {
         return Err(SOURCE_TOO_LARGE.into());
     }
-    std::fs::read_to_string(path).map_err(|_| PATH_NOT_ALLOWED.to_string())
+    String::from_utf8(buf).map_err(|_| SOURCE_NOT_UTF8.to_string())
 }
 
 fn is_allowed_source_ext(path: &std::path::Path) -> bool {
@@ -795,6 +801,33 @@ mod tests {
         let result = read_capped_source(std::path::Path::new(&name), 16);
         let _ = std::fs::remove_file(&name);
         assert_eq!(result.unwrap(), "ok\n");
+    }
+
+    #[test]
+    fn read_capped_source_rejects_when_more_than_max_bytes_present() {
+        let name = format!("assura_mcp_cap_take_{}.assura", std::process::id());
+        std::fs::write(&name, "0123456789abcdef").expect("write probe");
+        let result = read_capped_source(std::path::Path::new(&name), 8);
+        let _ = std::fs::remove_file(&name);
+        assert!(result.is_err(), "more than max bytes must be rejected");
+        assert_eq!(result.unwrap_err(), SOURCE_TOO_LARGE);
+    }
+
+    #[test]
+    fn read_capped_source_invalid_utf8_is_not_path_not_allowed() {
+        let name = format!("assura_mcp_badutf8_{}.assura", std::process::id());
+        std::fs::write(&name, [0xff, 0xfe, 0xfd]).expect("write probe");
+        let result = read_capped_source(std::path::Path::new(&name), 16);
+        let _ = std::fs::remove_file(&name);
+        let err = result.expect_err("invalid UTF-8 must fail");
+        assert_ne!(
+            err, PATH_NOT_ALLOWED,
+            "invalid UTF-8 must not be reported as PATH_NOT_ALLOWED"
+        );
+        assert!(
+            err.to_ascii_lowercase().contains("utf-8"),
+            "expected a UTF-8 error, got {err}"
+        );
     }
 
     #[test]

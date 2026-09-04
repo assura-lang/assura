@@ -1281,6 +1281,62 @@ fn parse_rust_file_rejects_garbage() {
 }
 
 #[test]
+fn scan_directory_skips_symlink_dirs() {
+    let dir = std::env::temp_dir().join(format!(
+        "assura_ra_scan_link_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(dir.join("real")).unwrap();
+    std::fs::write(
+        dir.join("real").join("ok.rs"),
+        "/// @requires x > 0\nfn ok(x: i32) { let _ = x; }\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("secret")).unwrap();
+    std::fs::write(
+        dir.join("secret").join("leak.rs"),
+        "/// @requires x > 0\nfn leak(x: i32) { let _ = x; }\n",
+    )
+    .unwrap();
+    let link = dir.join("link");
+    let linked = {
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_dir(dir.join("secret"), &link)
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(dir.join("secret"), &link)
+        }
+    };
+    if linked.is_err() {
+        let _ = std::fs::remove_dir_all(&dir);
+        // Dir symlinks need privilege (Windows Developer Mode).
+        // scan_entry_is_link unit test still covers the skip predicate.
+        return;
+    }
+    let results = scan_directory(&dir).expect("scan must not follow symlink dirs");
+    let _ = std::fs::remove_dir(&link);
+    let _ = std::fs::remove_dir_all(&dir);
+    let names: Vec<String> = results
+        .iter()
+        .filter_map(|(p, _)| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .collect();
+    assert!(
+        names.iter().any(|n| n == "ok.rs"),
+        "real tree must still be scanned: {names:?}"
+    );
+    assert!(
+        !names.iter().any(|n| n == "leak.rs"),
+        "must not descend symlink/junction dirs: {names:?}"
+    );
+}
+
+#[test]
 fn scan_directory_fails_on_unparseable_rs() {
     let dir = std::env::temp_dir().join(format!(
         "assura_ra_scan_dir_{}_{}",

@@ -1,6 +1,7 @@
 //! Doc comment parser and Rust source file parser.
 
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use quote::ToTokens;
 
@@ -384,7 +385,7 @@ pub fn parse_rust_file_with_options(
     path: &Path,
     opts: ScanOptions,
 ) -> Result<Vec<AnnotatedItem>, RustAnalyzerError> {
-    let source = std::fs::read_to_string(path)?;
+    let source = read_source_limited(path, MAX_SOURCE_BYTES)?;
     parse_rust_source_with_options(&source, opts)
 }
 
@@ -401,26 +402,36 @@ pub fn scan_directory_with_options(
     opts: ScanOptions,
 ) -> Result<Vec<(std::path::PathBuf, Vec<AnnotatedItem>)>, RustAnalyzerError> {
     let mut results = Vec::new();
-    scan_dir_recursive(dir, opts, &mut results)?;
+    let mut visited = HashSet::new();
+    scan_dir_recursive(dir, opts, &mut results, &mut visited)?;
     Ok(results)
 }
 
 fn scan_dir_recursive(
     dir: &Path,
     opts: ScanOptions,
-    results: &mut Vec<(std::path::PathBuf, Vec<AnnotatedItem>)>,
+    results: &mut Vec<(PathBuf, Vec<AnnotatedItem>)>,
+    visited: &mut HashSet<PathBuf>,
 ) -> Result<(), RustAnalyzerError> {
+    if let Ok(canon) = dir.canonicalize() {
+        if !visited.insert(canon) {
+            return Ok(());
+        }
+    }
     let entries = std::fs::read_dir(dir)?;
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
+        if is_scan_symlink(&path) {
+            continue;
+        }
         if path.is_dir() {
             // Skip target, hidden dirs, and generated dirs
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if name.starts_with('.') || name == "target" || name == "generated" {
                 continue;
             }
-            scan_dir_recursive(&path, opts, results)?;
+            scan_dir_recursive(&path, opts, results, visited)?;
         } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
             match parse_rust_file_with_options(&path, opts) {
                 Ok(items) if !items.is_empty() => {
@@ -434,4 +445,86 @@ fn scan_dir_recursive(
         }
     }
     Ok(())
+}
+
+/// Same 16 MiB cap as CLI `read_source_arg` / MCP `MAX_SOURCE_BYTES`.
+const MAX_SOURCE_BYTES: u64 = 16 * 1024 * 1024;
+
+fn read_source_limited(path: &Path, max: u64) -> Result<String, std::io::Error> {
+    use std::io::Read;
+    let file = std::fs::File::open(path)?;
+    let mut buf = Vec::new();
+    file.take(max.saturating_add(1)).read_to_end(&mut buf)?;
+    if (buf.len() as u64) > max {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("source exceeds maximum size of {max} bytes"),
+        ));
+    }
+    String::from_utf8(buf).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
+fn scan_entry_is_link(file_type_is_symlink: bool, windows_reparse_point: bool) -> bool {
+    file_type_is_symlink || windows_reparse_point
+}
+
+fn is_scan_symlink(path: &Path) -> bool {
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    let is_reparse = {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+            meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        }
+        #[cfg(not(windows))]
+        {
+            false
+        }
+    };
+    scan_entry_is_link(meta.file_type().is_symlink(), is_reparse)
+}
+
+#[cfg(test)]
+mod limited_read_tests {
+    use super::*;
+
+    #[test]
+    fn read_source_limited_rejects_over_max() {
+        let dir = std::env::temp_dir().join(format!(
+            "assura_ra_cap_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("big.rs");
+        std::fs::write(&path, "fn foo() {}\n// extra").expect("write probe");
+        let result = read_source_limited(&path, 8);
+        let _ = std::fs::remove_dir_all(&dir);
+        let err = result.expect_err("over-max file must be rejected");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert!(
+            err.to_string().contains("maximum size"),
+            "size error must mention the cap: {err}"
+        );
+    }
+
+    #[test]
+    fn scan_entry_is_link_skips_symlinks_and_reparse_points() {
+        assert!(
+            scan_entry_is_link(true, false),
+            "symlink entries must be skipped"
+        );
+        assert!(
+            scan_entry_is_link(false, true),
+            "Windows reparse/junction entries must be skipped"
+        );
+        assert!(!scan_entry_is_link(false, false));
+    }
 }
