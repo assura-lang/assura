@@ -22,7 +22,7 @@ fn workspace_root_points_at_repo_not_crate() {
     );
     assert!(
         root.join("demos").is_dir(),
-        "workspace_root must contain demos/ (Unix-slash replace is a no-op on Windows): {}",
+        "workspace_root must contain demos/ (walk two parents from crates/assura-cli): {}",
         root.display()
     );
 }
