@@ -318,7 +318,7 @@ pub fn crash_user_prompt(
 /// Parse a crash suggestion response from the LLM.
 pub fn parse_crash_response(raw: &str) -> Result<CrashSuggestionResponse, LlmError> {
     let json_str = crate::prompt::extract_json(raw);
-    serde_json::from_str(json_str).map_err(|e| LlmError::Parse(format!("{e}: {json_str}")))
+    serde_json::from_str(json_str).map_err(|e| crate::prompt::parse_error(e, json_str))
 }
 
 /// Response from the crash suggestion LLM call.
@@ -575,6 +575,21 @@ stack backtrace:
         let k1 = crash_cache_key("foo", "body", "crash", "oob", &[], "mock");
         let k2 = crash_cache_key("foo", "body", "crash", "div by zero", &[], "mock");
         assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn parse_crash_error_does_not_dump_body() {
+        let payload = "w".repeat(500);
+        let err = parse_crash_response(&format!("not json {payload}")).expect_err("invalid json");
+        match err {
+            LlmError::Parse(msg) => {
+                assert!(
+                    !msg.contains(&payload),
+                    "parse error must not include a 500-char payload"
+                );
+            }
+            other => panic!("expected Parse, got {other:?}"),
+        }
     }
 
     #[test]

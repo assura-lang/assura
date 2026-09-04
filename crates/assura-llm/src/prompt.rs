@@ -186,17 +186,27 @@ pub fn extract_json(raw: &str) -> &str {
     // Strip ```json ... ``` if present
     if let Some(start) = trimmed.find('{') {
         let end = trimmed.rfind('}').unwrap_or(trimmed.len() - 1);
-        &trimmed[start..=end]
+        if end < start {
+            trimmed
+        } else {
+            &trimmed[start..=end]
+        }
     } else {
         trimmed
     }
+}
+
+/// Parse-error message: include the serde error and a short prefix, never the full body.
+pub(crate) fn parse_error(e: impl std::fmt::Display, json: &str) -> LlmError {
+    let prefix: String = json.chars().take(200).collect();
+    LlmError::Parse(format!("{e}: {prefix}"))
 }
 
 pub fn parse_analysis_response(raw: &str) -> Result<AnalysisResponse, LlmError> {
     let json_str = extract_json(raw);
 
     let v: serde_json::Value =
-        serde_json::from_str(json_str).map_err(|e| LlmError::Parse(format!("{e}: {json_str}")))?;
+        serde_json::from_str(json_str).map_err(|e| parse_error(e, json_str))?;
 
     let verdict_str = v["verdict"].as_str().unwrap_or("uncertain");
     let confidence = v["confidence"].as_f64().unwrap_or(0.5);
@@ -239,7 +249,7 @@ pub fn parse_analysis_response(raw: &str) -> Result<AnalysisResponse, LlmError> 
 
 pub fn parse_suggestion_response(raw: &str) -> Result<SuggestionResponse, LlmError> {
     let json_str = extract_json(raw);
-    serde_json::from_str(json_str).map_err(|e| LlmError::Parse(format!("{e}: {json_str}")))
+    serde_json::from_str(json_str).map_err(|e| parse_error(e, json_str))
 }
 
 #[cfg(test)]
@@ -367,5 +377,50 @@ mod tests {
     fn extract_json_no_braces() {
         let result = extract_json("no json here");
         assert_eq!(result, "no json here");
+    }
+
+    #[test]
+    fn extract_json_closing_brace_before_opening_does_not_panic() {
+        let extracted = extract_json("token '}' then {");
+        assert_eq!(extracted, "token '}' then {");
+    }
+
+    #[test]
+    fn parse_analysis_error_does_not_dump_body() {
+        let payload = "x".repeat(500);
+        let raw = format!("not json {payload}");
+        let err = parse_analysis_response(&raw).expect_err("invalid json");
+        match err {
+            LlmError::Parse(msg) => {
+                assert!(
+                    !msg.contains(&payload),
+                    "parse error must not include a 500-char payload: len={}",
+                    msg.len()
+                );
+                assert!(
+                    msg.len() <= 280,
+                    "parse error should be a short prefix, got len={}",
+                    msg.len()
+                );
+            }
+            other => panic!("expected Parse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_suggestion_error_does_not_dump_body() {
+        let payload = "y".repeat(500);
+        let raw = format!("not json {payload}");
+        let err = parse_suggestion_response(&raw).expect_err("invalid json");
+        match err {
+            LlmError::Parse(msg) => {
+                assert!(
+                    !msg.contains(&payload),
+                    "parse error must not include a 500-char payload: len={}",
+                    msg.len()
+                );
+            }
+            other => panic!("expected Parse, got {other:?}"),
+        }
     }
 }
