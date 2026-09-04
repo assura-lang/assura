@@ -201,6 +201,7 @@ module copy {
         constants: &[],
         ir: Some(LoadedIrContext::with_body(&ir)),
         callee_specs: None,
+        lemma_defs: None,
     };
     let results = verify_contract_cvc5_with_lemmas(&ctx, None, &mut cache);
 

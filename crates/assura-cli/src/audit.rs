@@ -24,7 +24,7 @@ pub(crate) fn run_audit(opts: AuditOptions<'_>) {
         format,
         focus,
         max_functions,
-        timeout_ms: _timeout_ms,
+        timeout_ms,
         unsafe_only,
         as_json,
     } = opts;
@@ -268,20 +268,18 @@ pub(crate) fn run_audit(opts: AuditOptions<'_>) {
     let mut error_count = 0u32;
     let mut skipped_errors = 0u32;
 
-    let config = CompilerConfig::default();
+    let config = audit_compiler_config(timeout_ms);
 
     for block in &bind_blocks {
         let single_source = format!("bind {block}");
 
-        let output = assura_pipeline::compile_full(&single_source, "audit.assura", &config);
-
-        if output.has_errors {
+        let Some(verification) = verify_audit_source(&single_source, &config) else {
             // This bind had resolution/type errors; skip it silently
             skipped_errors += 1;
             continue;
-        }
+        };
 
-        for r in &output.verification {
+        for r in &verification {
             match r {
                 assura_smt::VerificationResult::Verified { .. } => {
                     verified_count += 1;
@@ -383,6 +381,37 @@ pub(crate) fn run_audit(opts: AuditOptions<'_>) {
     if !findings.is_empty() {
         process::exit(1);
     }
+}
+
+/// Compiler config for audit verify. `timeout_ms` is the CLI `--timeout`
+/// (default 5000) and is applied to SMT via `CompilerConfig.verify`.
+pub(crate) fn audit_compiler_config(timeout_ms: u64) -> CompilerConfig {
+    CompilerConfig {
+        verify: assura_config::VerifyOptions {
+            timeout_ms,
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// Compile and verify one generated bind. Skips codegen (`compile` +
+/// `verify_typed` instead of `compile_full`).
+///
+/// Returns `None` when parse/resolve/type failed so the caller can skip
+/// that bind. SMT results (including timeouts) are `Some`.
+fn verify_audit_source(
+    source: &str,
+    config: &CompilerConfig,
+) -> Option<Vec<assura_smt::VerificationResult>> {
+    let output = assura_pipeline::compile(source, "audit.assura", config);
+    if output.has_errors {
+        return None;
+    }
+    let Some(typed) = output.typed.as_ref() else {
+        return Some(Vec::new());
+    };
+    Some(assura_pipeline::verify_typed(typed, "audit.assura", config))
 }
 
 /// A finding from the audit.
@@ -832,11 +861,9 @@ mod tests {
             mapped_ret
         );
 
-        let output = assura_pipeline::compile_full(
-            &source,
-            "audit_test.assura",
-            &assura_config::CompilerConfig::default(),
-        );
+        let config = audit_compiler_config(5000);
+        assert_eq!(config.verify.timeout_ms, 5000);
+        let output = assura_pipeline::compile(&source, "audit_test.assura", &config);
 
         // Must not have errors
         assert!(
@@ -848,10 +875,26 @@ mod tests {
                 .map(|d| &d.message)
                 .collect::<Vec<_>>()
         );
+        let typed = output.typed.as_ref().expect("typed file after compile");
+        let verification = assura_pipeline::verify_typed(typed, "audit_test.assura", &config);
         // Must have at least one verification result
         assert!(
-            !output.verification.is_empty(),
+            !verification.is_empty(),
             "Expected at least one verification result"
+        );
+    }
+
+    #[test]
+    fn audit_timeout_reaches_verify_config() {
+        let default_cli = audit_compiler_config(5000);
+        assert_eq!(default_cli.verify.timeout_ms, 5000);
+        let custom = audit_compiler_config(1);
+        assert_eq!(custom.verify.timeout_ms, 1);
+        // CompilerConfig::default() uses 1000ms; audit --timeout must not
+        // be discarded (the previous `_timeout_ms` binding).
+        assert_ne!(
+            default_cli.verify.timeout_ms,
+            CompilerConfig::default().verify.timeout_ms
         );
     }
 

@@ -187,6 +187,13 @@ fn verify_smt_solver_accepts_cvc5() {
 }
 
 #[test]
+fn verify_solver_alias_accepts_cvc5() {
+    let toml_str = "[verify]\nsolver = \"cvc5\"\n";
+    let config: ProjectConfig = toml::from_str(toml_str).unwrap();
+    assert_eq!(config.verify.smt_solver, SolverChoice::Cvc5);
+}
+
+#[test]
 fn verify_smt_solver_accepts_portfolio() {
     let toml_str = "[verify]\nsmt-solver = \"portfolio\"\n";
     let config: ProjectConfig = toml::from_str(toml_str).unwrap();

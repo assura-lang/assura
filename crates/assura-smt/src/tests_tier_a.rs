@@ -58,6 +58,7 @@ module inc {
         constants: &[],
         ir: Some(crate::verify_context::LoadedIrContext::with_body(&ir)),
         callee_specs: None,
+        lemma_defs: None,
     };
     let results = verify_contract_impl_with_types_and_ir(&ctx);
     assert!(
@@ -117,6 +118,7 @@ module id {
         constants: &[],
         ir: Some(crate::verify_context::LoadedIrContext::with_body(&ir)),
         callee_specs: None,
+        lemma_defs: None,
     };
     let results = verify_contract_impl_with_types_and_ir(&ctx);
     assert!(

@@ -1247,3 +1247,182 @@ fn impossible(x: i32) -> i32 {
     assert_eq!(items[0].contract.requires[0].body, "x > 10");
     assert_eq!(items[0].contract.requires[1].body, "x < 5");
 }
+
+#[test]
+fn parse_rust_source_rejects_garbage() {
+    let err = parse_rust_source("fn (").expect_err("garbage must fail to parse");
+    match err {
+        crate::RustAnalyzerError::Parse(msg) => {
+            assert!(!msg.is_empty(), "parse error should describe the failure");
+        }
+        other => panic!("expected Parse, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_rust_file_rejects_garbage() {
+    let dir = std::env::temp_dir().join(format!(
+        "assura_ra_parse_file_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("broken.rs");
+    std::fs::write(&path, "fn (\n").unwrap();
+    let err = parse_rust_file(&path).expect_err("unparseable file must fail");
+    let _ = std::fs::remove_dir_all(&dir);
+    match err {
+        crate::RustAnalyzerError::Parse(_) => {}
+        other => panic!("expected Parse, got {other:?}"),
+    }
+}
+
+#[test]
+fn scan_directory_skips_symlink_dirs() {
+    let dir = std::env::temp_dir().join(format!(
+        "assura_ra_scan_link_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    let scan_root = dir.join("root");
+    std::fs::create_dir_all(scan_root.join("real")).unwrap();
+    std::fs::write(
+        scan_root.join("real").join("ok.rs"),
+        "/// @requires x > 0\nfn ok(x: i32) { let _ = x; }\n",
+    )
+    .unwrap();
+    // Outside the scan root so leak.rs is only reachable via the symlink.
+    let outside = dir.join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(
+        outside.join("leak.rs"),
+        "/// @requires x > 0\nfn leak(x: i32) { let _ = x; }\n",
+    )
+    .unwrap();
+    let link = scan_root.join("link");
+    let linked = {
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_dir(&outside, &link)
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, &link)
+        }
+    };
+    if linked.is_err() {
+        let _ = std::fs::remove_dir_all(&dir);
+        // Dir symlinks need privilege (Windows Developer Mode).
+        // scan_entry_is_link unit test still covers the skip predicate.
+        return;
+    }
+    let results = scan_directory(&scan_root).expect("scan must not follow symlink dirs");
+    let _ = std::fs::remove_dir(&link);
+    let _ = std::fs::remove_dir_all(&dir);
+    let names: Vec<String> = results
+        .iter()
+        .filter_map(|(p, _)| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .collect();
+    assert!(
+        names.iter().any(|n| n == "ok.rs"),
+        "real tree must still be scanned: {names:?}"
+    );
+    assert!(
+        !names.iter().any(|n| n == "leak.rs"),
+        "must not descend symlink/junction dirs: {names:?}"
+    );
+}
+
+#[test]
+fn scan_directory_fails_on_unparseable_rs() {
+    let dir = std::env::temp_dir().join(format!(
+        "assura_ra_scan_dir_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("broken.rs"), "fn (\n").unwrap();
+    let err = scan_directory(&dir).expect_err("dir scan must not swallow parse errors");
+    let _ = std::fs::remove_dir_all(&dir);
+    match err {
+        crate::RustAnalyzerError::Parse(msg) => {
+            assert!(
+                msg.contains("broken.rs"),
+                "parse error must name the failing file: {msg}"
+            );
+        }
+        other => panic!("expected Parse, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_rust_source_default_skips_unannotated_functions() {
+    let source = "fn foo(x: i32) -> i32 { x }\n";
+    let items = parse_rust_source(source).unwrap();
+    assert!(
+        items.is_empty(),
+        "default scan must not collect unannotated functions: {items:?}"
+    );
+}
+
+#[test]
+fn parse_rust_source_include_unannotated_collects_functions() {
+    let source = "fn foo(x: i32) -> i32 { x }\n";
+    let items = parse_rust_source_with_options(
+        source,
+        ScanOptions {
+            include_unannotated: true,
+        },
+    )
+    .unwrap();
+    assert_eq!(items.len(), 1);
+    match &items[0].kind {
+        AnnotatedItemKind::Function { name, .. } => assert_eq!(name, "foo"),
+        other => panic!("expected Function, got {other:?}"),
+    }
+    assert!(items[0].contract.is_empty());
+}
+
+#[test]
+fn scan_directory_include_unannotated_keeps_empty_contract_files() {
+    let dir = std::env::temp_dir().join(format!(
+        "assura_ra_scan_unann_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("plain.rs"), "fn foo(x: i32) -> i32 { x }\n").unwrap();
+
+    let default_scan = scan_directory(&dir).unwrap();
+    assert!(
+        default_scan.is_empty(),
+        "default dir scan must drop files with no annotations: {default_scan:?}"
+    );
+
+    let suggest_scan = scan_directory_with_options(
+        &dir,
+        ScanOptions {
+            include_unannotated: true,
+        },
+    )
+    .unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(suggest_scan.len(), 1, "{suggest_scan:?}");
+    assert_eq!(suggest_scan[0].1.len(), 1);
+    match &suggest_scan[0].1[0].kind {
+        AnnotatedItemKind::Function { name, .. } => assert_eq!(name, "foo"),
+        other => panic!("expected Function, got {other:?}"),
+    }
+}

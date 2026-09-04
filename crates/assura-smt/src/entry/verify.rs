@@ -407,6 +407,8 @@ pub(crate) fn verify_parallel_with_solver(
     // Collect verification jobs (#213: shared with CVC5 and Z3 paths)
     let jobs = collect_verification_jobs(typed);
     let callee_specs = crate::encode_callee_policy::collect_callee_functional_specs(&jobs);
+    // Same lemma map as the serial path; parallel previously dropped it.
+    let lemma_defs = crate::verify_labels::collect_lemma_defs(typed);
 
     // Verify in parallel: each job gets its own solver context
     let per_job_results: Vec<Vec<VerificationResult>> = jobs
@@ -453,6 +455,7 @@ pub(crate) fn verify_parallel_with_solver(
                             Some(&typed.type_env),
                         ),
                         callee_specs: Some(&callee_specs),
+                        lemma_defs: Some(&lemma_defs),
                     };
                     let mut results = verify_contract_with_types_and_solver(&ctx, solver);
                     results.extend(skip_results);
@@ -481,6 +484,7 @@ pub(crate) fn verify_parallel_with_solver(
                     Some(&typed.type_env),
                 ),
                 callee_specs: Some(&callee_specs),
+                lemma_defs: Some(&lemma_defs),
             };
             let results = verify_contract_with_types_and_solver(&ctx, solver);
             cache.put(name, clauses, ir_fp, &results);
@@ -581,7 +585,7 @@ fn verify_contract_with_types_and_solver(
         }
         SolverChoice::Cvc5 => {
             let mut cache = SessionCache::new();
-            crate::cvc5_backend::verify_contract_cvc5_with_lemmas(ctx, None, &mut cache)
+            crate::cvc5_backend::verify_contract_cvc5_with_lemmas(ctx, ctx.lemma_defs, &mut cache)
         }
         SolverChoice::Portfolio => {
             // Parallel path must merge Z3 + CVC5 (same as non-parallel
@@ -591,14 +595,21 @@ fn verify_contract_with_types_and_solver(
             {
                 let z3 = crate::z3_backend::verify_contract_impl_with_types_and_ir(ctx);
                 let mut cache = SessionCache::new();
-                let cvc5 =
-                    crate::cvc5_backend::verify_contract_cvc5_with_lemmas(ctx, None, &mut cache);
+                let cvc5 = crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
+                    ctx,
+                    ctx.lemma_defs,
+                    &mut cache,
+                );
                 merge_portfolio_results(z3, cvc5)
             }
             #[cfg(not(feature = "z3-verify"))]
             {
                 let mut cache = SessionCache::new();
-                crate::cvc5_backend::verify_contract_cvc5_with_lemmas(ctx, None, &mut cache)
+                crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
+                    ctx,
+                    ctx.lemma_defs,
+                    &mut cache,
+                )
             }
         }
     }

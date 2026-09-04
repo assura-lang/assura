@@ -12,6 +12,22 @@ use common::{assura_bin, unique_temp, workspace_root};
 use std::process::Command;
 
 #[test]
+fn workspace_root_points_at_repo_not_crate() {
+    let root_s = workspace_root();
+    let root = std::path::Path::new(&root_s);
+    assert!(
+        root.join("Cargo.toml").is_file(),
+        "workspace_root must contain Cargo.toml: {}",
+        root.display()
+    );
+    assert!(
+        root.join("demos").is_dir(),
+        "workspace_root must contain demos/ (walk two parents from crates/assura-cli): {}",
+        root.display()
+    );
+}
+
+#[test]
 fn build_cli_output_creates_custom_dir() {
     let tmp = unique_temp("assura_r007_custom_output");
     let _ = std::fs::remove_dir_all(&tmp);
@@ -1101,12 +1117,81 @@ fn explain_lists_known_codes_on_failure() {
         .expect("failed to run assura explain XXXXX");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("Known error codes"),
-        "should list known codes on failure: {stderr}"
+        stderr.contains("Unknown error code"),
+        "should say unknown code: {stderr}"
+    );
+}
+
+/// Unknown near-miss codes should suggest a neighbor, not dump the catalog.
+#[test]
+fn explain_unknown_code_suggests_close_match() {
+    let out = Command::new(assura_bin())
+        .args(["explain", "A0300"])
+        .output()
+        .expect("failed to run assura explain A0300");
+    assert!(
+        !out.status.success(),
+        "unknown code should exit non-zero: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.to_ascii_lowercase().contains("did you mean"),
+        "should suggest a close match: stdout={stdout} stderr={stderr}"
     );
     assert!(
-        stderr.contains("A01"),
-        "known codes should include A01 range: {stderr}"
+        combined.contains("A03001")
+            || combined.contains("A03002")
+            || combined.contains("A03005")
+            || combined.contains("A03006"),
+        "suggestion should be a nearby A03xxx code: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        !combined.contains("Known error codes"),
+        "must not dump the entire catalog: stderr={stderr}"
+    );
+}
+
+/// Unknown --llm-provider must not silently become Anthropic.
+#[test]
+fn unknown_llm_provider_suggests_openai() {
+    let tmp = unique_temp("assura_llm_provider_typo");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("plain.rs");
+    std::fs::write(&src, "fn foo(x: i32) -> i32 { x }\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args([
+            "check-rust",
+            src.to_str().unwrap(),
+            "--suggest",
+            "--llm-provider",
+            "openaii",
+        ])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust with typo provider");
+    let _ = std::fs::remove_dir_all(&tmp);
+    assert_ne!(
+        out.status.code(),
+        Some(0),
+        "unknown provider must exit non-zero: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    )
+    .to_ascii_lowercase();
+    assert!(
+        combined.contains("did you mean") && combined.contains("openai"),
+        "should suggest openai for openaii: {combined}"
     );
 }
 
@@ -1572,6 +1657,7 @@ fn mcp_ir_prompt_tool_returns_json() {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/test_basic.assura"
     );
+    let source = std::fs::read_to_string(fixture).expect("read ir-prompt fixture");
     let list_out = Command::new(assura_bin())
         .args(["ir-prompt", fixture, "--list"])
         .output()
@@ -1583,9 +1669,20 @@ fn mcp_ir_prompt_tool_returns_json() {
         .trim()
         .to_string();
 
-    let call = format!(
-        r#"{{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{{"name":"assura_ir_prompt","arguments":{{"file":"{fixture}","decl":"{first_decl}"}}}}}}"#
-    );
+    // Inline `source` is not MCP-jailed; absolute `file` paths are rejected.
+    let call = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "tools/call",
+        "params": {
+            "name": "assura_ir_prompt",
+            "arguments": {
+                "source": source,
+                "decl": first_decl,
+            }
+        }
+    })
+    .to_string();
     let lines = mcp_call(&[&call]);
     let response = lines.last().expect("should have response");
     let parsed: serde_json::Value =
@@ -1724,6 +1821,345 @@ fn infer_rust_detects_unwrap() {
         stdout.contains("[unwrap]") || stdout.contains("is_some"),
         "should detect unwrap pattern, got: {stdout}"
     );
+}
+
+/// `infer --function` on a .rs file with two risk-pattern fns must emit only
+/// the named function (the .rs heuristic path used to ignore --function).
+#[test]
+fn infer_rust_function_filter() {
+    let tmp = unique_temp("assura_infer_fn_filter");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("two.rs"),
+        r#"
+fn divide(a: i64, b: i64) -> i64 { a / b }
+fn get(items: &[i32], idx: usize) -> i32 { items[idx] }
+"#,
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args([
+            "infer",
+            "--json",
+            "--function",
+            "divide",
+            tmp.join("two.rs").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run assura infer --function");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "infer --function divide should succeed: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("infer --json --function must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    let empty: Vec<serde_json::Value> = Vec::new();
+    let names: Vec<String> = v["suggestions"]
+        .as_array()
+        .unwrap_or(&empty)
+        .iter()
+        .filter_map(|s| {
+            s.get("function")
+                .and_then(|n| n.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    assert!(
+        names.iter().any(|n| n == "divide"),
+        "should emit divide only, got names={names:?} json={v}"
+    );
+    assert!(
+        !names.iter().any(|n| n == "get"),
+        "--function divide must not emit get, got names={names:?} json={v}"
+    );
+    let text = v["text"].as_str().unwrap_or("");
+    assert!(
+        !text.contains("get") && !stdout.contains("[index]"),
+        "human/text payload must not mention get/index: {v}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// Default `.rs` infer with no unwrap/div/index (and no `-o`) is vacuous, not
+/// a silent success-with-zero-work.
+#[test]
+fn infer_rust_no_risk_is_vacuous() {
+    let tmp = unique_temp("assura_infer_vacuous");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("safe.rs"),
+        "fn add(a: i64, b: i64) -> i64 { a + b }\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["infer", "--json", tmp.join("safe.rs").to_str().unwrap()])
+        .output()
+        .expect("failed to run assura infer --json on no-risk file");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "vacuous infer should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("infer --json no-risk must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["vacuous"], true, "{v}");
+    assert_eq!(v["suggestion_count"], 0, "{v}");
+    assert_eq!(
+        v["success"], true,
+        "vacuous infer is empty work, not a failure: {v}"
+    );
+    let reason = v["vacuous_reason"].as_str().unwrap_or("");
+    assert!(
+        !reason.is_empty(),
+        "vacuous infer must set vacuous_reason: {v}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// Legacy (non-`.rs`) infer with no function signatures is vacuous success.
+/// Must exit 0 with `success`/`vacuous` true (not JSON success then exit 1).
+#[test]
+fn infer_assura_no_functions_json_is_vacuous() {
+    let tmp = unique_temp("assura_infer_assura_vacuous");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(tmp.join("empty.assura"), "// no functions\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args([
+            "infer",
+            "--json",
+            tmp.join("empty.assura").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run assura infer --json on empty .assura");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "vacuous infer on .assura should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("infer --json empty .assura must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(
+        v["success"], true,
+        "vacuous infer is empty work, not a failure: {v}"
+    );
+    assert_eq!(v["vacuous"], true, "{v}");
+    assert_eq!(v["function_count"], 0, "{v}");
+    let reason = v["vacuous_reason"].as_str().unwrap_or("");
+    assert!(
+        !reason.is_empty(),
+        "vacuous infer must set vacuous_reason: {v}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn infer_assura_no_functions_human_hints() {
+    let tmp = unique_temp("assura_infer_assura_human");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(tmp.join("empty.assura"), "// no functions\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["infer", tmp.join("empty.assura").to_str().unwrap()])
+        .output()
+        .expect("failed to run assura infer on empty .assura");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "vacuous infer should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        combined.contains("hint: make the function pub, or pass --function NAME"),
+        "no-function infer must hint at pub/--function: {combined}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn infer_rust_no_risk_human_hints() {
+    let tmp = unique_temp("assura_infer_norisk_human");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("safe.rs"),
+        "pub fn add(a: i64, b: i64) -> i64 { a + b }\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["infer", tmp.join("safe.rs").to_str().unwrap()])
+        .output()
+        .expect("failed to run assura infer on no-risk rust");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "vacuous infer should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        combined.contains("hint: pass -o contracts.assura to write bind skeletons"),
+        "no-risk infer must hint at -o: {combined}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// Unknown `--function` on a .rs file must exit 1 with the same not-found
+/// envelope as the legacy non-.rs path.
+#[test]
+fn infer_rust_function_unknown_exits() {
+    let tmp = unique_temp("assura_infer_fn_unknown");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("two.rs"),
+        r#"
+fn divide(a: i64, b: i64) -> i64 { a / b }
+fn get(items: &[i32], idx: usize) -> i32 { items[idx] }
+"#,
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args([
+            "infer",
+            "--json",
+            "--function",
+            "missing",
+            tmp.join("two.rs").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run assura infer --function missing");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "unknown --function must exit 1: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("infer --json unknown function must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["success"], false, "{v}");
+    let message = v["message"].as_str().unwrap_or("");
+    assert!(
+        message.contains("Function 'missing' not found"),
+        "expected not-found message, got {v}"
+    );
+    let empty: Vec<serde_json::Value> = Vec::new();
+    let available = v["available"]
+        .as_array()
+        .unwrap_or(&empty)
+        .iter()
+        .filter_map(|n| n.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        available.iter().any(|n| *n == "divide") && available.iter().any(|n| *n == "get"),
+        "available must list divide and get, got {v}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `infer --json -o` on a rust file with a public function must include
+/// `success: true` so agents can branch without checking `status`.
+#[test]
+fn infer_json_minus_o_reports_success() {
+    let tmp = unique_temp("assura_infer_json_minus_o");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("safe.rs"),
+        "pub fn add(a: i64, b: i64) -> i64 { a + b }\n",
+    )
+    .unwrap();
+    let out_path = tmp.join("contracts.assura");
+
+    let out = Command::new(assura_bin())
+        .args([
+            "infer",
+            "--json",
+            "-o",
+            out_path.to_str().unwrap(),
+            tmp.join("safe.rs").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run assura infer --json -o");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "infer --json -o should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("infer --json -o must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(
+        v["success"], true,
+        "write-ok infer -o JSON must include success=true: {v}"
+    );
+    assert_eq!(v["status"], "ok", "status: ok stays as additive alias: {v}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// Risk-pattern `infer --json -o` (suggestions written) must also set success.
+#[test]
+fn infer_json_minus_o_risk_pattern_reports_success() {
+    let tmp = unique_temp("assura_infer_json_minus_o_risk");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("div.rs"),
+        "pub fn divide(a: i64, b: i64) -> i64 { a / b }\n",
+    )
+    .unwrap();
+    let out_path = tmp.join("contracts.assura");
+
+    let out = Command::new(assura_bin())
+        .args([
+            "infer",
+            "--json",
+            "-o",
+            out_path.to_str().unwrap(),
+            tmp.join("div.rs").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run assura infer --json -o on risk file");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "infer --json -o should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("infer --json -o must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(
+        v["success"], true,
+        "write-ok infer -o JSON must include success=true: {v}"
+    );
+    assert_eq!(v["status"], "ok", "status: ok stays as additive alias: {v}");
+    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 // =======================================================================
@@ -2801,12 +3237,16 @@ fn test_gen_write_fail_json() {
         "contract C { requires { true } ensures { true } fn f(x: Int) -> Int }\n",
     )
     .unwrap();
+    // Parent is a file so mkdir fails on Windows and Unix.
+    let blocker = tmp.join("not_a_dir");
+    std::fs::write(&blocker, b"x").unwrap();
+    let bad_out = blocker.join("out.rs");
     let out = Command::new(assura_bin())
         .args([
             "test-gen",
             tmp.join("c.assura").to_str().unwrap(),
             "-o",
-            "/no/write/out.rs",
+            bad_out.to_str().unwrap(),
             "--json",
         ])
         .output()
@@ -2817,6 +3257,7 @@ fn test_gen_write_fail_json() {
         serde_json::from_str(&stdout).expect("test-gen write fail --json must be JSON");
     assert_eq!(v["ok"], false);
     assert_eq!(v["error"], "write_failed");
+    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 /// #977: clap missing required args under global --json must be JSON.
@@ -2939,6 +3380,41 @@ fn check_missing_file_json_envelope() {
     assert!(v["verification"].is_array());
 }
 
+/// Empty `.assura` check --json keeps `file_info.vacuous` and also emits
+/// top-level `vacuous` / `vacuous_reason` / `success` (MCP-aligned).
+#[test]
+fn check_empty_file_json_has_top_level_vacuous() {
+    let tmp = unique_temp("assura_check_empty_vacuous");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let path = tmp.join("empty.assura");
+    std::fs::write(&path, "// empty\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check", "--json", path.to_str().unwrap()])
+        .output()
+        .expect("failed to run assura check --json on empty file");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "empty check should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check --json empty must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(
+        v["file_info"]["vacuous"], true,
+        "legacy file_info.vacuous must remain: {v}"
+    );
+    assert_eq!(v["vacuous"], true, "top-level vacuous required: {v}");
+    assert_eq!(v["success"], true, "top-level success required: {v}");
+    let reason = v["vacuous_reason"].as_str().unwrap_or("");
+    assert!(!reason.is_empty(), "top-level vacuous_reason required: {v}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 #[test]
 fn check_timeout_flag_is_accepted() {
     let out = Command::new(assura_bin())
@@ -3023,6 +3499,7 @@ fn check_showcase_only_vacuous_when_none_match() {
         serde_json::from_str(&String::from_utf8_lossy(&out.stdout)).expect("json");
     assert_eq!(v["modules"], 0);
     assert_eq!(v["vacuous"], true);
+    assert_eq!(v["success"], true);
     assert_eq!(v["showcase_only"], true);
     assert!(
         v["vacuous_reason"]
@@ -3286,14 +3763,22 @@ fn fmt_accepts_directory() {
 }
 
 /// --dump-smt mkdir failure under --json must be parseable.
+/// Parent is a file so mkdir fails on Windows and Unix (`/no/write/path`
+/// is creatable on Windows).
 #[test]
 fn check_dump_smt_mkdir_fail_json() {
+    let tmp = unique_temp("assura_dump_smt_mkdir");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let blocker = tmp.join("not_a_dir");
+    std::fs::write(&blocker, b"x").unwrap();
+    let bad_dir = blocker.join("smt");
     let out = Command::new(assura_bin())
         .args([
             "check",
             "demos/heartbleed.assura",
             "--dump-smt",
-            "/no/write/path",
+            bad_dir.to_str().unwrap(),
             "--json",
         ])
         .current_dir(workspace_root())
@@ -3305,6 +3790,7 @@ fn check_dump_smt_mkdir_fail_json() {
         serde_json::from_str(&stdout).expect("dump-smt mkdir fail --json must be JSON");
     assert_eq!(v["ok"], false);
     assert_eq!(v["error"], "dump_smt_mkdir_failed");
+    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 /// `ir --json -o` write failure (unwritable path) must emit JSON, not bare stderr.
@@ -3325,10 +3811,18 @@ fn ir_json_write_fail_is_parseable() {
 "#,
     )
     .unwrap();
-    // Parent path that cannot be created on Unix/macOS.
-    let bad_out = "/no/such/assura_ir_out/lib.rs";
+    // Parent is a file so mkdir fails on Windows and Unix.
+    let blocker = tmp.join("not_a_dir");
+    std::fs::write(&blocker, b"x").unwrap();
+    let bad_out = blocker.join("lib.rs");
     let out = Command::new(assura_bin())
-        .args(["--json", "ir", ir_path.to_str().unwrap(), "-o", bad_out])
+        .args([
+            "--json",
+            "ir",
+            ir_path.to_str().unwrap(),
+            "-o",
+            bad_out.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to run assura --json ir -o");
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -3348,6 +3842,80 @@ fn ir_json_write_fail_is_parseable() {
         !stderr.contains("Error: cannot"),
         "human write error must not leak under --json: {stderr}"
     );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `check-rust --json` on a file with no annotations is vacuous success (exit 0).
+#[test]
+fn check_rust_no_annotations_json_is_vacuous() {
+    let tmp = unique_temp("assura_check_rust_vacuous");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("plain.rs");
+    std::fs::write(&src, "fn foo(x: i32) -> i32 { x }\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check-rust", src.to_str().unwrap(), "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust --json on unannotated file");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "zero-annotation check-rust should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!(
+            "check-rust --json no annotations must be JSON: {e}\nstdout={stdout}\nstderr={stderr}"
+        )
+    });
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(
+        v["success"], true,
+        "check-rust vacuous must set success next to ok: {v}"
+    );
+    assert_eq!(v["items"], 0, "{v}");
+    assert_eq!(v["vacuous"], true, "{v}");
+    assert_eq!(v["vacuous_reason"], "no inline contract annotations", "{v}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// Non-empty `check-rust --json` must emit `vacuous: false` and `success`/`ok`.
+#[test]
+fn check_rust_annotated_json_has_success_and_not_vacuous() {
+    let tmp = unique_temp("assura_check_rust_not_vacuous");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("ann.rs");
+    std::fs::write(
+        &src,
+        "/// @requires a > 0\nfn only_positive(a: i32) -> i32 { a }\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check-rust", src.to_str().unwrap(), "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust --json on annotated file");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "annotated check-rust should succeed: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check-rust --json annotated must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(
+        v["vacuous"], false,
+        "non-empty summary must emit vacuous false: {v}"
+    );
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["success"], true, "{v}");
+    assert!(v["items"].as_u64().unwrap_or(0) >= 1, "{v}");
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
@@ -3423,6 +3991,300 @@ fn check_rust_invalid_layer_json() {
     assert!(
         !stderr.contains("invalid --layer"),
         "human layer error must not leak under --json: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `check-rust --json` on unparseable Rust must emit `parse_failed` and exit 1.
+#[test]
+fn check_rust_parse_failed_json() {
+    let tmp = unique_temp("assura_check_rust_parse_failed");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("broken.rs");
+    std::fs::write(&src, "fn (\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check-rust", src.to_str().unwrap(), "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust --json on garbage");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "parse failure should exit 1: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check-rust parse fail --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error"], "parse_failed", "{v}");
+    assert!(
+        !stderr.contains("Error:"),
+        "human parse error must not leak under --json: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// Directory scan must not succeed when an annotated `.rs` file fails to parse.
+#[test]
+fn check_rust_dir_unparseable_json() {
+    let tmp = unique_temp("assura_check_rust_dir_parse");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(tmp.join("broken.rs"), "fn (\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check-rust", tmp.to_str().unwrap(), "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust --json on dir with garbage");
+    assert_ne!(
+        out.status.code(),
+        Some(0),
+        "dir with unparseable .rs must not exit 0: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check-rust dir parse --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert!(
+        v["error"] == "scan_failed" || v["error"] == "parse_failed",
+        "expected scan_failed or parse_failed, got {v}"
+    );
+    assert!(
+        !stderr.contains("Error:"),
+        "human scan error must not leak under --json: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// Directory scan human stderr must name the unparseable file (fail-closed).
+#[test]
+fn check_rust_dir_unparseable_names_file() {
+    let tmp = unique_temp("assura_check_rust_dir_human");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(tmp.join("broken.rs"), "fn (\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check-rust", tmp.to_str().unwrap()])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust on dir with garbage");
+    assert_ne!(
+        out.status.code(),
+        Some(0),
+        "dir with unparseable .rs must not exit 0: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("broken.rs"),
+        "human dir scan must name the failing file: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `check-rust --suggest` must collect unannotated functions, not treat them as
+/// a successful "no inline contract annotations found" scan.
+#[test]
+fn check_rust_suggest_includes_unannotated_function() {
+    let tmp = unique_temp("assura_check_rust_suggest_unann");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("plain.rs");
+    std::fs::write(&src, "fn foo(x: i32) -> i32 { x }\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check-rust", src.to_str().unwrap(), "--suggest", "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust --suggest on unannotated fn");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "--suggest with unannotated candidates should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        !format!("{stdout}{stderr}").contains("no inline contract annotations found"),
+        "--suggest must not treat unannotated functions as an empty success: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check-rust --suggest --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["success"], true, "{v}");
+    let candidates = v["suggest_candidates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("suggest_candidates array required: {v}"));
+    let names: Vec<String> = candidates
+        .iter()
+        .filter_map(|c| c.get("name").and_then(|n| n.as_str()).map(str::to_string))
+        .collect();
+    assert!(
+        names.iter().any(|n| n == "foo"),
+        "unannotated foo must be a suggest candidate: names={names:?} json={v} stderr={stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `check-rust --suggest` on a file that is already fully annotated is vacuous:
+/// exit non-zero, do not report success.
+#[test]
+fn check_rust_suggest_annotated_only_exits_nonzero() {
+    let tmp = unique_temp("assura_check_rust_suggest_ann");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("ann.rs");
+    std::fs::write(
+        &src,
+        "/// @ensures result == x\npub fn id(x: i64) -> i64 { x }\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check-rust", src.to_str().unwrap(), "--suggest", "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust --suggest on annotated-only file");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_ne!(
+        out.status.code(),
+        Some(0),
+        "annotated-only --suggest must not exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let combined = format!("{stdout}{stderr}").to_ascii_lowercase();
+    assert!(
+        combined.contains("nothing to suggest") || combined.contains("no unannotated"),
+        "annotated-only --suggest must say there is nothing to suggest: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check-rust --suggest --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error"], "nothing_to_suggest", "{v}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `suggest-from-crash --json` without crash input must emit `missing_crash_input`.
+#[test]
+fn suggest_from_crash_missing_input_json() {
+    let out = Command::new(assura_bin())
+        .args(["suggest-from-crash", "--target", "src/lib.rs", "--json"])
+        .output()
+        .expect("failed to run suggest-from-crash --json missing input");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "missing crash input should exit 1: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!(
+            "suggest-from-crash missing input --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}"
+        )
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error"], "missing_crash_input", "{v}");
+    assert!(
+        !stderr.contains("Error: specify --crash-input"),
+        "human missing-input error must not leak under --json: {stderr}"
+    );
+}
+
+/// `suggest-from-crash --json` on a missing crash file must emit JSON and exit 1.
+#[test]
+fn suggest_from_crash_missing_file_json() {
+    let out = Command::new(assura_bin())
+        .args([
+            "suggest-from-crash",
+            "--crash-input",
+            "/no/such/crash/artifact.bin",
+            "--target",
+            "src/lib.rs",
+            "--json",
+        ])
+        .output()
+        .expect("failed to run suggest-from-crash --json missing file");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "missing crash file should exit 1: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!(
+            "suggest-from-crash missing file --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}"
+        )
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error"], "crash_input_read_failed", "{v}");
+    assert_eq!(v["path"], "/no/such/crash/artifact.bin");
+    assert!(
+        !stderr.contains("Error reading crash artifact"),
+        "human crash-file error must not leak under --json: {stderr}"
+    );
+}
+
+/// `suggest-from-crash --json` on a missing target must emit `target_not_found`.
+#[test]
+fn suggest_from_crash_missing_target_json() {
+    let tmp = unique_temp("assura_suggest_crash_target");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let crash = tmp.join("crash-0001");
+    std::fs::write(&crash, b"AAAA").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args([
+            "suggest-from-crash",
+            "--crash-input",
+            crash.to_str().unwrap(),
+            "--target",
+            "/no/such/suggest/target.rs",
+            "--json",
+        ])
+        .output()
+        .expect("failed to run suggest-from-crash --json missing target");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "missing target should exit 1: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!(
+            "suggest-from-crash missing target --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}"
+        )
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error"], "target_not_found", "{v}");
+    assert_eq!(v["path"], "/no/such/suggest/target.rs");
+    assert!(
+        !stderr.contains("is not a file or directory"),
+        "human missing-target error must not leak under --json: {stderr}"
     );
     let _ = std::fs::remove_dir_all(&tmp);
 }

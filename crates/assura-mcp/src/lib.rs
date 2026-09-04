@@ -126,7 +126,7 @@ impl AssuraMcpServer {
     fn assura_check(&self, Parameters(params): Parameters<CheckParams>) -> String {
         let (source, filename) = match resolve_source_with_path(params.source, params.file) {
             Ok(v) => v,
-            Err(e) => return e,
+            Err(e) => return tool_path_error_json(e),
         };
         let result = run_check_pipeline(&source, &filename);
         serde_json::to_string_pretty(&result).unwrap_or_default()
@@ -138,9 +138,9 @@ impl AssuraMcpServer {
     fn assura_infer(&self, Parameters(params): Parameters<InferParams>) -> String {
         let source = match resolve_source(params.source, params.file) {
             Ok(s) => s,
-            Err(e) => return e,
+            Err(e) => return tool_path_error_json(e),
         };
-        infer_contracts_from_rust(&source)
+        infer_contracts_report(&source)
     }
 
     #[tool(
@@ -158,7 +158,15 @@ impl AssuraMcpServer {
                 });
                 serde_json::to_string_pretty(&result).unwrap_or_default()
             }
-            None => format!("Unknown error code: {}", params.code),
+            None => {
+                let message = unknown_error_code_message(&params.code);
+                serde_json::json!({
+                    "error": format!("Unknown error code: {}", params.code),
+                    "did_you_mean": suggest_error_code(&params.code),
+                    "message": message,
+                })
+                .to_string()
+            }
         }
     }
 
@@ -180,7 +188,8 @@ impl AssuraMcpServer {
     fn assura_ir_prompt(&self, Parameters(params): Parameters<IrPromptParams>) -> String {
         match render_ir_prompt_tool(params) {
             Ok(json) => json,
-            Err(e) => e,
+            Err(e) if is_tool_path_error(&e) => tool_path_error_json(e),
+            Err(e) => tool_error_json(e, "PROMPT_FAILED"),
         }
     }
 
@@ -190,11 +199,11 @@ impl AssuraMcpServer {
     fn assura_ir_verify(&self, Parameters(params): Parameters<IrVerifyParams>) -> String {
         let contract = match resolve_source_with_path(params.source, params.file) {
             Ok((s, _)) => s,
-            Err(e) => return format!("{{\"status\":\"error\",\"compile_errors\":[\"{e}\"]}}"),
+            Err(e) => return tool_path_error_json(e),
         };
         let ir = match resolve_source(params.ir, params.ir_file) {
             Ok(s) => s,
-            Err(e) => return format!("{{\"status\":\"error\",\"ir_errors\":[\"{e}\"]}}"),
+            Err(e) => return tool_path_error_json(e),
         };
         let config = assura_config::CompilerConfig::default();
         let result = assura_pipeline::verify_ir(&contract, &ir, &config);
@@ -223,18 +232,202 @@ fn resolve_source(inline: Option<String>, file: Option<String>) -> Result<String
     resolve_source_with_path(inline, file).map(|(s, _)| s)
 }
 
+const PATH_NOT_ALLOWED: &str = "path not allowed";
+
+/// True when `err` came from `resolve_source` / jail, not an IR compile failure.
+fn is_tool_path_error(err: &str) -> bool {
+    err == PATH_NOT_ALLOWED
+        || err == SOURCE_TOO_LARGE
+        || err == SOURCE_NOT_UTF8
+        || err.starts_with("Provide either")
+}
+
+/// JSON tools wrap jail/path errors so agents can branch on `success`
+/// instead of parsing a bare string.
+fn tool_error_json(err: String, error_kind: &str) -> String {
+    serde_json::json!({
+        "success": false,
+        "error": err,
+        "error_kind": error_kind,
+    })
+    .to_string()
+}
+
+fn tool_path_error_json(err: String) -> String {
+    let error_kind = if err == PATH_NOT_ALLOWED {
+        "PATH_NOT_ALLOWED"
+    } else if err == SOURCE_TOO_LARGE {
+        "SOURCE_TOO_LARGE"
+    } else if err == SOURCE_NOT_UTF8 {
+        "SOURCE_NOT_UTF8"
+    } else if err.starts_with("Provide either") {
+        "MISSING_SOURCE"
+    } else {
+        "RESOLVE_FAILED"
+    };
+    tool_error_json(err, error_kind)
+}
+/// Same 16 MiB cap as CLI `read_source_arg` / `MAX_SOURCE_BYTES`.
+const MAX_SOURCE_BYTES: u64 = 16 * 1024 * 1024;
+const SOURCE_TOO_LARGE: &str = "source exceeds maximum size";
+const SOURCE_NOT_UTF8: &str = "source is not valid UTF-8";
+
+fn source_len_allowed(len: u64) -> Result<(), String> {
+    if len > MAX_SOURCE_BYTES {
+        Err(SOURCE_TOO_LARGE.into())
+    } else {
+        Ok(())
+    }
+}
+
+/// Read a jailed path, taking at most `max` bytes. `max` is overridable in tests.
+fn read_capped_source(path: &std::path::Path, max: u64) -> Result<String, String> {
+    use std::io::Read;
+    let file = std::fs::File::open(path).map_err(|_| PATH_NOT_ALLOWED.to_string())?;
+    let mut buf = Vec::new();
+    file.take(max.saturating_add(1))
+        .read_to_end(&mut buf)
+        .map_err(|_| PATH_NOT_ALLOWED.to_string())?;
+    if buf.len() as u64 > max {
+        return Err(SOURCE_TOO_LARGE.into());
+    }
+    String::from_utf8(buf).map_err(|_| SOURCE_NOT_UTF8.to_string())
+}
+
+fn is_allowed_source_ext(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| {
+            ext.eq_ignore_ascii_case("assura")
+                || ext.eq_ignore_ascii_case("rs")
+                || ext.eq_ignore_ascii_case("ir")
+        })
+}
+
+/// Requested path and post-canonicalize target must both be allowed sources.
+fn jailed_canon_allowed(requested: &std::path::Path, canon: &std::path::Path) -> bool {
+    is_allowed_source_ext(requested) && is_allowed_source_ext(canon)
+}
+
+/// Strip Windows `\\?\` / `\\?\UNC\` prefixes so `starts_with` is prefix-safe.
+fn strip_verbatim_prefix(path: &std::path::Path) -> std::path::PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(rest) = raw.strip_prefix(r"\\?\") {
+        if let Some(unc) = rest.strip_prefix(r"UNC\") {
+            return std::path::PathBuf::from(format!(r"\\{unc}"));
+        }
+        return std::path::PathBuf::from(rest);
+    }
+    path.to_path_buf()
+}
+
+fn path_is_inside(path: &std::path::Path, root: &std::path::Path) -> bool {
+    strip_verbatim_prefix(path).starts_with(strip_verbatim_prefix(root))
+}
+
+fn read_jailed_source(path: &str) -> Result<String, String> {
+    let requested = std::path::Path::new(path);
+    if !is_allowed_source_ext(requested) {
+        return Err(PATH_NOT_ALLOWED.into());
+    }
+
+    let cwd = std::env::current_dir()
+        .and_then(|p| p.canonicalize())
+        .map_err(|_| PATH_NOT_ALLOWED.to_string())?;
+
+    let candidate = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        cwd.join(requested)
+    };
+
+    let canon = candidate
+        .canonicalize()
+        .map_err(|_| PATH_NOT_ALLOWED.to_string())?;
+    if !path_is_inside(&canon, &cwd) {
+        return Err(PATH_NOT_ALLOWED.into());
+    }
+    if !jailed_canon_allowed(requested, &canon) {
+        return Err(PATH_NOT_ALLOWED.into());
+    }
+
+    read_capped_source(&canon, MAX_SOURCE_BYTES)
+}
+
 fn resolve_source_with_path(
     inline: Option<String>,
     file: Option<String>,
 ) -> Result<(String, String), String> {
     match (inline, file) {
-        (Some(s), _) => Ok((s, "<inline>".into())),
+        (Some(s), _) => {
+            source_len_allowed(s.len() as u64)?;
+            Ok((s, "<inline>".into()))
+        }
         (None, Some(path)) => {
-            let content = std::fs::read_to_string(&path)
-                .map_err(|e| format!("Failed to read {path}: {e}"))?;
+            let content = read_jailed_source(&path)?;
             Ok((content, path))
         }
         (None, None) => Err("Provide either `source` (inline code) or `file` (path)".into()),
+    }
+}
+
+/// Local copy: published MCP must not call unpublished diagnostics helpers.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (m, n) = (a.len(), b.len());
+    let mut dp = vec![vec![0usize; n + 1]; m + 1];
+    for (i, row) in dp.iter_mut().enumerate().take(m + 1) {
+        row[0] = i;
+    }
+    for (j, val) in dp[0].iter_mut().enumerate().take(n + 1) {
+        *val = j;
+    }
+    for i in 1..=m {
+        for j in 1..=n {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            dp[i][j] = (dp[i - 1][j] + 1)
+                .min(dp[i][j - 1] + 1)
+                .min(dp[i - 1][j - 1] + cost);
+        }
+    }
+    dp[m][n]
+}
+
+fn did_you_mean<'a>(input: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    let input_l = input.to_ascii_lowercase();
+    let input_len = input.chars().count();
+    let threshold = match input_len {
+        0..=2 => 1,
+        3..=5 => 2,
+        _ => 3,
+    };
+    let mut best: Option<(&'a str, usize)> = None;
+    for cand in candidates {
+        let dist = edit_distance(&input_l, &cand.to_ascii_lowercase());
+        if dist == 0 {
+            return Some(*cand);
+        }
+        if dist <= threshold
+            && dist < input_len
+            && best.is_none_or(|(_, best_dist)| dist < best_dist)
+        {
+            best = Some((*cand, dist));
+        }
+    }
+    best.map(|(c, _)| c)
+}
+
+fn suggest_error_code(code: &str) -> Option<&'static str> {
+    let catalog = assura_diagnostics::error_catalog();
+    let codes: Vec<&str> = catalog.iter().map(|i| i.code).collect();
+    did_you_mean(code, &codes)
+}
+
+fn unknown_error_code_message(code: &str) -> String {
+    match suggest_error_code(code) {
+        Some(hint) => format!("Unknown error code: {code}\ndid you mean {hint}?"),
+        None => format!("Unknown error code: {code}"),
     }
 }
 
@@ -328,6 +521,23 @@ fn render_ir_prompt_tool(params: IrPromptParams) -> Result<String, String> {
         "prompts": prompts,
     }))
     .map_err(|e| e.to_string())
+}
+
+/// JSON envelope for `assura_infer` (same vacuous fields as `assura_check`).
+fn infer_contracts_report(source: &str) -> String {
+    let text = infer_contracts_from_rust(source);
+    let vacuous = text.trim().is_empty() || text == "No public function signatures found.";
+    serde_json::to_string_pretty(&serde_json::json!({
+        "success": true,
+        "vacuous": vacuous,
+        "vacuous_reason": if vacuous {
+            Some("no functions to infer")
+        } else {
+            None
+        },
+        "text": text,
+    }))
+    .unwrap_or_default()
 }
 
 /// Lightweight contract inference from Rust source text.
@@ -434,8 +644,7 @@ fn extract_function_signatures(source: &str) -> String {
         if assura_ret != "Unit" && assura_ret != "()" {
             output.push_str(&format!("    output(result: {assura_ret})\n"));
         }
-        output.push_str("    requires { true }\n");
-        output.push_str("    ensures { true }\n");
+        output.push_str("    // Add requires/ensures before treating this as verified.\n");
         output.push_str("}\n\n");
     }
     if output.is_empty() {
@@ -478,7 +687,7 @@ mod tests {
     fn resolve_source_missing_file() {
         let result = resolve_source(None, Some("/this/does/not/exist.assura".into()));
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Failed to read"));
+        assert_eq!(result.unwrap_err(), "path not allowed");
     }
 
     #[test]
@@ -497,7 +706,23 @@ mod tests {
             .parent()
             .unwrap();
         let demo = workspace.join("tests/fixtures/test_basic.assura");
-        let result = resolve_source(None, Some(demo.to_string_lossy().into()));
+        let cwd = std::env::current_dir().expect("cwd");
+        let cwd_canon = cwd.canonicalize().expect("canon cwd");
+        let demo_canon = demo.canonicalize().expect("canon demo");
+        let staged = cwd.join(format!(
+            "assura_mcp_real_file_{}.assura",
+            std::process::id()
+        ));
+        let (path, cleanup) = if path_is_inside(&demo_canon, &cwd_canon) {
+            (demo, false)
+        } else {
+            std::fs::copy(&demo, &staged).expect("stage test_basic.assura under cwd");
+            (staged, true)
+        };
+        let result = resolve_source(None, Some(path.to_string_lossy().into()));
+        if cleanup {
+            let _ = std::fs::remove_file(&path);
+        }
         assert!(
             result.is_ok(),
             "should read test_basic.assura: {:?}",
@@ -508,6 +733,183 @@ mod tests {
             content.contains("contract"),
             "demo file should contain contracts"
         );
+    }
+
+    #[test]
+    fn resolve_source_rejects_absolute_path_outside_cwd() {
+        let outside = std::env::temp_dir().join("assura_mcp_jail_outside.assura");
+        std::fs::write(&outside, "secret contract body\n").expect("write outside probe");
+        let result = resolve_source(None, Some(outside.to_string_lossy().into()));
+        let _ = std::fs::remove_file(&outside);
+        assert!(
+            result.is_err(),
+            "absolute path outside cwd must be rejected"
+        );
+        assert_eq!(result.unwrap_err(), "path not allowed");
+    }
+
+    #[test]
+    fn resolve_source_rejects_parent_escape() {
+        let cwd = std::env::current_dir().expect("cwd");
+        let outside = cwd
+            .parent()
+            .expect("cwd parent")
+            .join("assura_mcp_jail_escape.assura");
+        std::fs::write(&outside, "escaped secret\n").expect("write escape probe");
+        let result = resolve_source(None, Some("../assura_mcp_jail_escape.assura".into()));
+        let _ = std::fs::remove_file(&outside);
+        assert!(result.is_err(), "../ escape must be rejected");
+        assert_eq!(result.unwrap_err(), "path not allowed");
+    }
+
+    #[test]
+    fn resolve_source_rejects_disallowed_extensions() {
+        for name in [".env", "notes.txt", "secret.TXT", "config.ENV"] {
+            let result = resolve_source(None, Some(name.into()));
+            assert!(result.is_err(), "{name} must be rejected");
+            assert_eq!(
+                result.unwrap_err(),
+                "path not allowed",
+                "{name} must not leak existence or contents"
+            );
+        }
+    }
+
+    #[test]
+    fn jailed_canon_allowed_rejects_symlink_target_with_disallowed_ext() {
+        assert!(
+            !jailed_canon_allowed(
+                std::path::Path::new("leak.rs"),
+                std::path::Path::new(".env")
+            ),
+            "cwd-local leak.rs pointing at .env must be rejected"
+        );
+        assert!(
+            !jailed_canon_allowed(
+                std::path::Path::new("leak.rs"),
+                std::path::Path::new("secrets.toml")
+            ),
+            "cwd-local leak.rs pointing at secrets.toml must be rejected"
+        );
+    }
+
+    #[test]
+    fn jailed_canon_allowed_allows_rs_to_rs() {
+        assert!(jailed_canon_allowed(
+            std::path::Path::new("lib.rs"),
+            std::path::Path::new("src/lib.rs")
+        ));
+    }
+
+    #[test]
+    fn resolve_source_rejects_symlink_to_disallowed_ext() {
+        let pid = std::process::id();
+        let secret = format!("assura_mcp_secret_{pid}.env");
+        let leak = format!("assura_mcp_leak_{pid}.rs");
+        std::fs::write(&secret, "SUPERSECRET=1\n").expect("write .env probe");
+        let link_ok = {
+            #[cfg(windows)]
+            {
+                std::os::windows::fs::symlink_file(&secret, &leak).is_ok()
+            }
+            #[cfg(unix)]
+            {
+                std::os::unix::fs::symlink(&secret, &leak).is_ok()
+            }
+        };
+        if !link_ok {
+            let _ = std::fs::remove_file(&secret);
+            // File symlinks need privilege (Windows Developer Mode). The
+            // jailed_canon_allowed helper test still covers the ext check.
+            return;
+        }
+        let result = resolve_source(None, Some(leak.clone()));
+        let _ = std::fs::remove_file(&leak);
+        let _ = std::fs::remove_file(&secret);
+        assert!(result.is_err(), "symlink to .env must be rejected");
+        assert_eq!(result.unwrap_err(), PATH_NOT_ALLOWED);
+    }
+
+    #[test]
+    fn resolve_source_allows_relative_assura_under_cwd() {
+        let name = format!("assura_mcp_jail_ok_{}.assura", std::process::id());
+        std::fs::write(&name, "contract JailOk {}\n").expect("write cwd probe");
+        let result = resolve_source(None, Some(name.clone()));
+        let _ = std::fs::remove_file(&name);
+        assert!(
+            result.is_ok(),
+            "relative .assura under cwd must work: {:?}",
+            result.err()
+        );
+        assert!(result.unwrap().contains("JailOk"));
+    }
+
+    #[test]
+    fn source_len_allowed_matches_16_mib_cap() {
+        assert_eq!(MAX_SOURCE_BYTES, 16 * 1024 * 1024);
+        assert!(source_len_allowed(MAX_SOURCE_BYTES).is_ok());
+        assert_eq!(
+            source_len_allowed(MAX_SOURCE_BYTES + 1).unwrap_err(),
+            SOURCE_TOO_LARGE
+        );
+    }
+
+    #[test]
+    fn read_capped_source_rejects_over_max_without_leaking_body() {
+        let name = format!("assura_mcp_oversize_{}.assura", std::process::id());
+        std::fs::write(&name, "secret contract body that must not leak\n").expect("write probe");
+        let result = read_capped_source(std::path::Path::new(&name), 4);
+        let _ = std::fs::remove_file(&name);
+        assert!(result.is_err(), "over-cap file must be rejected");
+        let err = result.unwrap_err();
+        assert_eq!(err, SOURCE_TOO_LARGE);
+        assert!(
+            !err.contains("secret"),
+            "size error must not include file body: {err}"
+        );
+    }
+
+    #[test]
+    fn read_capped_source_allows_under_max() {
+        let name = format!("assura_mcp_size_ok_{}.assura", std::process::id());
+        std::fs::write(&name, "ok\n").expect("write probe");
+        let result = read_capped_source(std::path::Path::new(&name), 16);
+        let _ = std::fs::remove_file(&name);
+        assert_eq!(result.unwrap(), "ok\n");
+    }
+
+    #[test]
+    fn read_capped_source_rejects_when_more_than_max_bytes_present() {
+        let name = format!("assura_mcp_cap_take_{}.assura", std::process::id());
+        std::fs::write(&name, "0123456789abcdef").expect("write probe");
+        let result = read_capped_source(std::path::Path::new(&name), 8);
+        let _ = std::fs::remove_file(&name);
+        assert!(result.is_err(), "more than max bytes must be rejected");
+        assert_eq!(result.unwrap_err(), SOURCE_TOO_LARGE);
+    }
+
+    #[test]
+    fn read_capped_source_invalid_utf8_is_not_path_not_allowed() {
+        let name = format!("assura_mcp_badutf8_{}.assura", std::process::id());
+        std::fs::write(&name, [0xff, 0xfe, 0xfd]).expect("write probe");
+        let result = read_capped_source(std::path::Path::new(&name), 16);
+        let _ = std::fs::remove_file(&name);
+        let err = result.expect_err("invalid UTF-8 must fail");
+        assert_ne!(
+            err, PATH_NOT_ALLOWED,
+            "invalid UTF-8 must not be reported as PATH_NOT_ALLOWED"
+        );
+        assert!(
+            err.to_ascii_lowercase().contains("utf-8"),
+            "expected a UTF-8 error, got {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_source_rejects_oversize_inline() {
+        let too_big = MAX_SOURCE_BYTES.saturating_add(1);
+        // Avoid allocating 16 MiB: the length check is what resolve_source uses.
+        assert_eq!(source_len_allowed(too_big).unwrap_err(), SOURCE_TOO_LARGE);
     }
 
     // -----------------------------------------------------------------------
@@ -636,8 +1038,12 @@ contract Bar {
             "should emit Assura output(...) syntax, got: {result}"
         );
         assert!(
-            result.contains("requires { true }"),
-            "should emit requires {{ }} clause, got: {result}"
+            !result.contains("requires { true }"),
+            "infer must not emit tautology requires {{ true }}, got: {result}"
+        );
+        assert!(
+            !result.contains("ensures { true }"),
+            "infer must not emit tautology ensures {{ true }}, got: {result}"
         );
         // Must parse as real Assura (not pseudo-syntax).
         let pipe = run_check_pipeline(&result, "<infer>");
@@ -746,6 +1152,37 @@ contract Bar {
     }
 
     #[test]
+    fn tool_check_empty_source_reports_vacuous() {
+        let server = AssuraMcpServer::new();
+        let params = CheckParams {
+            source: Some(String::new()),
+            file: None,
+        };
+        let result = server.assura_check(Parameters(params));
+        let v: serde_json::Value =
+            serde_json::from_str(&result).unwrap_or_else(|e| panic!("JSON: {e}\n{result}"));
+        assert_eq!(v["success"], true, "{v}");
+        assert_eq!(v["vacuous"], true, "empty check must report vacuous: {v}");
+    }
+
+    #[test]
+    fn tool_check_requires_only_reports_vacuous() {
+        let server = AssuraMcpServer::new();
+        let params = CheckParams {
+            source: Some("contract T {\n  requires { true }\n}".into()),
+            file: None,
+        };
+        let result = server.assura_check(Parameters(params));
+        let v: serde_json::Value =
+            serde_json::from_str(&result).unwrap_or_else(|e| panic!("JSON: {e}\n{result}"));
+        assert_eq!(v["success"], true, "{v}");
+        assert_eq!(
+            v["vacuous"], true,
+            "requires-only check must report vacuous: {v}"
+        );
+    }
+
+    #[test]
     fn tool_explain_known_code() {
         let server = AssuraMcpServer::new();
         let params = ExplainParams {
@@ -773,6 +1210,30 @@ contract Bar {
     }
 
     #[test]
+    fn tool_explain_unknown_code_suggests_close_match() {
+        let server = AssuraMcpServer::new();
+        let params = ExplainParams {
+            code: "A0300".into(),
+        };
+        let result = server.assura_explain(Parameters(params));
+        assert!(
+            result.contains("Unknown error code"),
+            "should report unknown: {result}"
+        );
+        assert!(
+            result.to_ascii_lowercase().contains("did you mean"),
+            "should suggest a close match: {result}"
+        );
+        assert!(
+            result.contains("A03001")
+                || result.contains("A03002")
+                || result.contains("A03005")
+                || result.contains("A03006"),
+            "suggestion should be a nearby A03xxx code: {result}"
+        );
+    }
+
+    #[test]
     fn tool_type_map() {
         let server = AssuraMcpServer::new();
         let params = TypeMapParams {
@@ -791,10 +1252,225 @@ contract Bar {
             file: None,
         };
         let result = server.assura_infer(Parameters(params));
+        let v: serde_json::Value =
+            serde_json::from_str(&result).unwrap_or_else(|e| panic!("JSON: {e}\n{result}"));
+        assert_eq!(v["vacuous"], false, "{v}");
+        assert_eq!(v["success"], true, "{v}");
+        let text = v["text"].as_str().unwrap_or(&result);
         assert!(
-            result.contains("contract double"),
-            "should infer contract for double"
+            text.contains("contract double"),
+            "should infer contract for double: {result}"
         );
+    }
+
+    #[test]
+    fn tool_infer_empty_reports_vacuous() {
+        let server = AssuraMcpServer::new();
+        let params = InferParams {
+            source: Some(String::new()),
+            file: None,
+        };
+        let result = server.assura_infer(Parameters(params));
+        let v: serde_json::Value =
+            serde_json::from_str(&result).unwrap_or_else(|e| panic!("JSON: {e}\n{result}"));
+        assert_eq!(
+            v["success"], true,
+            "vacuous infer is empty work, not a failure: {v}"
+        );
+        assert_eq!(v["vacuous"], true, "empty infer must report vacuous: {v}");
+        assert_eq!(v["vacuous_reason"], "no functions to infer", "{v}");
+    }
+
+    fn assert_path_not_allowed_json(result: &str, probe: &str) {
+        let v: serde_json::Value = serde_json::from_str(result).unwrap_or_else(|e| {
+            panic!("jail reject must be JSON, not a bare string: {e}\n{result}")
+        });
+        assert_eq!(v["success"], false, "{v}");
+        assert_eq!(v["error"], "path not allowed", "{v}");
+        assert_eq!(v["error_kind"], "PATH_NOT_ALLOWED", "{v}");
+        assert!(
+            !result.contains(probe),
+            "jail error must not leak the filesystem path: {result}"
+        );
+    }
+
+    fn assert_tool_path_kind(result: &str, kind: &str, error: &str) {
+        let v: serde_json::Value = serde_json::from_str(result)
+            .unwrap_or_else(|e| panic!("path/source error must be JSON: {e}\n{result}"));
+        assert_eq!(v["success"], false, "{v}");
+        assert_eq!(v["error_kind"], kind, "{v}");
+        assert_eq!(v["error"], error, "{v}");
+    }
+
+    #[test]
+    fn tool_path_error_json_oversize_kind() {
+        let result = tool_path_error_json(SOURCE_TOO_LARGE.to_string());
+        assert_tool_path_kind(&result, "SOURCE_TOO_LARGE", SOURCE_TOO_LARGE);
+        assert!(
+            !result.contains('\\') && !result.contains('/'),
+            "oversize error must not include a path: {result}"
+        );
+    }
+
+    #[test]
+    fn tool_path_error_json_utf8_kind() {
+        let result = tool_path_error_json(SOURCE_NOT_UTF8.to_string());
+        assert_tool_path_kind(&result, "SOURCE_NOT_UTF8", SOURCE_NOT_UTF8);
+        assert!(
+            !result.contains('\\') && !result.contains('/'),
+            "utf8 error must not include a path: {result}"
+        );
+    }
+
+    #[test]
+    fn tool_check_invalid_utf8_kind() {
+        let name = format!("assura_mcp_tool_badutf8_{}.assura", std::process::id());
+        std::fs::write(&name, [0xff, 0xfe, 0xfd]).expect("write probe");
+        let server = AssuraMcpServer::new();
+        let result = server.assura_check(Parameters(CheckParams {
+            source: None,
+            file: Some(name.clone()),
+        }));
+        let _ = std::fs::remove_file(&name);
+        assert_tool_path_kind(&result, "SOURCE_NOT_UTF8", SOURCE_NOT_UTF8);
+        assert!(
+            !result.contains(&name),
+            "utf8 error must not leak the filesystem path: {result}"
+        );
+    }
+
+    #[test]
+    fn tool_check_missing_source_kind() {
+        let server = AssuraMcpServer::new();
+        let result = server.assura_check(Parameters(CheckParams {
+            source: None,
+            file: None,
+        }));
+        let v: serde_json::Value = serde_json::from_str(&result)
+            .unwrap_or_else(|e| panic!("missing source must be JSON: {e}\n{result}"));
+        assert_eq!(v["success"], false, "{v}");
+        assert_eq!(v["error_kind"], "MISSING_SOURCE", "{v}");
+        assert!(
+            v["error"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("Provide either"),
+            "{v}"
+        );
+    }
+
+    #[test]
+    fn tool_check_jail_reject_is_json() {
+        let server = AssuraMcpServer::new();
+        let probe = std::env::temp_dir()
+            .join("assura_mcp_jail_check.assura")
+            .to_string_lossy()
+            .into_owned();
+        let params = CheckParams {
+            source: None,
+            file: Some(probe.clone()),
+        };
+        let result = server.assura_check(Parameters(params));
+        assert_path_not_allowed_json(&result, &probe);
+    }
+
+    #[test]
+    fn tool_infer_jail_reject_is_json() {
+        let server = AssuraMcpServer::new();
+        let probe = std::env::temp_dir()
+            .join("assura_mcp_jail_infer.rs")
+            .to_string_lossy()
+            .into_owned();
+        let params = InferParams {
+            source: None,
+            file: Some(probe.clone()),
+        };
+        let result = server.assura_infer(Parameters(params));
+        assert_path_not_allowed_json(&result, &probe);
+    }
+
+    #[test]
+    fn tool_ir_prompt_jail_reject_is_json() {
+        let server = AssuraMcpServer::new();
+        let probe = std::env::temp_dir()
+            .join("assura_mcp_jail_ir_prompt.assura")
+            .to_string_lossy()
+            .into_owned();
+        let params = IrPromptParams {
+            source: None,
+            file: Some(probe.clone()),
+            decl: None,
+            pattern: "auto".into(),
+        };
+        let result = server.assura_ir_prompt(Parameters(params));
+        assert_path_not_allowed_json(&result, &probe);
+    }
+
+    #[test]
+    fn tool_ir_prompt_unknown_pattern_is_json() {
+        let server = AssuraMcpServer::new();
+        let params = IrPromptParams {
+            source: Some(
+                "contract Echo {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n"
+                    .into(),
+            ),
+            file: None,
+            decl: None,
+            pattern: "not-a-pattern".into(),
+        };
+        let result = server.assura_ir_prompt(Parameters(params));
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap_or_else(|e| {
+            panic!("non-path prompt error must be JSON, not a bare string: {e}\n{result}")
+        });
+        assert_eq!(v["success"], false, "{v}");
+        assert_eq!(v["error_kind"], "PROMPT_FAILED", "{v}");
+        let err = v["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("unknown pattern"),
+            "expected unknown-pattern error, got {v}"
+        );
+    }
+
+    #[test]
+    fn tool_ir_prompt_missing_decl_is_json() {
+        let server = AssuraMcpServer::new();
+        let params = IrPromptParams {
+            source: Some(
+                "contract Echo {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n"
+                    .into(),
+            ),
+            file: None,
+            decl: Some("Missing".into()),
+            pattern: "auto".into(),
+        };
+        let result = server.assura_ir_prompt(Parameters(params));
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap_or_else(|e| {
+            panic!("non-path prompt error must be JSON, not a bare string: {e}\n{result}")
+        });
+        assert_eq!(v["success"], false, "{v}");
+        assert_eq!(v["error_kind"], "PROMPT_FAILED", "{v}");
+        let err = v["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("no verification job named"),
+            "expected missing-decl error, got {v}"
+        );
+    }
+
+    #[test]
+    fn tool_ir_verify_jail_reject_is_json() {
+        let server = AssuraMcpServer::new();
+        let probe = std::env::temp_dir()
+            .join("assura_mcp_jail_ir_verify.assura")
+            .to_string_lossy()
+            .into_owned();
+        let params = IrVerifyParams {
+            source: None,
+            file: Some(probe.clone()),
+            ir: Some("module X { }".into()),
+            ir_file: None,
+        };
+        let result = server.assura_ir_verify(Parameters(params));
+        assert_path_not_allowed_json(&result, &probe);
     }
 
     // -----------------------------------------------------------------------

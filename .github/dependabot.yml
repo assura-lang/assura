@@ -17,13 +17,14 @@ updates:
       prefix: "deps"
     ignore:
       # Architectural pins -- see AGENTS.md "Crate Versioning (CRITICAL)"
-      # ariadne 0.5+ changes the Report/Label API.
+      # ariadne 0.6 is current (Report::build takes (kind, span)); 0.7+
+      # would be a new API break. Allow 0.6.x patches through.
       - dependency-name: ariadne
-        versions: [">=0.5"]
-      # z3 0.13+ has significant API changes and must match the system
-      # libz3 version installed in CI.
+        versions: [">=0.7"]
+      # z3 0.20 is current (no lifetime params, no &ctx first arg);
+      # 0.21+ is a new major. Allow 0.20.x patches through.
       - dependency-name: z3
-        versions: [">=0.13"]
+        versions: [">=0.21"]
     groups:
       # tonic, prost, and tonic-build must be upgraded together;
       # individual PRs always fail because of version coupling.

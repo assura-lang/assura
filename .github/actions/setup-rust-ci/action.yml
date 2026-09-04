@@ -21,7 +21,7 @@ runs:
         components: ${{ inputs.toolchain-components }}
 
     - name: Cache dependencies
-      uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       with:
         shared-key: ${{ inputs.shared-key }}
 

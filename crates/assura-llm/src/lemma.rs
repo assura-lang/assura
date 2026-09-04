@@ -95,7 +95,7 @@ pub fn lemma_user_prompt(
 /// Parse a lemma chain response from the LLM.
 pub fn parse_lemma_response(raw: &str) -> Result<LemmaChain, LlmError> {
     let json_str = prompt::extract_json(raw);
-    serde_json::from_str(json_str).map_err(|e| LlmError::Parse(format!("{e}: {json_str}")))
+    serde_json::from_str(json_str).map_err(|e| prompt::parse_error(e, json_str))
 }
 
 // ---------------------------------------------------------------------------
@@ -892,6 +892,21 @@ mod tests {
     fn parse_lemma_response_invalid_json() {
         let result = parse_lemma_response("not json");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_lemma_error_does_not_dump_body() {
+        let payload = "z".repeat(500);
+        let err = parse_lemma_response(&format!("not json {payload}")).expect_err("invalid json");
+        match err {
+            LlmError::Parse(msg) => {
+                assert!(
+                    !msg.contains(&payload),
+                    "parse error must not include a 500-char payload"
+                );
+            }
+            other => panic!("expected Parse, got {other:?}"),
+        }
     }
 
     #[test]

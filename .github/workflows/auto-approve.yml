@@ -33,11 +33,13 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    # Skip self-approve deadlock. Run for maintainer actor, Dependabot, bots,
-    # or any PR when dispatched manually with pr_number.
+    # Skip self-approve deadlock. Run for maintainer actor, Dependabot,
+    # the same-org auto-approve App, or any PR when dispatched manually
+    # with pr_number.
     # Same-repo PRs (Dependabot) use pull_request only. Forks use
     # pull_request_target only (secrets). Running both on the same PR
     # cancelled one job and painted a false red check.
+    # Do not allowlist endsWith('[bot]'): a fork PR from any login ending in [bot] would be approved and auto-merged.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.pull_request.user.login != 'github-actions[bot]' &&
@@ -47,7 +49,7 @@ jobs:
          github.event.pull_request.head.repo.full_name != github.repository)) &&
        (github.actor == 'SebTardif' ||
         github.event.pull_request.user.login == 'dependabot[bot]' ||
-        endsWith(github.event.pull_request.user.login, '[bot]')))
+        github.event.pull_request.user.login == 'assura-auto-approve[bot]'))
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0

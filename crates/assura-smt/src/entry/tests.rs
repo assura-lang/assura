@@ -253,6 +253,63 @@ fn portfolio_parallel_prefers_z3_when_cvc5_missing() {
     );
 }
 
+#[cfg(feature = "z3-verify")]
+fn clause_desc_of(result: &VerificationResult) -> &str {
+    match result {
+        VerificationResult::Verified { clause_desc, .. }
+        | VerificationResult::Counterexample { clause_desc, .. }
+        | VerificationResult::Timeout { clause_desc }
+        | VerificationResult::Unknown { clause_desc, .. } => clause_desc,
+    }
+}
+
+/// Parallel verify must inject sibling lemma ensures (same as the serial path).
+/// Without injection, `UsesLemma::ensures` is a free `x >= 0` and SAT-fails.
+#[cfg(feature = "z3-verify")]
+#[test]
+fn parallel_verify_injects_sibling_lemmas() {
+    let src = r#"
+lemma NonNeg(x: Int)
+    requires { x >= 0 }
+    ensures { x >= 0 }
+
+contract UsesLemma {
+    input(x: Int)
+    requires { apply NonNeg(x) }
+    ensures { x >= 0 }
+}
+"#;
+    let typed = crate::test_util::typecheck_ok(src);
+    let results = Verifier::new(&typed)
+        .apply_options(assura_config::VerifyOptions {
+            parallel: true,
+            ..assura_config::VerifyOptions::for_tests()
+        })
+        .verify();
+    let contract = results
+        .iter()
+        .find(|r| clause_desc_of(r).ends_with("UsesLemma::ensures"));
+    assert!(
+        matches!(contract, Some(VerificationResult::Verified { .. })),
+        "parallel verify must inject lemma NonNeg ensures so UsesLemma verifies, got {results:?}"
+    );
+}
+
+/// Single-contract API has no TypedFile; apply with no lemma map must still run.
+#[test]
+fn verify_contract_apply_without_typedfile_lemmas() {
+    let clauses = [Clause {
+        kind: ClauseKind::Ensures,
+        body: Spanned::no_span(Expr::Apply {
+            lemma_name: "unknown_lemma".into(),
+            args: vec![],
+        }),
+        effect_variables: vec![],
+    }];
+    let results = verify_contract("NoFileLemmas", &clauses);
+    assert_eq!(results.len(), 1, "empty lemma map must not drop the clause");
+}
+
 #[test]
 fn verify_contract_decreases() {
     let results = verify_contract("Test", &[make_clause(ClauseKind::Decreases)]);

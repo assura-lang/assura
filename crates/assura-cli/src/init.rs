@@ -248,28 +248,19 @@ pub(crate) fn run_explain(code: &str, output_mode: OutputMode) {
             }
         }
         None => {
+            let message = crate::suggest::unknown_error_code_message(code);
             if output_mode == OutputMode::Json {
-                let catalog = assura_diagnostics::error_catalog();
-                let codes: Vec<_> = catalog
-                    .iter()
-                    .map(|i| serde_json::json!({"code": i.code, "name": i.name}))
-                    .collect();
                 let json = serde_json::json!({
                     "error": format!("Unknown error code: {code}"),
-                    "known_codes": codes,
+                    "did_you_mean": crate::suggest::suggest_error_code(code),
+                    "message": message,
                 });
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&json).unwrap_or_default()
                 );
             } else {
-                eprintln!("Unknown error code: {code}");
-                eprintln!();
-                eprintln!("Known error codes:");
-                let catalog = assura_diagnostics::error_catalog();
-                for info in &catalog {
-                    eprintln!("  {} - {}", info.code, info.name);
-                }
+                eprintln!("{message}");
             }
             process::exit(1);
         }

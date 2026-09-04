@@ -767,6 +767,86 @@ fn has_float_expr_int_only() {
     assert!(!has_float_expr(&e, &HashSet::new()));
 }
 
+#[test]
+fn has_float_expr_let_value() {
+    let e = Spanned::no_span(Expr::Let {
+        name: "y".into(),
+        value: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+            "1.0".into(),
+        )))),
+        body: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+    });
+    assert!(
+        has_float_expr(&e, &HashSet::new()),
+        "float in let value must be detected"
+    );
+}
+
+#[test]
+fn has_float_expr_if_cond() {
+    let e = Spanned::no_span(Expr::If {
+        cond: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+            "1.0".into(),
+        )))),
+        then_branch: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
+        else_branch: Some(Box::new(Spanned::no_span(Expr::Ident("x".into())))),
+    });
+    assert!(
+        has_float_expr(&e, &HashSet::new()),
+        "float in if cond must be detected"
+    );
+}
+
+#[test]
+fn has_float_expr_match_scrutinee() {
+    let e = Spanned::no_span(Expr::Match {
+        scrutinee: Box::new(Spanned::no_span(Expr::Literal(Literal::Float(
+            "1.0".into(),
+        )))),
+        arms: vec![assura_ast::MatchArm {
+            pattern: assura_ast::Pattern::Wildcard,
+            body: Spanned::no_span(Expr::Ident("x".into())),
+        }],
+    });
+    assert!(
+        has_float_expr(&e, &HashSet::new()),
+        "float in match scrutinee must be detected"
+    );
+}
+
+fn u128_max_lit() -> SpExpr {
+    Spanned::no_span(Expr::Literal(Literal::Int(
+        "340282366920938463463374607431768211455".into(),
+    )))
+}
+
+#[test]
+fn has_u128_literal_in_if() {
+    let e = Spanned::no_span(Expr::If {
+        cond: Box::new(Spanned::no_span(Expr::Literal(Literal::Bool(true)))),
+        then_branch: Box::new(u128_max_lit()),
+        else_branch: Some(Box::new(Spanned::no_span(Expr::Literal(Literal::Int(
+            "0".into(),
+        ))))),
+    });
+    assert!(
+        has_u128_literal(&e),
+        "u128 literal in if then-branch must be detected"
+    );
+}
+
+#[test]
+fn has_u128_literal_in_call() {
+    let e = Spanned::no_span(Expr::Call {
+        func: Box::new(Spanned::no_span(Expr::Ident("abs".into()))),
+        args: vec![u128_max_lit()],
+    });
+    assert!(
+        has_u128_literal(&e),
+        "u128 literal in call args must be detected"
+    );
+}
+
 // ---- expr_to_rust_with_floats ----
 
 #[test]

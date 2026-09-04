@@ -15,6 +15,7 @@ mod ir_prompt_cmd;
 mod lsp_doctor;
 mod repl;
 mod shared;
+mod suggest;
 mod test_gen;
 mod timing;
 

@@ -1170,14 +1170,14 @@ brew install cmake gmp
 
 # For CI or manual prebuilt setup:
 # macOS ARM64
-curl -sL "https://github.com/cvc5/cvc5/releases/latest/download/cvc5-macOS-arm64-static.zip" \
+curl -sL "https://github.com/cvc5/cvc5/releases/download/cvc5-1.3.1/cvc5-macOS-arm64-static.zip" \
   -o /tmp/cvc5.zip
 unzip -o /tmp/cvc5.zip -d /tmp/cvc5-install
 export CVC5_LIB_DIR=/tmp/cvc5-install/cvc5-macOS-arm64-static/lib
 export CVC5_INCLUDE_DIR=/tmp/cvc5-install/cvc5-macOS-arm64-static/include
 
 # Linux x86_64
-curl -sL "https://github.com/cvc5/cvc5/releases/latest/download/cvc5-Linux-x86_64-static.zip" \
+curl -sL "https://github.com/cvc5/cvc5/releases/download/cvc5-1.3.1/cvc5-Linux-x86_64-static.zip" \
   -o /tmp/cvc5.zip
 unzip -o /tmp/cvc5.zip -d /tmp/cvc5-install
 export CVC5_LIB_DIR=/tmp/cvc5-install/cvc5-Linux-x86_64-static/lib

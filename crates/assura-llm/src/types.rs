@@ -163,11 +163,17 @@ pub struct LlmConfig {
     pub cache_dir: String,
 }
 
+/// Closed set of LLM providers accepted by `--llm-provider`.
+pub const LLM_PROVIDERS: &[&str] = &["anthropic", "openai", "ollama"];
+
 impl LlmConfig {
     /// Build an `LlmConfig` from a provider name and optional model override.
     ///
     /// Fills in provider-specific defaults (API key env var, base URL,
     /// default model) so callers do not need to repeat the match arms.
+    /// Unknown names keep the historical Anthropic defaults so this
+    /// signature stays crates.io 0.4.3 compatible (`-> Self`). Callers
+    /// that must reject typos validate the name before calling.
     pub fn from_provider(provider: &str, model_override: Option<&str>) -> Self {
         let model = model_override
             .map(|s| s.to_string())
@@ -391,6 +397,14 @@ mod tests {
         assert_eq!(cfg.api_key_env, "OLLAMA_API_KEY");
         assert_eq!(cfg.model, "llama3");
         assert_eq!(cfg.base_url.as_deref(), Some("http://localhost:11434/v1"));
+    }
+
+    #[test]
+    fn from_provider_unknown_keeps_anthropic_defaults() {
+        let cfg = LlmConfig::from_provider("openaii", None);
+        assert_eq!(cfg.provider, "openaii");
+        assert_eq!(cfg.api_key_env, "ANTHROPIC_API_KEY");
+        assert!(cfg.model.contains("claude"));
     }
 
     #[test]

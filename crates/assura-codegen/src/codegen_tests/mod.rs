@@ -15,6 +15,7 @@ fn codegen_ok(source: &str) -> GeneratedProject {
 
 mod basic;
 mod contract;
+mod float_widen;
 mod ghost_lemma;
 mod project;
 mod remaining;

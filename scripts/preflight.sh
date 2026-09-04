@@ -2,11 +2,13 @@
 # Fast checks for agent sessions. Prefer this over full `cargo test --workspace`.
 #
 # Usage:
-#   bash scripts/preflight.sh              # types + pipeline + smt lib + CLI bin
+#   bash scripts/preflight.sh              # types + pipeline + config + ast + test-support + smt lib + CLI bin
 #   bash scripts/preflight.sh assura-types  # one crate only
 #   bash scripts/preflight.sh assura-types assura-smt
 #   bash scripts/preflight.sh --json        # structured JSON output
 #   bash scripts/preflight.sh --json assura-types
+#
+# Also runs cargo deny check when cargo-deny is on PATH (skip + one-line note if missing).
 #
 # Related scaffolds (print-only, not run here):
 #   bash scripts/new-checker.sh <name> [--category <stem>]
@@ -23,7 +25,7 @@ fi
 if [[ $# -gt 0 ]]; then
   crates=("$@")
 else
-  crates=(assura-types assura-pipeline assura-config assura-ast assura-test-support)
+  crates=(assura-types assura-pipeline assura-config assura-ast assura-test-support assura-smt)
 fi
 
 # ── JSON accumulation ────────────────────────────────────────────────────────
@@ -85,12 +87,28 @@ fi
 # Fast: publish set/order only (full cargo package is CI cargo-package job).
 run_step "publish-plan" bash scripts/check-publish-plan.sh
 
-for crate in "${crates[@]}"; do
+# Match CI lint-fast: cargo deny when the binary is present. Do not install it here.
+if command -v cargo-deny >/dev/null 2>&1; then
+  run_step "cargo deny" cargo deny check
+else
+  $json_mode || echo "preflight: skip cargo deny (cargo-deny not on PATH)"
+  jstep "cargo deny" "skip" "cargo-deny not on PATH"
+fi
+
+clippy_crate() {
+  local crate="$1"
   if [[ "$crate" == "assura" ]]; then
-    run_step "clippy $crate" cargo clippy --bin assura --locked -- -D warnings
-  else
-    run_step "clippy $crate" bash -c "cargo clippy -p '$crate' --lib --locked -- -D warnings 2>/dev/null || cargo clippy -p '$crate' --locked -- -D warnings"
+    cargo clippy --bin assura --locked -- -D warnings
+    return
   fi
+  # Keep stderr on both attempts. --lib fails for bin-only crates.
+  if ! cargo clippy -p "$crate" --lib --locked -- -D warnings; then
+    cargo clippy -p "$crate" --locked -- -D warnings
+  fi
+}
+
+for crate in "${crates[@]}"; do
+  run_step "clippy $crate" clippy_crate "$crate"
 done
 
 # Always sanity-check the binary if not explicitly listed

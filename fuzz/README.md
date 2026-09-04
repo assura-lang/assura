@@ -25,6 +25,7 @@ Corpus seeds live under `fuzz/corpus/<target>/`. Crashes are written to
 ## CI
 
 `.github/workflows/fuzz.yml` runs weekly (Monday 06:00 UTC) and on
-`workflow_dispatch`. It installs **nightly** + `rust-src` before
-`cargo fuzz run`. Using stable alone fails with
+`workflow_dispatch`. It installs **nightly-2026-08-15** + `rust-src`
+(dated pin, not floating `nightly`) before `cargo fuzz run`. Using
+stable alone fails with
 `the option Z is only accepted on the nightly compiler`.

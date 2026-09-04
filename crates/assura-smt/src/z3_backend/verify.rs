@@ -426,6 +426,7 @@ pub(crate) fn verify_contract_impl_with_types(
         constants,
         ir: None,
         callee_specs: None,
+        lemma_defs: None,
     };
     verify_contract_impl_with_types_and_ir(&ctx)
 }
@@ -435,9 +436,10 @@ pub(crate) fn verify_contract_impl_with_types_and_ir(
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
-    // Single-contract API has no TypedFile / sibling lemmas. File-level
-    // verify_impl_with_timeout collects lemma_defs via collect_lemma_defs.
-    let lemma_defs = std::collections::HashMap::new();
+    // File-level verify (serial + parallel) puts sibling lemmas on `ctx`.
+    // Single-contract API has no TypedFile, so lemma_defs stays empty.
+    let empty_lemmas = std::collections::HashMap::new();
+    let lemma_defs = ctx.lemma_defs.unwrap_or(&empty_lemmas);
     let narrowings = derive_narrowings(ctx.constants);
     let types = TypeConstraints {
         params: ctx.params,
@@ -454,7 +456,7 @@ pub(crate) fn verify_contract_impl_with_types_and_ir(
     verify_clauses_with_types(
         ctx.contract_name,
         ctx.clauses,
-        &lemma_defs,
+        lemma_defs,
         &mut cache,
         &mut results,
         &types,

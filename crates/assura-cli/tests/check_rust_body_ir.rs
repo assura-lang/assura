@@ -143,7 +143,9 @@ fn regular(x: i32) -> i32 {
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.contains("no inline contract annotations found"),
+        stdout
+            .to_ascii_lowercase()
+            .contains("no inline contract annotations found"),
         "should report no annotations, got: {stdout}"
     );
 }

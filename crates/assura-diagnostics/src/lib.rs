@@ -8,9 +8,11 @@ use std::ops::Range;
 
 mod catalog;
 mod render;
+mod suggest;
 
 pub use catalog::{error_catalog, explain};
 pub use render::{render_diagnostic, report_diagnostics_human};
+pub use suggest::{did_you_mean, edit_distance, suggest_error_code, unknown_error_code_message};
 
 /// Source location span (byte offsets into the source file).
 pub type Span = Range<usize>;

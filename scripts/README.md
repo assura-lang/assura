@@ -9,7 +9,7 @@ Catch common mistakes and scaffold new components.
 | Script | Purpose | When to Use |
 |--------|---------|-------------|
 | `guards.sh` | 9-section static analysis for anti-patterns (orphan checkers, unwired SMT methods, `Verifier::new` outside allowed crates) | After touching types pipeline, SMT managers, or Verifier |
-| `preflight.sh [crates...]` | fmt + guards + clippy on key crates + one demo check | Before every commit (fast, accepts crate subset) |
+| `preflight.sh [crates...]` | fmt + guards + cargo deny (if installed) + clippy on key crates (types, pipeline, config, ast, test-support, smt) + CLI bin + one demo check | Before every commit (fast, accepts crate subset) |
 | `new-checker.sh <name> [--category <stem>]` | Print steps to scaffold a new Layer 0 type checker | When adding a new checker to `CHECKER_PIPELINE` |
 | `new-decl.sh <VariantName>` | Print steps to scaffold a new `Decl` variant | When adding a new declaration type to the AST |
 

@@ -2131,6 +2131,12 @@ OPTIONS (global):
   --threads <N>       Number of parallel verification threads
 ```
 
+Current CLI mapping (historical names in this section are obsolete):
+`verify` is `assura check` (SMT runs as part of check). There is no
+`assura run`; generate with `assura build`, then `cargo run` in the
+output crate (`--bin` emits a binary crate). `--out` is `--output`
+(default `generated`). `--skip-verify` is not a current flag.
+
 ### 10.2 Command Details
 
 #### `assura check`
