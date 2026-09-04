@@ -666,7 +666,18 @@ fn run_llm_analysis(
     }
 
     // Configure LLM provider
-    let config = LlmConfig::from_provider(provider_name, model_override);
+    let config = match LlmConfig::from_provider(provider_name, model_override) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("  LLM: {e}");
+            if let Some(hint) =
+                assura_diagnostics::did_you_mean(provider_name, assura_llm::LLM_PROVIDERS)
+            {
+                eprintln!("  did you mean {hint}?");
+            }
+            return;
+        }
+    };
 
     let cache = LlmCache::new(&config.cache_dir);
 

@@ -132,7 +132,7 @@ enum Commands {
         suggest: bool,
 
         /// LLM provider (anthropic, openai, ollama)
-        #[arg(long, default_value = "anthropic")]
+        #[arg(long, default_value = "anthropic", value_parser = parse_llm_provider)]
         llm_provider: String,
 
         /// LLM model name
@@ -171,7 +171,7 @@ enum Commands {
         stacktrace: Option<String>,
 
         /// LLM provider (anthropic, openai, ollama)
-        #[arg(long, default_value = "anthropic")]
+        #[arg(long, default_value = "anthropic", value_parser = parse_llm_provider)]
         llm_provider: String,
 
         /// LLM model name
@@ -315,8 +315,8 @@ enum Commands {
         #[arg(default_value = ".")]
         path: String,
 
-        /// Contract depth: shallow (types only), medium (+ heuristics)
-        #[arg(long, default_value = "medium")]
+        /// Contract depth: shallow (types only), medium (+ heuristics), deep
+        #[arg(long, default_value = "medium", value_parser = parse_audit_depth)]
         depth: String,
 
         /// Output format: human (colored terminal) or json
@@ -419,6 +419,30 @@ enum Commands {
 fn parse_solver(s: &str) -> Result<assura_smt::SolverChoice, String> {
     assura_smt::SolverChoice::from_str_loose(s)
         .ok_or_else(|| format!("invalid solver: {s} (expected z3, cvc5, or portfolio)"))
+}
+
+fn parse_closed_set(value: &str, candidates: &[&str], what: &str) -> Result<String, String> {
+    if candidates.iter().any(|c| c.eq_ignore_ascii_case(value)) {
+        return Ok(value.to_ascii_lowercase());
+    }
+    match assura_diagnostics::did_you_mean(value, candidates) {
+        Some(hint) => Err(format!("unknown {what} '{value}' (did you mean {hint}?)")),
+        None => Err(format!(
+            "unknown {what} '{value}' (expected {})",
+            candidates.join(", ")
+        )),
+    }
+}
+
+fn parse_llm_provider(s: &str) -> Result<String, String> {
+    parse_closed_set(s, assura_llm::LLM_PROVIDERS, "LLM provider")
+}
+
+/// Audit contract depths accepted by `--depth`.
+const AUDIT_DEPTHS: &[&str] = &["shallow", "medium", "deep"];
+
+fn parse_audit_depth(s: &str) -> Result<String, String> {
+    parse_closed_set(s, AUDIT_DEPTHS, "audit depth")
 }
 
 /// Prefer global `--json` when a command's own `--format` is still the

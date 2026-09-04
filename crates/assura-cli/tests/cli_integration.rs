@@ -1101,12 +1101,83 @@ fn explain_lists_known_codes_on_failure() {
         .expect("failed to run assura explain XXXXX");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("Known error codes"),
-        "should list known codes on failure: {stderr}"
+        stderr.contains("Unknown error code"),
+        "should say unknown code: {stderr}"
+    );
+}
+
+/// Unknown near-miss codes should suggest a neighbor, not dump the catalog.
+#[test]
+fn explain_unknown_code_suggests_close_match() {
+    let out = Command::new(assura_bin())
+        .args(["explain", "A0300"])
+        .output()
+        .expect("failed to run assura explain A0300");
+    assert!(
+        !out.status.success(),
+        "unknown code should exit non-zero: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.to_ascii_lowercase().contains("did you mean"),
+        "should suggest a close match: stdout={stdout} stderr={stderr}"
     );
     assert!(
-        stderr.contains("A01"),
-        "known codes should include A01 range: {stderr}"
+        combined.contains("A03001")
+            || combined.contains("A03002")
+            || combined.contains("A03003")
+            || combined.contains("A03004")
+            || combined.contains("A03005")
+            || combined.contains("A03006"),
+        "suggestion should be a nearby A03xxx code: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        !combined.contains("Known error codes"),
+        "must not dump the entire catalog: stderr={stderr}"
+    );
+}
+
+/// Unknown --llm-provider must not silently become Anthropic.
+#[test]
+fn unknown_llm_provider_suggests_openai() {
+    let tmp = unique_temp("assura_llm_provider_typo");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("plain.rs");
+    std::fs::write(&src, "fn foo(x: i32) -> i32 { x }\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args([
+            "check-rust",
+            src.to_str().unwrap(),
+            "--suggest",
+            "--llm-provider",
+            "openaii",
+        ])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust with typo provider");
+    let _ = std::fs::remove_dir_all(&tmp);
+    assert_ne!(
+        out.status.code(),
+        Some(0),
+        "unknown provider must exit non-zero: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    )
+    .to_ascii_lowercase();
+    assert!(
+        combined.contains("did you mean") && combined.contains("openai"),
+        "should suggest openai for openaii: {combined}"
     );
 }
 

@@ -158,7 +158,15 @@ impl AssuraMcpServer {
                 });
                 serde_json::to_string_pretty(&result).unwrap_or_default()
             }
-            None => format!("Unknown error code: {}", params.code),
+            None => {
+                let message = assura_diagnostics::unknown_error_code_message(&params.code);
+                serde_json::json!({
+                    "error": format!("Unknown error code: {}", params.code),
+                    "did_you_mean": assura_diagnostics::suggest_error_code(&params.code),
+                    "message": message,
+                })
+                .to_string()
+            }
         }
     }
 
@@ -803,6 +811,32 @@ contract Bar {
         assert!(
             result.contains("Unknown error code"),
             "should report unknown"
+        );
+    }
+
+    #[test]
+    fn tool_explain_unknown_code_suggests_close_match() {
+        let server = AssuraMcpServer::new();
+        let params = ExplainParams {
+            code: "A0300".into(),
+        };
+        let result = server.assura_explain(Parameters(params));
+        assert!(
+            result.contains("Unknown error code"),
+            "should report unknown: {result}"
+        );
+        assert!(
+            result.to_ascii_lowercase().contains("did you mean"),
+            "should suggest a close match: {result}"
+        );
+        assert!(
+            result.contains("A03001")
+                || result.contains("A03002")
+                || result.contains("A03003")
+                || result.contains("A03004")
+                || result.contains("A03005")
+                || result.contains("A03006"),
+            "suggestion should be a nearby A03xxx code: {result}"
         );
     }
 

@@ -163,36 +163,47 @@ pub struct LlmConfig {
     pub cache_dir: String,
 }
 
+/// Closed set of LLM providers accepted by `--llm-provider`.
+pub const LLM_PROVIDERS: &[&str] = &["anthropic", "openai", "ollama"];
+
 impl LlmConfig {
     /// Build an `LlmConfig` from a provider name and optional model override.
     ///
     /// Fills in provider-specific defaults (API key env var, base URL,
     /// default model) so callers do not need to repeat the match arms.
-    pub fn from_provider(provider: &str, model_override: Option<&str>) -> Self {
-        let model = model_override
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| match provider {
-                "openai" => "gpt-4o".to_string(),
-                "ollama" => "llama3".to_string(),
-                _ => "claude-sonnet-4-20250514".to_string(),
+    /// Unknown names are rejected; they do not fall through to Anthropic.
+    pub fn from_provider(provider: &str, model_override: Option<&str>) -> Result<Self, LlmError> {
+        let normalized = provider.to_ascii_lowercase();
+        if !LLM_PROVIDERS.iter().any(|p| *p == normalized) {
+            return Err(LlmError::UnknownProvider {
+                name: provider.to_string(),
             });
-        let api_key_env = match provider {
+        }
+        let model =
+            model_override
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| match normalized.as_str() {
+                    "openai" => "gpt-4o".to_string(),
+                    "ollama" => "llama3".to_string(),
+                    _ => "claude-sonnet-4-20250514".to_string(),
+                });
+        let api_key_env = match normalized.as_str() {
             "openai" => "OPENAI_API_KEY".to_string(),
             "ollama" => "OLLAMA_API_KEY".to_string(),
             _ => "ANTHROPIC_API_KEY".to_string(),
         };
-        let base_url = if provider == "ollama" {
+        let base_url = if normalized == "ollama" {
             Some("http://localhost:11434/v1".to_string())
         } else {
             None
         };
-        Self {
-            provider: provider.to_string(),
+        Ok(Self {
+            provider: normalized,
             model,
             api_key_env,
             base_url,
             ..Default::default()
-        }
+        })
     }
 }
 
@@ -275,6 +286,8 @@ pub enum LlmError {
     Io(#[from] std::io::Error),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("unknown LLM provider '{name}' (expected anthropic, openai, or ollama)")]
+    UnknownProvider { name: String },
 }
 
 #[cfg(test)]
@@ -368,7 +381,7 @@ mod tests {
 
     #[test]
     fn from_provider_anthropic_defaults() {
-        let cfg = LlmConfig::from_provider("anthropic", None);
+        let cfg = LlmConfig::from_provider("anthropic", None).expect("anthropic");
         assert_eq!(cfg.provider, "anthropic");
         assert_eq!(cfg.api_key_env, "ANTHROPIC_API_KEY");
         assert!(cfg.model.contains("claude"));
@@ -377,7 +390,7 @@ mod tests {
 
     #[test]
     fn from_provider_openai() {
-        let cfg = LlmConfig::from_provider("openai", Some("gpt-4-turbo"));
+        let cfg = LlmConfig::from_provider("openai", Some("gpt-4-turbo")).expect("openai");
         assert_eq!(cfg.provider, "openai");
         assert_eq!(cfg.api_key_env, "OPENAI_API_KEY");
         assert_eq!(cfg.model, "gpt-4-turbo");
@@ -386,11 +399,20 @@ mod tests {
 
     #[test]
     fn from_provider_ollama() {
-        let cfg = LlmConfig::from_provider("ollama", None);
+        let cfg = LlmConfig::from_provider("ollama", None).expect("ollama");
         assert_eq!(cfg.provider, "ollama");
         assert_eq!(cfg.api_key_env, "OLLAMA_API_KEY");
         assert_eq!(cfg.model, "llama3");
         assert_eq!(cfg.base_url.as_deref(), Some("http://localhost:11434/v1"));
+    }
+
+    #[test]
+    fn from_provider_rejects_unknown() {
+        let err = LlmConfig::from_provider("openaii", None).expect_err("typo");
+        match err {
+            LlmError::UnknownProvider { name } => assert_eq!(name, "openaii"),
+            other => panic!("expected UnknownProvider, got {other}"),
+        }
     }
 
     #[test]

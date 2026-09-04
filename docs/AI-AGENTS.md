@@ -52,15 +52,16 @@ full coverage.
 
 ## MCP
 
-The `assura-mcp` crate exposes tools for agent hosts (rmcp). From a
-workspace build:
+The `assura-mcp` crate exposes tools for agent hosts (rmcp). There is no
+standalone `assura-mcp` binary. Start the server from the CLI:
 
 ```bash
-cargo run -p assura-mcp -- --help
+assura mcp
 ```
 
-Exact tool names evolve; list tools from your MCP client after connecting.
-Prefer `assura check --json` when MCP is unavailable.
+Tools: `assura_check`, `assura_infer`, `assura_explain`, `assura_type_map`,
+`assura_ir_prompt`, `assura_ir_verify`. List them from your MCP client after
+connecting. Prefer `assura check --json` when MCP is unavailable.
 
 ## Suggested agent checklist
 

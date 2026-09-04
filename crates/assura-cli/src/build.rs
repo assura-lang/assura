@@ -972,8 +972,24 @@ fn call_llm_for_ir(
             }
         } else {
             // API mode: use assura-llm HttpProvider
-            let llm_config =
-                assura_llm::LlmConfig::from_provider(&ai_config.provider, Some(&ai_config.model));
+            let llm_config = match assura_llm::LlmConfig::from_provider(
+                &ai_config.provider,
+                Some(&ai_config.model),
+            ) {
+                Ok(c) => c,
+                Err(e) => {
+                    if attempt == 0 {
+                        eprintln!("\n    error: LLM provider setup failed: {e}");
+                        if let Some(hint) = assura_diagnostics::did_you_mean(
+                            &ai_config.provider,
+                            assura_llm::LLM_PROVIDERS,
+                        ) {
+                            eprintln!("    did you mean {hint}?");
+                        }
+                    }
+                    return None;
+                }
+            };
             let provider = match assura_llm::HttpProvider::new(llm_config) {
                 Ok(p) => p,
                 Err(e) => {
