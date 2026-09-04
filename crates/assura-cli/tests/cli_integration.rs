@@ -1145,8 +1145,6 @@ fn explain_unknown_code_suggests_close_match() {
     assert!(
         combined.contains("A03001")
             || combined.contains("A03002")
-            || combined.contains("A03003")
-            || combined.contains("A03004")
             || combined.contains("A03005")
             || combined.contains("A03006"),
         "suggestion should be a nearby A03xxx code: stdout={stdout} stderr={stderr}"
@@ -1659,6 +1657,7 @@ fn mcp_ir_prompt_tool_returns_json() {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/test_basic.assura"
     );
+    let source = std::fs::read_to_string(fixture).expect("read ir-prompt fixture");
     let list_out = Command::new(assura_bin())
         .args(["ir-prompt", fixture, "--list"])
         .output()
@@ -1670,9 +1669,20 @@ fn mcp_ir_prompt_tool_returns_json() {
         .trim()
         .to_string();
 
-    let call = format!(
-        r#"{{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{{"name":"assura_ir_prompt","arguments":{{"file":"{fixture}","decl":"{first_decl}"}}}}}}"#
-    );
+    // Inline `source` is not MCP-jailed; absolute `file` paths are rejected.
+    let call = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "tools/call",
+        "params": {
+            "name": "assura_ir_prompt",
+            "arguments": {
+                "source": source,
+                "decl": first_decl,
+            }
+        }
+    })
+    .to_string();
     let lines = mcp_call(&[&call]);
     let response = lines.last().expect("should have response");
     let parsed: serde_json::Value =
