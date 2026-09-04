@@ -48,14 +48,12 @@ pub(crate) fn run_check_rust(
     }
 
     let p = Path::new(path);
-    let scan_opts = assura_rust_analyzer::ScanOptions {
-        include_unannotated: llm_opts.suggest,
-    };
 
-    // Collect items from file or directory. `--suggest` also keeps unannotated
-    // functions so they can be offered as candidates.
-    let file_items: Vec<(std::path::PathBuf, Vec<AnnotatedItem>)> = if p.is_dir() {
-        match assura_rust_analyzer::scan_directory_with_options(p, scan_opts) {
+    // Annotated items only (crates.io rust-analyzer APIs). `--suggest` then
+    // walks with syn locally so unannotated fns are candidates without
+    // calling unpublished ScanOptions / *_with_options helpers.
+    let mut file_items: Vec<(std::path::PathBuf, Vec<AnnotatedItem>)> = if p.is_dir() {
+        match assura_rust_analyzer::scan_directory(p) {
             Ok(results) => results,
             Err(e) => {
                 if json {
@@ -74,29 +72,9 @@ pub(crate) fn run_check_rust(
             }
         }
     } else if p.is_file() {
-        match assura_rust_analyzer::parse_rust_file_with_options(p, scan_opts) {
+        match assura_rust_analyzer::parse_rust_file(p) {
             Ok(items) if !items.is_empty() => vec![(p.to_path_buf(), items)],
-            Ok(_) => {
-                if llm_opts.suggest {
-                    report_nothing_to_suggest(path, json);
-                    process::exit(1);
-                }
-                if json {
-                    let report = serde_json::json!({
-                        "ok": true,
-                        "success": true,
-                        "path": path,
-                        "items": 0,
-                        "message": format!("{path}: no inline contract annotations found"),
-                        "vacuous": true,
-                        "vacuous_reason": "no inline contract annotations",
-                    });
-                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
-                } else if verbosity != Verbosity::Quiet {
-                    println!("{path}: no inline contract annotations found");
-                }
-                return;
-            }
+            Ok(_) => Vec::new(),
             Err(e) => {
                 if json {
                     let report = serde_json::json!({
@@ -128,6 +106,10 @@ pub(crate) fn run_check_rust(
         }
         process::exit(1);
     };
+
+    if llm_opts.suggest {
+        add_unannotated_fn_stubs(p, &mut file_items);
+    }
 
     if file_items.is_empty() {
         if llm_opts.suggest {
@@ -636,6 +618,137 @@ fn collect_suggest_candidates(
     candidates
 }
 
+/// CLI-local syn walk: add empty-contract stubs for functions not already
+/// present from the published annotated-only scan.
+fn add_unannotated_fn_stubs(
+    root: &Path,
+    file_items: &mut Vec<(std::path::PathBuf, Vec<assura_rust_analyzer::AnnotatedItem>)>,
+) {
+    if root.is_file() {
+        add_stubs_for_rust_file(root, file_items);
+        return;
+    }
+    if root.is_dir() {
+        let mut rs_files = Vec::new();
+        collect_rs_files(root, &mut rs_files);
+        for path in rs_files {
+            add_stubs_for_rust_file(&path, file_items);
+        }
+    }
+}
+
+fn collect_rs_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path
+            .symlink_metadata()
+            .is_ok_and(|m| m.file_type().is_symlink())
+        {
+            continue;
+        }
+        if path.is_dir() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name.starts_with('.') || name == "target" || name == "generated" {
+                continue;
+            }
+            collect_rs_files(&path, out);
+        } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+            out.push(path);
+        }
+    }
+}
+
+fn add_stubs_for_rust_file(
+    path: &Path,
+    file_items: &mut Vec<(std::path::PathBuf, Vec<assura_rust_analyzer::AnnotatedItem>)>,
+) {
+    let source = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let file = match syn::parse_file(&source) {
+        Ok(f) => f,
+        Err(_) => return,
+    };
+    let existing_idx = file_items.iter().position(|(p, _)| p == path);
+    let existing_names: std::collections::HashSet<String> = existing_idx
+        .map(|i| {
+            file_items[i]
+                .1
+                .iter()
+                .filter_map(|item| match &item.kind {
+                    assura_rust_analyzer::AnnotatedItemKind::Function { name, .. } => {
+                        Some(name.clone())
+                    }
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut stubs = Vec::new();
+    collect_fn_stubs(&file.items, &existing_names, &mut stubs);
+    if stubs.is_empty() {
+        return;
+    }
+    if let Some(i) = existing_idx {
+        file_items[i].1.extend(stubs);
+    } else {
+        file_items.push((path.to_path_buf(), stubs));
+    }
+}
+
+fn collect_fn_stubs(
+    items: &[syn::Item],
+    existing_names: &std::collections::HashSet<String>,
+    stubs: &mut Vec<assura_rust_analyzer::AnnotatedItem>,
+) {
+    for item in items {
+        match item {
+            syn::Item::Fn(func) => {
+                let name = func.sig.ident.to_string();
+                if existing_names.contains(&name) {
+                    continue;
+                }
+                stubs.push(fn_stub(&func.sig, &func.vis));
+            }
+            syn::Item::Impl(imp) => {
+                for impl_item in &imp.items {
+                    if let syn::ImplItem::Fn(method) = impl_item {
+                        let name = method.sig.ident.to_string();
+                        if existing_names.contains(&name) {
+                            continue;
+                        }
+                        stubs.push(fn_stub(&method.sig, &method.vis));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn fn_stub(sig: &syn::Signature, vis: &syn::Visibility) -> assura_rust_analyzer::AnnotatedItem {
+    let line = sig.fn_token.span.start().line;
+    assura_rust_analyzer::AnnotatedItem {
+        contract: assura_rust_analyzer::InlineContract::default(),
+        kind: assura_rust_analyzer::AnnotatedItemKind::Function {
+            name: sig.ident.to_string(),
+            params: Vec::new(),
+            return_type: None,
+            is_unsafe: matches!(sig.safety, syn::Safety::Unsafe(_)),
+            is_async: sig.asyncness.is_some(),
+            is_public: matches!(vis, syn::Visibility::Public(_)),
+        },
+        offset: 0,
+        line,
+    }
+}
+
 fn report_nothing_to_suggest(path: &str, json: bool) {
     let message = format!("nothing to suggest: no unannotated functions in {path}");
     if json {
@@ -686,7 +799,7 @@ fn run_llm_analysis(
         Err(e) => {
             eprintln!("  LLM: {e}");
             if let Some(hint) =
-                assura_diagnostics::did_you_mean(provider_name, assura_llm::LLM_PROVIDERS)
+                crate::suggest::did_you_mean(provider_name, crate::suggest::LLM_PROVIDERS)
             {
                 eprintln!("  did you mean {hint}?");
             }

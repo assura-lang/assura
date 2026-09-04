@@ -159,10 +159,10 @@ impl AssuraMcpServer {
                 serde_json::to_string_pretty(&result).unwrap_or_default()
             }
             None => {
-                let message = assura_diagnostics::unknown_error_code_message(&params.code);
+                let message = unknown_error_code_message(&params.code);
                 serde_json::json!({
                     "error": format!("Unknown error code: {}", params.code),
-                    "did_you_mean": assura_diagnostics::suggest_error_code(&params.code),
+                    "did_you_mean": suggest_error_code(&params.code),
                     "message": message,
                 })
                 .to_string()
@@ -368,6 +368,66 @@ fn resolve_source_with_path(
             Ok((content, path))
         }
         (None, None) => Err("Provide either `source` (inline code) or `file` (path)".into()),
+    }
+}
+
+/// Local copy: published MCP must not call unpublished diagnostics helpers.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (m, n) = (a.len(), b.len());
+    let mut dp = vec![vec![0usize; n + 1]; m + 1];
+    for (i, row) in dp.iter_mut().enumerate().take(m + 1) {
+        row[0] = i;
+    }
+    for (j, val) in dp[0].iter_mut().enumerate().take(n + 1) {
+        *val = j;
+    }
+    for i in 1..=m {
+        for j in 1..=n {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            dp[i][j] = (dp[i - 1][j] + 1)
+                .min(dp[i][j - 1] + 1)
+                .min(dp[i - 1][j - 1] + cost);
+        }
+    }
+    dp[m][n]
+}
+
+fn did_you_mean<'a>(input: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    let input_l = input.to_ascii_lowercase();
+    let input_len = input.chars().count();
+    let threshold = match input_len {
+        0..=2 => 1,
+        3..=5 => 2,
+        _ => 3,
+    };
+    let mut best: Option<(&'a str, usize)> = None;
+    for cand in candidates {
+        let dist = edit_distance(&input_l, &cand.to_ascii_lowercase());
+        if dist == 0 {
+            return Some(*cand);
+        }
+        if dist <= threshold
+            && dist < input_len
+            && best.is_none_or(|(_, best_dist)| dist < best_dist)
+        {
+            best = Some((*cand, dist));
+        }
+    }
+    best.map(|(c, _)| c)
+}
+
+fn suggest_error_code(code: &str) -> Option<&'static str> {
+    let catalog = assura_diagnostics::error_catalog();
+    let codes: Vec<&str> = catalog.iter().map(|i| i.code).collect();
+    did_you_mean(code, &codes)
+}
+
+fn unknown_error_code_message(code: &str) -> String {
+    match suggest_error_code(code) {
+        Some(hint) => format!("Unknown error code: {code}\ndid you mean {hint}?"),
+        None => format!("Unknown error code: {code}"),
     }
 }
 
@@ -1167,8 +1227,6 @@ contract Bar {
         assert!(
             result.contains("A03001")
                 || result.contains("A03002")
-                || result.contains("A03003")
-                || result.contains("A03004")
                 || result.contains("A03005")
                 || result.contains("A03006"),
             "suggestion should be a nearby A03xxx code: {result}"

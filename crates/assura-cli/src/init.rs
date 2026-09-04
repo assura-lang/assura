@@ -248,11 +248,11 @@ pub(crate) fn run_explain(code: &str, output_mode: OutputMode) {
             }
         }
         None => {
-            let message = assura_diagnostics::unknown_error_code_message(code);
+            let message = crate::suggest::unknown_error_code_message(code);
             if output_mode == OutputMode::Json {
                 let json = serde_json::json!({
                     "error": format!("Unknown error code: {code}"),
-                    "did_you_mean": assura_diagnostics::suggest_error_code(code),
+                    "did_you_mean": crate::suggest::suggest_error_code(code),
                     "message": message,
                 });
                 println!(

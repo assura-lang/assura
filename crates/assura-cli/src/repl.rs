@@ -239,12 +239,12 @@ pub(crate) fn repl_explain(code: &str, json: bool) {
                 "ok": false,
                 "command": "explain",
                 "error": format!("Unknown error code: {code}"),
-                "did_you_mean": assura_diagnostics::suggest_error_code(code),
+                "did_you_mean": crate::suggest::suggest_error_code(code),
                 "code": code,
             })
         );
     } else {
-        eprintln!("{}", assura_diagnostics::unknown_error_code_message(code));
+        eprintln!("{}", crate::suggest::unknown_error_code_message(code));
     }
 }
 

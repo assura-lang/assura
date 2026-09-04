@@ -980,9 +980,9 @@ fn call_llm_for_ir(
                 Err(e) => {
                     if attempt == 0 {
                         eprintln!("\n    error: LLM provider setup failed: {e}");
-                        if let Some(hint) = assura_diagnostics::did_you_mean(
+                        if let Some(hint) = crate::suggest::did_you_mean(
                             &ai_config.provider,
-                            assura_llm::LLM_PROVIDERS,
+                            crate::suggest::LLM_PROVIDERS,
                         ) {
                             eprintln!("    did you mean {hint}?");
                         }

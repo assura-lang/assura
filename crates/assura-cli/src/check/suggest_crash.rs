@@ -139,16 +139,16 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
                     "ok": false,
                     "error": "llm_provider",
                     "message": format!("{e}"),
-                    "did_you_mean": assura_diagnostics::did_you_mean(
+                    "did_you_mean": crate::suggest::did_you_mean(
                         llm_provider,
-                        assura_llm::LLM_PROVIDERS
+                        crate::suggest::LLM_PROVIDERS
                     ),
                 });
                 println!("{}", serde_json::to_string_pretty(&report).unwrap());
             } else {
                 eprintln!("LLM provider error: {e}");
                 if let Some(hint) =
-                    assura_diagnostics::did_you_mean(llm_provider, assura_llm::LLM_PROVIDERS)
+                    crate::suggest::did_you_mean(llm_provider, crate::suggest::LLM_PROVIDERS)
                 {
                     eprintln!("did you mean {hint}?");
                 }

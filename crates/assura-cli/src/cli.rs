@@ -425,7 +425,7 @@ fn parse_closed_set(value: &str, candidates: &[&str], what: &str) -> Result<Stri
     if candidates.iter().any(|c| c.eq_ignore_ascii_case(value)) {
         return Ok(value.to_ascii_lowercase());
     }
-    match assura_diagnostics::did_you_mean(value, candidates) {
+    match crate::suggest::did_you_mean(value, candidates) {
         Some(hint) => Err(format!("unknown {what} '{value}' (did you mean {hint}?)")),
         None => Err(format!(
             "unknown {what} '{value}' (expected {})",
@@ -435,7 +435,7 @@ fn parse_closed_set(value: &str, candidates: &[&str], what: &str) -> Result<Stri
 }
 
 fn parse_llm_provider(s: &str) -> Result<String, String> {
-    parse_closed_set(s, assura_llm::LLM_PROVIDERS, "LLM provider")
+    parse_closed_set(s, crate::suggest::LLM_PROVIDERS, "LLM provider")
 }
 
 /// Audit contract depths accepted by `--depth`.

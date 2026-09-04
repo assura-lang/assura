@@ -324,13 +324,7 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
             // Empty sources and contracts with zero SMT results look like
             // "success" without proving anything.
             let (vacuous, vacuous_reason) = if !has_errors {
-                let (v, reason) =
-                    assura_pipeline::vacuous_status(file.as_ref(), &verification_results);
-                if layer < 1 && !file.as_ref().is_some_and(|f| f.decls.is_empty()) {
-                    (false, None)
-                } else {
-                    (v, reason)
-                }
+                vacuous_status(file.as_ref(), &verification_results, layer)
             } else {
                 (false, None)
             };
@@ -526,4 +520,35 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
     }
 
     process::exit(if has_errors { 1 } else { 0 });
+}
+
+/// Local copy of the vacuous-success classifier (keep CLI off unpublished
+/// pipeline helpers until those land on crates.io).
+fn vacuous_status(
+    file: Option<&assura_parser::ast::SourceFile>,
+    verification: &[assura_smt::VerificationResult],
+    layer: u8,
+) -> (bool, Option<String>) {
+    let no_decls = file.is_some_and(|f| f.decls.is_empty());
+    let has_clause_kinds = file.is_some_and(assura_smt::has_verifiable_clauses);
+    let has_contracts =
+        file.is_some_and(|f| !assura_smt::display::collect_contract_names(f).is_empty());
+    let contracts_without_results = layer >= 1 && verification.is_empty() && has_contracts;
+    if no_decls {
+        (
+            true,
+            Some("no contracts or functions to verify".to_string()),
+        )
+    } else if contracts_without_results {
+        if has_clause_kinds {
+            (
+                true,
+                Some("no SMT proof obligations; add ensures or invariant".to_string()),
+            )
+        } else {
+            (true, Some("no verifiable clauses".to_string()))
+        }
+    } else {
+        (false, None)
+    }
 }
