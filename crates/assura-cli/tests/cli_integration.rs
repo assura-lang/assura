@@ -2069,6 +2069,89 @@ fn get(items: &[i32], idx: usize) -> i32 { items[idx] }
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// `infer --json -o` on a rust file with a public function must include
+/// `success: true` so agents can branch without checking `status`.
+#[test]
+fn infer_json_minus_o_reports_success() {
+    let tmp = unique_temp("assura_infer_json_minus_o");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("safe.rs"),
+        "pub fn add(a: i64, b: i64) -> i64 { a + b }\n",
+    )
+    .unwrap();
+    let out_path = tmp.join("contracts.assura");
+
+    let out = Command::new(assura_bin())
+        .args([
+            "infer",
+            "--json",
+            "-o",
+            out_path.to_str().unwrap(),
+            tmp.join("safe.rs").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run assura infer --json -o");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "infer --json -o should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("infer --json -o must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(
+        v["success"], true,
+        "write-ok infer -o JSON must include success=true: {v}"
+    );
+    assert_eq!(v["status"], "ok", "status: ok stays as additive alias: {v}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// Risk-pattern `infer --json -o` (suggestions written) must also set success.
+#[test]
+fn infer_json_minus_o_risk_pattern_reports_success() {
+    let tmp = unique_temp("assura_infer_json_minus_o_risk");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("div.rs"),
+        "pub fn divide(a: i64, b: i64) -> i64 { a / b }\n",
+    )
+    .unwrap();
+    let out_path = tmp.join("contracts.assura");
+
+    let out = Command::new(assura_bin())
+        .args([
+            "infer",
+            "--json",
+            "-o",
+            out_path.to_str().unwrap(),
+            tmp.join("div.rs").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run assura infer --json -o on risk file");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "infer --json -o should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("infer --json -o must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(
+        v["success"], true,
+        "write-ok infer -o JSON must include success=true: {v}"
+    );
+    assert_eq!(v["status"], "ok", "status: ok stays as additive alias: {v}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 // =======================================================================
 // IR sidecar pipeline: assura check loads {Name}.ir from disk
 // =======================================================================

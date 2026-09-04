@@ -341,6 +341,8 @@ pub(crate) fn run_infer_heuristic(
                     println!(
                         "{}",
                         serde_json::to_string_pretty(&serde_json::json!({
+                            "ok": true,
+                            "success": true,
                             "file": filename,
                             "output": path,
                             "function_count": public.len(),
@@ -522,6 +524,8 @@ pub(crate) fn run_infer_heuristic(
             println!(
                 "{}",
                 serde_json::json!({
+                    "ok": true,
+                    "success": true,
                     "file": filename,
                     "output": path,
                     "function_count": suggestions.len(),
