@@ -911,6 +911,38 @@ fn pipeline_result_serializes_all_fields() {
     assert!(json_str.contains("\"resolution_errors\""));
     assert!(json_str.contains("\"type_errors\""));
     assert!(json_str.contains("\"verification\""));
+    assert!(json_str.contains("\"vacuous\""));
+}
+
+#[test]
+fn run_empty_source_is_vacuous_success() {
+    let result = run("");
+    assert!(result.success, "empty source is not a hard error");
+    let json = serde_json::to_value(&result).expect("PipelineResult must serialize");
+    assert_eq!(
+        json["vacuous"], true,
+        "empty source must be flagged vacuous, got {json}"
+    );
+    assert_eq!(
+        json["vacuous_reason"], "no contracts or functions to verify",
+        "{json}"
+    );
+}
+
+#[test]
+fn run_requires_only_is_vacuous_success() {
+    let result = run("contract T {\n  requires { true }\n}");
+    assert!(result.success, "requires-only is not a hard error");
+    let json = serde_json::to_value(&result).expect("PipelineResult must serialize");
+    assert_eq!(
+        json["vacuous"], true,
+        "requires-only must be flagged vacuous, got {json}"
+    );
+    let reason = json["vacuous_reason"].as_str().unwrap_or("");
+    assert!(
+        reason.contains("no SMT proof obligations") || reason.contains("no verifiable"),
+        "unexpected vacuous_reason: {reason}"
+    );
 }
 
 #[test]

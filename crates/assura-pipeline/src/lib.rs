@@ -693,6 +693,12 @@ pub type VerificationEntry = assura_smt::VerificationSummary;
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PipelineResult {
     pub success: bool,
+    /// True when success does not mean any SMT proof obligation was discharged
+    /// (empty source, requires-only, or no verifiable clauses). Mirrors CLI
+    /// `file_info.vacuous`.
+    pub vacuous: bool,
+    /// Human-readable reason when [`vacuous`](Self::vacuous) is true.
+    pub vacuous_reason: Option<String>,
     pub declarations: Vec<String>,
     pub parse_errors: Vec<PipelineDiagnostic>,
     pub resolution_errors: Vec<PipelineDiagnostic>,
@@ -757,6 +763,8 @@ pub fn run_at(source: &str, filename: &str) -> PipelineResult {
     if output.has_errors {
         return PipelineResult {
             success: false,
+            vacuous: false,
+            vacuous_reason: None,
             declarations,
             parse_errors,
             resolution_errors,
@@ -772,14 +780,46 @@ pub fn run_at(source: &str, filename: &str) -> PipelineResult {
         .collect();
 
     let success = verification_succeeded(&output.verification);
+    let (vacuous, vacuous_reason) = vacuous_status(output.file.as_ref(), &output.verification);
 
     PipelineResult {
         success,
+        vacuous,
+        vacuous_reason,
         parse_errors: vec![],
         declarations,
         resolution_errors: vec![],
         type_errors: vec![],
         verification,
+    }
+}
+
+/// Same rules as CLI `file_info.vacuous` / `vacuous_reason`.
+fn vacuous_status(
+    file: Option<&assura_parser::ast::SourceFile>,
+    verification: &[assura_smt::VerificationResult],
+) -> (bool, Option<String>) {
+    let no_decls = file.is_some_and(|f| f.decls.is_empty());
+    let has_clause_kinds = file.is_some_and(assura_smt::has_verifiable_clauses);
+    let has_contracts =
+        file.is_some_and(|f| !assura_smt::display::collect_contract_names(f).is_empty());
+    let contracts_without_results = verification.is_empty() && has_contracts;
+    if no_decls {
+        (
+            true,
+            Some("no contracts or functions to verify".to_string()),
+        )
+    } else if contracts_without_results {
+        if has_clause_kinds {
+            (
+                true,
+                Some("no SMT proof obligations; add ensures or invariant".to_string()),
+            )
+        } else {
+            (true, Some("no verifiable clauses".to_string()))
+        }
+    } else {
+        (false, None)
     }
 }
 #[cfg(test)]

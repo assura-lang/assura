@@ -434,8 +434,7 @@ fn extract_function_signatures(source: &str) -> String {
         if assura_ret != "Unit" && assura_ret != "()" {
             output.push_str(&format!("    output(result: {assura_ret})\n"));
         }
-        output.push_str("    requires { true }\n");
-        output.push_str("    ensures { true }\n");
+        output.push_str("    // Add requires/ensures before treating this as verified.\n");
         output.push_str("}\n\n");
     }
     if output.is_empty() {
@@ -636,8 +635,12 @@ contract Bar {
             "should emit Assura output(...) syntax, got: {result}"
         );
         assert!(
-            result.contains("requires { true }"),
-            "should emit requires {{ }} clause, got: {result}"
+            !result.contains("requires { true }"),
+            "infer must not emit tautology requires {{ true }}, got: {result}"
+        );
+        assert!(
+            !result.contains("ensures { true }"),
+            "infer must not emit tautology ensures {{ true }}, got: {result}"
         );
         // Must parse as real Assura (not pseudo-syntax).
         let pipe = run_check_pipeline(&result, "<infer>");
@@ -743,6 +746,37 @@ contract Bar {
             "should return JSON with success field"
         );
         assert!(result.contains("contract X"), "should list declaration");
+    }
+
+    #[test]
+    fn tool_check_empty_source_reports_vacuous() {
+        let server = AssuraMcpServer::new();
+        let params = CheckParams {
+            source: Some(String::new()),
+            file: None,
+        };
+        let result = server.assura_check(Parameters(params));
+        let v: serde_json::Value =
+            serde_json::from_str(&result).unwrap_or_else(|e| panic!("JSON: {e}\n{result}"));
+        assert_eq!(v["success"], true, "{v}");
+        assert_eq!(v["vacuous"], true, "empty check must report vacuous: {v}");
+    }
+
+    #[test]
+    fn tool_check_requires_only_reports_vacuous() {
+        let server = AssuraMcpServer::new();
+        let params = CheckParams {
+            source: Some("contract T {\n  requires { true }\n}".into()),
+            file: None,
+        };
+        let result = server.assura_check(Parameters(params));
+        let v: serde_json::Value =
+            serde_json::from_str(&result).unwrap_or_else(|e| panic!("JSON: {e}\n{result}"));
+        assert_eq!(v["success"], true, "{v}");
+        assert_eq!(
+            v["vacuous"], true,
+            "requires-only check must report vacuous: {v}"
+        );
     }
 
     #[test]
