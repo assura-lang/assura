@@ -245,21 +245,23 @@ fn is_tool_path_error(err: &str) -> bool {
 /// JSON tools wrap jail/path errors so agents can branch on `success`
 /// instead of parsing a bare string.
 fn tool_path_error_json(err: String) -> String {
-    if err == PATH_NOT_ALLOWED {
-        serde_json::json!({
-            "success": false,
-            "error": PATH_NOT_ALLOWED,
-            "error_kind": "PATH_NOT_ALLOWED",
-        })
-        .to_string()
+    let error_kind = if err == PATH_NOT_ALLOWED {
+        "PATH_NOT_ALLOWED"
+    } else if err == SOURCE_TOO_LARGE {
+        "SOURCE_TOO_LARGE"
+    } else if err == SOURCE_NOT_UTF8 {
+        "SOURCE_NOT_UTF8"
+    } else if err.starts_with("Provide either") {
+        "MISSING_SOURCE"
     } else {
-        serde_json::json!({
-            "success": false,
-            "error": err,
-            "error_kind": "RESOLVE_FAILED",
-        })
-        .to_string()
-    }
+        "RESOLVE_FAILED"
+    };
+    serde_json::json!({
+        "success": false,
+        "error": err,
+        "error_kind": error_kind,
+    })
+    .to_string()
 }
 /// Same 16 MiB cap as CLI `read_source_arg` / `MAX_SOURCE_BYTES`.
 const MAX_SOURCE_BYTES: u64 = 16 * 1024 * 1024;
@@ -1227,6 +1229,71 @@ contract Bar {
         assert!(
             !result.contains(probe),
             "jail error must not leak the filesystem path: {result}"
+        );
+    }
+
+    fn assert_tool_path_kind(result: &str, kind: &str, error: &str) {
+        let v: serde_json::Value = serde_json::from_str(result)
+            .unwrap_or_else(|e| panic!("path/source error must be JSON: {e}\n{result}"));
+        assert_eq!(v["success"], false, "{v}");
+        assert_eq!(v["error_kind"], kind, "{v}");
+        assert_eq!(v["error"], error, "{v}");
+    }
+
+    #[test]
+    fn tool_path_error_json_oversize_kind() {
+        let result = tool_path_error_json(SOURCE_TOO_LARGE.to_string());
+        assert_tool_path_kind(&result, "SOURCE_TOO_LARGE", SOURCE_TOO_LARGE);
+        assert!(
+            !result.contains('\\') && !result.contains('/'),
+            "oversize error must not include a path: {result}"
+        );
+    }
+
+    #[test]
+    fn tool_path_error_json_utf8_kind() {
+        let result = tool_path_error_json(SOURCE_NOT_UTF8.to_string());
+        assert_tool_path_kind(&result, "SOURCE_NOT_UTF8", SOURCE_NOT_UTF8);
+        assert!(
+            !result.contains('\\') && !result.contains('/'),
+            "utf8 error must not include a path: {result}"
+        );
+    }
+
+    #[test]
+    fn tool_check_invalid_utf8_kind() {
+        let name = format!("assura_mcp_tool_badutf8_{}.assura", std::process::id());
+        std::fs::write(&name, [0xff, 0xfe, 0xfd]).expect("write probe");
+        let server = AssuraMcpServer::new();
+        let result = server.assura_check(Parameters(CheckParams {
+            source: None,
+            file: Some(name.clone()),
+        }));
+        let _ = std::fs::remove_file(&name);
+        assert_tool_path_kind(&result, "SOURCE_NOT_UTF8", SOURCE_NOT_UTF8);
+        assert!(
+            !result.contains(&name),
+            "utf8 error must not leak the filesystem path: {result}"
+        );
+    }
+
+    #[test]
+    fn tool_check_missing_source_kind() {
+        let server = AssuraMcpServer::new();
+        let result = server.assura_check(Parameters(CheckParams {
+            source: None,
+            file: None,
+        }));
+        let v: serde_json::Value = serde_json::from_str(&result)
+            .unwrap_or_else(|e| panic!("missing source must be JSON: {e}\n{result}"));
+        assert_eq!(v["success"], false, "{v}");
+        assert_eq!(v["error_kind"], "MISSING_SOURCE", "{v}");
+        assert!(
+            v["error"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("Provide either"),
+            "{v}"
         );
     }
 
