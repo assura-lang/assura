@@ -140,7 +140,7 @@ impl AssuraMcpServer {
             Ok(s) => s,
             Err(e) => return e,
         };
-        infer_contracts_from_rust(&source)
+        infer_contracts_report(&source)
     }
 
     #[tool(
@@ -389,6 +389,23 @@ fn render_ir_prompt_tool(params: IrPromptParams) -> Result<String, String> {
         "prompts": prompts,
     }))
     .map_err(|e| e.to_string())
+}
+
+/// JSON envelope for `assura_infer` (same vacuous fields as `assura_check`).
+fn infer_contracts_report(source: &str) -> String {
+    let text = infer_contracts_from_rust(source);
+    let vacuous = text.trim().is_empty() || text == "No public function signatures found.";
+    serde_json::to_string_pretty(&serde_json::json!({
+        "success": !vacuous,
+        "vacuous": vacuous,
+        "vacuous_reason": if vacuous {
+            Some("no functions to infer")
+        } else {
+            None
+        },
+        "text": text,
+    }))
+    .unwrap_or_default()
 }
 
 /// Lightweight contract inference from Rust source text.
@@ -982,10 +999,30 @@ contract Bar {
             file: None,
         };
         let result = server.assura_infer(Parameters(params));
+        let v: serde_json::Value =
+            serde_json::from_str(&result).unwrap_or_else(|e| panic!("JSON: {e}\n{result}"));
+        assert_eq!(v["vacuous"], false, "{v}");
+        assert_eq!(v["success"], true, "{v}");
+        let text = v["text"].as_str().unwrap_or(&result);
         assert!(
-            result.contains("contract double"),
-            "should infer contract for double"
+            text.contains("contract double"),
+            "should infer contract for double: {result}"
         );
+    }
+
+    #[test]
+    fn tool_infer_empty_reports_vacuous() {
+        let server = AssuraMcpServer::new();
+        let params = InferParams {
+            source: Some(String::new()),
+            file: None,
+        };
+        let result = server.assura_infer(Parameters(params));
+        let v: serde_json::Value =
+            serde_json::from_str(&result).unwrap_or_else(|e| panic!("JSON: {e}\n{result}"));
+        assert_eq!(v["success"], false, "{v}");
+        assert_eq!(v["vacuous"], true, "empty infer must report vacuous: {v}");
+        assert_eq!(v["vacuous_reason"], "no functions to infer", "{v}");
     }
 
     // -----------------------------------------------------------------------

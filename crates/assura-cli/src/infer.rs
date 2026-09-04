@@ -60,10 +60,13 @@ pub(crate) fn run_infer(
                     "suggestions": [],
                     "message": format!("No public function signatures found in {filename}"),
                     "success": false,
+                    "vacuous": true,
+                    "vacuous_reason": "no functions to infer",
                 }))
                 .unwrap()
             );
         } else {
+            eprintln!("Nothing inferred for {filename}");
             eprintln!("No public function signatures found in {filename}");
         }
         process::exit(1);
@@ -97,10 +100,13 @@ pub(crate) fn run_infer(
                     "suggestions": [],
                     "message": format!("No public function signatures found in {filename}"),
                     "success": false,
+                    "vacuous": true,
+                    "vacuous_reason": "no functions to infer",
                 }))
                 .unwrap()
             );
         } else {
+            eprintln!("Nothing inferred for {filename}");
             eprintln!("No public function signatures found in {filename}");
         }
         process::exit(1);
@@ -353,19 +359,27 @@ pub(crate) fn run_infer_heuristic(
             return;
         }
         if output_mode == assura_config::OutputMode::Json {
+            let vacuous_reason = if public.is_empty() {
+                "no functions to infer"
+            } else {
+                "no contract suggestions inferred"
+            };
             let report = serde_json::json!({
                 "file": filename,
                 "suggestion_count": 0,
                 "function_count": public.len(),
                 "functions": public.iter().map(|s| &s.name).collect::<Vec<_>>(),
                 "suggestions": [],
-                "message": format!("No contract suggestions for {filename}"),
+                "message": format!("Nothing inferred for {filename}"),
                 "focus": focus,
-                "success": true,
+                "success": false,
+                "vacuous": true,
+                "vacuous_reason": vacuous_reason,
             });
             println!("{}", serde_json::to_string_pretty(&report).unwrap());
         } else {
-            println!("No contract suggestions for {filename}");
+            println!("Nothing inferred for {filename}");
+            println!("No contract suggestions (no unwrap/division/index/unsafe/panic patterns).");
             if !focus.is_empty() {
                 println!("  (filtered by: {})", focus.join(", "));
             }
@@ -469,6 +483,8 @@ pub(crate) fn run_infer_heuristic(
                 "annotations": s.annotations,
             })).collect::<Vec<_>>(),
             "text": output,
+            "success": true,
+            "vacuous": false,
         });
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
         return;
