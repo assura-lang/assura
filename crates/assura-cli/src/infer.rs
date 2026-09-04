@@ -37,6 +37,7 @@ pub(crate) fn run_infer(
         run_infer_heuristic(
             filename,
             &source,
+            function_filter,
             &focus_patterns,
             dry_run,
             output_path,
@@ -71,34 +72,12 @@ pub(crate) fn run_infer(
     let filtered: Vec<&RustFnSig> = if let Some(name) = function_filter {
         let matches: Vec<_> = signatures.iter().filter(|s| s.name == name).collect();
         if matches.is_empty() {
-            if output_mode == assura_config::OutputMode::Json {
-                let names: Vec<_> = signatures
-                    .iter()
-                    .filter(|s| s.is_pub)
-                    .map(|s| s.name.as_str())
-                    .collect();
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&serde_json::json!({
-                        "file": filename,
-                        "function_count": 0,
-                        "suggestion_count": 0,
-                        "suggestions": [],
-                        "message": format!("Function '{name}' not found in {filename}"),
-                        "available": names,
-                        "success": false,
-                    }))
-                    .unwrap()
-                );
-            } else {
-                eprintln!("Function '{name}' not found in {filename}");
-                let names: Vec<_> = signatures
-                    .iter()
-                    .filter(|s| s.is_pub)
-                    .map(|s| s.name.as_str())
-                    .collect();
-                eprintln!("Available public functions: {}", names.join(", "));
-            }
+            let names: Vec<String> = signatures
+                .iter()
+                .filter(|s| s.is_pub)
+                .map(|s| s.name.clone())
+                .collect();
+            report_function_not_found(filename, name, &names, output_mode);
             process::exit(1);
         }
         matches
@@ -189,6 +168,56 @@ pub(crate) struct InferSuggestion {
     pattern: String,
 }
 
+/// Report that `--function NAME` did not match any discovered function.
+fn report_function_not_found(
+    filename: &str,
+    name: &str,
+    available: &[String],
+    output_mode: assura_config::OutputMode,
+) {
+    if output_mode == assura_config::OutputMode::Json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "file": filename,
+                "function_count": 0,
+                "suggestion_count": 0,
+                "suggestions": [],
+                "message": format!("Function '{name}' not found in {filename}"),
+                "available": available,
+                "success": false,
+            }))
+            .unwrap()
+        );
+    } else {
+        eprintln!("Function '{name}' not found in {filename}");
+        eprintln!("Available public functions: {}", available.join(", "));
+    }
+}
+
+/// Function and impl-method names from a syn-parsed Rust file.
+fn collect_syn_fn_names(file: &syn::File) -> Vec<String> {
+    let mut names = Vec::new();
+    for item in &file.items {
+        match item {
+            syn::Item::Fn(func) => names.push(func.sig.ident.to_string()),
+            syn::Item::Impl(imp) => {
+                for impl_item in &imp.items {
+                    if let syn::ImplItem::Fn(method) = impl_item {
+                        names.push(method.sig.ident.to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    names
+}
+
+fn matches_function_filter(name: &str, function_filter: Option<&str>) -> bool {
+    function_filter.is_none_or(|want| want == name)
+}
+
 /// Run heuristic-based inference on a Rust source file.
 ///
 /// Detects common patterns that suggest contracts:
@@ -199,6 +228,7 @@ pub(crate) struct InferSuggestion {
 pub(crate) fn run_infer_heuristic(
     filename: &str,
     source: &str,
+    function_filter: Option<&str>,
     focus: &[&str],
     dry_run: bool,
     output_path: Option<&str>,
@@ -230,15 +260,31 @@ pub(crate) fn run_infer_heuristic(
         }
     };
 
+    let available = collect_syn_fn_names(&file);
+    if let Some(name) = function_filter
+        && !available.iter().any(|n| n == name)
+    {
+        report_function_not_found(filename, name, &available, output_mode);
+        process::exit(1);
+    }
+
     for item in &file.items {
         match item {
             syn::Item::Fn(func) => {
+                let fname = func.sig.ident.to_string();
+                if !matches_function_filter(&fname, function_filter) {
+                    continue;
+                }
                 let suggs = analyze_function_body(func, source, focus);
                 suggestions.extend(suggs);
             }
             syn::Item::Impl(imp) => {
                 for impl_item in &imp.items {
                     if let syn::ImplItem::Fn(method) = impl_item {
+                        let fname = method.sig.ident.to_string();
+                        if !matches_function_filter(&fname, function_filter) {
+                            continue;
+                        }
                         let suggs = analyze_method_body(method, source, focus);
                         suggestions.extend(suggs);
                     }
@@ -250,7 +296,11 @@ pub(crate) fn run_infer_heuristic(
 
     if suggestions.is_empty() {
         let signatures = extract_rust_fn_signatures(source);
-        let public: Vec<_> = signatures.iter().filter(|s| s.is_pub).collect();
+        let public: Vec<_> = signatures
+            .iter()
+            .filter(|s| s.is_pub)
+            .filter(|s| matches_function_filter(&s.name, function_filter))
+            .collect();
         // With -o, still emit checkable bind skeletons for public functions so
         // `assura infer src/lib.rs -o contracts.assura` works on clean code
         // (no unwrap/div/index risk patterns). Without -o, keep the old message.

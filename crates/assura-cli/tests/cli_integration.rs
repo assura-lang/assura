@@ -1797,6 +1797,124 @@ fn infer_rust_detects_unwrap() {
     );
 }
 
+/// `infer --function` on a .rs file with two risk-pattern fns must emit only
+/// the named function (the .rs heuristic path used to ignore --function).
+#[test]
+fn infer_rust_function_filter() {
+    let tmp = unique_temp("assura_infer_fn_filter");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("two.rs"),
+        r#"
+fn divide(a: i64, b: i64) -> i64 { a / b }
+fn get(items: &[i32], idx: usize) -> i32 { items[idx] }
+"#,
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args([
+            "infer",
+            "--json",
+            "--function",
+            "divide",
+            tmp.join("two.rs").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run assura infer --function");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "infer --function divide should succeed: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("infer --json --function must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    let empty: Vec<serde_json::Value> = Vec::new();
+    let names: Vec<String> = v["suggestions"]
+        .as_array()
+        .unwrap_or(&empty)
+        .iter()
+        .filter_map(|s| {
+            s.get("function")
+                .and_then(|n| n.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    assert!(
+        names.iter().any(|n| n == "divide"),
+        "should emit divide only, got names={names:?} json={v}"
+    );
+    assert!(
+        !names.iter().any(|n| n == "get"),
+        "--function divide must not emit get, got names={names:?} json={v}"
+    );
+    let text = v["text"].as_str().unwrap_or("");
+    assert!(
+        !text.contains("get") && !stdout.contains("[index]"),
+        "human/text payload must not mention get/index: {v}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// Unknown `--function` on a .rs file must exit 1 with the same not-found
+/// envelope as the legacy non-.rs path.
+#[test]
+fn infer_rust_function_unknown_exits() {
+    let tmp = unique_temp("assura_infer_fn_unknown");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("two.rs"),
+        r#"
+fn divide(a: i64, b: i64) -> i64 { a / b }
+fn get(items: &[i32], idx: usize) -> i32 { items[idx] }
+"#,
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args([
+            "infer",
+            "--json",
+            "--function",
+            "missing",
+            tmp.join("two.rs").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run assura infer --function missing");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "unknown --function must exit 1: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("infer --json unknown function must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["success"], false, "{v}");
+    let message = v["message"].as_str().unwrap_or("");
+    assert!(
+        message.contains("Function 'missing' not found"),
+        "expected not-found message, got {v}"
+    );
+    let empty: Vec<serde_json::Value> = Vec::new();
+    let available = v["available"]
+        .as_array()
+        .unwrap_or(&empty)
+        .iter()
+        .filter_map(|n| n.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        available.iter().any(|n| *n == "divide") && available.iter().any(|n| *n == "get"),
+        "available must list divide and get, got {v}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 // =======================================================================
 // IR sidecar pipeline: assura check loads {Name}.ir from disk
 // =======================================================================
