@@ -283,6 +283,11 @@ fn is_allowed_source_ext(path: &std::path::Path) -> bool {
         })
 }
 
+/// Requested path and post-canonicalize target must both be allowed sources.
+fn jailed_canon_allowed(requested: &std::path::Path, canon: &std::path::Path) -> bool {
+    is_allowed_source_ext(requested) && is_allowed_source_ext(canon)
+}
+
 /// Strip Windows `\\?\` / `\\?\UNC\` prefixes so `starts_with` is prefix-safe.
 fn strip_verbatim_prefix(path: &std::path::Path) -> std::path::PathBuf {
     let raw = path.to_string_lossy();
@@ -319,6 +324,9 @@ fn read_jailed_source(path: &str) -> Result<String, String> {
         .canonicalize()
         .map_err(|_| PATH_NOT_ALLOWED.to_string())?;
     if !path_is_inside(&canon, &cwd) {
+        return Err(PATH_NOT_ALLOWED.into());
+    }
+    if !jailed_canon_allowed(requested, &canon) {
         return Err(PATH_NOT_ALLOWED.into());
     }
 
@@ -684,6 +692,61 @@ mod tests {
                 "{name} must not leak existence or contents"
             );
         }
+    }
+
+    #[test]
+    fn jailed_canon_allowed_rejects_symlink_target_with_disallowed_ext() {
+        assert!(
+            !jailed_canon_allowed(
+                std::path::Path::new("leak.rs"),
+                std::path::Path::new(".env")
+            ),
+            "cwd-local leak.rs pointing at .env must be rejected"
+        );
+        assert!(
+            !jailed_canon_allowed(
+                std::path::Path::new("leak.rs"),
+                std::path::Path::new("secrets.toml")
+            ),
+            "cwd-local leak.rs pointing at secrets.toml must be rejected"
+        );
+    }
+
+    #[test]
+    fn jailed_canon_allowed_allows_rs_to_rs() {
+        assert!(jailed_canon_allowed(
+            std::path::Path::new("lib.rs"),
+            std::path::Path::new("src/lib.rs")
+        ));
+    }
+
+    #[test]
+    fn resolve_source_rejects_symlink_to_disallowed_ext() {
+        let pid = std::process::id();
+        let secret = format!("assura_mcp_secret_{pid}.env");
+        let leak = format!("assura_mcp_leak_{pid}.rs");
+        std::fs::write(&secret, "SUPERSECRET=1\n").expect("write .env probe");
+        let link_ok = {
+            #[cfg(windows)]
+            {
+                std::os::windows::fs::symlink_file(&secret, &leak).is_ok()
+            }
+            #[cfg(unix)]
+            {
+                std::os::unix::fs::symlink(&secret, &leak).is_ok()
+            }
+        };
+        if !link_ok {
+            let _ = std::fs::remove_file(&secret);
+            // File symlinks need privilege (Windows Developer Mode). The
+            // jailed_canon_allowed helper test still covers the ext check.
+            return;
+        }
+        let result = resolve_source(None, Some(leak.clone()));
+        let _ = std::fs::remove_file(&leak);
+        let _ = std::fs::remove_file(&secret);
+        assert!(result.is_err(), "symlink to .env must be rejected");
+        assert_eq!(result.unwrap_err(), PATH_NOT_ALLOWED);
     }
 
     #[test]

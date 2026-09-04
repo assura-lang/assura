@@ -86,8 +86,10 @@ parse/IO/LLM failure, or a jail reject below).
 ### File jail
 
 `file` / `ir_file` arguments must be **relative to the MCP process cwd**.
-Allowed extensions: `.assura`, `.rs`, `.ir`. Absolute paths outside cwd,
-`../` escapes, missing files, and other extensions are rejected.
+Allowed extensions: `.assura`, `.rs`, `.ir`. The same extension check
+applies after `canonicalize` (a `leak.rs` symlink to `.env` is rejected).
+Absolute paths outside cwd, `../` escapes, missing files, and other
+extensions are rejected.
 
 Rejected paths return JSON (same shape as other JSON-tool errors):
 
