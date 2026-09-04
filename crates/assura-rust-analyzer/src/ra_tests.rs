@@ -1290,27 +1290,30 @@ fn scan_directory_skips_symlink_dirs() {
             .expect("clock")
             .as_nanos()
     ));
-    std::fs::create_dir_all(dir.join("real")).unwrap();
+    let scan_root = dir.join("root");
+    std::fs::create_dir_all(scan_root.join("real")).unwrap();
     std::fs::write(
-        dir.join("real").join("ok.rs"),
+        scan_root.join("real").join("ok.rs"),
         "/// @requires x > 0\nfn ok(x: i32) { let _ = x; }\n",
     )
     .unwrap();
-    std::fs::create_dir_all(dir.join("secret")).unwrap();
+    // Outside the scan root so leak.rs is only reachable via the symlink.
+    let outside = dir.join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
     std::fs::write(
-        dir.join("secret").join("leak.rs"),
+        outside.join("leak.rs"),
         "/// @requires x > 0\nfn leak(x: i32) { let _ = x; }\n",
     )
     .unwrap();
-    let link = dir.join("link");
+    let link = scan_root.join("link");
     let linked = {
         #[cfg(windows)]
         {
-            std::os::windows::fs::symlink_dir(dir.join("secret"), &link)
+            std::os::windows::fs::symlink_dir(&outside, &link)
         }
         #[cfg(unix)]
         {
-            std::os::unix::fs::symlink(dir.join("secret"), &link)
+            std::os::unix::fs::symlink(&outside, &link)
         }
     };
     if linked.is_err() {
@@ -1319,7 +1322,7 @@ fn scan_directory_skips_symlink_dirs() {
         // scan_entry_is_link unit test still covers the skip predicate.
         return;
     }
-    let results = scan_directory(&dir).expect("scan must not follow symlink dirs");
+    let results = scan_directory(&scan_root).expect("scan must not follow symlink dirs");
     let _ = std::fs::remove_dir(&link);
     let _ = std::fs::remove_dir_all(&dir);
     let names: Vec<String> = results
