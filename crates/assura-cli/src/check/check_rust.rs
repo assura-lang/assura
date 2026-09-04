@@ -85,6 +85,8 @@ pub(crate) fn run_check_rust(
                         "path": path,
                         "items": 0,
                         "message": format!("{path}: no inline contract annotations found"),
+                        "vacuous": true,
+                        "vacuous_reason": "no inline contract annotations",
                     });
                     println!("{}", serde_json::to_string_pretty(&report).unwrap());
                 } else if verbosity != Verbosity::Quiet {
@@ -133,6 +135,8 @@ pub(crate) fn run_check_rust(
                 "path": path,
                 "items": 0,
                 "message": format!("No inline contract annotations found in {path}"),
+                "vacuous": true,
+                "vacuous_reason": "no inline contract annotations",
             });
             println!("{}", serde_json::to_string_pretty(&report).unwrap());
         } else if verbosity != Verbosity::Quiet {

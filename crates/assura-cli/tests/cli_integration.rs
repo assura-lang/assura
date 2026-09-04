@@ -3581,6 +3581,39 @@ fn ir_json_write_fail_is_parseable() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// `check-rust --json` on a file with no annotations is vacuous success (exit 0).
+#[test]
+fn check_rust_no_annotations_json_is_vacuous() {
+    let tmp = unique_temp("assura_check_rust_vacuous");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("plain.rs");
+    std::fs::write(&src, "fn foo(x: i32) -> i32 { x }\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check-rust", src.to_str().unwrap(), "--json"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust --json on unannotated file");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "zero-annotation check-rust should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!(
+            "check-rust --json no annotations must be JSON: {e}\nstdout={stdout}\nstderr={stderr}"
+        )
+    });
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["items"], 0, "{v}");
+    assert_eq!(v["vacuous"], true, "{v}");
+    assert_eq!(v["vacuous_reason"], "no inline contract annotations", "{v}");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 /// `check-rust --json` on a missing path must emit JSON (`error: not_found`), not bare stderr.
 #[test]
 fn check_rust_missing_path_json() {
