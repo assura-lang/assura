@@ -327,6 +327,7 @@ mod tests {
             constants: &[],
             ir: None,
             callee_specs: None,
+            lemma_defs: None,
         };
         let input = IncrementalShellScriptInput {
             prepared: &prepared,

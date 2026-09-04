@@ -54,6 +54,7 @@ pub(crate) fn verify_contract_cvc5_with_full_context(
         constants,
         ir: None,
         callee_specs: None,
+        lemma_defs: None,
     };
     verify_contract_cvc5_with_lemmas(&ctx, None, cache)
 }

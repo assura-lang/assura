@@ -24,6 +24,7 @@ fn verify_lemmas_test(
         constants: &[],
         ir: ir_body.map(LoadedIrContext::with_body),
         callee_specs: None,
+        lemma_defs: None,
     };
     verify_contract_cvc5_with_lemmas(&ctx, lemma_defs, cache)
 }

@@ -92,6 +92,11 @@ pub struct ContractVerifyContext<'a> {
     /// Same-file pure callees for ensures-side call equating (optional).
     pub callee_specs:
         Option<&'a HashMap<String, crate::encode_callee_policy::CalleeFunctionalSpec>>,
+    /// Sibling lemma ensures (`name → bodies`) for `apply` injection.
+    ///
+    /// File-level verify paths collect this via [`crate::verify_labels::collect_lemma_defs`].
+    /// Single-contract APIs without a `TypedFile` leave it `None` (empty injection).
+    pub lemma_defs: Option<&'a HashMap<String, Vec<&'a SpExpr>>>,
 }
 
 impl<'a> ContractVerifyContext<'a> {

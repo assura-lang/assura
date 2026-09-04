@@ -532,6 +532,7 @@ pub(crate) fn verify_file_with_cvc5(
                         Some(&typed.type_env),
                     ),
                     callee_specs: Some(&callee_specs),
+                    lemma_defs: Some(&lemma_defs),
                 };
                 results.extend(
                     crate::cvc5_backend::verify_contract_cvc5_with_lemmas_timeout(
@@ -558,6 +559,7 @@ pub(crate) fn verify_file_with_cvc5(
                 Some(&typed.type_env),
             ),
             callee_specs: Some(&callee_specs),
+            lemma_defs: Some(&lemma_defs),
         };
         results.extend(
             crate::cvc5_backend::verify_contract_cvc5_with_lemmas_timeout(
