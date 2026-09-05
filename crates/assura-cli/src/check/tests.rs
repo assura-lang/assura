@@ -108,3 +108,47 @@ fn unknown_classification_diagnostic_output() {
         "solver inconclusive should use A05103"
     );
 }
+
+#[test]
+fn unknown_limitation_unconstrained_result_is_a05102_warning_with_ir_help() {
+    use super::report::unknown_limitation_diagnostic;
+    use assura_diagnostics::Severity;
+
+    let diag = unknown_limitation_diagnostic(
+        "test.assura",
+        "SafeDiv::ensures",
+        "result is unconstrained (not yet encoded in SMT)",
+        0..0,
+        false,
+    );
+    assert_eq!(diag.code, "A05102");
+    assert_eq!(diag.severity, Severity::Warning);
+    assert!(
+        diag.message.starts_with("verification skipped"),
+        "expected skipped warning, got: {}",
+        diag.message
+    );
+    let sug = diag
+        .suggestion
+        .as_ref()
+        .expect("unconstrained-result should attach write-IR help");
+    let blob = format!("{} {}", sug.message, sug.replacement);
+    assert!(
+        blob.contains("write-ir") || blob.contains("unconstrained") || blob.contains("IR"),
+        "help should mention write-ir / unconstrained / IR, got: {blob}"
+    );
+
+    let generic = unknown_limitation_diagnostic(
+        "test.assura",
+        "Foo::ensures",
+        "clause uses features not yet encoded in SMT (method call)",
+        0..0,
+        false,
+    );
+    assert_eq!(generic.code, "A05102");
+    assert_eq!(generic.severity, Severity::Warning);
+    assert!(
+        generic.suggestion.is_none(),
+        "generic encoder-gap skip should not require IR help"
+    );
+}

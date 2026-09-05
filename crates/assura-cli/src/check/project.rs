@@ -181,26 +181,22 @@ pub(crate) fn run_check_project(
                                 reason,
                             } => {
                                 let known = assura_smt::is_known_smt_limitation(reason);
-                                if strict || !known {
-                                    module_verify_errors += 1;
-                                    total_errors += 1;
-                                }
                                 if output_mode == OutputMode::Human {
                                     let tag = if known { "skipped" } else { "unknown" };
                                     eprintln!("    {clause_desc} ... {tag} ({reason})");
                                 }
-                                if strict || !known {
-                                    all_diags.push(
-                                        assura_diagnostics::Diagnostic::error(
-                                            "A05102",
-                                            format!(
-                                                "verification unknown for {clause_desc}: {reason}"
-                                            ),
-                                            0..0,
-                                        )
-                                        .with_file(filename.clone()),
-                                    );
+                                let diag = unknown_limitation_diagnostic(
+                                    &filename,
+                                    clause_desc,
+                                    reason,
+                                    0..0,
+                                    strict,
+                                );
+                                if diag.is_error() {
+                                    module_verify_errors += 1;
+                                    total_errors += 1;
                                 }
+                                all_diags.push(diag);
                             }
                         }
                         verify_summaries.push(r.to_json_value());
