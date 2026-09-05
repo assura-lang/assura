@@ -344,6 +344,32 @@ impl EffectChecker {
     pub fn is_known(&self, effect: &str) -> bool {
         self.known_effects.contains(effect)
     }
+
+    /// A07003 when a used effect (or its expansion) is on the `must-not` list.
+    pub fn check_must_not(
+        &self,
+        used: &EffectSet,
+        forbidden: &EffectSet,
+        span: &Range<usize>,
+    ) -> Vec<EffectError> {
+        let used_exp = self.expand(used);
+        let forbidden_exp = self.expand(forbidden);
+        let mut errors = Vec::new();
+        let mut names: Vec<&str> = used_exp
+            .iter()
+            .filter(|name| forbidden_exp.contains(name))
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        for name in names {
+            errors.push(EffectError {
+                code: "A07003".into(),
+                message: format!("effect `{name}` is in the must-not list"),
+                span: span.clone(),
+            });
+        }
+        errors
+    }
 }
 
 impl EffectChecker {
@@ -357,6 +383,18 @@ impl EffectChecker {
                 continue;
             };
             let (declared, actual) = Self::extract_effects_from_clauses(clauses);
+            let must_not = Self::extract_must_not_from_clauses(clauses);
+            if let Some(ref forbidden) = must_not {
+                for ee in checker.check_known(forbidden, &decl.span) {
+                    errors.push(TypeError {
+                        code: ee.code,
+                        message: ee.message,
+                        span: ee.span,
+                        secondary: None,
+                        suggestion: None,
+                    });
+                }
+            }
             if let Some(ref declared_set) = declared {
                 for ee in checker.check_known(declared_set, &decl.span) {
                     errors.push(TypeError {
@@ -368,8 +406,8 @@ impl EffectChecker {
                     });
                 }
                 if matches!(&decl.node, Decl::FnDef(_)) {
-                    if let Some(actual_set) = actual {
-                        for ee in checker.check_containment(declared_set, &actual_set, &decl.span) {
+                    if let Some(ref actual_set) = actual {
+                        for ee in checker.check_containment(declared_set, actual_set, &decl.span) {
                             errors.push(TypeError {
                                 code: ee.code,
                                 message: ee.message,
@@ -381,6 +419,47 @@ impl EffectChecker {
                     }
                     let callee_effects = Self::infer_callee_effects(clauses, &effect_map);
                     for ee in checker.check_containment(declared_set, &callee_effects, &decl.span) {
+                        errors.push(TypeError {
+                            code: ee.code,
+                            message: ee.message,
+                            span: ee.span,
+                            secondary: None,
+                            suggestion: None,
+                        });
+                    }
+                    if let Some(ref forbidden) = must_not {
+                        for ee in checker.check_must_not(declared_set, forbidden, &decl.span) {
+                            errors.push(TypeError {
+                                code: ee.code,
+                                message: ee.message,
+                                span: ee.span,
+                                secondary: None,
+                                suggestion: None,
+                            });
+                        }
+                        if let Some(ref actual_set) = actual {
+                            for ee in checker.check_must_not(actual_set, forbidden, &decl.span) {
+                                errors.push(TypeError {
+                                    code: ee.code,
+                                    message: ee.message,
+                                    span: ee.span,
+                                    secondary: None,
+                                    suggestion: None,
+                                });
+                            }
+                        }
+                        for ee in checker.check_must_not(&callee_effects, forbidden, &decl.span) {
+                            errors.push(TypeError {
+                                code: ee.code,
+                                message: ee.message,
+                                span: ee.span,
+                                secondary: None,
+                                suggestion: None,
+                            });
+                        }
+                    }
+                } else if let Some(ref forbidden) = must_not {
+                    for ee in checker.check_must_not(declared_set, forbidden, &decl.span) {
                         errors.push(TypeError {
                             code: ee.code,
                             message: ee.message,
@@ -421,6 +500,20 @@ impl EffectChecker {
             }
         }
         map
+    }
+
+    fn extract_must_not_from_clauses(clauses: &[assura_parser::ast::Clause]) -> Option<EffectSet> {
+        let mut names = Vec::new();
+        for clause in clauses {
+            if clause.kind == ClauseKind::MustNot {
+                names.extend(Self::extract_effect_names_from_expr(&clause.body));
+            }
+        }
+        if names.is_empty() {
+            None
+        } else {
+            Some(EffectSet::from_effect_names(names))
+        }
     }
 
     /// Extract declared and actual effect sets from a list of clauses.

@@ -39,3 +39,51 @@ fn test_effect_polymorphism_basic() {
         "effect variable E should not produce A07003, got: {a07003_errors:?}"
     );
 }
+
+#[test]
+fn must_not_io_with_effects_io_a07003() {
+    let sf = parse_source(
+        r#"contract Forbidden {
+            effects { io }
+            must-not { io }
+            requires { true }
+        }"#,
+    );
+    let errs = run_effect_checks(&sf);
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A07003" && e.message.contains("must-not")),
+        "effects(io) + must-not(io) must be A07003, got: {errs:?}"
+    );
+}
+
+#[test]
+fn must_not_database_allows_effects_io() {
+    let sf = parse_source(
+        r#"contract OkIo {
+            effects { io }
+            must-not { database }
+            requires { true }
+        }"#,
+    );
+    let errs = run_effect_checks(&sf);
+    assert!(
+        !errs.iter().any(|e| e.message.contains("must-not")),
+        "io is not in must-not database, got: {errs:?}"
+    );
+}
+
+#[test]
+fn must_not_unknown_name_a07003() {
+    let sf = parse_source(
+        r#"contract BadForbid {
+            must-not { teleport }
+            requires { true }
+        }"#,
+    );
+    let errs = run_effect_checks(&sf);
+    assert!(
+        errs.iter().any(|e| e.code == "A07003"),
+        "unknown must-not name must be A07003, got: {errs:?}"
+    );
+}
