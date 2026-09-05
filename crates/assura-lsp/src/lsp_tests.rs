@@ -872,6 +872,75 @@ fn factorial(n: u64) -> u64 { 1 }
     assert_eq!(deserialized.items[0].name, "factorial");
 }
 
+fn resolve_for_lsp(source: &str) -> assura_resolve::ResolvedFile {
+    let (ast, errors) = assura_parser::parse(source);
+    assert!(errors.is_empty(), "parse errors: {errors:?}");
+    assura_resolve::resolve(&ast.unwrap()).expect("resolve should succeed")
+}
+
+#[test]
+fn test_find_symbol_at_parameter_use_in_requires() {
+    let source = "\
+contract Check {
+    input(x: Int)
+    requires { x > 0 }
+}
+";
+    let resolved = resolve_for_lsp(source);
+    let use_offset = source.find("x > 0").expect("use-site x");
+    let (name, sym) = find_symbol_at(&resolved.symbols, source, use_offset)
+        .expect("hover on requires x should find the parameter");
+    assert_eq!(name, "x");
+    assert_eq!(sym.kind, SymbolKind::Parameter);
+}
+
+#[test]
+fn test_find_symbol_at_parameter_definition() {
+    let source = "\
+contract Check {
+    input(x: Int)
+    requires { x > 0 }
+}
+";
+    let resolved = resolve_for_lsp(source);
+    let def_offset = source.find("x: Int").expect("definition-site x");
+    let (name, sym) = find_symbol_at(&resolved.symbols, source, def_offset)
+        .expect("hover on input(x) should find the parameter");
+    assert_eq!(name, "x");
+    assert_eq!(sym.kind, SymbolKind::Parameter);
+}
+
+#[test]
+fn test_effect_completion_after_dot_inserts_suffix() {
+    let source = "effects { console.";
+    let offset = source.len();
+    let items = effect_completion_items(source, offset, true);
+    let read = items
+        .iter()
+        .find(|i| i.label == "console.read" || i.label == "read")
+        .expect("should offer console.read after console.");
+    assert_eq!(
+        read.insert_text.as_deref(),
+        Some("read"),
+        "after `console.` insert_text must be `read`, not the full dotted name"
+    );
+}
+
+#[test]
+fn test_effect_completion_without_dot_keeps_full_name() {
+    let source = "effects { ";
+    let offset = source.len();
+    let items = effect_completion_items(source, offset, false);
+    let read = items
+        .iter()
+        .find(|i| i.label == "console.read")
+        .expect("should offer the full dotted effect name");
+    assert!(
+        read.insert_text.is_none() || read.insert_text.as_deref() == Some("console.read"),
+        "without a preceding dot, insert the full effect name"
+    );
+}
+
 #[test]
 fn test_completion_no_duplicate_labels() {
     // Build the same items as the completion handler (minus symbols)

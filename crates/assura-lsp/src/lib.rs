@@ -125,21 +125,94 @@ impl AssuraLanguageServer {
             .publish_diagnostics(uri.clone(), diagnostics, None)
             .await;
     }
+}
 
-    /// Find the symbol at a given byte offset in the resolved symbol table.
-    fn find_symbol_at<'a>(
-        &self,
-        symbols: &'a SymbolTable,
-        source: &str,
-        offset: usize,
-    ) -> Option<(String, &'a assura_resolve::Symbol)> {
-        // Get the word at offset
-        let word = word_at_offset(source, offset)?;
-        // Look up in symbol table from module scope (scope 1, child of root)
-        let scope_id = if symbols.scopes.len() > 1 { 1 } else { 0 };
-        let sym = symbols.lookup(&word, scope_id)?;
-        Some((word, sym))
+fn span_contains(span: &std::ops::Range<usize>, offset: usize) -> bool {
+    span.start <= offset && offset < span.end
+}
+
+fn is_nested_local(kind: &SymbolKind) -> bool {
+    matches!(
+        kind,
+        SymbolKind::Parameter | SymbolKind::Field | SymbolKind::TypeParam
+    )
+}
+
+/// Find the symbol at a given byte offset in the resolved symbol table.
+///
+/// Parameters, fields, and type params live in nested scopes, so a module-only
+/// lookup misses hover/goto on `x` in `requires { x > 0 }`.
+fn find_symbol_at<'a>(
+    symbols: &'a SymbolTable,
+    source: &str,
+    offset: usize,
+) -> Option<(String, &'a assura_resolve::Symbol)> {
+    // 1. Definition site: a named symbol whose span contains the offset.
+    //    Resolve often stores the enclosing decl span on parameters, so when
+    //    several spans contain `offset`, prefer the name under the cursor.
+    let word = word_at_offset(source, offset);
+    if let Some(ref word) = word {
+        let mut named: Vec<_> = symbols
+            .symbols
+            .iter()
+            .filter(|s| s.name == *word && span_contains(&s.span, offset))
+            .collect();
+        if !named.is_empty() {
+            named.sort_by_key(|s| {
+                (
+                    s.span.end.saturating_sub(s.span.start),
+                    std::cmp::Reverse(s.scope_id),
+                )
+            });
+            return Some((word.clone(), named[0]));
+        }
+    } else {
+        let containing: Vec<_> = symbols
+            .symbols
+            .iter()
+            .filter(|s| span_contains(&s.span, offset))
+            .collect();
+        if containing.len() == 1 {
+            return Some((containing[0].name.clone(), containing[0]));
+        }
     }
+
+    let word = word?;
+
+    // 2. Unique non-builtin with this name (typical single-contract param).
+    let unique: Vec<_> = symbols
+        .symbols
+        .iter()
+        .filter(|s| s.name == word && s.kind != SymbolKind::BuiltinType)
+        .collect();
+    if unique.len() == 1 {
+        return Some((word, unique[0]));
+    }
+
+    // 3. Search every scope; prefer Parameter / Field / TypeParam in the
+    //    most nested scope that binds the name.
+    let mut candidates: Vec<&assura_resolve::Symbol> = Vec::new();
+    for scope in &symbols.scopes {
+        if let Some(&idx) = scope.symbols.get(&word) {
+            candidates.push(&symbols.symbols[idx]);
+        }
+    }
+    if candidates.is_empty() {
+        return None;
+    }
+    let preferred: Vec<_> = candidates
+        .iter()
+        .copied()
+        .filter(|s| is_nested_local(&s.kind))
+        .collect();
+    let pool = if preferred.is_empty() {
+        candidates
+    } else {
+        preferred
+    };
+    pool.into_iter()
+        .max_by_key(|s| s.scope_id)
+        .map(|sym| (word, sym))
 }
 
 // ---------------------------------------------------------------------------
@@ -243,7 +316,7 @@ impl LanguageServer for AssuraLanguageServer {
         let source = state.rope.to_string();
         let offset = position_to_offset(&state.rope, pos);
 
-        if let Some((_word, sym)) = self.find_symbol_at(&resolved.symbols, &source, offset) {
+        if let Some((_word, sym)) = find_symbol_at(&resolved.symbols, &source, offset) {
             // Don't jump to built-in types (sentinel span 0..0)
             if sym.span.start == 0 && sym.span.end == 0 {
                 return Ok(None);
@@ -275,7 +348,7 @@ impl LanguageServer for AssuraLanguageServer {
         let source = state.rope.to_string();
         let offset = position_to_offset(&state.rope, pos);
 
-        if let Some((word, sym)) = self.find_symbol_at(&resolved.symbols, &source, offset) {
+        if let Some((word, sym)) = find_symbol_at(&resolved.symbols, &source, offset) {
             let type_info = state
                 .type_env
                 .as_ref()
@@ -348,15 +421,15 @@ impl LanguageServer for AssuraLanguageServer {
             });
         }
 
-        // Effect name completions
-        for effect in EFFECT_NAMES {
-            items.push(CompletionItem {
-                label: effect.to_string(),
-                kind: Some(CompletionItemKind::VALUE),
-                detail: Some("effect".to_string()),
-                ..Default::default()
-            });
-        }
+        // Effect name completions (suffix-only insert after `prefix.`)
+        let source = state.rope.to_string();
+        let offset = position_to_offset(&state.rope, params.text_document_position.position);
+        let trigger_dot = params
+            .context
+            .as_ref()
+            .and_then(|c| c.trigger_character.as_deref())
+            == Some(".");
+        items.extend(effect_completion_items(&source, offset, trigger_dot));
 
         // Snippet completions for common constructs
         for (label, snippet, detail) in SNIPPETS {
@@ -770,6 +843,53 @@ const KEYWORDS: &[&str] = &[
     "unique",
     "trusted",
 ];
+
+/// If `offset` is immediately after `.`, return the identifier before that dot.
+fn ident_before_dot(source: &str, offset: usize) -> Option<&str> {
+    let bytes = source.as_bytes();
+    if offset == 0 || bytes.get(offset - 1) != Some(&b'.') {
+        return None;
+    }
+    let end = offset - 1;
+    let mut start = end;
+    while start > 0 && is_ident_char(bytes[start - 1]) {
+        start -= 1;
+    }
+    if start == end {
+        return None;
+    }
+    Some(&source[start..end])
+}
+
+/// Effect completions. After `prefix.`, dotted names `prefix.suffix` insert only
+/// `suffix` so the client does not produce `console.console.read`.
+fn effect_completion_items(source: &str, offset: usize, trigger_dot: bool) -> Vec<CompletionItem> {
+    let prefix = ident_before_dot(source, offset).or_else(|| {
+        if trigger_dot && source.as_bytes().get(offset) == Some(&b'.') {
+            ident_before_dot(source, offset + 1)
+        } else {
+            None
+        }
+    });
+    EFFECT_NAMES
+        .iter()
+        .map(|effect| {
+            let insert_text = prefix.and_then(|pre| {
+                effect
+                    .strip_prefix(&format!("{pre}."))
+                    .filter(|suffix| !suffix.is_empty())
+                    .map(str::to_string)
+            });
+            CompletionItem {
+                label: effect.to_string(),
+                kind: Some(CompletionItemKind::VALUE),
+                detail: Some("effect".to_string()),
+                insert_text,
+                ..Default::default()
+            }
+        })
+        .collect()
+}
 
 /// Known effect names from the Assura specification.
 const EFFECT_NAMES: &[&str] = &[
