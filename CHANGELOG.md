@@ -3,6 +3,34 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.4](https://github.com/assura-lang/assura/compare/v0.4.3...v0.4.4) (2026-09-05)
+
+
+### Bug Fixes
+
+* align rust-analyzer fn lines and filter IR verify siblings ([#1540](https://github.com/assura-lang/assura/issues/1540)) ([55c0726](https://github.com/assura-lang/assura/commit/55c07267d869ce81f2046d6f936a76736da61e85))
+* **check-rust:** lock BNM reasons and skip empty [@modifies](https://github.com/modifies) ([#1562](https://github.com/assura-lang/assura/issues/1562)) ([7a48b3b](https://github.com/assura-lang/assura/commit/7a48b3be5954536639f66b6a8b63db57e9d465a7))
+* **ci:** do not App-push empty commit on cleanup PRs ([#1521](https://github.com/assura-lang/assura/issues/1521)) ([a49df21](https://github.com/assura-lang/assura/commit/a49df217b402e4f945a03f6ec296b82d7529557c)), closes [#1520](https://github.com/assura-lang/assura/issues/1520)
+* **ci:** start cleanup-PR checks as App after dual-token open ([#1518](https://github.com/assura-lang/assura/issues/1518)) ([fe38946](https://github.com/assura-lang/assura/commit/fe38946d786d59ce3ca37e76f7881d6e81d725e5)), closes [#1517](https://github.com/assura-lang/assura/issues/1517)
+* **cli:** emit A05102 warning for known skips in project check ([#1555](https://github.com/assura-lang/assura/issues/1555)) ([53d4b37](https://github.com/assura-lang/assura/commit/53d4b37cacd5851bba8bca955873135d27ecb72e))
+* **cli:** include parse_error in directory fmt --json ([#1550](https://github.com/assura-lang/assura/issues/1550)) ([e3c36d0](https://github.com/assura-lang/assura/commit/e3c36d0aa8625acb18fe1e7915a9fcf6dad83deb))
+* **cli:** JSON envelopes, MCP jail, and vacuous polarity ([#1528](https://github.com/assura-lang/assura/issues/1528)) ([d67fb76](https://github.com/assura-lang/assura/commit/d67fb76b7d368012f3f9c57a55e55c5a21215cdf))
+* **cli:** treat infer fn lines as 1-based ([#1544](https://github.com/assura-lang/assura/issues/1544)) ([346430d](https://github.com/assura-lang/assura/commit/346430dbaada021ad3b33821bc23176b8d595957))
+* **codegen:** skip i128 wrap for service Float params ([#1557](https://github.com/assura-lang/assura/issues/1557)) ([14a8c23](https://github.com/assura-lang/assura/commit/14a8c2362e06a3f47284763b1cd6d3325d3f754a))
+* **docs:** explain A05102 covers unconstrained result as well as encoder gaps ([#1554](https://github.com/assura-lang/assura/issues/1554)) ([48870ab](https://github.com/assura-lang/assura/commit/48870ab1677cf7005c08324e962dcd56984f98b2))
+* **docs:** explain A07003 covers must-not as well as unknown names ([#1545](https://github.com/assura-lang/assura/issues/1545)) ([fb1997a](https://github.com/assura-lang/assura/commit/fb1997a6dba31a9e0294ed19fc11b614a808d536))
+* enforce effects policy, disambiguate check-rust IR, scope A04008 ([#1538](https://github.com/assura-lang/assura/issues/1538)) ([f24d193](https://github.com/assura-lang/assura/commit/f24d193fc5e0ff645bc0df36f9c72e9e1d6a04f1))
+* **fmt:** expand minified braces even after a header newline ([#1549](https://github.com/assura-lang/assura/issues/1549)) ([3ff5878](https://github.com/assura-lang/assura/commit/3ff587819858dbaef1cdc490a57cec71a68e2a52))
+* **fmt:** expand minified braces from CST tokens, not raw chars ([#1548](https://github.com/assura-lang/assura/issues/1548)) ([c99eb74](https://github.com/assura-lang/assura/commit/c99eb74de5fff4f028f2950af7a65f872db6d645))
+* **fmt:** skip string braces and keep comment indent before closing brace ([#1547](https://github.com/assura-lang/assura/issues/1547)) ([2d2ba49](https://github.com/assura-lang/assura/commit/2d2ba4973cb420d3e4f9c8d8f27cea98d68a8219))
+* **lsp:** hover nested params and insert effect suffixes after dot ([#1552](https://github.com/assura-lang/assura/issues/1552)) ([a366fe5](https://github.com/assura-lang/assura/commit/a366fe561e5d31e7dcf73740cab6405cdf4ef31a))
+* **mcp:** name ir/ir_file when assura_ir_verify is missing IR ([#1553](https://github.com/assura-lang/assura/issues/1553)) ([b98dab6](https://github.com/assura-lang/assura/commit/b98dab668ac6c756857a9e782d05db9eefab2521))
+* project A04008, Float result wrap, and first-run launch ([#1561](https://github.com/assura-lang/assura/issues/1561)) ([d5742e8](https://github.com/assura-lang/assura/commit/d5742e867cfcfe4f756849562ed57a3608b0198b))
+* rust-analyzer offsets, CRLF lines, IR preflight by module ([#1541](https://github.com/assura-lang/assura/issues/1541)) ([64fc287](https://github.com/assura-lang/assura/commit/64fc287889c2b57342a0705e1c2fa8af501e71c1))
+* **types:** A04008 skip only result.length() &gt;= 0 on extern ([#1558](https://github.com/assura-lang/assura/issues/1558)) ([fa09a54](https://github.com/assura-lang/assura/commit/fa09a54929a7f394c7aa131c74024e2b27084028))
+* **types:** emit A07003 when effects appear in must-not ([#1539](https://github.com/assura-lang/assura/issues/1539)) ([669e537](https://github.com/assura-lang/assura/commit/669e53731b3a7a10d8e2c2eeaf69646a479ac553))
+* **types:** give must-not A07003 a usable Help ([#1542](https://github.com/assura-lang/assura/issues/1542)) ([2a1401c](https://github.com/assura-lang/assura/commit/2a1401c489010f630e6246528c3250eb0dc3b942))
+
 ## [0.4.3](https://github.com/assura-lang/assura/compare/v0.4.2...v0.4.3) (2026-08-24)
 
 
