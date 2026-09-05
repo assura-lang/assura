@@ -1535,6 +1535,102 @@ fn compile_full_suppresses_a04008_when_ensures_verified() {
 }
 
 #[test]
+fn suppress_a04008_only_drops_verified_contract() {
+    let mut diags = vec![
+        assura_diagnostics::Diagnostic::warning(
+            "A04008",
+            "`Good`: ensures clause references `result` which is unconstrained in SMT; Z3 can assign it any value",
+            0..1,
+        ),
+        assura_diagnostics::Diagnostic::warning(
+            "A04008",
+            "`Bad`: ensures clause references `result` which is unconstrained in SMT; Z3 can assign it any value",
+            1..2,
+        ),
+    ];
+    let results = vec![
+        assura_smt::VerificationResult::verified("Good::ensures"),
+        assura_smt::VerificationResult::unknown_not_encoded("Bad::ensures", "no IR"),
+    ];
+    suppress_a04008_for_verified_ensures(&mut diags, &results);
+    assert_eq!(
+        diags.len(),
+        1,
+        "only Good's A04008 should be dropped: {diags:?}"
+    );
+    assert!(
+        diags[0].message.starts_with("`Bad`:"),
+        "Bad must keep A04008, got: {}",
+        diags[0].message
+    );
+}
+
+#[test]
+fn compile_full_scopes_a04008_to_verified_contract() {
+    // Good synthesizes identity IR (`result == x`) and verifies.
+    // Bad uses an unanalyzable square-root shape and stays unverified.
+    let source = r#"
+contract Good {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == x }
+}
+contract Bad {
+  input(x: Int)
+  output(result: Int)
+  ensures { result * result == x }
+}
+"#;
+    let config = CompilerConfig {
+        verify: assura_config::VerifyOptions::for_tests(),
+        ..Default::default()
+    };
+    let output = compile_full(source, "<inline>", &config);
+    assert!(
+        !output.has_errors,
+        "two-contract file should type-check, got: {:?}",
+        output.diagnostics
+    );
+    let good_verified = output.verification.iter().any(|r| {
+        matches!(
+            r,
+            assura_smt::VerificationResult::Verified { clause_desc, .. }
+                if clause_desc.ends_with("::ensures") && clause_desc.starts_with("Good")
+        )
+    });
+    assert!(
+        good_verified,
+        "Good::ensures should verify via synthesized identity, got: {:?}",
+        output.verification
+    );
+    let bad_verified = output.verification.iter().any(|r| {
+        matches!(
+            r,
+            assura_smt::VerificationResult::Verified { clause_desc, .. }
+                if clause_desc.ends_with("::ensures") && clause_desc.starts_with("Bad")
+        )
+    });
+    assert!(
+        !bad_verified,
+        "Bad::ensures must not verify, got: {:?}",
+        output.verification
+    );
+    let a04008: Vec<_> = output
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "A04008")
+        .collect();
+    assert!(
+        a04008.iter().any(|d| d.message.starts_with("`Bad`:")),
+        "Bad must keep A04008, got: {a04008:?}"
+    );
+    assert!(
+        a04008.iter().all(|d| !d.message.starts_with("`Good`:")),
+        "Good's A04008 should be suppressed, got: {a04008:?}"
+    );
+}
+
+#[test]
 fn compile_full_synthesizes_inequality_witness_without_ir() {
     // Inequality witnesses (result >= lo / result <= hi) synthesize a body and
     // verify without a co-located .ir sidecar.

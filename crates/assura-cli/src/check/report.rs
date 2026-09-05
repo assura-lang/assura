@@ -129,18 +129,8 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
         }
     }
 
-    // #703: Suppress A04008 "result unconstrained" warnings when the
-    // corresponding ensures clause actually verified (IR sidecar loaded).
-    let has_verified_ensures = verification_results.iter().any(|r| {
-        matches!(
-            r,
-            assura_smt::VerificationResult::Verified { clause_desc, .. }
-                if clause_desc.ends_with("::ensures")
-        )
-    });
-    if has_verified_ensures {
-        diagnostics.retain(|d| d.code != "A04008");
-    }
+    // #703: scoped to the verified contract (not file-global).
+    assura_pipeline::suppress_a04008_for_verified_ensures(diagnostics, &verification_results);
 
     for vr in &verification_results {
         let clause_desc = match vr {

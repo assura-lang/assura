@@ -250,20 +250,8 @@ pub fn compile_full(source: &str, filename: &str, config: &CompilerConfig) -> Co
     }
     output.timing.verify_ms = Some(verify_start.elapsed().as_secs_f64() * 1000.0);
 
-    // #703: Suppress A04008 "result unconstrained" warnings when the
-    // corresponding ensures clause actually verified (IR sidecar loaded).
-    if !output.verification.is_empty() {
-        let has_verified_ensures = output.verification.iter().any(|r| {
-            matches!(
-                r,
-                assura_smt::VerificationResult::Verified { clause_desc, .. }
-                    if clause_desc.ends_with("::ensures")
-            )
-        });
-        if has_verified_ensures {
-            output.diagnostics.retain(|d| d.code != "A04008");
-        }
-    }
+    // #703: Suppress A04008 only for contracts whose ensures actually verified.
+    suppress_a04008_for_verified_ensures(&mut output.diagnostics, &output.verification);
 
     // --- Codegen ---
     let codegen_start = Instant::now();
@@ -273,6 +261,48 @@ pub fn compile_full(source: &str, filename: &str, config: &CompilerConfig) -> Co
     output.timing.codegen_ms = Some(codegen_start.elapsed().as_secs_f64() * 1000.0);
 
     output
+}
+
+/// Drop A04008 "result unconstrained" warnings only for contracts whose
+/// `::ensures` clause verified. A verified sibling must not hide A04008 on
+/// another contract in the same file.
+pub fn suppress_a04008_for_verified_ensures(
+    diagnostics: &mut Vec<assura_diagnostics::Diagnostic>,
+    verification: &[assura_smt::VerificationResult],
+) {
+    let verified: std::collections::HashSet<&str> = verification
+        .iter()
+        .filter_map(|r| match r {
+            assura_smt::VerificationResult::Verified { clause_desc, .. }
+                if clause_desc.ends_with("::ensures") =>
+            {
+                Some(clause_desc.trim_end_matches("::ensures"))
+            }
+            _ => None,
+        })
+        .collect();
+    if verified.is_empty() {
+        return;
+    }
+    diagnostics.retain(|d| {
+        if d.code != "A04008" {
+            return true;
+        }
+        match a04008_contract_name(&d.message) {
+            Some(name) if verified.contains(name) => false,
+            _ => true,
+        }
+    });
+}
+
+fn a04008_contract_name(message: &str) -> Option<&str> {
+    let rest = message.strip_prefix('`')?;
+    let (name, after) = rest.split_once('`')?;
+    if after.starts_with(':') {
+        Some(name)
+    } else {
+        None
+    }
 }
 
 /// True when no verification result is a counterexample or timeout.
