@@ -469,8 +469,8 @@ pub(crate) fn run_check_rust(
             if let Some(ref reason) = last_bnm_reason {
                 eprintln!(
                     "{total_body_not_modeled} item(s) not proven against the Rust body \
-                     (body_not_modeled). Last reason: {reason}. Loops stay residual; \
-                     if/match mutation joins are encoded. Peel checked_*/overflowing_* \
+                     (body_not_modeled). Last reason: {reason}. Any while/for/loop \
+                     stays residual; if/match mutation joins are encoded. Peel checked_*/overflowing_* \
                      with .unwrap_or / .is_some() / .0; avoid panic div/mod. Or add \
                      co-located {{Name}}.ir. Surface map: docs/CHECK-RUST-SURFACE.md"
                 );
@@ -478,8 +478,8 @@ pub(crate) fn run_check_rust(
                 eprintln!(
                     "{total_body_not_modeled} item(s) not proven against the Rust body \
                      (body_not_modeled). Rewrite hints: peel checked_*/overflowing_* \
-                     with .unwrap_or / .is_some() / .0; avoid panic div/mod; loops with \
-                     mutation stay residual. Or add co-located {{Name}}.ir. Surface map: \
+                     with .unwrap_or / .is_some() / .0; avoid panic div/mod; any \
+                     while/for/loop stays residual. Or add co-located {{Name}}.ir. Surface map: \
                      docs/CHECK-RUST-SURFACE.md"
                 );
             }

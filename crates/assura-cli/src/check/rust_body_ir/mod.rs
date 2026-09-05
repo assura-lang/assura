@@ -187,7 +187,7 @@ fn clear_fold_residual() {
 /// - `let mut y = x; if c { y += 1; } y` / if-else / match arm mutation (CFG join)
 /// - Final stmt: path / return / expression referencing prior binds
 ///
-/// Not supported (returns None → body_not_modeled): loops with mutation,
+/// Not supported (returns None → body_not_modeled): any while/for/loop,
 /// multi-LHS patterns, type ascriptions on lets, bare mid-block expressions
 /// that are not assignments / if / match.
 fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<syn::Expr> {
