@@ -155,11 +155,29 @@ fn typecheck_unc_contract() -> assura_types::TypedFile {
 
 #[test]
 fn project_a04008_from_typed_warnings() {
+    use assura_diagnostics::Severity;
+
     let typed = typecheck_unc_contract();
     let diags = super::typed_warnings_to_diags(&typed.warnings, "unc.assura");
+    let a04008 = diags
+        .iter()
+        .find(|d| d.code == "A04008")
+        .expect("expected A04008 from unconstrained result");
+    assert_eq!(a04008.severity, Severity::Warning);
+    assert_eq!(a04008.file, "unc.assura");
+    assert_ne!(a04008.primary, 0..0, "A04008 span must not be 0..0");
+}
+
+#[test]
+fn project_a04008_absent_without_ensures() {
+    let src = "contract OnlyReq { input(x: Int) output(result: Int) requires { x > 0 } }";
+    let file = assura_parser::parse_unwrap(src);
+    let resolved = assura_resolve::resolve(&file).expect("resolve OnlyReq");
+    let typed = assura_types::type_check(resolved).expect("typecheck OnlyReq");
+    let diags = super::typed_warnings_to_diags(&typed.warnings, "onlyreq.assura");
     assert!(
-        diags.iter().any(|d| d.code == "A04008"),
-        "expected A04008 from unconstrained result, got: {diags:?}"
+        diags.is_empty(),
+        "requires-only contract must not emit A04008, got: {diags:?}"
     );
 }
 

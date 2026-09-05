@@ -24,7 +24,7 @@ pub(crate) fn run_check_rust(
     solver: Option<assura_smt::SolverChoice>,
     llm_opts: LlmOpts<'_>,
 ) {
-    use assura_rust_analyzer::{AnnotatedItem, AnnotatedItemKind, InlineClauseKind};
+    use assura_rust_analyzer::{AnnotatedItem, AnnotatedItemKind};
 
     let json = output_mode == OutputMode::Json;
     if layer > 3 {
@@ -385,12 +385,7 @@ pub(crate) fn run_check_rust(
                             .iter()
                             .map(|c| clause_to_json(c, "decreases")),
                     )
-                    .chain(
-                        item.contract
-                            .annotations_of(InlineClauseKind::Modifies)
-                            .into_iter()
-                            .map(|c| clause_to_json(c, "modifies")),
-                    )
+                    .chain(modifies_clauses_json(item))
                     .collect();
 
                 all_results.push(serde_json::json!({
@@ -1120,6 +1115,26 @@ fn clause_body(raw: &str) -> String {
     raw.split("//").next().unwrap_or(raw).trim().to_string()
 }
 
+/// Body to emit for `@modifies`. `None` when empty, comment-only, or
+/// only `{}` / whitespace / commas (those become A14001).
+fn modifies_clause_body(raw: &str) -> Option<String> {
+    let body = clause_body(raw);
+    let has_name = body
+        .chars()
+        .any(|c| !c.is_whitespace() && c != '{' && c != '}' && c != ',');
+    has_name.then_some(body)
+}
+
+/// JSON clauses for `@modifies` annotations that survive empty-body skip.
+fn modifies_clauses_json(item: &assura_rust_analyzer::AnnotatedItem) -> Vec<serde_json::Value> {
+    item.contract
+        .annotations_of(assura_rust_analyzer::InlineClauseKind::Modifies)
+        .into_iter()
+        .filter(|c| modifies_clause_body(&c.body).is_some())
+        .map(|c| clause_to_json(c, "modifies"))
+        .collect()
+}
+
 /// Build a synthetic Assura contract from inline Rust annotations.
 /// Returns `(source, clause_count)`.
 fn synthesize_inline_contract(
@@ -1171,7 +1186,10 @@ fn synthesize_inline_contract(
         total_clauses += 1;
     }
     for clause in item.contract.annotations_of(InlineClauseKind::Modifies) {
-        contract_source.push_str(&format!("  modifies {{ {} }}\n", clause_body(&clause.body)));
+        let Some(body) = modifies_clause_body(&clause.body) else {
+            continue;
+        };
+        contract_source.push_str(&format!("  modifies {{ {body} }}\n"));
         total_clauses += 1;
     }
 
@@ -1341,5 +1359,119 @@ fn bump(x: i32, xs: i32) -> i32 { x }
             "synthesized contract must emit @modifies, got:\n{source}"
         );
         assert!(count >= 3, "requires + ensures + modifies, got {count}");
+    }
+
+    fn synth_from_rust(src: &str) -> String {
+        let items = parse_rust_source(src).expect("parse rust snippet");
+        assert!(!items.is_empty(), "expected an annotated function");
+        let item = &items[0];
+        let name = match &item.kind {
+            AnnotatedItemKind::Function { name, .. } => name.as_str(),
+            other => panic!("expected function, got {other:?}"),
+        };
+        super::synthesize_inline_contract(name, item).0
+    }
+
+    #[test]
+    fn skips_empty_and_comment_only_modifies() {
+        let empty = synth_from_rust(
+            "\
+/// @requires x > 0
+/// @ensures result >= x
+/// @modifies
+fn bump(x: i32, xs: i32) -> i32 { x }
+",
+        );
+        assert!(
+            !empty.contains("modifies {"),
+            "empty @modifies must not emit, got:\n{empty}"
+        );
+
+        let comment_only = synth_from_rust(
+            "\
+/// @requires x > 0
+/// @ensures result >= x
+/// @modifies // note
+fn bump(x: i32, xs: i32) -> i32 { x }
+",
+        );
+        assert!(
+            !comment_only.contains("modifies {"),
+            "comment-only @modifies must not emit, got:\n{comment_only}"
+        );
+    }
+
+    #[test]
+    fn skips_empty_braces_modifies_without_a14001() {
+        let source = synth_from_rust(
+            "\
+/// @requires x > 0
+/// @ensures result >= x
+/// @modifies {}
+fn bump(x: i32, xs: i32) -> i32 { x }
+",
+        );
+        assert!(
+            !source.contains("modifies {"),
+            "empty @modifies {{}} must not emit, got:\n{source}"
+        );
+        let file = assura_parser::parse_unwrap(&source);
+        let resolved = assura_resolve::resolve(&file).expect("resolve synth");
+        match assura_types::type_check(resolved) {
+            Ok(typed) => {
+                assert!(
+                    typed.warnings.iter().all(|w| w.code != "A14001"),
+                    "A14001 in warnings: {:?}",
+                    typed.warnings
+                );
+            }
+            Err(errors) => {
+                assert!(
+                    errors.iter().all(|e| e.code != "A14001"),
+                    "empty @modifies {{}} must not A14001-fail, got: {errors:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn modifies_clause_to_json_kind_and_body() {
+        let src = "\
+/// @requires x > 0
+/// @ensures result >= x
+/// @modifies xs
+fn bump(x: i32, xs: i32) -> i32 { x }
+";
+        let items = parse_rust_source(src).expect("parse rust snippet");
+        assert!(!items.is_empty(), "expected an annotated function");
+        let jsons = super::modifies_clauses_json(&items[0]);
+        assert_eq!(
+            jsons.len(),
+            1,
+            "expected one modifies JSON clause, got: {jsons:?}"
+        );
+        assert_eq!(jsons[0]["kind"], "modifies");
+        let body = jsons[0]["body"].as_str().unwrap_or("");
+        assert!(
+            body.contains("xs"),
+            "JSON modifies body must contain xs, got: {body:?}"
+        );
+    }
+
+    #[test]
+    fn empty_modifies_produces_no_json_clause() {
+        let src = "\
+/// @modifies
+/// @modifies // note
+/// @modifies {}
+fn bump(xs: i32) -> i32 { xs }
+";
+        let items = parse_rust_source(src).expect("parse rust snippet");
+        assert!(!items.is_empty(), "expected an annotated function");
+        let jsons = super::modifies_clauses_json(&items[0]);
+        assert!(
+            jsons.is_empty(),
+            "empty @modifies must produce no JSON clause, got: {jsons:?}"
+        );
     }
 }
