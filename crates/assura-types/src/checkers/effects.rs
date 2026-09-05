@@ -372,6 +372,16 @@ impl EffectChecker {
     }
 }
 
+fn type_error_from_must_not(ee: EffectError) -> TypeError {
+    TypeError {
+        code: ee.code,
+        message: ee.message,
+        span: ee.span,
+        secondary: None,
+        suggestion: Some("Remove the effect from `effects`, or drop it from `must-not`.".into()),
+    }
+}
+
 impl EffectChecker {
     /// Full AST-walking entry point for effect checking.
     pub fn check_source(source: &assura_parser::ast::SourceFile) -> Vec<TypeError> {
@@ -429,44 +439,20 @@ impl EffectChecker {
                     }
                     if let Some(ref forbidden) = must_not {
                         for ee in checker.check_must_not(declared_set, forbidden, &decl.span) {
-                            errors.push(TypeError {
-                                code: ee.code,
-                                message: ee.message,
-                                span: ee.span,
-                                secondary: None,
-                                suggestion: None,
-                            });
+                            errors.push(type_error_from_must_not(ee));
                         }
                         if let Some(ref actual_set) = actual {
                             for ee in checker.check_must_not(actual_set, forbidden, &decl.span) {
-                                errors.push(TypeError {
-                                    code: ee.code,
-                                    message: ee.message,
-                                    span: ee.span,
-                                    secondary: None,
-                                    suggestion: None,
-                                });
+                                errors.push(type_error_from_must_not(ee));
                             }
                         }
                         for ee in checker.check_must_not(&callee_effects, forbidden, &decl.span) {
-                            errors.push(TypeError {
-                                code: ee.code,
-                                message: ee.message,
-                                span: ee.span,
-                                secondary: None,
-                                suggestion: None,
-                            });
+                            errors.push(type_error_from_must_not(ee));
                         }
                     }
                 } else if let Some(ref forbidden) = must_not {
                     for ee in checker.check_must_not(declared_set, forbidden, &decl.span) {
-                        errors.push(TypeError {
-                            code: ee.code,
-                            message: ee.message,
-                            span: ee.span,
-                            secondary: None,
-                            suggestion: None,
-                        });
+                        errors.push(type_error_from_must_not(ee));
                     }
                 }
             }

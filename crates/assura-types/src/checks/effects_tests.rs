@@ -50,10 +50,17 @@ fn must_not_io_with_effects_io_a07003() {
         }"#,
     );
     let errs = run_effect_checks(&sf);
+    let must_not = errs
+        .iter()
+        .find(|e| e.code == "A07003" && e.message.contains("must-not"))
+        .expect("effects(io) + must-not(io) must be A07003");
+    let suggestion = must_not
+        .suggestion
+        .as_deref()
+        .expect("must-not A07003 must not fall back to the unknown-effect catalog Help");
     assert!(
-        errs.iter()
-            .any(|e| e.code == "A07003" && e.message.contains("must-not")),
-        "effects(io) + must-not(io) must be A07003, got: {errs:?}"
+        suggestion.contains("must-not") && suggestion.contains("effects"),
+        "must-not Help should tell the user to drop the effect from effects or must-not, got: {suggestion}"
     );
 }
 
