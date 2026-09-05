@@ -58,9 +58,9 @@ fn must_not_io_with_effects_io_a07003() {
         .suggestion
         .as_deref()
         .expect("must-not A07003 must not fall back to the unknown-effect catalog Help");
-    assert!(
-        suggestion.contains("must-not") && suggestion.contains("effects"),
-        "must-not Help should tell the user to drop the effect from effects or must-not, got: {suggestion}"
+    assert_eq!(
+        suggestion, "Remove the effect from `effects`, or drop it from `must-not`.",
+        "must-not Help must be the shipped fix text, got: {suggestion}"
     );
 }
 
@@ -89,8 +89,13 @@ fn must_not_unknown_name_a07003() {
         }"#,
     );
     let errs = run_effect_checks(&sf);
+    let unknown = errs
+        .iter()
+        .find(|e| e.code == "A07003")
+        .expect("unknown must-not name must be A07003");
     assert!(
-        errs.iter().any(|e| e.code == "A07003"),
-        "unknown must-not name must be A07003, got: {errs:?}"
+        unknown.suggestion.is_none(),
+        "unknown must-not name must keep catalog Help, got: {:?}",
+        unknown.suggestion
     );
 }
