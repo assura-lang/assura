@@ -12,17 +12,17 @@ let overlayProvider: ContractOverlayProvider | undefined;
 export async function activate(
   context: vscode.ExtensionContext
 ): Promise<void> {
-  const serverPath = getServerPath();
-  if (!serverPath) {
+  const launch = getServerLaunch();
+  if (!launch.command) {
     vscode.window.showErrorMessage(
-      "Assura LSP server not found. Install the assura-lsp binary or set assura.serverPath in settings."
+      "Assura LSP server not found. Install assura (`cargo install assura --locked`) or set assura.serverPath in settings."
     );
     return;
   }
 
   const serverOptions: ServerOptions = {
-    run: { command: serverPath },
-    debug: { command: serverPath },
+    run: { command: launch.command, args: launch.args },
+    debug: { command: launch.command, args: launch.args },
   };
 
   const clientOptions: LanguageClientOptions = {
@@ -69,14 +69,13 @@ export async function deactivate(): Promise<void> {
   }
 }
 
-function getServerPath(): string | undefined {
+function getServerLaunch(): { command: string; args?: string[] } {
   const config = vscode.workspace.getConfiguration("assura");
   const configPath = config.get<string>("serverPath");
   if (configPath && configPath.length > 0) {
-    return configPath;
+    return { command: configPath };
   }
-  // Fall back to looking for the binary in PATH.
-  // The LanguageClient will resolve it from PATH automatically
-  // when given just the binary name.
-  return "assura-lsp";
+  // cargo install assura provides `assura lsp`. The LanguageClient
+  // resolves `assura` from PATH.
+  return { command: "assura", args: ["lsp"] };
 }

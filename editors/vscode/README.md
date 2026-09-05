@@ -28,31 +28,34 @@ npx vsce package
 - Code completions
 - Document symbols
 
-All IDE features beyond syntax highlighting are provided by the
-`assura-lsp` language server.
+All IDE features beyond syntax highlighting are provided by
+`assura lsp` (from the `assura` CLI).
 
 ## Requirements
 
-Install the `assura-lsp` binary and make sure it is available in your
-`PATH`. You can build it from the Assura repository:
+Install the CLI so `assura lsp` is on your `PATH`:
 
 ```bash
-cargo install --path crates/assura-lsp
+cargo install assura --locked
 ```
 
-Alternatively, set the path manually in VS Code settings:
+Alternatively, set a custom server command in VS Code settings (no extra
+args are added):
 
 ```json
 {
-  "assura.serverPath": "/path/to/assura-lsp"
+  "assura.serverPath": "/path/to/assura"
 }
 ```
+
+A standalone `assura-lsp` binary (`cargo install --path crates/assura-lsp`)
+works if you point `assura.serverPath` at that path.
 
 ## Extension Settings
 
 | Setting             | Default | Description                                    |
 |---------------------|---------|------------------------------------------------|
-| `assura.serverPath` | `""`    | Path to the `assura-lsp` binary. If empty, the extension searches `PATH`. |
+| `assura.serverPath` | `""`    | Path to the language server. If empty, the extension runs `assura lsp`. |
 
 ## Development
 

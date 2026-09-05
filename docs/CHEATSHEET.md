@@ -35,13 +35,15 @@ data: NonEmpty<List<Int>>     // named refinement
 
 ```assura
 contract SafeDivision {
-  input(a: Int, b: Int)
-  output(result: Int)
-  requires { b != 0 }
-  ensures  { result * b + (a mod b) == a }
-  effects  { pure }
+    input(a: Int, b: Int)
+    output(result: Int)
+    requires { b != 0 }
+    ensures  { result == a / b }
 }
 ```
+
+The remainder identity `result * b + (a mod b) == a` is a stronger spec
+and needs a co-located `.ir` sidecar; `assura init` writes both.
 
 ### Bind (attach contract to existing Rust function)
 

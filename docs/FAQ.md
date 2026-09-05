@@ -136,7 +136,7 @@ This means signed integer division of `INT_MIN / -1` overflows. The
 fix is to add a precondition:
 
 ```assura
-requires { !(a == min_int() && b == -1) }
+requires { !(a == -9223372036854775808 && b == -1) }
 ```
 
 **Tips for reading counterexamples:**
@@ -340,16 +340,19 @@ changes are not detected:
 ### VS Code: LSP not starting
 
 1. Install the Assura extension from the `editors/vscode/` directory.
-2. Set the server path in settings:
+2. Install the CLI so `assura lsp` is on `PATH`:
+   ```bash
+   cargo install assura --locked
+   ```
+   The extension runs `assura lsp` when `assura.serverPath` is unset.
+3. Or set a custom server command (no extra args are added):
    ```json
    {
-     "assura.serverPath": "/path/to/assura-lsp"
+     "assura.serverPath": "/path/to/assura"
    }
    ```
-3. Build the LSP server:
-   ```bash
-   cargo build --bin assura-lsp
-   ```
+   A standalone `assura-lsp` binary from `cargo install --path crates/assura-lsp`
+   also works if you set `assura.serverPath` to that path.
 4. Restart VS Code.
 
 The LSP provides diagnostics, go-to-definition, hover, completions,

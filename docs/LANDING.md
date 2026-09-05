@@ -8,13 +8,10 @@ mathematically. Ships as Rust.
 
 ```assura
 contract SafeDivision {
-  input(a: Int, b: Int)
-  output(result: Int)
-
-  requires { b != 0 }
-  ensures  { result * b + (a mod b) == a }
-  ensures  { abs(result) <= abs(a) }
-  effects  { pure }
+    input(a: Int, b: Int)
+    output(result: Int)
+    requires { b != 0 }
+    ensures  { result == a / b }
 }
 ```
 

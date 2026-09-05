@@ -9,15 +9,15 @@ binaries through `rustc`.
 
 ```assura
 contract SafeDivision {
-  input(a: Int, b: Int)
-  output(result: Int)
-
-  requires { b != 0 }
-  ensures  { result * b + (a mod b) == a }
-  ensures  { abs(result) <= abs(a) }
-  effects  { pure }
+    input(a: Int, b: Int)
+    output(result: Int)
+    requires { b != 0 }
+    ensures  { result == a / b }
 }
 ```
+
+The remainder identity `result * b + (a mod b) == a` is a stronger spec
+and needs a co-located `.ir` sidecar; `assura init` writes both.
 
 ## Quick Start
 

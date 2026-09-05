@@ -64,9 +64,10 @@ This creates:
 
 ```
 my-project/
-  assura.toml           # Project configuration
+  assura.toml              # Project configuration
   contracts/
-    lib.assura          # Starter contract
+    lib.assura             # Starter contract
+    SafeDivision.ir        # Co-located IR so `result` ensures verify
 ```
 
 The generated `assura.toml`:
@@ -91,15 +92,15 @@ timeout = 1000          # SMT timeout in ms
 
 ## Step 2: Write a Contract
 
-Edit `contracts/lib.assura`:
+`assura init` already wrote `contracts/lib.assura` and a co-located
+`SafeDivision.ir` so `result` is bound. The starter looks like this:
 
 ```assura
 contract SafeDivision {
     input(a: Int, b: Int)
     output(result: Int)
-
     requires { b != 0 }
-    ensures  { b != 0 }
+    ensures  { result == a / b }
 }
 ```
 
@@ -109,9 +110,8 @@ A contract declares:
 - **requires { ... }**: preconditions (caller's responsibility)
 - **ensures { ... }**: postconditions (implementation's responsibility)
 
-The `ensures { b != 0 }` clause is trivially verified by Z3 because
-the `requires` clause already guarantees `b != 0`. As you learn the
-language, you'll write more expressive postconditions.
+The remainder identity `result * b + (a mod b) == a` is a stronger spec
+and needs the co-located `.ir` sidecar; `assura init` writes both.
 
 ## Step 3: Check Your Contract
 
@@ -722,7 +722,7 @@ jobs:
       - name: Install Assura
         run: cargo install --git https://github.com/assura-lang/assura assura
       - name: Check contracts
-        run: assura check src/**/*.assura
+        run: assura check contracts
 ```
 
 ### LSP Integration
@@ -747,8 +747,22 @@ For AI agent integration, Assura provides an MCP (Model Context
 Protocol) server:
 
 ```bash
-# Start the MCP server
+# Start the MCP server (stdio)
 assura mcp
+```
+
+A bare terminal looks idle; MCP hosts must spawn this process. Example
+host config:
+
+```json
+{
+  "mcpServers": {
+    "assura": {
+      "command": "assura",
+      "args": ["mcp"]
+    }
+  }
+}
 ```
 
 The MCP server exposes tools that AI agents can use to check contracts,
@@ -756,11 +770,13 @@ get error explanations, and generate contract templates.
 
 ### gRPC Server
 
-For programmatic access from any language:
+The `assura` CLI has no `server` subcommand. The gRPC/HTTP binary lives
+in the monorepo crate `assura-server` and is not published on crates.io.
+Ports 50051 (gRPC) and 8080 (HTTP) are hardcoded.
 
 ```bash
-# Start the gRPC server
-assura server --port 50051
+# From a clone of this repository
+cargo run -p assura-server
 ```
 
 The gRPC API supports streaming verification results and batch checking.
