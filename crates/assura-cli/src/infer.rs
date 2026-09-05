@@ -578,7 +578,7 @@ pub(crate) fn analyze_function_body(
 ) -> Vec<InferSuggestion> {
     let name = func.sig.ident.to_string();
     let body_str = extract_block_text(&func.block, source);
-    let line = func.sig.fn_token.span.start().line + 1;
+    let line = func.sig.fn_token.span.start().line;
     let params = extract_param_names(&func.sig);
     analyze_body_text(&name, &body_str, line, &params, focus)
 }
@@ -591,7 +591,7 @@ pub(crate) fn analyze_method_body(
 ) -> Vec<InferSuggestion> {
     let name = method.sig.ident.to_string();
     let body_str = extract_block_text(&method.block, source);
-    let line = method.sig.fn_token.span.start().line + 1;
+    let line = method.sig.fn_token.span.start().line;
     let params = extract_param_names(&method.sig);
     analyze_body_text(&name, &body_str, line, &params, focus)
 }
@@ -1061,6 +1061,26 @@ pub(crate) fn generate_bind_skeleton(module_path: &str, sig: &RustFnSig, out: &m
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn analyze_function_body_line_is_fn_keyword_1_based() {
+        let source = "/// docs\nfn known_line(x: Option<i64>) -> i64 { x.unwrap() }\n";
+        let expected = source[..source.find("fn ").expect("fn")]
+            .chars()
+            .filter(|&c| c == '\n')
+            .count()
+            + 1;
+        let file = syn::parse_file(source).expect("parse rust");
+        let syn::Item::Fn(func) = &file.items[0] else {
+            panic!("expected fn");
+        };
+        let suggs = analyze_function_body(func, source, &[]);
+        assert!(
+            suggs.iter().any(|s| s.line == expected),
+            "infer line must be the 1-based fn keyword (expected {expected}), got {:?}",
+            suggs.iter().map(|s| s.line).collect::<Vec<_>>()
+        );
+    }
 
     // ---- strip_fn_prefix ----
 
