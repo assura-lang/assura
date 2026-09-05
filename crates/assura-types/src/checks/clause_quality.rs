@@ -3,7 +3,7 @@
 //! Warns about ensures clauses that reference unconstrained outputs (#617)
 //! and about feature_max constants used in verification clauses (#619).
 
-use assura_parser::ast::{ClauseKind, Decl, Expr, SpExpr};
+use assura_parser::ast::{BinOp, ClauseKind, Decl, Expr, Literal, SpExpr};
 
 use crate::TypeError;
 
@@ -109,15 +109,41 @@ fn is_result_length_pattern(expr: &SpExpr) -> bool {
     )
 }
 
-/// Check if the entire ensures clause is a comparison involving `result.length()`.
-/// E.g. `result.length() >= 0`.
-fn is_result_length_comparison(expr: &SpExpr) -> bool {
-    match &expr.node {
-        Expr::BinOp { lhs, rhs, .. } => {
-            is_result_length_pattern(lhs) || is_result_length_pattern(rhs)
-        }
-        _ => is_result_length_pattern(expr),
+fn is_zero_literal(expr: &SpExpr) -> bool {
+    matches!(&expr.node, Expr::Literal(Literal::Int(s)) if s == "0")
+}
+
+/// Atom is `result.length() >= 0` or `0 <= result.length()`.
+fn is_result_length_nonneg_atom(expr: &SpExpr) -> bool {
+    let Expr::BinOp { op, lhs, rhs } = &expr.node else {
+        return false;
+    };
+    match op {
+        BinOp::Gte => is_result_length_pattern(lhs) && is_zero_literal(rhs),
+        BinOp::Lte => is_zero_literal(lhs) && is_result_length_pattern(rhs),
+        _ => false,
     }
+}
+
+/// `result.length() >= 0`, `0 <= result.length()`, and pure `&&` chains of those.
+/// Matches the SMT nonneg skip (`ensures_result_length_nonneg`) without a types→smt dep.
+fn is_result_length_nonneg(expr: &SpExpr) -> bool {
+    fn collect_and<'a>(e: &'a SpExpr, out: &mut Vec<&'a SpExpr>) {
+        match &e.node {
+            Expr::BinOp {
+                op: BinOp::And,
+                lhs,
+                rhs,
+            } => {
+                collect_and(lhs, out);
+                collect_and(rhs, out);
+            }
+            _ => out.push(e),
+        }
+    }
+    let mut atoms = Vec::new();
+    collect_and(expr, &mut atoms);
+    !atoms.is_empty() && atoms.iter().all(|a| is_result_length_nonneg_atom(a))
 }
 
 /// Warn when `ensures` clauses reference `result` or output variables
@@ -164,8 +190,8 @@ pub(crate) fn run_unconstrained_output_checks(
                 continue;
             }
 
-            // Exception: result.length() >= 0 pattern (background axiom)
-            if is_extern && is_result_length_comparison(&clause.body) {
+            // Exception: result.length() >= 0 (background axiom), not other comparisons
+            if is_extern && is_result_length_nonneg(&clause.body) {
                 continue;
             }
 
@@ -344,5 +370,30 @@ mod tests {
         };
         let warnings = run_unconstrained_output_checks(&source);
         assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn warning_for_extern_result_length_le_count() {
+        let source = SourceFile {
+            decls: vec![Spanned::no_span(Decl::Extern(ExternDecl {
+                name: "read_data".into(),
+                params: vec![Param {
+                    name: "count".into(),
+                    ty: None,
+                }],
+                clauses: vec![make_ensures_clause(binop(
+                    method_call(result_expr(), "length", vec![]),
+                    BinOp::Lte,
+                    ident("count"),
+                ))],
+                return_ty: None,
+            }))],
+            project: None,
+            module: None,
+            imports: vec![],
+        };
+        let warnings = run_unconstrained_output_checks(&source);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].code, "A04008");
     }
 }
