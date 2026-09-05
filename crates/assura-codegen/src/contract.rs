@@ -179,13 +179,14 @@ pub(crate) fn generate_contract_contents_opts(
         }
     }
 
-    // Collect float-typed parameter names so the expression folder skips
-    // i128::from() wrapping for them (f64 does not implement Into<i128>).
-    let float_vars: HashSet<String> = input_params
-        .iter()
-        .filter(|(_, ty)| ty == "f64")
-        .map(|(name, _)| name.clone())
-        .collect();
+    // Collect float-typed parameter / result names so the expression folder
+    // skips i128::from() wrapping (f64 does not implement Into<i128>).
+    let extra: Vec<&str> = output_name.iter().map(String::as_str).collect();
+    let float_vars = float_idents(
+        input_params.iter().map(|(n, t)| (n.as_str(), t.as_str())),
+        Some(output_type.as_str()),
+        &extra,
+    );
 
     // Second pass: convert clause bodies to Rust expressions.
     for clause in &c.clauses {

@@ -293,7 +293,8 @@ The CLI binary (`assura`) with subcommands:
 - REPL mode: Interactive contract evaluation
 
 **Flags:** `--verbose` (`-v`), `--quiet` (`-q`), `--watch` (`-w`),
-`--output <dir>`, `--no-check`, `--ast`, `--tokens`, `--json`
+`--output <dir>`, `--no-check`, `--json`. Historical (not current clap):
+`--ast`, `--tokens`.
 
 ### assura-fmt
 

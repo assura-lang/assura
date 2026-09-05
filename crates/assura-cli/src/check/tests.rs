@@ -56,56 +56,39 @@ fn unknown_classification_boundary_near_miss() {
 
 #[test]
 fn unknown_classification_diagnostic_output() {
+    use super::report::unknown_limitation_diagnostic;
+    use assura_diagnostics::Severity;
+
     let filename = "test.assura";
     let clause_desc = "TestContract: ensures";
+    let known = "clause uses features not yet encoded in SMT (method call)";
 
-    // Warning path: known limitation -> A05102
-    let reason = "clause uses features not yet encoded in SMT (method call)";
-    let mut has_errors = false;
-    let diag = if assura_smt::is_known_smt_limitation(reason) {
-        assura_diagnostics::Diagnostic::warning(
-            "A05102",
-            format!("verification skipped for {clause_desc}: {reason}"),
-            0..0,
-        )
-        .with_file(filename)
-    } else {
-        has_errors = true;
-        assura_diagnostics::Diagnostic::error(
-            "A05103",
-            format!("verification inconclusive for {clause_desc}: {reason}"),
-            0..0,
-        )
-        .with_file(filename)
-    };
-    assert!(!has_errors, "known limitation should not set has_errors");
-    assert!(diag.message.starts_with("verification skipped"));
-    assert_eq!(diag.code, "A05102", "known limitation should use A05102");
+    let warn = unknown_limitation_diagnostic(filename, clause_desc, known, 0..0, false);
+    assert_eq!(warn.code, "A05102");
+    assert_eq!(warn.severity, Severity::Warning);
+    assert!(
+        warn.message.starts_with("verification skipped"),
+        "got: {}",
+        warn.message
+    );
 
-    // Error path: solver inconclusive -> A05103
-    let reason2 = "non-linear arithmetic";
-    let mut has_errors2 = false;
-    let diag2 = if assura_smt::is_known_smt_limitation(reason2) {
-        assura_diagnostics::Diagnostic::warning(
-            "A05102",
-            format!("verification skipped for {clause_desc}: {reason2}"),
-            0..0,
-        )
-        .with_file(filename)
-    } else {
-        has_errors2 = true;
-        assura_diagnostics::Diagnostic::error(
-            "A05103",
-            format!("verification inconclusive for {clause_desc}: {reason2}"),
-            0..0,
-        )
-        .with_file(filename)
-    };
-    assert!(has_errors2, "solver inconclusive should set has_errors");
-    assert!(diag2.message.starts_with("verification inconclusive"));
-    assert_eq!(
-        diag2.code, "A05103",
-        "solver inconclusive should use A05103"
+    let incon =
+        unknown_limitation_diagnostic(filename, clause_desc, "non-linear arithmetic", 0..0, false);
+    assert_eq!(incon.code, "A05103");
+    assert_eq!(incon.severity, Severity::Error);
+    assert!(
+        incon.message.starts_with("verification inconclusive"),
+        "got: {}",
+        incon.message
+    );
+
+    let strict = unknown_limitation_diagnostic(filename, clause_desc, known, 0..0, true);
+    assert_eq!(strict.code, "A05102");
+    assert_eq!(strict.severity, Severity::Error);
+    assert!(
+        strict.message.contains("--strict"),
+        "strict known limitation should mention --strict, got: {}",
+        strict.message
     );
 }
 
@@ -160,5 +143,66 @@ fn project_unknown_arm_calls_shared_limitation_helper() {
     assert!(
         src.contains("unknown_limitation_diagnostic("),
         "project Unknown arm must call unknown_limitation_diagnostic"
+    );
+}
+
+fn typecheck_unc_contract() -> assura_types::TypedFile {
+    let src = "contract Unc { input(x: Int) output(result: Int) requires { x > 0 } ensures { result >= 0 } }";
+    let file = assura_parser::parse_unwrap(src);
+    let resolved = assura_resolve::resolve(&file).expect("resolve Unc");
+    assura_types::type_check(resolved).expect("typecheck Unc")
+}
+
+#[test]
+fn project_a04008_from_typed_warnings() {
+    let typed = typecheck_unc_contract();
+    let diags = super::typed_warnings_to_diags(&typed.warnings, "unc.assura");
+    assert!(
+        diags.iter().any(|d| d.code == "A04008"),
+        "expected A04008 from unconstrained result, got: {diags:?}"
+    );
+}
+
+#[test]
+fn project_a04008_suppressed_after_verified_ensures() {
+    let typed = typecheck_unc_contract();
+    let mut diags = super::typed_warnings_to_diags(&typed.warnings, "unc.assura");
+    assert!(
+        diags.iter().any(|d| d.code == "A04008"),
+        "precondition: A04008 must be present before suppress, got: {diags:?}"
+    );
+    let results = vec![assura_smt::VerificationResult::Verified {
+        clause_desc: "Unc::ensures".into(),
+        unsat_core: None,
+    }];
+    super::suppress_a04008_for_verified_ensures(&mut diags, &results);
+    assert!(
+        diags.iter().all(|d| d.code != "A04008"),
+        "Verified Unc::ensures must drop A04008, got: {diags:?}"
+    );
+}
+
+#[test]
+fn project_smt_diagnostics_use_clause_spans() {
+    let src = include_str!("project.rs");
+    assert!(
+        src.contains("lookup_clause_span"),
+        "project.rs must look up declaration spans for SMT diagnostics"
+    );
+    let a05100 = src.split("\"A05100\"").nth(1).expect("A05100 diagnostic");
+    let a05100_span = a05100.split(".with_file").next().unwrap_or(a05100);
+    assert!(
+        !a05100_span.contains("0..0"),
+        "A05100 must use lookup_clause_span, not 0..0: {a05100_span}"
+    );
+    let a05101 = src.split("\"A05101\"").nth(1).expect("A05101 diagnostic");
+    let a05101_span = a05101.split(".with_file").next().unwrap_or(a05101);
+    assert!(
+        !a05101_span.contains("0..0"),
+        "A05101 must use lookup_clause_span, not 0..0: {a05101_span}"
+    );
+    assert!(
+        !src.contains("reason,\n                                    0..0,"),
+        "Unknown arm must pass lookup_clause_span, not 0..0"
     );
 }

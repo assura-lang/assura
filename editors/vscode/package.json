@@ -53,7 +53,7 @@
         "assura.serverPath": {
           "type": "string",
           "default": "",
-          "description": "Path to the assura-lsp binary. If empty, the extension searches PATH."
+          "description": "Path to the Assura language server. If empty, the extension runs `assura lsp` from PATH."
         },
         "assura.contractOverlay.enabled": {
           "type": "boolean",

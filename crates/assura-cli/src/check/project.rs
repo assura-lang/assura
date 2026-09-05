@@ -6,6 +6,22 @@ use super::super::*;
 // Project-mode check: resolve, type-check, and SMT-verify all .assura files
 // ---------------------------------------------------------------------------
 
+/// Convert type-check warnings (e.g. A04008) into file-tagged diagnostics.
+/// Project mode must copy `TypedFile.warnings` the same way single-file `compile` does.
+pub(crate) fn typed_warnings_to_diags(
+    warnings: &[assura_types::TypeError],
+    filename: &str,
+) -> Vec<assura_diagnostics::Diagnostic> {
+    warnings
+        .iter()
+        .map(|w| {
+            let mut d: assura_diagnostics::Diagnostic = w.clone().into();
+            d.severity = assura_diagnostics::Severity::Warning;
+            d.with_file(filename)
+        })
+        .collect()
+}
+
 /// Map a module key (`a`, `pkg.sub`) to an on-disk `.assura` path under the
 /// project root (filesystem-derived modules use dotted path segments).
 fn module_key_to_path(project_root: &Path, module_path: &str) -> std::path::PathBuf {
@@ -111,6 +127,9 @@ pub(crate) fn run_check_project(
             continue;
         }
         total_modules += 1;
+        let filename = module_key_to_path(&project_root, &module_path)
+            .display()
+            .to_string();
         match assura_types::TypeChecker::new()
             .config(config.type_check.clone())
             .modules(modules_map.clone())
@@ -121,16 +140,24 @@ pub(crate) fn run_check_project(
                 total_bindings += bindings;
                 let symbols = typed.resolved.symbols.symbols.len();
 
+                let warn_diags = typed_warnings_to_diags(&typed.warnings, &filename);
+                if output_mode == OutputMode::Human {
+                    for w in &warn_diags {
+                        eprintln!("  {}: {}", w.code, w.message);
+                    }
+                }
+                all_diags.extend(warn_diags);
+
                 // SMT verify (same as single-file check). Without this,
                 // `assura check <dir>` only resolved/type-checked and
                 // silently accepted counterexamples (dogfood R85).
-                let file_path = module_key_to_path(&project_root, &module_path);
-                let filename = file_path.display().to_string();
                 let mut module_verify_errors = 0usize;
                 let mut verify_summaries: Vec<serde_json::Value> = Vec::new();
                 if config.verify.layer >= 1 {
                     let results = assura_pipeline::verify_typed(&typed, &filename, config);
+                    let decl_spans = build_decl_span_map(&Some(typed.resolved.source.clone()));
                     for r in &results {
+                        let span = lookup_clause_span(r.clause_desc(), &decl_spans);
                         match r {
                             assura_smt::VerificationResult::Verified { .. } => {
                                 if output_mode == OutputMode::Human && verbosity != Verbosity::Quiet
@@ -156,7 +183,7 @@ pub(crate) fn run_check_project(
                                         format!(
                                             "verification failed for {clause_desc}: counterexample: {model}"
                                         ),
-                                        0..0,
+                                        span,
                                     )
                                     .with_file(filename.clone()),
                                 );
@@ -171,7 +198,7 @@ pub(crate) fn run_check_project(
                                     assura_diagnostics::Diagnostic::error(
                                         "A05101",
                                         format!("verification timeout for {clause_desc}"),
-                                        0..0,
+                                        span,
                                     )
                                     .with_file(filename.clone()),
                                 );
@@ -189,7 +216,7 @@ pub(crate) fn run_check_project(
                                     &filename,
                                     clause_desc,
                                     reason,
-                                    0..0,
+                                    span,
                                     strict,
                                 );
                                 if diag.is_error() {
@@ -201,6 +228,7 @@ pub(crate) fn run_check_project(
                         }
                         verify_summaries.push(r.to_json_value());
                     }
+                    suppress_a04008_for_verified_ensures(&mut all_diags, &results);
                 }
 
                 let status = if module_verify_errors > 0 {
@@ -246,16 +274,16 @@ pub(crate) fn run_check_project(
                             })
                         }).collect::<Vec<_>>(),
                     }));
-                    for err in &errors {
-                        all_diags.push(
-                            assura_diagnostics::Diagnostic::error(
-                                err.code.as_str(),
-                                err.message.clone(),
-                                err.span.clone(),
-                            )
-                            .with_file(module_path.clone()),
-                        );
-                    }
+                }
+                for err in &errors {
+                    all_diags.push(
+                        assura_diagnostics::Diagnostic::error(
+                            err.code.as_str(),
+                            err.message.clone(),
+                            err.span.clone(),
+                        )
+                        .with_file(filename.clone()),
+                    );
                 }
             }
         }

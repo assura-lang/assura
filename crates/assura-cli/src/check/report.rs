@@ -305,7 +305,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
     verification_results
 }
 
-fn suppress_a04008_for_verified_ensures(
+pub(crate) fn suppress_a04008_for_verified_ensures(
     diagnostics: &mut Vec<assura_diagnostics::Diagnostic>,
     verification: &[assura_smt::VerificationResult],
 ) {
@@ -375,7 +375,7 @@ pub(crate) fn success_summary_message(
 
 /// Build a map from declaration name to source span.
 /// Used to give SMT diagnostics real source locations instead of 0..0.
-fn build_decl_span_map(
+pub(crate) fn build_decl_span_map(
     file: &Option<assura_parser::ast::SourceFile>,
 ) -> std::collections::HashMap<String, std::ops::Range<usize>> {
     let mut map = std::collections::HashMap::new();
@@ -400,7 +400,7 @@ fn build_decl_span_map(
 
 /// Extract a source span for a verification result's clause_desc.
 /// clause_desc format: "ContractName::ClauseKind" or "ContractName: kind".
-fn lookup_clause_span(
+pub(crate) fn lookup_clause_span(
     clause_desc: &str,
     decl_spans: &std::collections::HashMap<String, std::ops::Range<usize>>,
 ) -> std::ops::Range<usize> {

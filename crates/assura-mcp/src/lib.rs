@@ -1527,17 +1527,21 @@ contract Bar {
             decl: None,
         };
         let result = server.assura_ir_verify(Parameters(params));
+        let v: serde_json::Value = serde_json::from_str(&result)
+            .unwrap_or_else(|e| panic!("identity IR must be JSON: {e}\n{result}"));
+        assert_eq!(v["status"], "verified", "{v}");
+        let verified = v["summary"]["verified"].as_u64().unwrap_or(0);
         assert!(
-            result.contains("\"status\""),
-            "should return JSON with status field"
+            verified >= 1,
+            "summary.verified must be >= 1, got {verified}: {v}"
         );
+        let clauses = v["clauses"].as_array().expect("clauses array");
         assert!(
-            result.contains("\"verified\""),
-            "identity IR should verify: {result}"
-        );
-        assert!(
-            result.contains("\"progress\""),
-            "should include progress field"
+            clauses.iter().any(|c| {
+                c["status"] == "verified"
+                    && c["name"].as_str().is_some_and(|n| n.starts_with("Echo::"))
+            }),
+            "expected a verified Echo:: clause: {v}"
         );
     }
 
@@ -1555,9 +1559,15 @@ contract Inc {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x 
             ir_file: None,
             decl: None,
         }));
+        let v_without: serde_json::Value =
+            serde_json::from_str(&without).unwrap_or_else(|e| panic!("JSON: {e}\n{without}"));
+        assert_eq!(v_without["status"], "verified", "{v_without}");
+        let clauses_without = v_without["clauses"].as_array().expect("clauses");
         assert!(
-            without.contains("\"verified\""),
-            "identity IR matches First when decl is omitted: {without}"
+            clauses_without
+                .iter()
+                .any(|c| c["name"].as_str().is_some_and(|n| n.starts_with("First::"))),
+            "identity IR matches First when decl is omitted: {v_without}"
         );
         let with = server.assura_ir_verify(Parameters(IrVerifyParams {
             source: Some(source.into()),
@@ -1566,13 +1576,19 @@ contract Inc {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x 
             ir_file: None,
             decl: Some("Inc".into()),
         }));
-        assert!(
-            !with.contains("\"status\": \"verified\""),
-            "decl=Inc must not verify identity IR: {with}"
+        let v_with: serde_json::Value =
+            serde_json::from_str(&with).unwrap_or_else(|e| panic!("JSON: {e}\n{with}"));
+        assert_ne!(
+            v_with["status"], "verified",
+            "decl=Inc must not verify identity IR: {v_with}"
         );
+        let empty = vec![];
+        let clauses_with = v_with["clauses"].as_array().unwrap_or(&empty);
         assert!(
-            !with.contains("First::ensures"),
-            "decl=Inc must not report First clauses: {with}"
+            clauses_with
+                .iter()
+                .all(|c| !c["name"].as_str().is_some_and(|n| n.starts_with("First::"))),
+            "decl=Inc must not report First clauses: {v_with}"
         );
     }
 

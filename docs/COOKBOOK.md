@@ -13,13 +13,13 @@ is self-contained. For syntax basics, see [the tutorial](TUTORIAL.md).
 contract SafeDivision {
     input(a: Int, b: Int)
     output(result: Int)
-
     requires { b != 0 }
-    ensures  { result * b + (a mod b) == a }
-    ensures  { abs(result) <= abs(a) }
-    effects  { pure }
+    ensures  { result == a / b }
 }
 ```
+
+The remainder identity `result * b + (a mod b) == a` is a stronger spec
+and needs a co-located `.ir` sidecar; `assura init` writes both.
 
 ### Integer Overflow Guard
 

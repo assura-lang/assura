@@ -276,7 +276,7 @@ contract SafeDivision {{
     input(a: Int, b: Int)
     output(result: Int)
     requires {{ b != 0 }}
-    ensures  {{ result * b + (a mod b) == a }}
+    ensures  {{ result == a / b }}
 }}
 ```
 
@@ -322,6 +322,14 @@ mod tests {
         assert!(
             md.contains("## Install the CLI"),
             "agent-instructions must have an Install the CLI section"
+        );
+        assert!(
+            md.contains("ensures  { result == a / b }"),
+            "first-run SafeDivision must match the init remainder-free ensures"
+        );
+        assert!(
+            !md.contains("a mod b"),
+            "agent-instructions must not copy-paste the remainder identity"
         );
     }
 

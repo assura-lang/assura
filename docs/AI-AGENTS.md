@@ -59,6 +59,20 @@ standalone `assura-mcp` binary. Start the server from the CLI:
 assura mcp
 ```
 
+A bare terminal looks idle; MCP hosts must spawn this process. Example
+host config:
+
+```json
+{
+  "mcpServers": {
+    "assura": {
+      "command": "assura",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
 Tools: `assura_check`, `assura_infer`, `assura_explain`, `assura_type_map`,
 `assura_ir_prompt`, `assura_ir_verify`. List them from your MCP client after
 connecting. Prefer `assura check --json` when MCP is unavailable.
