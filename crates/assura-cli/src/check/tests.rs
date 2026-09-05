@@ -56,56 +56,39 @@ fn unknown_classification_boundary_near_miss() {
 
 #[test]
 fn unknown_classification_diagnostic_output() {
+    use super::report::unknown_limitation_diagnostic;
+    use assura_diagnostics::Severity;
+
     let filename = "test.assura";
     let clause_desc = "TestContract: ensures";
+    let known = "clause uses features not yet encoded in SMT (method call)";
 
-    // Warning path: known limitation -> A05102
-    let reason = "clause uses features not yet encoded in SMT (method call)";
-    let mut has_errors = false;
-    let diag = if assura_smt::is_known_smt_limitation(reason) {
-        assura_diagnostics::Diagnostic::warning(
-            "A05102",
-            format!("verification skipped for {clause_desc}: {reason}"),
-            0..0,
-        )
-        .with_file(filename)
-    } else {
-        has_errors = true;
-        assura_diagnostics::Diagnostic::error(
-            "A05103",
-            format!("verification inconclusive for {clause_desc}: {reason}"),
-            0..0,
-        )
-        .with_file(filename)
-    };
-    assert!(!has_errors, "known limitation should not set has_errors");
-    assert!(diag.message.starts_with("verification skipped"));
-    assert_eq!(diag.code, "A05102", "known limitation should use A05102");
+    let warn = unknown_limitation_diagnostic(filename, clause_desc, known, 0..0, false);
+    assert_eq!(warn.code, "A05102");
+    assert_eq!(warn.severity, Severity::Warning);
+    assert!(
+        warn.message.starts_with("verification skipped"),
+        "got: {}",
+        warn.message
+    );
 
-    // Error path: solver inconclusive -> A05103
-    let reason2 = "non-linear arithmetic";
-    let mut has_errors2 = false;
-    let diag2 = if assura_smt::is_known_smt_limitation(reason2) {
-        assura_diagnostics::Diagnostic::warning(
-            "A05102",
-            format!("verification skipped for {clause_desc}: {reason2}"),
-            0..0,
-        )
-        .with_file(filename)
-    } else {
-        has_errors2 = true;
-        assura_diagnostics::Diagnostic::error(
-            "A05103",
-            format!("verification inconclusive for {clause_desc}: {reason2}"),
-            0..0,
-        )
-        .with_file(filename)
-    };
-    assert!(has_errors2, "solver inconclusive should set has_errors");
-    assert!(diag2.message.starts_with("verification inconclusive"));
-    assert_eq!(
-        diag2.code, "A05103",
-        "solver inconclusive should use A05103"
+    let incon =
+        unknown_limitation_diagnostic(filename, clause_desc, "non-linear arithmetic", 0..0, false);
+    assert_eq!(incon.code, "A05103");
+    assert_eq!(incon.severity, Severity::Error);
+    assert!(
+        incon.message.starts_with("verification inconclusive"),
+        "got: {}",
+        incon.message
+    );
+
+    let strict = unknown_limitation_diagnostic(filename, clause_desc, known, 0..0, true);
+    assert_eq!(strict.code, "A05102");
+    assert_eq!(strict.severity, Severity::Error);
+    assert!(
+        strict.message.contains("--strict"),
+        "strict known limitation should mention --strict, got: {}",
+        strict.message
     );
 }
 

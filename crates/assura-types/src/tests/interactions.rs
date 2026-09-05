@@ -559,11 +559,15 @@ fn interaction_linear_context_fork_merge_two_vars() {
 
     // One error for `a` (used in then, not in else)
     // One error for `b` (used in else, not in then)
-    let names: Vec<bool> = errors
-        .iter()
-        .map(|e| e.message.contains("a") || e.message.contains("b"))
-        .collect();
-    assert!(names.iter().all(|&b| b));
+    let messages: Vec<&str> = errors.iter().map(|e| e.message.as_str()).collect();
+    assert!(
+        messages.iter().any(|m| m.contains("`a`")),
+        "expected a message for `a`, got: {messages:?}"
+    );
+    assert!(
+        messages.iter().any(|m| m.contains("`b`")),
+        "expected a message for `b`, got: {messages:?}"
+    );
 }
 
 #[test]
