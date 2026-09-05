@@ -163,6 +163,44 @@ fn parse_rust_source_item_line_is_fn_keyword_1_based() {
 }
 
 #[test]
+fn parse_rust_source_struct_line_is_struct_keyword_1_based() {
+    let source = "// leading\n/// @invariant self.n >= 0\nstruct S { n: i32 }\n";
+    let expected = source
+        .find("struct ")
+        .map(|idx| source[..idx].chars().filter(|&c| c == '\n').count() + 1)
+        .expect("struct keyword");
+    assert!(
+        expected > 1,
+        "fixture must have a leading line so column-as-offset would report line 1"
+    );
+    let items = parse_rust_source(source).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].line, expected,
+        "item.line must be the 1-based struct keyword line, not column-as-offset"
+    );
+}
+
+#[test]
+fn parse_rust_source_impl_line_is_impl_keyword_1_based() {
+    let source = "// leading\n/// @invariant true\nimpl S {}\n";
+    let expected = source
+        .find("impl ")
+        .map(|idx| source[..idx].chars().filter(|&c| c == '\n').count() + 1)
+        .expect("impl keyword");
+    assert!(
+        expected > 1,
+        "fixture must have a leading line so column-as-offset would report line 1"
+    );
+    let items = parse_rust_source(source).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].line, expected,
+        "item.line must be the 1-based impl keyword line, not column-as-offset"
+    );
+}
+
+#[test]
 fn parse_doc_contracts_struct_invariant_from_source() {
     let source = r#"
 /// @invariant self.len <= self.capacity

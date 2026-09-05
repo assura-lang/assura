@@ -170,10 +170,9 @@ fn extract_doc_lines(attrs: &[syn::Attribute], source: &str) -> Vec<(String, usi
 ///
 /// In non-proc-macro context, span locations may not be available.
 /// We fall back to 0 if we cannot determine the offset.
-fn span_to_offset(span: proc_macro2::Span, _source: &str) -> usize {
-    // proc_macro2 spans in non-proc-macro context (parsed via syn::parse_str
-    // or syn::parse_file) provide byte offsets via start().
-    span.start().column
+fn span_to_offset(span: proc_macro2::Span, source: &str) -> usize {
+    let start = span.start();
+    line_col_to_offset(source, start.line, start.column)
 }
 
 /// Extract a string representation of a syn type.
@@ -268,7 +267,8 @@ pub fn parse_rust_source_with_options(
                 let doc_lines = extract_doc_lines(&st.attrs, source);
                 let contract = parse_doc_clauses(&doc_lines);
                 if !contract.is_empty() {
-                    let offset = st.ident.span().start().column;
+                    let start = st.ident.span().start();
+                    let offset = line_col_to_offset(source, start.line, start.column);
                     let fields = match &st.fields {
                         syn::Fields::Named(named) => named
                             .named
@@ -305,7 +305,8 @@ pub fn parse_rust_source_with_options(
                     .map(|(path, _)| path.to_token_stream().to_string());
 
                 if !impl_contract.is_empty() {
-                    let offset = imp.impl_token.span.start().column;
+                    let start = imp.impl_token.span.start();
+                    let offset = line_col_to_offset(source, start.line, start.column);
                     items.push(AnnotatedItem {
                         contract: impl_contract,
                         kind: AnnotatedItemKind::ImplBlock {
