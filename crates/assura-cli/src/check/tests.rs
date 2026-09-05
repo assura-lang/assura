@@ -145,3 +145,64 @@ fn project_unknown_arm_calls_shared_limitation_helper() {
         "project Unknown arm must call unknown_limitation_diagnostic"
     );
 }
+
+fn typecheck_unc_contract() -> assura_types::TypedFile {
+    let src = "contract Unc { input(x: Int) output(result: Int) requires { x > 0 } ensures { result >= 0 } }";
+    let file = assura_parser::parse_unwrap(src);
+    let resolved = assura_resolve::resolve(&file).expect("resolve Unc");
+    assura_types::type_check(resolved).expect("typecheck Unc")
+}
+
+#[test]
+fn project_a04008_from_typed_warnings() {
+    let typed = typecheck_unc_contract();
+    let diags = super::typed_warnings_to_diags(&typed.warnings, "unc.assura");
+    assert!(
+        diags.iter().any(|d| d.code == "A04008"),
+        "expected A04008 from unconstrained result, got: {diags:?}"
+    );
+}
+
+#[test]
+fn project_a04008_suppressed_after_verified_ensures() {
+    let typed = typecheck_unc_contract();
+    let mut diags = super::typed_warnings_to_diags(&typed.warnings, "unc.assura");
+    assert!(
+        diags.iter().any(|d| d.code == "A04008"),
+        "precondition: A04008 must be present before suppress, got: {diags:?}"
+    );
+    let results = vec![assura_smt::VerificationResult::Verified {
+        clause_desc: "Unc::ensures".into(),
+        unsat_core: None,
+    }];
+    super::suppress_a04008_for_verified_ensures(&mut diags, &results);
+    assert!(
+        diags.iter().all(|d| d.code != "A04008"),
+        "Verified Unc::ensures must drop A04008, got: {diags:?}"
+    );
+}
+
+#[test]
+fn project_smt_diagnostics_use_clause_spans() {
+    let src = include_str!("project.rs");
+    assert!(
+        src.contains("lookup_clause_span"),
+        "project.rs must look up declaration spans for SMT diagnostics"
+    );
+    let a05100 = src.split("\"A05100\"").nth(1).expect("A05100 diagnostic");
+    let a05100_span = a05100.split(".with_file").next().unwrap_or(a05100);
+    assert!(
+        !a05100_span.contains("0..0"),
+        "A05100 must use lookup_clause_span, not 0..0: {a05100_span}"
+    );
+    let a05101 = src.split("\"A05101\"").nth(1).expect("A05101 diagnostic");
+    let a05101_span = a05101.split(".with_file").next().unwrap_or(a05101);
+    assert!(
+        !a05101_span.contains("0..0"),
+        "A05101 must use lookup_clause_span, not 0..0: {a05101_span}"
+    );
+    assert!(
+        !src.contains("reason,\n                                    0..0,"),
+        "Unknown arm must pass lookup_clause_span, not 0..0"
+    );
+}
