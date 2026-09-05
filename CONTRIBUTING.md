@@ -160,8 +160,10 @@ under `crates/`.
 
 ### 2. Run the pre-commit gate
 
-Full pre-commit gate (matches CI). Use `--locked` so `Cargo.lock` is not
-rewritten accidentally:
+Full pre-commit gate (matches the rust-path CI jobs: fmt, clippy, tests,
+package, no-Z3). Use `--locked` so `Cargo.lock` is not rewritten
+accidentally. A PR that only adds or edits `demos/*.assura` skips those
+jobs and runs codegen-validation instead (step 3).
 
 ```bash
 cargo fmt --all -- --check
@@ -293,37 +295,55 @@ For local CVC5 on macOS ARM, run `bash scripts/setup-cvc5.sh` and export
 the printed `CVC5_LIB_DIR` / `CVC5_INCLUDE_DIR` before the cvc5 clippy/test
 commands (source builds often fail under AppleClang).
 
-### 3. Verify demo files still parse
+### 3. Verify demo files still parse and generate Rust
+
+Showcase files (quick local check):
 
 ```bash
-cargo run --bin assura -- check demos/libwebp-huffman.assura
-cargo run --bin assura -- check demos/zlib-inflate.assura
-cargo run --bin assura -- check demos/mbedtls-x509.assura
-cargo run --bin assura -- check demos/taint-tracking.assura
-cargo run --bin assura -- check demos/heartbleed.assura
+cargo run --locked --bin assura -- check demos/libwebp-huffman.assura
+cargo run --locked --bin assura -- check demos/zlib-inflate.assura
+cargo run --locked --bin assura -- check demos/mbedtls-x509.assura
+cargo run --locked --bin assura -- check demos/taint-tracking.assura
+cargo run --locked --bin assura -- check demos/heartbleed.assura
+```
+
+When you add or edit a demo, match the CI `codegen-validation` job
+(skip `*-audit*` files). `check` alone is not enough: generated Rust
+must compile.
+
+```bash
+bash scripts/smoke-getting-started.sh
+for demo in demos/*.assura; do
+  case "$demo" in *-audit*|*audit-*) continue;; esac
+  cargo run --locked --bin assura -- check "$demo"
+  cargo run --locked --bin assura -- build --no-check "$demo"
+  (cd "$(dirname "$demo")/generated" && cargo check)
+  rm -rf "$(dirname "$demo")/generated"
+done
 ```
 
 ### 4. Commit
 
-Use scoped commit messages:
+Use Conventional Commits. Squash-merge uses the **PR title** as the
+main-branch subject; release-please only bumps for `feat` / `fix` /
+`perf`. Put the area in parentheses, never as the type:
 
 ```
-<scope>: <description>
+feat(parser): handle refinement types in field definitions
+fix(types): A04008 skip only result.length() >= 0 on extern
+docs: list demo codegen-validation in the local gate
 ```
 
-| Scope | When to use |
-|-------|-------------|
-| `parser` | Lexer or parser changes |
-| `resolve` | Name resolution |
-| `types` | Type checker |
-| `smt` | SMT verification |
-| `codegen` | Rust code generation |
-| `cli` | CLI commands |
-| `lsp` | Language server |
-| `docs` | Documentation |
-| `tests` | Test infrastructure |
-| `ci` | CI/CD workflows |
-| `deps` | Dependency updates |
+| Type | When to use |
+|------|-------------|
+| `feat` | User-visible feature (minor pre-1.0) |
+| `fix` / `perf` | User-visible bug fix or speedup (patch) |
+| `docs` / `test` / `ci` / `chore` | No version bump |
+
+Optional scopes: `parser`, `resolve`, `types`, `smt`, `codegen`, `cli`,
+`lsp`, `docs`, `tests`, `ci`, `deps`. Do not write `types: …` or
+`check-rust: …` as the title; those are unknown types and do not open a
+release PR.
 
 ## Testing
 
