@@ -2117,8 +2117,12 @@ mod tests {
     fn default_generated_resolves_next_to_source() {
         let p = resolve_output_dir_for_file("generated", "myproj/contracts/lib.assura");
         assert_eq!(
-            p.as_ref().map(|p| p.to_string_lossy().into_owned()),
-            Some("myproj/contracts/generated".into())
+            p,
+            Some(
+                std::path::PathBuf::from("myproj")
+                    .join("contracts")
+                    .join("generated")
+            )
         );
     }
 
