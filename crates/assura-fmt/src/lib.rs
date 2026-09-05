@@ -57,6 +57,21 @@ fn expand_minified_braces(s: &str) -> String {
     while i < chars.len() {
         let c = chars[i];
         match c {
+            '"' => {
+                out.push('"');
+                i += 1;
+                while i < chars.len() {
+                    let sc = chars[i];
+                    out.push(sc);
+                    if sc == '\\' && i + 1 < chars.len() {
+                        i += 1;
+                        out.push(chars[i]);
+                    } else if sc == '"' {
+                        break;
+                    }
+                    i += 1;
+                }
+            }
             '{' => {
                 out.push('{');
                 depth += 1;
@@ -150,7 +165,7 @@ fn collect_leaf_tokens_into(
 fn peek_non_ws(tokens: &[(SyntaxKind, String)], start: usize) -> Option<SyntaxKind> {
     tokens[start..]
         .iter()
-        .find(|(k, _)| *k != SyntaxKind::WHITESPACE && *k != SyntaxKind::COMMENT)
+        .find(|(k, _)| *k != SyntaxKind::WHITESPACE)
         .map(|(k, _)| *k)
 }
 
@@ -179,7 +194,7 @@ fn format_cst_tokens(root: &assura_parser::syntax_kind::SyntaxNode) -> String {
                     // Cap consecutive blank lines at 2
                     let newlines = text.matches('\n').count().min(3);
 
-                    // Peek ahead: if the next non-ws/comment token is `}`,
+                    // Peek ahead: if the next non-whitespace token is `}`,
                     // dedent by one level for the closing brace line.
                     let next_is_rbrace =
                         peek_non_ws(&tokens, i + 1).is_some_and(|k| k == SyntaxKind::R_BRACE);
