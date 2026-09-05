@@ -26,4 +26,4 @@ proc-macro2 = "1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }
-assura-runtime = { version = "0.4.3", path = "../assura-runtime" }
+assura-runtime = { version = "0.4.4", path = "../assura-runtime" }

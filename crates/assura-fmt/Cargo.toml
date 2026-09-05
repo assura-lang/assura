@@ -11,4 +11,4 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-assura-parser = { version = "0.4.3", path = "../assura-parser" }
+assura-parser = { version = "0.4.4", path = "../assura-parser" }
