@@ -458,6 +458,32 @@ fn minified_one_liner_is_expanded() {
     assert_idempotent(src);
 }
 
+#[test]
+fn minified_string_literal_braces_not_expanded() {
+    let src = "contract C{requires{msg==\"{\"}}\n";
+    let out = fmt(src);
+    assert!(
+        out.contains("\"{\""),
+        "fmt must not insert newlines inside a string: {out:?}"
+    );
+    assert_idempotent(src);
+}
+
+#[test]
+fn trailing_comment_before_rbrace_keeps_body_indent() {
+    let src = "contract Foo {\n    requires { x > 0 }\n    // keep indent\n}\n";
+    let out = fmt(src);
+    let comment = out
+        .lines()
+        .find(|l| l.contains("keep indent"))
+        .expect("comment preserved");
+    assert!(
+        comment.starts_with("    //"),
+        "comment before }} must stay at body indent, got {comment:?} in {out:?}"
+    );
+    assert_idempotent(src);
+}
+
 // ---------------------------------------------------------------------------
 // 7. Re-parseability
 // ---------------------------------------------------------------------------
