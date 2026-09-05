@@ -1215,6 +1215,35 @@ contract Second {
 }
 
 #[test]
+fn verify_ir_module_select_excludes_sibling_clauses() {
+    let contract = r#"
+contract First {
+  input(a: Int, max: Int)
+  requires { a < max }
+  ensures { a >= max }
+}
+contract Second {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == x }
+}
+"#;
+    let ir = "module Second {\n  fn #0 : ($0: Int) -> Int ! pure\n  {\n    $result = load $0 : Int\n  }\n}\n";
+    let config = CompilerConfig::default();
+    let result = verify_ir(contract, ir, &config);
+    assert!(
+        result.clauses.iter().all(|c| !c.name.contains("First")),
+        "module-name select must not report First clauses: {:?}",
+        result.clauses
+    );
+    assert_eq!(
+        result.status, "verified",
+        "Second identity IR should verify; sibling First CE must not flip status: {:?}",
+        result.clauses
+    );
+}
+
+#[test]
 fn verify_ir_unknown_contract_name_errors() {
     let contract =
         "contract Echo {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n";

@@ -148,6 +148,21 @@ dividend / divisor
 }
 
 #[test]
+fn parse_rust_source_item_line_is_fn_keyword_1_based() {
+    let source = "/// @ensures result == x\nfn known_line(x: i64) -> i64 { x }\n";
+    let expected = source
+        .find("fn ")
+        .map(|idx| source[..idx].chars().filter(|&c| c == '\n').count() + 1)
+        .expect("fn keyword");
+    let items = parse_rust_source(source).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].line, expected,
+        "item.line must be the 1-based fn keyword line (newlines before fn + 1)"
+    );
+}
+
+#[test]
 fn parse_doc_contracts_struct_invariant_from_source() {
     let source = r#"
 /// @invariant self.len <= self.capacity

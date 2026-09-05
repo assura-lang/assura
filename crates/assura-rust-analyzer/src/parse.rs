@@ -363,11 +363,13 @@ fn func_span_offset_method(sig: &syn::Signature, source: &str) -> usize {
     line_col_to_offset(source, start.line, start.column)
 }
 
-/// Convert (line, column) (0-based line from proc_macro2) to byte offset.
+/// Convert (line, column) to byte offset.
+///
+/// `proc_macro2::LineColumn::line` is 1-based; `column` is 0-based.
 fn line_col_to_offset(source: &str, line: usize, column: usize) -> usize {
     let mut offset = 0;
     for (i, src_line) in source.lines().enumerate() {
-        if i == line {
+        if i + 1 == line {
             return offset + column.min(src_line.len());
         }
         offset += src_line.len() + 1; // +1 for newline

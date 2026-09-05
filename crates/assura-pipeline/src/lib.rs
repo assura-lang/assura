@@ -564,10 +564,11 @@ pub fn verify_ir(
 
 /// Like [`verify_ir`], but validate and attribute IR to a named contract.
 ///
-/// When `contract_name` is `None`, the first `Decl::Contract` is used (same as
-/// [`verify_ir`]). When `Some(name)`, structural validation and IR extras use
-/// that contract, and SMT results are filtered to its clauses so sibling
-/// contracts in the same file do not dominate the status (#853).
+/// When `contract_name` is `None`, a contract is still selected: IR module
+/// name if it matches, otherwise the first `Decl::Contract` (or an error
+/// when several contracts exist and none match the module). SMT results are
+/// filtered to the selected contract's clauses so siblings in the same file
+/// do not dominate the status (#853).
 pub fn verify_ir_for_contract(
     contract_source: &str,
     ir_source: &str,
@@ -684,9 +685,9 @@ pub fn verify_ir_for_contract(
         .apply_options(config.verify.clone())
         .verify();
 
-    // When a contract was named, only report that contract's clauses so sibling
-    // contracts without this IR do not flip the overall status (#853).
-    let results = if contract_name.is_some() {
+    // When a contract was selected (named or IR module name), only report
+    // that contract's clauses so siblings without this IR do not flip status.
+    let results = if contract_decl.is_some() {
         let prefix = format!("{selected_name}::");
         results
             .into_iter()
