@@ -204,8 +204,14 @@ impl AssuraMcpServer {
             Ok((s, _)) => s,
             Err(e) => return tool_path_error_json(e),
         };
-        let ir = match resolve_source(params.ir, params.ir_file) {
-            Ok(s) => s,
+        let ir = match resolve_source_with_path_fields(
+            params.ir,
+            params.ir_file,
+            "ir",
+            "ir_file",
+            "inline IR",
+        ) {
+            Ok((s, _)) => s,
             Err(e) => return tool_path_error_json(e),
         };
         let config = assura_config::CompilerConfig::default();
@@ -366,6 +372,16 @@ fn resolve_source_with_path(
     inline: Option<String>,
     file: Option<String>,
 ) -> Result<(String, String), String> {
+    resolve_source_with_path_fields(inline, file, "source", "file", "inline code")
+}
+
+fn resolve_source_with_path_fields(
+    inline: Option<String>,
+    file: Option<String>,
+    inline_field: &str,
+    file_field: &str,
+    inline_desc: &str,
+) -> Result<(String, String), String> {
     match (inline, file) {
         (Some(s), _) => {
             source_len_allowed(s.len() as u64)?;
@@ -375,7 +391,9 @@ fn resolve_source_with_path(
             let content = read_jailed_source(&path)?;
             Ok((content, path))
         }
-        (None, None) => Err("Provide either `source` (inline code) or `file` (path)".into()),
+        (None, None) => Err(format!(
+            "Provide either `{inline_field}` ({inline_desc}) or `{file_field}` (path)"
+        )),
     }
 }
 
@@ -1596,6 +1614,34 @@ contract Inc {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x 
                 .unwrap_or("")
                 .starts_with("Provide either"),
             "{v}"
+        );
+    }
+
+    #[test]
+    fn tool_ir_verify_missing_ir() {
+        let server = AssuraMcpServer::new();
+        let params = IrVerifyParams {
+            source: Some("contract C { requires { true } }".into()),
+            file: None,
+            ir: None,
+            ir_file: None,
+            decl: None,
+        };
+        let result = server.assura_ir_verify(Parameters(params));
+        let v: serde_json::Value = serde_json::from_str(&result)
+            .unwrap_or_else(|e| panic!("missing IR must be JSON: {e}\n{result}"));
+        assert_eq!(v["success"], false, "{v}");
+        assert_eq!(v["error_kind"], "MISSING_SOURCE", "{v}");
+        let err = v["error"].as_str().unwrap_or("");
+        assert!(err.contains("`ir`"), "error must name `ir`: {v}");
+        assert!(err.contains("`ir_file`"), "error must name `ir_file`: {v}");
+        assert!(
+            !err.contains("`source`"),
+            "error must not name `source` when IR is missing: {v}"
+        );
+        assert!(
+            !err.contains("`file`"),
+            "error must not name `file` when IR is missing: {v}"
         );
     }
 }
