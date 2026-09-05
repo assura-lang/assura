@@ -16,6 +16,35 @@ pub(crate) const RESULT_VAR: &str = "__assura_result";
 /// Prefix for `old(expr)` pre-state snapshot variables in generated Rust.
 pub(crate) const OLD_VAR_PREFIX: &str = "__assura_old_";
 
+fn is_float_rust_ty(ty: &str) -> bool {
+    ty == "f64" || ty == "f32"
+}
+
+/// Collect identifiers that must skip `i128::from` wrapping.
+///
+/// Input names whose mapped type is `f64`/`f32` are included. When the
+/// output/return type is a float, `result` and `extra_names` (output()
+/// names) are included as well.
+pub(crate) fn float_idents(
+    inputs: impl IntoIterator<Item = (impl AsRef<str>, impl AsRef<str>)>,
+    output_ty: Option<&str>,
+    extra_names: &[&str],
+) -> HashSet<String> {
+    let mut set = HashSet::new();
+    for (name, ty) in inputs {
+        if is_float_rust_ty(ty.as_ref()) {
+            set.insert(name.as_ref().to_string());
+        }
+    }
+    if output_ty.is_some_and(is_float_rust_ty) {
+        set.insert("result".to_string());
+        for name in extra_names {
+            set.insert((*name).to_string());
+        }
+    }
+    set
+}
+
 /// Returns true if the expression contains a literal that exceeds i128 range
 /// (e.g. u128::MAX). Such literals cannot be wrapped in `i128::from(...)`.
 fn has_u128_literal(expr: &SpExpr) -> bool {

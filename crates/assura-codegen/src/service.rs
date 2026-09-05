@@ -1,7 +1,5 @@
 //! Service, typestate, and interface trait code generation.
 
-use std::collections::HashSet;
-
 use super::*;
 
 // Service declarations
@@ -75,13 +73,14 @@ fn build_service_method_fn(
         }
     }
 
-    // Collect float-typed parameter names so the expression folder skips
-    // i128::from() wrapping for them (f64 does not implement Into<i128>).
-    let float_vars: HashSet<String> = input_params
-        .iter()
-        .filter(|(_, ty)| ty == "f64")
-        .map(|(n, _)| n.clone())
-        .collect();
+    // Collect float-typed parameter / result names so the expression folder
+    // skips i128::from() wrapping (f64 does not implement Into<i128>).
+    let extra: Vec<&str> = output_name.iter().map(String::as_str).collect();
+    let float_vars = float_idents(
+        input_params.iter().map(|(n, t)| (n.as_str(), t.as_str())),
+        Some(output_type.as_str()),
+        &extra,
+    );
 
     for clause in clauses {
         match &clause.kind {
@@ -257,13 +256,14 @@ fn build_typestate_method_fn(
         }
     }
 
-    // Collect float-typed parameter names so the expression folder skips
-    // i128::from() wrapping for them (f64 does not implement Into<i128>).
-    let float_vars: HashSet<String> = input_params
-        .iter()
-        .filter(|(_, ty)| ty == "f64")
-        .map(|(n, _)| n.clone())
-        .collect();
+    // Collect float-typed parameter / result names so the expression folder
+    // skips i128::from() wrapping (f64 does not implement Into<i128>).
+    let extra: Vec<&str> = output_name.iter().map(String::as_str).collect();
+    let float_vars = float_idents(
+        input_params.iter().map(|(n, t)| (n.as_str(), t.as_str())),
+        Some(output_type.as_str()),
+        &extra,
+    );
 
     for clause in clauses {
         match &clause.kind {

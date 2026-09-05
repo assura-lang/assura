@@ -1,7 +1,5 @@
 //! Bind, extern, and function definition code generation.
 
-use std::collections::HashSet;
-
 use super::*;
 
 // ---------------------------------------------------------------------------
@@ -42,12 +40,15 @@ pub(crate) fn generate_bind(b: &BindDecl, code: &mut String) {
 
     let rust_path = &b.target_path;
 
-    // Collect float-typed parameter names to skip i128::from() wrapping.
-    let float_vars: HashSet<String> = params
-        .iter()
-        .filter(|p| matches!(&p.ty, RustType::Raw(t) if t == "f64"))
-        .map(|p| p.name.clone())
-        .collect();
+    // Collect float-typed parameter / result names to skip i128::from() wrapping.
+    let float_vars = float_idents(
+        params.iter().filter_map(|p| match &p.ty {
+            RustType::Raw(t) => Some((p.name.as_str(), t.as_str())),
+            _ => None,
+        }),
+        Some(ret.as_str()),
+        &[],
+    );
 
     let mut body: Vec<RustStmt> = Vec::new();
 
@@ -142,12 +143,15 @@ pub(crate) fn generate_extern(ex: &ExternDecl, code: &mut String) {
         .iter()
         .any(|c| c.kind == ClauseKind::Requires || c.kind == ClauseKind::Ensures);
 
-    // Collect float-typed parameter names to skip i128::from() wrapping.
-    let float_vars: HashSet<String> = params
-        .iter()
-        .filter(|p| matches!(&p.ty, RustType::Raw(t) if t == "f64"))
-        .map(|p| p.name.clone())
-        .collect();
+    // Collect float-typed parameter / result names to skip i128::from() wrapping.
+    let float_vars = float_idents(
+        params.iter().filter_map(|p| match &p.ty {
+            RustType::Raw(t) => Some((p.name.as_str(), t.as_str())),
+            _ => None,
+        }),
+        Some(ret.as_str()),
+        &[],
+    );
 
     let mut body: Vec<RustStmt> = Vec::new();
 
@@ -269,12 +273,15 @@ pub(crate) fn generate_fn_def(
         Some(RustType::Raw(return_type))
     };
 
-    // Collect float-typed parameter names to skip i128::from() wrapping.
-    let float_vars: HashSet<String> = params
-        .iter()
-        .filter(|p| matches!(&p.ty, RustType::Raw(t) if t == "f64"))
-        .map(|p| p.name.clone())
-        .collect();
+    // Collect float-typed parameter / result names to skip i128::from() wrapping.
+    let float_vars = float_idents(
+        params.iter().filter_map(|p| match &p.ty {
+            RustType::Raw(t) => Some((p.name.as_str(), t.as_str())),
+            _ => None,
+        }),
+        Some(ret_ty.as_str()),
+        &[],
+    );
 
     let mut body: Vec<RustStmt> = Vec::new();
 
