@@ -24,7 +24,7 @@ pub(crate) fn run_check_rust(
     solver: Option<assura_smt::SolverChoice>,
     llm_opts: LlmOpts<'_>,
 ) {
-    use assura_rust_analyzer::{AnnotatedItem, AnnotatedItemKind};
+    use assura_rust_analyzer::{AnnotatedItem, AnnotatedItemKind, InlineClauseKind};
 
     let json = output_mode == OutputMode::Json;
     if layer > 3 {
@@ -175,91 +175,8 @@ pub(crate) fn run_check_rust(
                 AnnotatedItemKind::ImplBlock { self_type, .. } => (self_type.clone(), "impl block"),
             };
 
-            // Build a synthetic .assura contract from the annotations
-            let mut contract_source = format!("contract {item_name} {{\n");
-
-            // Strip trailing `//` comments from doc annotation bodies so
-            // `/// @ensures result == x // identity` stays valid Assura.
-            let clause_body =
-                |raw: &str| -> String { raw.split("//").next().unwrap_or(raw).trim().to_string() };
-
-            // Add requires clauses
-            for clause in &item.contract.requires {
-                contract_source
-                    .push_str(&format!("  requires {{ {} }}\n", clause_body(&clause.body)));
-                total_clauses += 1;
-            }
-            // Machine integer params: constrain to Rust type range so body IR
-            // models (e.g. saturating/clamp to i64) match SMT unbounded Int.
-            if let AnnotatedItemKind::Function { params, .. } = &item.kind {
-                for p in params.iter().filter(|p| p.name != "self") {
-                    if let Some((lo, hi)) = rust_int_range_bounds(&p.ty) {
-                        contract_source.push_str(&format!(
-                            "  requires {{ {} >= {} }}\n  requires {{ {} <= {} }}\n",
-                            p.name, lo, p.name, hi
-                        ));
-                        total_clauses += 2;
-                    }
-                }
-            }
-            // Add ensures clauses
-            for clause in &item.contract.ensures {
-                contract_source
-                    .push_str(&format!("  ensures {{ {} }}\n", clause_body(&clause.body)));
-                total_clauses += 1;
-            }
-            // Add invariant clauses
-            for clause in &item.contract.invariants {
-                contract_source.push_str(&format!(
-                    "  invariant {{ {} }}\n",
-                    clause_body(&clause.body)
-                ));
-                total_clauses += 1;
-            }
-            // Add effects clauses
-            for clause in &item.contract.effects {
-                contract_source
-                    .push_str(&format!("  effects {{ {} }}\n", clause_body(&clause.body)));
-                total_clauses += 1;
-            }
-            // Add decreases clauses
-            for clause in &item.contract.decreases {
-                contract_source.push_str(&format!(
-                    "  decreases {{ {} }}\n",
-                    clause_body(&clause.body)
-                ));
-                total_clauses += 1;
-            }
-
-            // Add input parameters for functions
-            if let AnnotatedItemKind::Function {
-                params,
-                return_type,
-                ..
-            } = &item.kind
-            {
-                // Map Rust types to Assura types for the synthetic contract
-                let param_strs: Vec<String> = params
-                    .iter()
-                    .filter(|p| p.name != "self")
-                    .map(|p| {
-                        let assura_ty = assura_codegen::type_map::rust_type_to_assura(&p.ty);
-                        format!("{}: {assura_ty}", p.name)
-                    })
-                    .collect();
-                // Parameters must be `input(...)` so resolve registers them in
-                // scope. `requires(x: Int)` is a boolean clause, not a param list
-                // (dogfood: result == x never verified; A02001 undefined `x`).
-                if !param_strs.is_empty() {
-                    contract_source.push_str(&format!("  input({})\n", param_strs.join(", ")));
-                }
-                if let Some(ret) = return_type {
-                    let assura_ret = assura_codegen::type_map::rust_type_to_assura(ret);
-                    contract_source.push_str(&format!("  output(result: {assura_ret})\n"));
-                }
-            }
-
-            contract_source.push_str("}\n");
+            let (contract_source, n_clauses) = synthesize_inline_contract(&item_name, item);
+            total_clauses += n_clauses;
 
             // Run the Assura pipeline on the synthetic contract
             let config = assura_config::CompilerConfig::default();
@@ -467,6 +384,12 @@ pub(crate) fn run_check_rust(
                             .decreases
                             .iter()
                             .map(|c| clause_to_json(c, "decreases")),
+                    )
+                    .chain(
+                        item.contract
+                            .annotations_of(InlineClauseKind::Modifies)
+                            .into_iter()
+                            .map(|c| clause_to_json(c, "modifies")),
                     )
                     .collect();
 
@@ -1191,6 +1114,98 @@ fn run_llm_analysis(
     }
 }
 
+/// Strip trailing `//` comments from doc annotation bodies so
+/// `/// @ensures result == x // identity` stays valid Assura.
+fn clause_body(raw: &str) -> String {
+    raw.split("//").next().unwrap_or(raw).trim().to_string()
+}
+
+/// Build a synthetic Assura contract from inline Rust annotations.
+/// Returns `(source, clause_count)`.
+fn synthesize_inline_contract(
+    item_name: &str,
+    item: &assura_rust_analyzer::AnnotatedItem,
+) -> (String, usize) {
+    use assura_rust_analyzer::{AnnotatedItemKind, InlineClauseKind};
+
+    let mut contract_source = format!("contract {item_name} {{\n");
+    let mut total_clauses = 0usize;
+
+    for clause in &item.contract.requires {
+        contract_source.push_str(&format!("  requires {{ {} }}\n", clause_body(&clause.body)));
+        total_clauses += 1;
+    }
+    // Machine integer params: constrain to Rust type range so body IR
+    // models (e.g. saturating/clamp to i64) match SMT unbounded Int.
+    if let AnnotatedItemKind::Function { params, .. } = &item.kind {
+        for p in params.iter().filter(|p| p.name != "self") {
+            if let Some((lo, hi)) = rust_int_range_bounds(&p.ty) {
+                contract_source.push_str(&format!(
+                    "  requires {{ {} >= {} }}\n  requires {{ {} <= {} }}\n",
+                    p.name, lo, p.name, hi
+                ));
+                total_clauses += 2;
+            }
+        }
+    }
+    for clause in &item.contract.ensures {
+        contract_source.push_str(&format!("  ensures {{ {} }}\n", clause_body(&clause.body)));
+        total_clauses += 1;
+    }
+    for clause in &item.contract.invariants {
+        contract_source.push_str(&format!(
+            "  invariant {{ {} }}\n",
+            clause_body(&clause.body)
+        ));
+        total_clauses += 1;
+    }
+    for clause in &item.contract.effects {
+        contract_source.push_str(&format!("  effects {{ {} }}\n", clause_body(&clause.body)));
+        total_clauses += 1;
+    }
+    for clause in &item.contract.decreases {
+        contract_source.push_str(&format!(
+            "  decreases {{ {} }}\n",
+            clause_body(&clause.body)
+        ));
+        total_clauses += 1;
+    }
+    for clause in item.contract.annotations_of(InlineClauseKind::Modifies) {
+        contract_source.push_str(&format!("  modifies {{ {} }}\n", clause_body(&clause.body)));
+        total_clauses += 1;
+    }
+
+    if let AnnotatedItemKind::Function {
+        params,
+        return_type,
+        ..
+    } = &item.kind
+    {
+        // Map Rust types to Assura types for the synthetic contract
+        let param_strs: Vec<String> = params
+            .iter()
+            .filter(|p| p.name != "self")
+            .map(|p| {
+                let assura_ty = assura_codegen::type_map::rust_type_to_assura(&p.ty);
+                format!("{}: {assura_ty}", p.name)
+            })
+            .collect();
+        // Parameters must be `input(...)` so resolve registers them in
+        // scope. `requires(x: Int)` is a boolean clause, not a param list
+        // (dogfood: result == x never verified; A02001 undefined `x`).
+        if !param_strs.is_empty() {
+            contract_source.push_str(&format!("  input({})\n", param_strs.join(", ")));
+        }
+        if let Some(ret) = return_type {
+            let assura_ret = assura_codegen::type_map::rust_type_to_assura(ret);
+            contract_source.push_str(&format!("  output(result: {assura_ret})\n"));
+        }
+    }
+
+    contract_source.push_str("}\n");
+    (contract_source, total_clauses)
+}
+
 /// Convert a contract clause to a JSON value.
 pub(crate) fn clause_to_json(
     clause: &assura_rust_analyzer::ContractClause,
@@ -1291,5 +1306,40 @@ mod body_policy_tests {
         ));
         assert!(!should_mark_body_not_modeled(true, false, "error", 0, 1));
         assert!(!should_mark_body_not_modeled(false, false, "skipped", 0, 0));
+    }
+}
+
+#[cfg(test)]
+mod modifies_emit_tests {
+    use assura_rust_analyzer::{AnnotatedItemKind, InlineClauseKind, parse_rust_source};
+
+    #[test]
+    fn synthesizes_modifies_clause() {
+        let src = "\
+/// @requires x > 0
+/// @ensures result >= x
+/// @modifies xs
+fn bump(x: i32, xs: i32) -> i32 { x }
+";
+        let items = parse_rust_source(src).expect("parse rust snippet");
+        assert!(!items.is_empty(), "expected an annotated function");
+        let item = &items[0];
+        assert!(
+            !item
+                .contract
+                .annotations_of(InlineClauseKind::Modifies)
+                .is_empty(),
+            "parser must store @modifies on InlineContract.annotations"
+        );
+        let name = match &item.kind {
+            AnnotatedItemKind::Function { name, .. } => name.as_str(),
+            other => panic!("expected function, got {other:?}"),
+        };
+        let (source, count) = super::synthesize_inline_contract(name, item);
+        assert!(
+            source.contains("modifies { xs }"),
+            "synthesized contract must emit @modifies, got:\n{source}"
+        );
+        assert!(count >= 3, "requires + ensures + modifies, got {count}");
     }
 }
