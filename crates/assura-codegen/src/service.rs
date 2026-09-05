@@ -1,5 +1,7 @@
 //! Service, typestate, and interface trait code generation.
 
+use std::collections::HashSet;
+
 use super::*;
 
 // Service declarations
@@ -69,22 +71,36 @@ fn build_service_method_fn(
                 output_type = extract_output_type(&clause.body);
                 output_name = extract_output_name(&clause.body);
             }
+            _ => {}
+        }
+    }
+
+    // Collect float-typed parameter names so the expression folder skips
+    // i128::from() wrapping for them (f64 does not implement Into<i128>).
+    let float_vars: HashSet<String> = input_params
+        .iter()
+        .filter(|(_, ty)| ty == "f64")
+        .map(|(n, _)| n.clone())
+        .collect();
+
+    for clause in clauses {
+        match &clause.kind {
             ClauseKind::Requires => {
                 if let Some(state) = extract_state_comparison(&clause.body) {
                     pre_state = Some(state);
                 } else {
-                    requires_exprs.push(expr_to_rust(&clause.body));
+                    requires_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
                 }
             }
             ClauseKind::Ensures => {
                 if let Some(state) = extract_state_comparison(&clause.body) {
                     post_state = Some(state);
                 } else {
-                    ensures_exprs.push(expr_to_rust(&clause.body));
+                    ensures_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
                 }
             }
             ClauseKind::Invariant => {
-                invariants.push(expr_to_rust(&clause.body));
+                invariants.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
             }
             _ => {}
         }
@@ -237,19 +253,35 @@ fn build_typestate_method_fn(
                 output_type = extract_output_type(&clause.body);
                 output_name = extract_output_name(&clause.body);
             }
+            _ => {}
+        }
+    }
+
+    // Collect float-typed parameter names so the expression folder skips
+    // i128::from() wrapping for them (f64 does not implement Into<i128>).
+    let float_vars: HashSet<String> = input_params
+        .iter()
+        .filter(|(_, ty)| ty == "f64")
+        .map(|(n, _)| n.clone())
+        .collect();
+
+    for clause in clauses {
+        match &clause.kind {
             ClauseKind::Requires => {
                 if extract_state_comparison(&clause.body).is_none() {
-                    requires_exprs.push(expr_to_rust(&clause.body));
+                    requires_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
                 }
             }
             ClauseKind::Ensures => {
                 if let Some(state) = extract_state_comparison(&clause.body) {
                     post_state = Some(state);
                 } else {
-                    ensures_exprs.push(expr_to_rust(&clause.body));
+                    ensures_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
                 }
             }
-            ClauseKind::Invariant => invariants.push(expr_to_rust(&clause.body)),
+            ClauseKind::Invariant => {
+                invariants.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
+            }
             _ => {}
         }
     }
