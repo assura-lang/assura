@@ -76,6 +76,7 @@ use width::*;
 ///
 /// Unique name only: if several items share `fn_name`, returns `None`
 /// (use [`extract_body_return_at`] with the annotated 1-based line).
+#[cfg(test)]
 pub(crate) fn extract_body_return(source: &str, fn_name: &str) -> Option<String> {
     extract_body_return_at(source, fn_name, 0)
 }
