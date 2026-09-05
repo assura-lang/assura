@@ -28,29 +28,25 @@ pub fn try_format_source(source: &str) -> Result<String, Vec<assura_parser::Pars
         return Err(errors);
     }
 
-    let mut formatted = format_cst_tokens(&root);
-    // Minified one-liners have no newline whitespace for the indent path.
-    // Expand braces, then re-run CST indent so the result is idempotent (#919).
-    if is_effectively_single_line(&formatted) {
-        let expanded = expand_minified_braces(&root);
-        let (root2, errs2) = assura_parser::parse_cst(&expanded);
-        if errs2.is_empty() {
-            formatted = format_cst_tokens(&root2);
-        }
-        // else keep pre-expand `formatted` (already parseable)
+    let formatted = format_cst_tokens(&root);
+    // Always walk CST tokens for minified `{...}` pairs. Newlines are
+    // inserted only when the brace pair has no existing newline (a header
+    // comment must not skip a compacted contract body).
+    let expanded = expand_minified_braces(&root);
+    let (root2, errs2) = assura_parser::parse_cst(&expanded);
+    if errs2.is_empty() {
+        Ok(format_cst_tokens(&root2))
+    } else {
+        // Keep pre-expand `formatted` (already parseable)
+        Ok(formatted)
     }
-    Ok(formatted)
 }
 
-fn is_effectively_single_line(s: &str) -> bool {
-    let body = s.trim_end_matches('\n');
-    !body.is_empty() && !body.contains('\n')
-}
-
-/// Insert newlines after `{` and before `}` for single-line minified sources.
+/// Insert newlines after `{` and before `}` when a brace pair is minified.
 ///
 /// Walks CST tokens so COMMENT / STRING_LIT braces and quotes are copied
-/// unchanged and do not change depth.
+/// unchanged and do not change depth. Already-pretty pairs (intervening
+/// whitespace already contains `\n`) are left alone.
 fn expand_minified_braces(root: &assura_parser::syntax_kind::SyntaxNode) -> String {
     let tokens = collect_leaf_tokens(root);
     let mut out = String::with_capacity(tokens.iter().map(|(_, t)| t.len()).sum::<usize>() * 2);
@@ -63,7 +59,9 @@ fn expand_minified_braces(root: &assura_parser::syntax_kind::SyntaxNode) -> Stri
             SyntaxKind::L_BRACE => {
                 out.push('{');
                 depth += 1;
-                if peek_non_ws(&tokens, i + 1).is_some_and(|k| k != SyntaxKind::R_BRACE) {
+                if peek_non_ws(&tokens, i + 1).is_some_and(|k| k != SyntaxKind::R_BRACE)
+                    && !intervening_ws_has_newline(&tokens, i + 1)
+                {
                     out.push('\n');
                     for _ in 0..depth {
                         out.push_str("    ");
@@ -87,7 +85,9 @@ fn expand_minified_braces(root: &assura_parser::syntax_kind::SyntaxNode) -> Stri
                     .iter()
                     .find(|(k, _)| *k != SyntaxKind::WHITESPACE)
                 {
-                    if next_text.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
+                    if next_text.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                        && !intervening_ws_has_newline(&tokens, i + 1)
+                    {
                         out.push('\n');
                         for _ in 0..depth {
                             out.push_str("    ");
@@ -148,6 +148,20 @@ fn peek_non_ws(tokens: &[(SyntaxKind, String)], start: usize) -> Option<SyntaxKi
         .iter()
         .find(|(k, _)| *k != SyntaxKind::WHITESPACE)
         .map(|(k, _)| *k)
+}
+
+/// True when whitespace between `start` and the next non-ws token already
+/// contains a newline (the pair is not minified).
+fn intervening_ws_has_newline(tokens: &[(SyntaxKind, String)], start: usize) -> bool {
+    for (k, t) in &tokens[start..] {
+        if *k != SyntaxKind::WHITESPACE {
+            return false;
+        }
+        if t.contains('\n') {
+            return true;
+        }
+    }
+    false
 }
 
 /// Walk CST tokens and emit formatted output.

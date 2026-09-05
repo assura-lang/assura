@@ -459,6 +459,27 @@ fn minified_one_liner_is_expanded() {
 }
 
 #[test]
+fn header_comment_then_minified_contract_is_expanded() {
+    // Whole-file single-line gating used to skip expand after a header
+    // comment newline, leaving `contract C{requires{x>0}}` compacted.
+    let src = "// CVE\ncontract C{requires{x>0}}\n";
+    let out = fmt(src);
+    assert!(
+        out.contains("{\n") && out.contains("requires"),
+        "expected newline between contract {{ and requires: {out:?}"
+    );
+    assert!(
+        !out.contains("requires{x>0}"),
+        "requires body must not stay minified: {out:?}"
+    );
+    assert_eq!(
+        out,
+        "// CVE\ncontract C{\n    requires{\n        x>0\n    }\n}\n"
+    );
+    assert_idempotent(src);
+}
+
+#[test]
 fn minified_string_literal_braces_not_expanded() {
     let src = "contract C{requires{msg==\"{\"}}\n";
     let out = fmt(src);
