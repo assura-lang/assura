@@ -37,22 +37,11 @@ pub(crate) fn run_fmt(filename: &str, check_only: bool, output_mode: assura_conf
             let path_str = file.to_string_lossy();
             // Quiet per-file reporting when emitting aggregate JSON (avoids
             // human "not formatted" lines on stderr alongside the JSON doc).
-            let ok = fmt_one(path_str.as_ref(), check_only, json, /*aggregate*/ json);
+            let outcome = fmt_one(path_str.as_ref(), check_only, json, /*aggregate*/ json);
             if json {
-                if check_only {
-                    results.push(serde_json::json!({
-                        "file": path_str,
-                        "formatted": ok,
-                    }));
-                } else {
-                    results.push(serde_json::json!({
-                        "file": path_str,
-                        "ok": ok,
-                        "wrote": ok,
-                    }));
-                }
+                results.push(file_fmt_json(path_str.as_ref(), check_only, &outcome));
             }
-            if !ok {
+            if !outcome.succeeded() {
                 failed = true;
             }
         }
@@ -73,7 +62,7 @@ pub(crate) fn run_fmt(filename: &str, check_only: bool, output_mode: assura_conf
         return;
     }
 
-    if !fmt_one(filename, check_only, json, /*aggregate*/ false) {
+    if !fmt_one(filename, check_only, json, /*aggregate*/ false).succeeded() {
         process::exit(1);
     }
 }
@@ -142,11 +131,11 @@ fn fmt_stdin(check_only: bool, json: bool) -> bool {
     }
 }
 
-/// Format one file. Returns `false` if `--check` failed or parse failed.
+/// Format one file. Parse failures and `--check` style misses are not `Ok`.
 ///
 /// When `aggregate` is true (directory + `--json`), do not print per-file
 /// JSON or human "not formatted" lines; the caller emits one report.
-fn fmt_one(filename: &str, check_only: bool, json: bool, aggregate: bool) -> bool {
+fn fmt_one(filename: &str, check_only: bool, json: bool, aggregate: bool) -> FmtOutcome {
     let source = match fs::read_to_string(filename) {
         Ok(s) => s,
         Err(e) => {
@@ -168,6 +157,7 @@ fn fmt_one(filename: &str, check_only: bool, json: bool, aggregate: bool) -> boo
     let formatted = match assura_fmt::try_format_source(&source) {
         Ok(f) => f,
         Err(errors) => {
+            let messages: Vec<String> = errors.iter().map(|e| e.message.clone()).collect();
             if aggregate {
                 // Caller reports failure in aggregate JSON.
             } else if json {
@@ -175,7 +165,7 @@ fn fmt_one(filename: &str, check_only: bool, json: bool, aggregate: bool) -> boo
                     "ok": false,
                     "file": filename,
                     "error": "parse_error",
-                    "messages": errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>(),
+                    "messages": messages,
                 });
                 println!("{}", serde_json::to_string_pretty(&report).unwrap());
             } else {
@@ -183,7 +173,7 @@ fn fmt_one(filename: &str, check_only: bool, json: bool, aggregate: bool) -> boo
                     eprintln!("{filename}: parse error: {}", e.message);
                 }
             }
-            return false;
+            return FmtOutcome::ParseError { messages };
         }
     };
 
@@ -203,7 +193,11 @@ fn fmt_one(filename: &str, check_only: bool, json: bool, aggregate: bool) -> boo
         } else if !ok {
             eprintln!("{filename}: not formatted");
         }
-        ok
+        if ok {
+            FmtOutcome::Ok
+        } else {
+            FmtOutcome::CheckMiss
+        }
     } else {
         let changed = formatted != source;
         if let Err(e) = fs::write(filename, &formatted) {
@@ -230,7 +224,66 @@ fn fmt_one(filename: &str, check_only: bool, json: bool, aggregate: bool) -> boo
                 })
             );
         }
-        true
+        FmtOutcome::Ok
+    }
+}
+
+/// Result of formatting one file (I/O failures still `process::exit`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FmtOutcome {
+    /// Parsed and already formatted, or write succeeded.
+    Ok,
+    /// `--check` style miss (parses, but not formatted).
+    CheckMiss,
+    /// Source failed to parse.
+    ParseError { messages: Vec<String> },
+}
+
+impl FmtOutcome {
+    fn succeeded(&self) -> bool {
+        matches!(self, Self::Ok)
+    }
+}
+
+/// Per-file object for directory aggregate JSON (`ok` / `check` / `files`).
+fn file_fmt_json(file: &str, check_only: bool, outcome: &FmtOutcome) -> serde_json::Value {
+    match outcome {
+        FmtOutcome::ParseError { messages } => {
+            if check_only {
+                serde_json::json!({
+                    "file": file,
+                    "formatted": false,
+                    "error": "parse_error",
+                    "messages": messages,
+                })
+            } else {
+                serde_json::json!({
+                    "file": file,
+                    "ok": false,
+                    "wrote": false,
+                    "error": "parse_error",
+                    "messages": messages,
+                })
+            }
+        }
+        FmtOutcome::CheckMiss => serde_json::json!({
+            "file": file,
+            "formatted": false,
+        }),
+        FmtOutcome::Ok => {
+            if check_only {
+                serde_json::json!({
+                    "file": file,
+                    "formatted": true,
+                })
+            } else {
+                serde_json::json!({
+                    "file": file,
+                    "ok": true,
+                    "wrote": true,
+                })
+            }
+        }
     }
 }
 
@@ -250,6 +303,35 @@ fn collect_assura_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
         } else if p.extension().and_then(|e| e.to_str()) == Some("assura") {
             out.push(p);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dir_json_parse_error_includes_error_and_messages() {
+        let outcome = FmtOutcome::ParseError {
+            messages: vec!["expected `}`".into()],
+        };
+        let check = file_fmt_json("bad.assura", true, &outcome);
+        assert_eq!(check["error"], "parse_error");
+        let msgs = check["messages"].as_array().expect("messages array");
+        assert!(!msgs.is_empty(), "messages must be non-empty");
+        assert_eq!(check["file"], "bad.assura");
+
+        let write = file_fmt_json("bad.assura", false, &outcome);
+        assert_eq!(write["error"], "parse_error");
+        let msgs = write["messages"].as_array().expect("messages array");
+        assert!(!msgs.is_empty(), "messages must be non-empty");
+    }
+
+    #[test]
+    fn dir_json_check_style_miss_has_no_parse_error() {
+        let v = file_fmt_json("style.assura", true, &FmtOutcome::CheckMiss);
+        assert_eq!(v["formatted"], false);
+        assert_ne!(v.get("error").and_then(|e| e.as_str()), Some("parse_error"));
     }
 }
 
