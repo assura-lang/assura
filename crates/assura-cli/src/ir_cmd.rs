@@ -97,14 +97,7 @@ pub(crate) fn run_ir(
             }
         };
 
-        // Find the first contract declaration for validation
-        let contract_decl = source_file.decls.iter().find_map(|d| {
-            if let Decl::Contract(c) = &d.node {
-                Some(c)
-            } else {
-                None
-            }
-        });
+        let contract_decl = contract_for_ir_preflight(&source_file.decls, &module.name);
 
         if let Some(contract) = contract_decl {
             let validation = assura_smt::validate_ir_against_contract(&module, contract);
@@ -131,8 +124,38 @@ pub(crate) fn run_ir(
                     module.name, contract.name
                 );
             }
-        } else if output_mode != OutputMode::Json {
-            eprintln!("Warning: no contract found in {contract_path}, skipping validation");
+        } else {
+            let names: Vec<&str> = source_file
+                .decls
+                .iter()
+                .filter_map(|d| match &d.node {
+                    Decl::Contract(c) => Some(c.name.as_str()),
+                    _ => None,
+                })
+                .collect();
+            if names.len() > 1 {
+                let message = format!(
+                    "source has {} contracts ({}); pass contract_name / --contract or name the IR module to match one of them (IR module is `{}`)",
+                    names.len(),
+                    names.join(", "),
+                    module.name
+                );
+                if output_mode == OutputMode::Json {
+                    let report = serde_json::json!({
+                        "status": "error",
+                        "file": ir_file,
+                        "contract": contract_path,
+                        "ir_errors": [message],
+                    });
+                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
+                } else {
+                    eprintln!("IR validation errors:");
+                    eprintln!("  {message}");
+                }
+                process::exit(1);
+            } else if output_mode != OutputMode::Json {
+                eprintln!("Warning: no contract found in {contract_path}, skipping validation");
+            }
         }
 
         // --- SMT Verification (12.01 AI verification loop) ---
@@ -301,8 +324,52 @@ pub(crate) fn run_ir(
     }
 }
 
+fn contract_for_ir_preflight<'a>(
+    decls: &'a [Spanned<Decl>],
+    ir_module_name: &str,
+) -> Option<&'a ContractDecl> {
+    let contracts: Vec<&'a ContractDecl> = decls
+        .iter()
+        .filter_map(|d| match &d.node {
+            Decl::Contract(c) => Some(c),
+            _ => None,
+        })
+        .collect();
+    if let Some(c) = contracts.iter().copied().find(|c| c.name == ir_module_name) {
+        Some(c)
+    } else if contracts.len() == 1 {
+        contracts.into_iter().next()
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::contract_for_ir_preflight;
+
+    #[test]
+    fn contract_for_ir_preflight_selects_module_name_not_first() {
+        let source = "\
+contract First {
+  input(a: Int, b: Int)
+  output(result: Int)
+  ensures { result == a }
+}
+contract Second {
+  input(x: Int)
+  output(result: Int)
+  ensures { result == x }
+}
+";
+        let file = assura_parser::parse_full(source)
+            .file
+            .expect("two-contract source should parse");
+        let selected = contract_for_ir_preflight(&file.decls, "Second")
+            .expect("module Second should select Second, not First");
+        assert_eq!(selected.name, "Second");
+    }
+
     #[test]
     fn parse_ir_module_valid() {
         let source = "\
