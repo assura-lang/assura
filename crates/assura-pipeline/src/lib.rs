@@ -288,10 +288,7 @@ pub fn suppress_a04008_for_verified_ensures(
         if d.code != "A04008" {
             return true;
         }
-        match a04008_contract_name(&d.message) {
-            Some(name) if verified.contains(name) => false,
-            _ => true,
-        }
+        !matches!(a04008_contract_name(&d.message), Some(name) if verified.contains(name))
     });
 }
 
