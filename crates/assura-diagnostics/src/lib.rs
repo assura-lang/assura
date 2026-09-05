@@ -1004,4 +1004,24 @@ mod tests {
             "explain A07003 must mention must-not, got: {blob}"
         );
     }
+
+    #[test]
+    fn explain_a05102_covers_unconstrained_result() {
+        let info = explain("A05102").expect("A05102 should exist");
+        let blob = format!("{} {} {}", info.name, info.description, info.fix);
+        let blob_lc = blob.to_lowercase();
+        assert!(
+            blob_lc.contains("unconstrained") && blob_lc.contains("result"),
+            "explain A05102 must mention unconstrained `result`, got: {blob}"
+        );
+        assert!(
+            blob.contains("--write-ir") || blob.contains("write-ir") || blob.contains("IR"),
+            "explain A05102 must mention IR or --write-ir, got: {blob}"
+        );
+        assert!(
+            !info.fix.trim_start().starts_with("No action needed"),
+            "explain A05102 must not say only No action needed, got: {}",
+            info.fix
+        );
+    }
 }
