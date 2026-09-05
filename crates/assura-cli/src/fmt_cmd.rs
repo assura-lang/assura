@@ -333,6 +333,30 @@ mod tests {
         assert_eq!(v["formatted"], false);
         assert_ne!(v.get("error").and_then(|e| e.as_str()), Some("parse_error"));
     }
+
+    /// Live `fmt_one` on unparseable source must be `ParseError`, not `CheckMiss`.
+    /// The hand-built helper tests above stay green if parse fail were remapped.
+    #[test]
+    fn dir_json_fmt_one_parse_error_is_not_check_miss() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("unparseable.assura");
+        std::fs::write(&path, "contract C {\n").expect("write unparseable source");
+        let path_str = path.to_str().expect("utf8 path");
+
+        let outcome = fmt_one(
+            path_str, /*check_only*/ true, /*json*/ true, /*aggregate*/ true,
+        );
+        assert!(
+            matches!(
+                outcome,
+                FmtOutcome::ParseError { ref messages } if !messages.is_empty()
+            ),
+            "parse fail must be ParseError with messages, not CheckMiss; got {outcome:?}"
+        );
+
+        let v = file_fmt_json(path_str, true, &outcome);
+        assert_eq!(v["error"], "parse_error");
+    }
 }
 
 // ---------------------------------------------------------------------------
