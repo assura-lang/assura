@@ -114,9 +114,9 @@ reports `body_not_modeled` and exits **1**. They are not silent Verified.
 
 | Shape | Why / what to do |
 |-------|------------------|
-| Assignments inside **loops** (`while` / `for` / `loop`) | No loop SSA / phi. Rewrite without loops or supply co-located `{Name}.ir`. (If/match mutation joins are modeled.) |
+| Any `while` / `for` / `loop` (not only assignments inside). `@loop_invariant` is not encoded | `body_not_modeled` with reason prefix `loop control flow not modeled`. Rewrite without loops or supply co-located `{Name}.ir`. (If/match mutation joins are modeled.) |
 | Bare `checked_*` / `overflowing_*` as the **return type** (full `Option` / `(T, bool)`) | Peel: `.unwrap_or` / `.unwrap_or_default` / `.is_some()` / `.is_none()` / `.0` / `.1`. Full Option/tuple values are not IR result types. |
-| Bodies outside Bucket A (I/O, arbitrary methods, complex ADTs, …) | Supply a co-located `{Name}.ir`, simplify the body, or keep contracts on `.assura` + generated code. |
+| Mid-block unknown calls (no `@stub` / assume) | `body_not_modeled` with reason prefix `mid-block expression not modeled as assignment/if/match`. |
 
 Tracking work to shrink first-contact residuals: see epic
 [check-rust competitiveness](https://github.com/assura-lang/assura/issues/1456)

@@ -2347,7 +2347,30 @@ fn f(x: i64) -> i64 {
         "loop mut should not fold"
     );
     let reason = super::take_fold_residual().expect("line-specific residual");
-    assert!(reason.contains("loop"), "reason={reason}");
+    assert!(
+        reason.starts_with("loop control flow not modeled"),
+        "reason={reason}"
+    );
+}
+
+#[test]
+fn mid_block_unknown_call_still_bnm() {
+    // Unknown calls stay residual (no @stub / assume encode).
+    let src = r#"
+fn f(x: i64) -> i64 {
+    helper(x);
+    x
+}
+"#;
+    assert!(
+        extract_body_return(src, "f").is_none(),
+        "mid-block unknown call should not fold"
+    );
+    let reason = super::take_fold_residual().expect("line-specific residual");
+    assert!(
+        reason.starts_with("mid-block expression not modeled as assignment/if/match"),
+        "reason={reason}"
+    );
 }
 
 #[test]
