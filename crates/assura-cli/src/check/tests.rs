@@ -152,3 +152,13 @@ fn unknown_limitation_unconstrained_result_is_a05102_warning_with_ir_help() {
         "generic encoder-gap skip should not require IR help"
     );
 }
+
+#[test]
+fn project_unknown_arm_calls_shared_limitation_helper() {
+    // Helper-only tests stay green if project.rs inlines a bare A05102.
+    let src = include_str!("project.rs");
+    assert!(
+        src.contains("unknown_limitation_diagnostic("),
+        "project Unknown arm must call unknown_limitation_diagnostic"
+    );
+}
