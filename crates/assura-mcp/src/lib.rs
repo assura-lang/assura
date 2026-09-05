@@ -1323,6 +1323,12 @@ contract Bar {
     }
 
     #[test]
+    fn tool_path_error_json_resolve_failed_kind() {
+        let result = tool_path_error_json("disk full".into());
+        assert_tool_path_kind(&result, "RESOLVE_FAILED", "disk full");
+    }
+
+    #[test]
     fn tool_check_invalid_utf8_kind() {
         let name = format!("assura_mcp_tool_badutf8_{}.assura", std::process::id());
         std::fs::write(&name, [0xff, 0xfe, 0xfd]).expect("write probe");
@@ -1533,9 +1539,16 @@ contract Bar {
             ir_file: None,
         };
         let result = server.assura_ir_verify(Parameters(params));
+        let v: serde_json::Value = serde_json::from_str(&result)
+            .unwrap_or_else(|e| panic!("missing contract must be JSON: {e}\n{result}"));
+        assert_eq!(v["success"], false, "{v}");
+        assert_eq!(v["error_kind"], "MISSING_SOURCE", "{v}");
         assert!(
-            result.contains("error"),
-            "missing contract should produce error: {result}"
+            v["error"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("Provide either"),
+            "{v}"
         );
     }
 }

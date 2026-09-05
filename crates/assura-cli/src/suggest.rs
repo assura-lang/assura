@@ -102,4 +102,24 @@ mod tests {
         assert!(msg.contains("Unknown error code: A0300"));
         assert!(msg.contains("did you mean A03001?"));
     }
+
+    #[test]
+    fn did_you_mean_returns_none_when_far() {
+        assert_eq!(did_you_mean("zzzzzz", LLM_PROVIDERS), None);
+    }
+
+    #[test]
+    fn suggest_error_code_returns_none_for_unknown() {
+        assert_eq!(suggest_error_code("NOTACODE"), None);
+    }
+
+    #[test]
+    fn unknown_message_omits_hint_when_no_match() {
+        let msg = unknown_error_code_message("NOTACODE");
+        assert!(msg.contains("Unknown error code: NOTACODE"));
+        assert!(
+            !msg.contains("did you mean"),
+            "no close catalog match should omit a hint: {msg}"
+        );
+    }
 }
