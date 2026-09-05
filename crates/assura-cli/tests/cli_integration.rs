@@ -4140,6 +4140,106 @@ fn check_rust_suggest_includes_unannotated_function() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+fn check_rust_suggest_json(path: &std::path::Path, extra: &[&str]) -> (serde_json::Value, String) {
+    let mut args = vec![
+        "check-rust",
+        path.to_str().expect("utf-8 temp path"),
+        "--suggest",
+        "--json",
+    ];
+    args.extend(extra);
+    let out = Command::new(assura_bin())
+        .args(&args)
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust --suggest --json");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "--suggest with unannotated candidates should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check-rust --suggest --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["success"], true, "{v}");
+    (v, stderr.into_owned())
+}
+
+fn suggest_candidate_names(v: &serde_json::Value) -> Vec<String> {
+    v["suggest_candidates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("suggest_candidates array required: {v}"))
+        .iter()
+        .filter_map(|c| c.get("name").and_then(|n| n.as_str()).map(str::to_string))
+        .collect()
+}
+
+/// CLI syn walk must collect inherent impl methods, not only free functions.
+#[test]
+fn check_rust_suggest_includes_impl_method() {
+    let tmp = unique_temp("assura_check_rust_suggest_impl");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("impl_foo.rs");
+    std::fs::write(&src, "impl Foo { fn bar() {} }\n").unwrap();
+
+    let (v, stderr) = check_rust_suggest_json(&src, &[]);
+    let names = suggest_candidate_names(&v);
+    assert!(
+        names.iter().any(|n| n == "bar"),
+        "impl method bar must be a suggest candidate: names={names:?} json={v} stderr={stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// Directory scan plus syn walk must list unannotated names from `.rs` files.
+#[test]
+fn check_rust_suggest_directory_unannotated() {
+    let tmp = unique_temp("assura_check_rust_suggest_dir");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(tmp.join("alpha.rs"), "fn alpha() {}\n").unwrap();
+    std::fs::write(tmp.join("beta.rs"), "fn beta() {}\n").unwrap();
+
+    let (v, stderr) = check_rust_suggest_json(&tmp, &[]);
+    let names = suggest_candidate_names(&v);
+    assert!(
+        names.iter().any(|n| n == "alpha"),
+        "directory --suggest must list alpha: names={names:?} json={v} stderr={stderr}"
+    );
+    assert!(
+        names.iter().any(|n| n == "beta"),
+        "directory --suggest must list beta: names={names:?} json={v} stderr={stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// `--public-only` must drop private stubs and keep `pub fn`.
+#[test]
+fn check_rust_suggest_public_only() {
+    let tmp = unique_temp("assura_check_rust_suggest_pubonly");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("vis.rs");
+    // `priv` is a reserved keyword; use a private ident plus `pub fn pubf`.
+    std::fs::write(&src, "fn priv_fn() {}\npub fn pubf() {}\n").unwrap();
+
+    let (v, stderr) = check_rust_suggest_json(&src, &["--public-only"]);
+    let names = suggest_candidate_names(&v);
+    assert!(
+        names.iter().any(|n| n == "pubf"),
+        "public-only must keep pubf: names={names:?} json={v} stderr={stderr}"
+    );
+    assert!(
+        names.iter().all(|n| n != "priv_fn"),
+        "public-only must drop priv_fn: names={names:?} json={v} stderr={stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 /// `check-rust --suggest` on a file that is already fully annotated is vacuous:
 /// exit non-zero, do not report success.
 #[test]
