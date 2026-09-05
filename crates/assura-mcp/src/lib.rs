@@ -87,6 +87,9 @@ pub struct IrVerifyParams {
     /// Path to an .ir file. Provide either `ir` or `ir_file`.
     #[serde(default)]
     pub ir_file: Option<String>,
+    /// Contract name when the file has more than one `contract` (same as `assura_ir_prompt`).
+    #[serde(default)]
+    pub decl: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -194,7 +197,7 @@ impl AssuraMcpServer {
     }
 
     #[tool(
-        description = "Verify an Implementation IR against an Assura contract using SMT solvers (Z3/CVC5). Returns per-clause verification results with counterexamples and progress tracking. The core tool for the AI verification loop: generate IR, submit for verification, read feedback, fix IR, resubmit until all clauses verify. Provide contract via `source`/`file` and IR via `ir`/`ir_file`."
+        description = "Verify an Implementation IR against an Assura contract using SMT solvers (Z3/CVC5). Returns per-clause verification results with counterexamples and progress tracking. The core tool for the AI verification loop: generate IR, submit for verification, read feedback, fix IR, resubmit until all clauses verify. Provide contract via `source`/`file` and IR via `ir`/`ir_file`. When the file has more than one contract, pass `decl` (same names as `assura_ir_prompt`) so IR is not checked against the first contract only."
     )]
     fn assura_ir_verify(&self, Parameters(params): Parameters<IrVerifyParams>) -> String {
         let contract = match resolve_source_with_path(params.source, params.file) {
@@ -206,7 +209,12 @@ impl AssuraMcpServer {
             Err(e) => return tool_path_error_json(e),
         };
         let config = assura_config::CompilerConfig::default();
-        let result = assura_pipeline::verify_ir(&contract, &ir, &config);
+        let result = assura_pipeline::verify_ir_for_contract(
+            &contract,
+            &ir,
+            &config,
+            params.decl.as_deref(),
+        );
         serde_json::to_string_pretty(&result).unwrap_or_default()
     }
 }
@@ -1474,6 +1482,7 @@ contract Bar {
             file: Some(probe.clone()),
             ir: Some("module X { }".into()),
             ir_file: None,
+            decl: None,
         };
         let result = server.assura_ir_verify(Parameters(params));
         assert_path_not_allowed_json(&result, &probe);
@@ -1497,6 +1506,7 @@ contract Bar {
                     .into(),
             ),
             ir_file: None,
+            decl: None,
         };
         let result = server.assura_ir_verify(Parameters(params));
         assert!(
@@ -1514,6 +1524,41 @@ contract Bar {
     }
 
     #[test]
+    fn tool_ir_verify_decl_selects_second_contract() {
+        let server = AssuraMcpServer::new();
+        let source = "\
+contract First {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x }\n}\n\
+contract Inc {\n  input(x: Int)\n  output(result: Int)\n  ensures { result == x + 1 }\n}\n";
+        let ir = "module First {\n  fn #0 : ($0: Int) -> Int ! pure\n  {\n    $result = load $0 : Int\n  }\n}\n";
+        let without = server.assura_ir_verify(Parameters(IrVerifyParams {
+            source: Some(source.into()),
+            file: None,
+            ir: Some(ir.into()),
+            ir_file: None,
+            decl: None,
+        }));
+        assert!(
+            without.contains("\"verified\""),
+            "identity IR matches First when decl is omitted: {without}"
+        );
+        let with = server.assura_ir_verify(Parameters(IrVerifyParams {
+            source: Some(source.into()),
+            file: None,
+            ir: Some(ir.into()),
+            ir_file: None,
+            decl: Some("Inc".into()),
+        }));
+        assert!(
+            !with.contains("\"status\": \"verified\""),
+            "decl=Inc must not verify identity IR: {with}"
+        );
+        assert!(
+            !with.contains("First::ensures"),
+            "decl=Inc must not report First clauses: {with}"
+        );
+    }
+
+    #[test]
     fn tool_ir_verify_bad_ir() {
         let server = AssuraMcpServer::new();
         let params = IrVerifyParams {
@@ -1521,6 +1566,7 @@ contract Bar {
             file: None,
             ir: Some("not valid IR".into()),
             ir_file: None,
+            decl: None,
         };
         let result = server.assura_ir_verify(Parameters(params));
         assert!(
@@ -1537,6 +1583,7 @@ contract Bar {
             file: None,
             ir: Some("module X { }".into()),
             ir_file: None,
+            decl: None,
         };
         let result = server.assura_ir_verify(Parameters(params));
         let v: serde_json::Value = serde_json::from_str(&result)

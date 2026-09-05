@@ -185,8 +185,8 @@ bind "crate::module::function_name" as function_name_checked {{
 `alloc`, `diverge`, `random`, `pure`
 
 Dotted sub-effects: `console.read`, `console.write`, `filesystem.read`,
-`filesystem.write`, `network.connect`, `network.listen`, `database.read`,
-`database.write`, `log.info`, `log.error`
+`filesystem.write`, `network.connect`, `network.send`, `network.receive`,
+`database.read`, `database.write`, `log.info`, `log.error`
 
 ## CLI Commands
 

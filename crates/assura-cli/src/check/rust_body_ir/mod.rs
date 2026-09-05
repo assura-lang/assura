@@ -73,27 +73,83 @@ use bitops::*;
 use width::*;
 
 /// Extract a simple trailing return expression for `fn_name` from Rust source.
+///
+/// Unique name only: if several items share `fn_name`, returns `None`
+/// (use [`extract_body_return_at`] with the annotated 1-based line).
+#[cfg(test)]
 pub(crate) fn extract_body_return(source: &str, fn_name: &str) -> Option<String> {
+    extract_body_return_at(source, fn_name, 0)
+}
+
+/// Like [`extract_body_return`], but disambiguate same-named items by line.
+///
+/// `line` is 1-based (annotated item line / `fn` keyword). If exactly one
+/// name match exists, that body is used. If several match the name, the
+/// item whose `fn` span start equals `line` (or whose span contains `line`)
+/// is used. Ambiguous or unmatched line returns `None`.
+pub(crate) fn extract_body_return_at(source: &str, fn_name: &str, line: usize) -> Option<String> {
     clear_fold_residual();
     let file = syn::parse_file(source).ok()?;
-    for item in &file.items {
+    let mut hits: Vec<(usize, usize, Option<String>)> = Vec::new();
+    collect_named_fn_bodies(&file.items, fn_name, &mut hits);
+    match hits.len() {
+        0 => None,
+        1 => hits.pop().and_then(|(_, _, body)| body),
+        _ => {
+            let mut matching: Vec<Option<String>> = hits
+                .into_iter()
+                .filter(|(start, end, _)| fn_span_matches_line(*start, *end, line))
+                .map(|(_, _, body)| body)
+                .collect();
+            if matching.len() == 1 {
+                matching.pop().flatten()
+            } else {
+                None
+            }
+        }
+    }
+}
+
+fn fn_span_matches_line(start: usize, end: usize, line: usize) -> bool {
+    if line == 0 {
+        return false;
+    }
+    let start = if start == 0 { 1 } else { start };
+    let end = if end < start { start } else { end };
+    start == line || (start <= line && line <= end)
+}
+
+fn collect_named_fn_bodies(
+    items: &[syn::Item],
+    fn_name: &str,
+    out: &mut Vec<(usize, usize, Option<String>)>,
+) {
+    for item in items {
         match item {
             syn::Item::Fn(func) if func.sig.ident == fn_name => {
-                return body_return_from_block(&func.block);
+                let start = func.sig.fn_token.span.start().line;
+                let end = func.span().end().line;
+                out.push((start, end, body_return_from_block(&func.block)));
             }
             syn::Item::Impl(imp) => {
                 for impl_item in &imp.items {
                     if let syn::ImplItem::Fn(method) = impl_item
                         && method.sig.ident == fn_name
                     {
-                        return body_return_from_block(&method.block);
+                        let start = method.sig.fn_token.span.start().line;
+                        let end = method.span().end().line;
+                        out.push((start, end, body_return_from_block(&method.block)));
                     }
+                }
+            }
+            syn::Item::Mod(module) => {
+                if let Some((_, inner)) = &module.content {
+                    collect_named_fn_bodies(inner, fn_name, out);
                 }
             }
             _ => {}
         }
     }
-    None
 }
 
 fn body_return_from_block(block: &syn::Block) -> Option<String> {

@@ -389,8 +389,44 @@ fn run_effect_checks_filtered(
     config: &assura_config::TypeCheckConfig,
 ) -> Vec<TypeError> {
     let mut effect_errors = run_effect_checks(source);
-    if !config.allowed_effects.is_empty() || !config.denied_effects.is_empty() {
-        effect_errors.retain(|e| !config.allowed_effects.iter().any(|a| e.message.contains(a)));
+    // default_effect is still unused (no spec-required missing-clause path here).
+    if config.allowed_effects.is_empty() && config.denied_effects.is_empty() {
+        return effect_errors;
+    }
+    let policy = assura_config::EffectsConfig {
+        allowed: config.allowed_effects.clone(),
+        denied: config.denied_effects.clone(),
+        default_effect: config.default_effect.clone(),
+    };
+    for decl in &source.decls {
+        let Some(clauses) = clauses_contract_fn_extern(&decl.node) else {
+            continue;
+        };
+        let (declared, _) = crate::checkers::EffectChecker::extract_effects_from_clauses(clauses);
+        let Some(declared_set) = declared else {
+            continue;
+        };
+        for name in declared_set.iter() {
+            // Effect variables are capitalized (e.g. `E` in `effects <io | E>`).
+            if name.chars().next().is_some_and(|c| c.is_uppercase()) {
+                continue;
+            }
+            if policy.is_allowed(name) {
+                continue;
+            }
+            let message = if policy.denied.iter().any(|d| d == name) {
+                format!("effect `{name}` is denied by project [effects] policy")
+            } else {
+                format!("effect `{name}` is not on the project [effects] allowlist")
+            };
+            effect_errors.push(TypeError {
+                code: "A07003".into(),
+                message,
+                span: decl.span.clone(),
+                secondary: None,
+                suggestion: None,
+            });
+        }
     }
     effect_errors
 }
@@ -784,6 +820,21 @@ mod tests {
         assert!(cats.contains(&FeatureCategory::Misc), "missing Misc");
     }
 
+    fn resolve_ok(source: &str) -> assura_resolve::ResolvedFile {
+        let file = assura_parser::parse_unwrap(source);
+        assura_resolve::resolve(&file).expect("resolve should succeed")
+    }
+
+    fn check_with(
+        source: &str,
+        config: assura_config::TypeCheckConfig,
+    ) -> Result<TypedFile, Vec<TypeError>> {
+        TypeChecker::new()
+            .config(config)
+            .check(resolve_ok(source))
+            .map_err(|(errs, _)| errs)
+    }
+
     #[test]
     fn pipeline_produces_errors_from_effect_checker() {
         // "memory" is not a valid effect name; should trigger A07003
@@ -794,20 +845,12 @@ mod tests {
                 ensures(result: Int)
             }
         "#;
-        let file = assura_parser::parse_unwrap(src);
-        let resolved = assura_resolve::resolve(&file).expect("resolve failed");
-        let result = type_check(resolved);
-        match result {
-            Err(errors) => {
-                assert!(
-                    errors.iter().any(|e| e.code == "A07003"),
-                    "expected A07003 for unknown effect 'memory', got: {errors:?}"
-                );
-            }
-            Ok(_) => {
-                // Default config may not enforce strict effects
-            }
-        }
+        let result = type_check(resolve_ok(src));
+        let errors = result.expect_err("unknown effect 'memory' must be A07003");
+        assert!(
+            errors.iter().any(|e| e.code == "A07003"),
+            "expected A07003 for unknown effect 'memory', got: {errors:?}"
+        );
     }
 
     #[test]
@@ -836,24 +879,76 @@ mod tests {
                 ensures(result: Int)
             }
         "#;
-        let file = assura_parser::parse_unwrap(src);
-        let resolved = assura_resolve::resolve(&file).expect("resolve failed");
-
-        // Strict config: only "database" allowed
         let strict_config = assura_config::TypeCheckConfig {
             allowed_effects: vec!["database".to_string()],
             ..Default::default()
         };
-        let strict_result = TypeChecker::new().config(strict_config).check(resolved);
-        match strict_result {
-            Err((errors, _)) => {
-                assert!(
-                    errors.iter().any(|e| e.code == "A07003"),
-                    "strict mode should reject 'io' not in allowed list, got: {errors:?}"
-                );
+        let errors = check_with(src, strict_config)
+            .expect_err("allowlist [database] must reject effects(io) with A07003");
+        assert!(
+            errors.iter().any(|e| e.code == "A07003"),
+            "strict mode should reject 'io' not in allowed list, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn pipeline_denied_effect_io_a07003() {
+        let src = r#"
+            contract Effectful {
+                requires(x: Int)
+                effects(io)
+                ensures(result: Int)
             }
-            Ok(_) => {
-                // Effect filtering may not reject known effects
+        "#;
+        let config = assura_config::TypeCheckConfig {
+            denied_effects: vec!["io".to_string()],
+            ..Default::default()
+        };
+        let errors =
+            check_with(src, config).expect_err("denied [io] must reject effects(io) with A07003");
+        assert!(
+            errors.iter().any(|e| e.code == "A07003"),
+            "denied io should emit A07003, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn pipeline_allowlist_io_accepts_effects_io() {
+        let src = r#"
+            contract Effectful {
+                requires(x: Int)
+                effects(io)
+                ensures(result: Int)
+            }
+        "#;
+        let config = assura_config::TypeCheckConfig {
+            allowed_effects: vec!["io".to_string()],
+            ..Default::default()
+        };
+        check_with(src, config).expect("allowlist [io] must accept effects(io)");
+    }
+
+    #[test]
+    fn pipeline_allowlist_does_not_flag_effect_variable() {
+        let src = r#"
+            contract EffPoly {
+                effects <io | E>
+                fn map_with_effect(f: (Int) -> Int) -> List<Int>
+            }
+        "#;
+        let config = assura_config::TypeCheckConfig {
+            allowed_effects: vec!["io".to_string()],
+            ..Default::default()
+        };
+        let result = check_with(src, config);
+        match result {
+            Ok(_) => {}
+            Err(errors) => {
+                let a07003: Vec<_> = errors.iter().filter(|e| e.code == "A07003").collect();
+                assert!(
+                    a07003.is_empty(),
+                    "effect variable E must not produce A07003, got: {a07003:?}"
+                );
             }
         }
     }

@@ -298,8 +298,9 @@ pub(crate) fn run_check_rust(
                     && let Some((params, ret)) =
                         super::rust_body_ir::function_params_return(&item.kind)
                     && let Ok(rust_src) = fs::read_to_string(file_path)
-                    && let Some(body) =
-                        super::rust_body_ir::extract_body_return(&rust_src, &item_name)
+                    && let Some(body) = super::rust_body_ir::extract_body_return_at(
+                        &rust_src, &item_name, item.line,
+                    )
                     && let Some(ir_text) =
                         super::rust_body_ir::try_ir_from_rust_body(&item_name, params, ret, &body)
                 {
@@ -675,14 +676,14 @@ fn add_stubs_for_rust_file(
         Err(_) => return,
     };
     let existing_idx = file_items.iter().position(|(p, _)| p == path);
-    let existing_names: std::collections::HashSet<String> = existing_idx
+    let existing_keys: std::collections::HashSet<(String, usize)> = existing_idx
         .map(|i| {
             file_items[i]
                 .1
                 .iter()
                 .filter_map(|item| match &item.kind {
                     assura_rust_analyzer::AnnotatedItemKind::Function { name, .. } => {
-                        Some(name.clone())
+                        Some((name.clone(), item.line))
                     }
                     _ => None,
                 })
@@ -691,7 +692,7 @@ fn add_stubs_for_rust_file(
         .unwrap_or_default();
 
     let mut stubs = Vec::new();
-    collect_fn_stubs(&file.items, &existing_names, &mut stubs);
+    collect_fn_stubs(&file.items, &existing_keys, &mut stubs);
     if stubs.is_empty() {
         return;
     }
@@ -702,16 +703,29 @@ fn add_stubs_for_rust_file(
     }
 }
 
+/// Annotated `item.line` can be the doc/`@ensures` line or one off the
+/// `fn` keyword (span 0-based vs 1-based). Treat nearby lines as the same item.
+fn stub_already_annotated(
+    existing_keys: &std::collections::HashSet<(String, usize)>,
+    name: &str,
+    fn_line: usize,
+) -> bool {
+    existing_keys
+        .iter()
+        .any(|(n, line)| n == name && line.abs_diff(fn_line) <= 1)
+}
+
 fn collect_fn_stubs(
     items: &[syn::Item],
-    existing_names: &std::collections::HashSet<String>,
+    existing_keys: &std::collections::HashSet<(String, usize)>,
     stubs: &mut Vec<assura_rust_analyzer::AnnotatedItem>,
 ) {
     for item in items {
         match item {
             syn::Item::Fn(func) => {
                 let name = func.sig.ident.to_string();
-                if existing_names.contains(&name) {
+                let line = func.sig.fn_token.span.start().line;
+                if stub_already_annotated(existing_keys, &name, line) {
                     continue;
                 }
                 stubs.push(fn_stub(&func.sig, &func.vis));
@@ -720,11 +734,17 @@ fn collect_fn_stubs(
                 for impl_item in &imp.items {
                     if let syn::ImplItem::Fn(method) = impl_item {
                         let name = method.sig.ident.to_string();
-                        if existing_names.contains(&name) {
+                        let line = method.sig.fn_token.span.start().line;
+                        if stub_already_annotated(existing_keys, &name, line) {
                             continue;
                         }
                         stubs.push(fn_stub(&method.sig, &method.vis));
                     }
+                }
+            }
+            syn::Item::Mod(module) => {
+                if let Some((_, inner)) = &module.content {
+                    collect_fn_stubs(inner, existing_keys, stubs);
                 }
             }
             _ => {}
