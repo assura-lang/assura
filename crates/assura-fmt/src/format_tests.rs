@@ -484,6 +484,43 @@ fn trailing_comment_before_rbrace_keeps_body_indent() {
     assert_idempotent(src);
 }
 
+#[test]
+fn minified_comment_braces_not_expanded() {
+    // `{` / `}` inside a line comment must not change brace depth.
+    let src = "contract C{requires{x>0}} // keep {x}\n";
+    let out = fmt(src);
+    assert_eq!(
+        out,
+        "contract C{\n    requires{\n        x>0\n    }\n} // keep {x}\n"
+    );
+    assert_idempotent(src);
+}
+
+#[test]
+fn minified_quote_in_comment_does_not_hide_later_braces() {
+    // `"` inside a block comment must not start string-skip and hide later `{`.
+    let src = "contract C{requires{x>0} /* \" } */ ensures{y>0}}\n";
+    let out = fmt(src);
+    assert_eq!(
+        out,
+        "contract C{\n    requires{\n        x>0\n    } /* \" } */ ensures{\n        y>0\n    }\n}\n"
+    );
+    assert_idempotent(src);
+}
+
+#[test]
+fn expand_reparse_failure_keeps_pre_expand() {
+    // Char-scanner expand used to turn `// keep {x}` into real braces and
+    // still return that unparseable text. Output must always reparse.
+    let src = "contract C{requires{x>0}} // keep {x}\n";
+    let out = fmt(src);
+    let (_, errs) = assura_parser::parse_cst(&out);
+    assert!(
+        errs.is_empty(),
+        "fmt must not return unparseable expand; got {out:?} errs={errs:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // 7. Re-parseability
 // ---------------------------------------------------------------------------
