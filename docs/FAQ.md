@@ -345,14 +345,16 @@ changes are not detected:
    cargo install assura --locked
    ```
    The extension runs `assura lsp` when `assura.serverPath` is unset.
-3. Or set a custom server command (no extra args are added):
+3. Or set a custom server command (no extra args are added). Point at
+   `assura-lsp` or a wrapper that already includes `lsp`. A path to the
+   `assura` CLI will fail (subcommand required):
    ```json
    {
-     "assura.serverPath": "/path/to/assura"
+     "assura.serverPath": "/path/to/assura-lsp"
    }
    ```
-   A standalone `assura-lsp` binary from `cargo install --path crates/assura-lsp`
-   also works if you set `assura.serverPath` to that path.
+   Install the standalone binary with
+   `cargo install --path crates/assura-lsp`.
 4. Restart VS Code.
 
 The LSP provides diagnostics, go-to-definition, hover, completions,

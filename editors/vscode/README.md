@@ -40,16 +40,17 @@ cargo install assura --locked
 ```
 
 Alternatively, set a custom server command in VS Code settings (no extra
-args are added):
+args are added). Point at `assura-lsp` or a wrapper that already includes
+`lsp`. A path to the `assura` CLI will fail (subcommand required):
 
 ```json
 {
-  "assura.serverPath": "/path/to/assura"
+  "assura.serverPath": "/path/to/assura-lsp"
 }
 ```
 
 A standalone `assura-lsp` binary (`cargo install --path crates/assura-lsp`)
-works if you point `assura.serverPath` at that path.
+is the usual custom path. Unset `assura.serverPath` still runs `assura lsp`.
 
 ## Extension Settings
 

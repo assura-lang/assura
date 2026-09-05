@@ -2107,6 +2107,19 @@ pub contract Authorized<R: Role> {
 
 ### 10.1 Commands
 
+Current clap (`crates/assura-cli/src/cli.rs`) requires a subcommand.
+Global options are `--json`, `--human`, `-v`/`--verbose`, and
+`-q`/`--quiet`. There is no `--color`, `--no-color`, or `--threads`.
+
+Historical names in this section are obsolete: `verify` is
+`assura check` (SMT runs as part of check). There is no `assura run`;
+generate with `assura build`, then `cargo run` in the output crate
+(`--bin` emits a binary crate). `--out` is `--output` (default
+`generated`). `--skip-verify` is not a current flag.
+
+The listing below is a historical snapshot. It is not current clap.
+See 10.2 for live `check` and `build` options.
+
 ```
 assura <command> [options] [files...]
 
@@ -2131,30 +2144,32 @@ OPTIONS (global):
   --threads <N>       Number of parallel verification threads
 ```
 
-Current CLI mapping (historical names in this section are obsolete):
-`verify` is `assura check` (SMT runs as part of check). There is no
-`assura run`; generate with `assura build`, then `cargo run` in the
-output crate (`--bin` emits a binary crate). `--out` is `--output`
-(default `generated`). `--skip-verify` is not a current flag.
-
 ### 10.2 Command Details
 
 #### `assura check`
 
 ```
-assura check [options] [files...]
+assura check [options] <file|dir>
 
-Runs layers 0 and 1 (structural checks + decidable SMT).
-Fast feedback loop for AI iteration.
+Full pipeline: parse, resolve, type-check, verify.
 
 OPTIONS:
-  --layer <N>         Run only up to layer N (0, 1, or 2)
-  --contract <file>   Check only this contract
+  --json              Output diagnostics as JSON (global)
+  --verbose           Show timing and intermediate results (global)
+  --stats             Print verification statistics
   --watch             Watch for file changes and re-check
-  --timeout <ms>      SMT solver timeout per query (default: 1000)
+  --timeout <ms>      SMT solver timeout in milliseconds
+  --layer <N>         Verification layer 0..=3
+                      (0=structural, 1=SMT, 2=quantified/termination, 3=BMC)
+  --strict            Treat SMT Unknown and Timeout as errors
 ```
 
+`--contract <file>` is not a `check` flag. It belongs to `assura ir`.
+
 #### `assura verify`
+
+Historical alias of `assura check`. SMT already runs as part of check.
+The listing below is not current clap.
 
 ```
 assura verify [options] [files...]
@@ -2174,17 +2189,19 @@ OPTIONS:
 #### `assura build`
 
 ```
-assura build [options]
+assura build [options] <file>
 
-Verify + generate Rust code + compile with rustc.
+Check + generate Rust code.
 
 OPTIONS:
-  --release           Optimize generated Rust (release mode)
-  --target <triple>   Rust target triple (e.g., wasm32-wasi)
-  --out <dir>         Output directory (default: target/)
-  --skip-verify       Skip layer 2 (only layers 0-1), for dev speed
-  --keep-generated    Don't delete generated .rs files after build
+  --write-ir          Write analyzable heuristic IR next to the source
+  --bin               Emit a binary crate with `fn main`
+  --output <dir>      Output directory (default: generated)
+  --target <name>     Compilation target: native or wasm
 ```
+
+`--release`, `--keep-generated`, `--skip-verify`, and a rustc target
+triple such as `wasm32-wasi` are not current clap flags.
 
 #### `assura init`
 
