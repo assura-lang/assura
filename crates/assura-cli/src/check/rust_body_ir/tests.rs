@@ -62,6 +62,86 @@ fn multi_let(x: i64) -> i64 { let a = x + 1; let b = a + 1; b }
     assert!(ir.contains("arith add"), "{ir}");
 }
 
+fn syn_fn_line(source: &str, name: &str, prefer_impl: bool) -> usize {
+    let file = syn::parse_file(source).expect("parse rust");
+    fn walk(items: &[syn::Item], name: &str, out: &mut Vec<(bool, usize)>) {
+        for item in items {
+            match item {
+                syn::Item::Fn(func) if func.sig.ident == name => {
+                    out.push((false, func.sig.fn_token.span.start().line));
+                }
+                syn::Item::Impl(imp) => {
+                    for impl_item in &imp.items {
+                        if let syn::ImplItem::Fn(method) = impl_item
+                            && method.sig.ident == name
+                        {
+                            out.push((true, method.sig.fn_token.span.start().line));
+                        }
+                    }
+                }
+                syn::Item::Mod(module) => {
+                    if let Some((_, inner)) = &module.content {
+                        walk(inner, name, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut hits = Vec::new();
+    walk(&file.items, name, &mut hits);
+    let preferred = hits.iter().find(|(is_impl, _)| *is_impl == prefer_impl);
+    preferred
+        .or(hits.first())
+        .map(|(_, line)| *line)
+        .expect("named fn line")
+}
+
+#[test]
+fn extract_body_return_at_disambiguates_same_name() {
+    let src = r#"
+fn add(x: i64) -> i64 { x }
+impl Adder {
+    fn add(x: i64) -> i64 { x + 1 }
+}
+"#;
+    // Old helper is unique-name only; two matches must not pick the first body.
+    assert!(
+        extract_body_return(src, "add").is_none(),
+        "ambiguous add must not encode the first body"
+    );
+    let impl_line = syn_fn_line(src, "add", true);
+    let body = extract_body_return_at(src, "add", impl_line).expect("impl add");
+    assert!(
+        body.contains('+'),
+        "impl add at line {impl_line} should be x + 1, got {body}"
+    );
+}
+
+#[test]
+fn extract_body_return_finds_nested_mod() {
+    let src = r#"
+mod inner {
+    fn f() -> i64 { 1 }
+}
+"#;
+    assert_eq!(extract_body_return(src, "f").as_deref(), Some("1"));
+}
+
+#[test]
+fn extract_body_return_at_wrong_line_is_none() {
+    let src = r#"
+fn add(x: i64) -> i64 { x }
+impl Adder {
+    fn add(x: i64) -> i64 { x + 1 }
+}
+"#;
+    assert!(
+        extract_body_return_at(src, "add", 999).is_none(),
+        "wrong line must not encode a colliding body"
+    );
+}
+
 #[test]
 fn identity_body_ir() {
     let ir = try_ir_from_rust_body("Id", &px(), Some("i64"), "x").expect("ir");
