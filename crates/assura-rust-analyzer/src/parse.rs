@@ -367,15 +367,25 @@ fn func_span_offset_method(sig: &syn::Signature, source: &str) -> usize {
 /// Convert (line, column) to byte offset.
 ///
 /// `proc_macro2::LineColumn::line` is 1-based; `column` is 0-based.
+/// Walks raw terminators (`\n` or `\r\n`) so CRLF sources stay aligned.
 fn line_col_to_offset(source: &str, line: usize, column: usize) -> usize {
     let mut offset = 0;
-    for (i, src_line) in source.lines().enumerate() {
-        if i + 1 == line {
-            return offset + column.min(src_line.len());
+    let mut current = 1;
+    while current < line {
+        let rest = &source[offset..];
+        if let Some(idx) = rest.find('\n') {
+            offset += idx + 1;
+            current += 1;
+        } else if let Some(idx) = rest.find('\r') {
+            offset += idx + 1;
+            current += 1;
+        } else {
+            return source.len();
         }
-        offset += src_line.len() + 1; // +1 for newline
     }
-    source.len()
+    let rest = &source[offset..];
+    let line_len = rest.find(['\n', '\r']).unwrap_or(rest.len());
+    offset + column.min(line_len)
 }
 
 /// Parse a Rust source file from disk and extract all annotated items.

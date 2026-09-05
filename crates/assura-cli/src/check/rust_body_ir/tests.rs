@@ -144,6 +144,43 @@ impl Adder {
 }
 
 #[test]
+fn extract_body_return_at_uses_rust_analyzer_item_line_crlf() {
+    let src = [
+        "/// @ensures result == x",
+        "fn add(x: i64) -> i64 { x }",
+        "impl Adder {",
+        "/// @ensures result == x + 1",
+        "fn add(x: i64) -> i64 { x + 1 }",
+        "}",
+        "",
+    ]
+    .join("\r\n");
+    let items = assura_rust_analyzer::parse_rust_source(&src).expect("parse rust");
+    let impl_item = items
+        .iter()
+        .filter(|item| {
+            matches!(
+                &item.kind,
+                assura_rust_analyzer::AnnotatedItemKind::Function { name, .. } if name == "add"
+            )
+        })
+        .max_by_key(|item| item.line)
+        .expect("impl add item");
+    let expected = src
+        .rmatch_indices("fn add")
+        .next()
+        .map(|(idx, _)| src[..idx].chars().filter(|&c| c == '\n').count() + 1)
+        .expect("impl fn add");
+    assert_eq!(
+        impl_item.line, expected,
+        "CRLF item.line must match the impl fn keyword line"
+    );
+    let body =
+        extract_body_return_at(&src, "add", impl_item.line).expect("impl add via CRLF item.line");
+    assert_eq!(body, "x + 1");
+}
+
+#[test]
 fn extract_body_return_finds_nested_mod() {
     let src = r#"
 mod inner {
