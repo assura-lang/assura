@@ -32,13 +32,12 @@ pub fn try_format_source(source: &str) -> Result<String, Vec<assura_parser::Pars
     // Minified one-liners have no newline whitespace for the indent path.
     // Expand braces, then re-run CST indent so the result is idempotent (#919).
     if is_effectively_single_line(&formatted) {
-        let expanded = expand_minified_braces(&formatted);
+        let expanded = expand_minified_braces(&root);
         let (root2, errs2) = assura_parser::parse_cst(&expanded);
         if errs2.is_empty() {
             formatted = format_cst_tokens(&root2);
-        } else {
-            formatted = expanded;
         }
+        // else keep pre-expand `formatted` (already parseable)
     }
     Ok(formatted)
 }
@@ -49,47 +48,30 @@ fn is_effectively_single_line(s: &str) -> bool {
 }
 
 /// Insert newlines after `{` and before `}` for single-line minified sources.
-fn expand_minified_braces(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() * 2);
+///
+/// Walks CST tokens so COMMENT / STRING_LIT braces and quotes are copied
+/// unchanged and do not change depth.
+fn expand_minified_braces(root: &assura_parser::syntax_kind::SyntaxNode) -> String {
+    let tokens = collect_leaf_tokens(root);
+    let mut out = String::with_capacity(tokens.iter().map(|(_, t)| t.len()).sum::<usize>() * 2);
     let mut depth: i32 = 0;
-    let chars: Vec<char> = s.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        match c {
-            '"' => {
-                out.push('"');
-                i += 1;
-                while i < chars.len() {
-                    let sc = chars[i];
-                    out.push(sc);
-                    if sc == '\\' && i + 1 < chars.len() {
-                        i += 1;
-                        out.push(chars[i]);
-                    } else if sc == '"' {
-                        break;
-                    }
-                    i += 1;
-                }
+    for (i, (kind, text)) in tokens.iter().enumerate() {
+        match *kind {
+            SyntaxKind::COMMENT | SyntaxKind::STRING_LIT => {
+                out.push_str(text);
             }
-            '{' => {
+            SyntaxKind::L_BRACE => {
                 out.push('{');
                 depth += 1;
-                // Peek non-space next
-                let mut j = i + 1;
-                while j < chars.len() && chars[j].is_whitespace() && chars[j] != '\n' {
-                    j += 1;
-                }
-                if j < chars.len() && chars[j] != '}' {
+                if peek_non_ws(&tokens, i + 1).is_some_and(|k| k != SyntaxKind::R_BRACE) {
                     out.push('\n');
                     for _ in 0..depth {
                         out.push_str("    ");
                     }
                 }
             }
-            '}' => {
+            SyntaxKind::R_BRACE => {
                 depth = (depth - 1).max(0);
-                // Trim trailing spaces on this line before closing
                 while out.ends_with(' ') {
                     out.pop();
                 }
@@ -101,22 +83,21 @@ fn expand_minified_braces(s: &str) -> String {
                 }
                 out.push('}');
                 // `}ensures` → put next clause on its own indented line
-                let mut j = i + 1;
-                while j < chars.len() && chars[j].is_whitespace() && chars[j] != '\n' {
-                    j += 1;
-                }
-                if j < chars.len() && (chars[j].is_ascii_alphabetic() || chars[j] == '_') {
-                    out.push('\n');
-                    for _ in 0..depth {
-                        out.push_str("    ");
+                if let Some((_, next_text)) = tokens[i + 1..]
+                    .iter()
+                    .find(|(k, _)| *k != SyntaxKind::WHITESPACE)
+                {
+                    if next_text.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
+                        out.push('\n');
+                        for _ in 0..depth {
+                            out.push_str("    ");
+                        }
                     }
                 }
             }
-            _ => out.push(c),
+            _ => out.push_str(text),
         }
-        i += 1;
     }
-    // Ensure trailing newline
     let trimmed = out.trim_end_matches('\n');
     let mut result = trimmed.to_string();
     result.push('\n');
