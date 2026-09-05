@@ -25,6 +25,11 @@ updates:
       # 0.21+ is a new major. Allow 0.20.x patches through.
       - dependency-name: z3
         versions: [">=0.21"]
+      # cvc5 0.4 is current (TermManager factory, Sort not Copy).
+      # 0.5 binds wrapper lifetimes to the arena (cvc5-rs#62).
+      # Allow 0.4.x patches through. Closed #1533.
+      - dependency-name: cvc5
+        versions: [">=0.5"]
     groups:
       # tonic, prost, and tonic-build must be upgraded together;
       # individual PRs always fail because of version coupling.
