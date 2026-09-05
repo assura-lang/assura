@@ -1236,6 +1236,19 @@ contract Second {
         "module-name select must not report First clauses: {:?}",
         result.clauses
     );
+    assert!(
+        result
+            .clauses
+            .iter()
+            .any(|c| c.name.starts_with("Second::") && c.status == "verified"),
+        "module-name select must still report verified Second clauses: {:?}",
+        result.clauses
+    );
+    assert!(
+        result.summary.verified > 0,
+        "empty clause list is not proof Second verified: {:?}",
+        result.summary
+    );
     assert_eq!(
         result.status, "verified",
         "Second identity IR should verify; sibling First CE must not flip status: {:?}",
