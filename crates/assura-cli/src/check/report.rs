@@ -177,48 +177,17 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                 clause_desc,
                 reason,
             } => {
-                if is_known_smt_limitation(reason) && !strict {
-                    // #865: unconstrained-result path gets a dedicated help suggestion.
-                    let mut diag = assura_diagnostics::Diagnostic::warning(
-                        "A05102",
-                        format!("verification skipped for {clause_desc}: {reason}"),
-                        span.clone(),
-                    )
-                    .with_file(filename);
-                    if reason.contains("result is unconstrained")
-                        || reason.contains("`result` stays unconstrained")
-                        || reason.contains("not auto-synthesizable")
-                    {
-                        diag = diag.with_suggestion(
-                            "simplify ensures (result == expr / bounds), or materialize IR offline, \
-                             or use LLM auto-implement",
-                            span.clone(),
-                            "assura build path.assura --write-ir  (offline); \
-                             assura build path.assura --auto-implement  (LLM residuals)",
-                        );
-                    }
-                    diagnostics.push(diag);
-                } else if is_known_smt_limitation(reason) && strict {
+                let diag = unknown_limitation_diagnostic(
+                    filename,
+                    clause_desc,
+                    reason,
+                    span.clone(),
+                    strict,
+                );
+                if diag.is_error() {
                     *has_errors = true;
-                    diagnostics.push(
-                        assura_diagnostics::Diagnostic::error(
-                            "A05102",
-                            format!("verification skipped for {clause_desc} (--strict): {reason}"),
-                            span.clone(),
-                        )
-                        .with_file(filename),
-                    );
-                } else {
-                    *has_errors = true;
-                    diagnostics.push(
-                        assura_diagnostics::Diagnostic::error(
-                            "A05103",
-                            format!("verification inconclusive for {clause_desc}: {reason}"),
-                            span.clone(),
-                        )
-                        .with_file(filename),
-                    );
                 }
+                diagnostics.push(diag);
             }
             assura_smt::VerificationResult::Verified { .. } => {}
         }
@@ -450,6 +419,54 @@ fn lookup_clause_span(
 /// inconclusive result (error, exit 1).
 fn is_known_smt_limitation(reason: &str) -> bool {
     assura_smt::is_known_smt_limitation(reason)
+}
+
+/// Classify an SMT `Unknown` into the file-check diagnostic (A05102 / A05103).
+///
+/// Known limitations are warnings unless `--strict`. Unconstrained-`result`
+/// reasons also get a write-IR help suggestion (same as single-file check).
+pub(crate) fn unknown_limitation_diagnostic(
+    filename: &str,
+    clause_desc: &str,
+    reason: &str,
+    span: std::ops::Range<usize>,
+    strict: bool,
+) -> assura_diagnostics::Diagnostic {
+    if is_known_smt_limitation(reason) && !strict {
+        let mut diag = assura_diagnostics::Diagnostic::warning(
+            "A05102",
+            format!("verification skipped for {clause_desc}: {reason}"),
+            span.clone(),
+        )
+        .with_file(filename);
+        if reason.contains("result is unconstrained")
+            || reason.contains("`result` stays unconstrained")
+            || reason.contains("not auto-synthesizable")
+        {
+            diag = diag.with_suggestion(
+                "simplify ensures (result == expr / bounds), or materialize IR offline, \
+                 or use LLM auto-implement",
+                span,
+                "assura build path.assura --write-ir  (offline); \
+                 assura build path.assura --auto-implement  (LLM residuals)",
+            );
+        }
+        diag
+    } else if is_known_smt_limitation(reason) && strict {
+        assura_diagnostics::Diagnostic::error(
+            "A05102",
+            format!("verification skipped for {clause_desc} (--strict): {reason}"),
+            span,
+        )
+        .with_file(filename)
+    } else {
+        assura_diagnostics::Diagnostic::error(
+            "A05103",
+            format!("verification inconclusive for {clause_desc}: {reason}"),
+            span,
+        )
+        .with_file(filename)
+    }
 }
 
 /// Human detail from `// assura-synth-body` / residual comments in heuristic IR
