@@ -994,4 +994,14 @@ mod tests {
             assert_eq!(from_explain.description, from_catalog.description);
         }
     }
+
+    #[test]
+    fn explain_a07003_covers_must_not() {
+        let info = explain("A07003").expect("A07003 should exist");
+        let blob = format!("{} {} {}", info.name, info.description, info.fix);
+        assert!(
+            blob.contains("must-not"),
+            "explain A07003 must mention must-not, got: {blob}"
+        );
+    }
 }
