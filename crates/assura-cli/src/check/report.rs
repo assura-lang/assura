@@ -130,7 +130,9 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
     }
 
     // #703: scoped to the verified contract (not file-global).
-    assura_pipeline::suppress_a04008_for_verified_ensures(diagnostics, &verification_results);
+    // Local copy: cargo package of this crate compiles against crates.io
+    // assura-pipeline, which does not have the helper until the next publish.
+    suppress_a04008_for_verified_ensures(diagnostics, &verification_results);
 
     for vr in &verification_results {
         let clause_desc = match vr {
@@ -332,6 +334,42 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
     }
 
     verification_results
+}
+
+fn suppress_a04008_for_verified_ensures(
+    diagnostics: &mut Vec<assura_diagnostics::Diagnostic>,
+    verification: &[assura_smt::VerificationResult],
+) {
+    let verified: std::collections::HashSet<&str> = verification
+        .iter()
+        .filter_map(|r| match r {
+            assura_smt::VerificationResult::Verified { clause_desc, .. }
+                if clause_desc.ends_with("::ensures") =>
+            {
+                Some(clause_desc.trim_end_matches("::ensures"))
+            }
+            _ => None,
+        })
+        .collect();
+    if verified.is_empty() {
+        return;
+    }
+    diagnostics.retain(|d| {
+        if d.code != "A04008" {
+            return true;
+        }
+        !matches!(a04008_contract_name(&d.message), Some(name) if verified.contains(name))
+    });
+}
+
+fn a04008_contract_name(message: &str) -> Option<&str> {
+    let rest = message.strip_prefix('`')?;
+    let (name, after) = rest.split_once('`')?;
+    if after.starts_with(':') {
+        Some(name)
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------

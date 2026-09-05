@@ -703,6 +703,18 @@ fn add_stubs_for_rust_file(
     }
 }
 
+/// Annotated `item.line` can be the doc/`@ensures` line or one off the
+/// `fn` keyword (span 0-based vs 1-based). Treat nearby lines as the same item.
+fn stub_already_annotated(
+    existing_keys: &std::collections::HashSet<(String, usize)>,
+    name: &str,
+    fn_line: usize,
+) -> bool {
+    existing_keys
+        .iter()
+        .any(|(n, line)| n == name && line.abs_diff(fn_line) <= 1)
+}
+
 fn collect_fn_stubs(
     items: &[syn::Item],
     existing_keys: &std::collections::HashSet<(String, usize)>,
@@ -713,7 +725,7 @@ fn collect_fn_stubs(
             syn::Item::Fn(func) => {
                 let name = func.sig.ident.to_string();
                 let line = func.sig.fn_token.span.start().line;
-                if existing_keys.contains(&(name, line)) {
+                if stub_already_annotated(existing_keys, &name, line) {
                     continue;
                 }
                 stubs.push(fn_stub(&func.sig, &func.vis));
@@ -723,7 +735,7 @@ fn collect_fn_stubs(
                     if let syn::ImplItem::Fn(method) = impl_item {
                         let name = method.sig.ident.to_string();
                         let line = method.sig.fn_token.span.start().line;
-                        if existing_keys.contains(&(name, line)) {
+                        if stub_already_annotated(existing_keys, &name, line) {
                             continue;
                         }
                         stubs.push(fn_stub(&method.sig, &method.vis));
