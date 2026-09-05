@@ -551,15 +551,26 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
         ErrorInfo {
             code: "A05102",
             name: "Verification skipped (known compiler limitation)",
-            description: "The contract clause uses a language feature that the SMT encoder \
-                          does not yet support. This is a known compiler limitation, not a \
-                          problem with your contract. The clause is skipped with a warning.",
-            example: r#"  contract DeepAccess {
-      requires: obj.nested.field > 0   // deep field chains
-      ensures: true
+            description: "The contract clause could not be proved. Two common cases: \
+                          the SMT encoder does not yet support a language feature used \
+                          in the clause, or `result` is unconstrained because there is \
+                          no IR body to bind it. Both are known compiler limitations, \
+                          not necessarily a problem with your contract. The clause is \
+                          skipped with a warning (error under `--strict`).",
+            example: r#"  contract UnconstrainedResult {
+      requires { x >= 0 }
+      ensures { result >= 0 }   // result has no IR binding
+  }
+
+  contract DeepAccess {
+      requires { obj.nested.field > 0 }   // deep field chains
+      ensures { true }
   }"#,
-            fix: "No action needed. The compiler will verify this clause once the \
-                 feature is implemented. You can track progress in the project roadmap.",
+            fix: "If `result` is unconstrained, simplify ensures (`result == expr` / \
+                 bounds), materialize IR with `assura build --write-ir`, or use \
+                 `--auto-implement` for LLM residuals. True encoder gaps stay skipped \
+                 until the feature is encoded; you can track progress in the project \
+                 roadmap.",
         },
         ErrorInfo {
             code: "A05103",
