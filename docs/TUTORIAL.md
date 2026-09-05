@@ -275,7 +275,7 @@ Use `assura explain` to learn about specific error codes:
 ```bash
 assura explain A03001   # Type mismatch
 assura explain A05001   # Linear type used twice
-assura explain A07003   # Unknown effect
+assura explain A07003   # Unknown or forbidden effect
 ```
 
 Error spans are precise even for expressions inside braced clauses (e.g. `requires { x > 0 }`), thanks to full trivia capture in the parser. A type error on `true` will point exactly at the sub-expression, not the `requires` keyword.
@@ -653,14 +653,16 @@ from requires alone, or constrain only input relationships.
 - **Unmodelable features:** Some language features are not yet encoded
   in SMT. The CLI shows these as warnings (exit 0)
 
-### Unknown effect names
+### Unknown or forbidden effects
 
-**Symptom:** Error A07003 "unknown effect"
+**Symptom:** Error A07003
 
-**Fix:** Use one of the known effect names: `io`, `database`,
+**Fix:** If the name is unknown, use a built-in name: `io`, `database`,
 `logging`, `mem`, `net`, `fs`, `rng`, `time`, `alloc`, `diverge`,
 `random`. For sub-effects, use dotted names: `console.read`,
 `filesystem.write`, `network.connect`, `database.read`, `log.info`.
+If a known effect is listed in `must-not`, remove it from `effects` or
+drop it from `must-not`.
 
 ### "expected type X, got Y"
 

@@ -302,16 +302,24 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
         },
         ErrorInfo {
             code: "A07003",
-            name: "Unknown effect name",
-            description: "An effect name in an 'effects' clause does not match any known \
-                          effect. Built-in groups: io, database, logging, mem, net, fs, \
+            name: "Unknown or forbidden effect",
+            description: "An effect name in `effects` or `must-not` is not a known \
+                          effect, or a known effect appears in the must-not list. \
+                          Built-in groups: io, database, logging, mem, net, fs, \
                           rng, time, alloc, diverge, random, pure. Dotted leaves include \
                           network.connect, network.send, network.receive (not `network` \
                           or `crypto`).",
             example: r#"  fn bad() -> Unit
-      effects: teleport   // 'teleport' is not a known effect -> A07003"#,
-            fix: "Use a name from the built-in list. `network` and `crypto` are not \
-                 effect names; use `net` or `network.connect`.",
+      effects: teleport   // 'teleport' is not a known effect -> A07003
+
+  contract Forbidden {
+      effects { io }
+      must-not { io }     // io is in the must-not list -> A07003
+  }"#,
+            fix: "If the name is unknown, use a built-in name. `network` and `crypto` \
+                 are not effect names; use `net` or `network.connect`. If a known \
+                 effect is listed in `must-not`, remove it from `effects` or drop \
+                 it from `must-not`.",
         },
         // -- A02006: Duplicate import --
         ErrorInfo {
