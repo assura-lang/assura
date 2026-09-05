@@ -304,12 +304,14 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             code: "A07003",
             name: "Unknown effect name",
             description: "An effect name in an 'effects' clause does not match any known \
-                          effect. Built-in effects include: io, io.read, io.write, \
-                          database, database.read, database.write, network, crypto, pure.",
+                          effect. Built-in groups: io, database, logging, mem, net, fs, \
+                          rng, time, alloc, diverge, random, pure. Dotted leaves include \
+                          network.connect, network.send, network.receive (not `network` \
+                          or `crypto`).",
             example: r#"  fn bad() -> Unit
       effects: teleport   // 'teleport' is not a known effect -> A07003"#,
-            fix: "Use a valid effect name from the built-in effect hierarchy. Check \
-                 the documentation for the complete list of effects.",
+            fix: "Use a name from the built-in list. `network` and `crypto` are not \
+                 effect names; use `net` or `network.connect`.",
         },
         // -- A02006: Duplicate import --
         ErrorInfo {
@@ -577,9 +579,11 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             example: r#"  contract safe_add(x: Int, y: Int) -> Int
     requires { x >= 0 }
     ensures  { result >= 0 }    // result is unconstrained"#,
-            fix: "Write ensures clauses that reference only input variables: \
-                 ensures { x + y >= 0 }. For extern functions returning Bytes/String, \
-                 result.length() >= 0 is safe (background axiom).",
+            fix: "Bind `result` with IR (`assura build --write-ir` or `--auto-implement`) \
+                 or write an equality/bound the synthesizer can plan (`result == x`, \
+                 `result >= lo`). Input-only ensures remain valid when you do not need \
+                 a result witness. For extern Bytes/String, result.length() >= 0 is safe \
+                 (background axiom).",
         },
         // -- A22003: Unbounded allocation --
         ErrorInfo {
