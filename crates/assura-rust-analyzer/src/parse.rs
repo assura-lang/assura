@@ -170,10 +170,9 @@ fn extract_doc_lines(attrs: &[syn::Attribute], source: &str) -> Vec<(String, usi
 ///
 /// In non-proc-macro context, span locations may not be available.
 /// We fall back to 0 if we cannot determine the offset.
-fn span_to_offset(span: proc_macro2::Span, _source: &str) -> usize {
-    // proc_macro2 spans in non-proc-macro context (parsed via syn::parse_str
-    // or syn::parse_file) provide byte offsets via start().
-    span.start().column
+fn span_to_offset(span: proc_macro2::Span, source: &str) -> usize {
+    let start = span.start();
+    line_col_to_offset(source, start.line, start.column)
 }
 
 /// Extract a string representation of a syn type.
@@ -268,7 +267,8 @@ pub fn parse_rust_source_with_options(
                 let doc_lines = extract_doc_lines(&st.attrs, source);
                 let contract = parse_doc_clauses(&doc_lines);
                 if !contract.is_empty() {
-                    let offset = st.ident.span().start().column;
+                    let start = st.ident.span().start();
+                    let offset = line_col_to_offset(source, start.line, start.column);
                     let fields = match &st.fields {
                         syn::Fields::Named(named) => named
                             .named
@@ -305,7 +305,8 @@ pub fn parse_rust_source_with_options(
                     .map(|(path, _)| path.to_token_stream().to_string());
 
                 if !impl_contract.is_empty() {
-                    let offset = imp.impl_token.span.start().column;
+                    let start = imp.impl_token.span.start();
+                    let offset = line_col_to_offset(source, start.line, start.column);
                     items.push(AnnotatedItem {
                         contract: impl_contract,
                         kind: AnnotatedItemKind::ImplBlock {
@@ -366,15 +367,25 @@ fn func_span_offset_method(sig: &syn::Signature, source: &str) -> usize {
 /// Convert (line, column) to byte offset.
 ///
 /// `proc_macro2::LineColumn::line` is 1-based; `column` is 0-based.
+/// Walks raw terminators (`\n` or `\r\n`) so CRLF sources stay aligned.
 fn line_col_to_offset(source: &str, line: usize, column: usize) -> usize {
     let mut offset = 0;
-    for (i, src_line) in source.lines().enumerate() {
-        if i + 1 == line {
-            return offset + column.min(src_line.len());
+    let mut current = 1;
+    while current < line {
+        let rest = &source[offset..];
+        if let Some(idx) = rest.find('\n') {
+            offset += idx + 1;
+            current += 1;
+        } else if let Some(idx) = rest.find('\r') {
+            offset += idx + 1;
+            current += 1;
+        } else {
+            return source.len();
         }
-        offset += src_line.len() + 1; // +1 for newline
     }
-    source.len()
+    let rest = &source[offset..];
+    let line_len = rest.find(['\n', '\r']).unwrap_or(rest.len());
+    offset + column.min(line_len)
 }
 
 /// Parse a Rust source file from disk and extract all annotated items.

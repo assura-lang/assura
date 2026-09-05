@@ -872,9 +872,8 @@ fn auto_implement_contracts(
         }
 
         let prompt = assura_smt::render_ir_prompt(ctx, assura_smt::IrPromptPattern::Auto);
-        // Build a single-contract source for verification.
-        // verify_ir validates the IR against the first contract it finds,
-        // so we must pass just this contract (not the full multi-contract file).
+        // Keep the LLM prompt and SMT extras scoped to this declaration.
+        // verify_ir can also select by IR module name in a multi-contract file.
         let single_contract_source = build_single_contract_source(ctx);
         // Suppress LLM progress chatter under --json (agents parse stdout only).
         let llm_verbosity = if output_mode == OutputMode::Json {
@@ -1123,9 +1122,9 @@ fn call_llm_for_ir(
 
 /// Build an Assura source string containing just one contract from a prompt context.
 ///
-/// `verify_ir` validates IR against the first contract it finds in the source.
-/// When the original file has multiple contracts, we need to extract just the
-/// one being implemented so verification targets the right contract.
+/// Auto-implement synthesizes a single-contract file so the LLM prompt and SMT
+/// extras stay scoped to this declaration. `verify_ir` can also select by IR
+/// module name when the source has several contracts.
 fn build_single_contract_source(ctx: &assura_smt::IrPromptContext) -> String {
     let mut src = format!("contract {} {{\n", ctx.decl_name);
     // Input clause with parameters
