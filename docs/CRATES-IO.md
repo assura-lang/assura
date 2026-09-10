@@ -162,10 +162,9 @@ CARGO_REGISTRY_TOKEN=… bash scripts/publish-crates.sh
    PR such as "release 0.1.1" after 0.1.0 is expected.
 3. Review version bump, `CHANGELOG.md`, and path-dep pins
    (`sync-path-dep-versions` on the release workflow run).
-4. Optionally land curated `RELEASE_NOTES.md` on **main**, wait for
-   release-please to refresh the PR. The host job applies it to the GitHub
-   Release body; `cleanup-release-notes` then opens an auto-merge PR to
-   remove the file so the next release does not reuse stale notes.
+4. Optionally push curated notes on a one-file `release-note-<semver>`
+   branch (no PR). Host or Apply release notes copies them onto the
+   GitHub Release and deletes the branch.
 5. Merge the release PR with an **explicit human decision** (never auto-merge
    `autorelease: pending`).
 6. Watch the Release workflow; verify crates.io + GitHub Release assets.
@@ -180,10 +179,10 @@ gh run watch <RUN_ID>
 | `release-please` (in release-please workflow) | Tag + GitHub Release created; dispatches Release with `tag` |
 | `plan` | cargo-dist plan for that tag |
 | `build-local-artifacts` / `build-global-artifacts` | CLI installers |
-| `host` | Upload assets (idempotent if the Release already exists); applies `RELEASE_NOTES.md` if present |
+| `host` | Upload assets (idempotent if the Release already exists); applies notes from `release-note-<semver>` if present |
 | `publish-crates` | Libraries via `scripts/publish-crates.sh` (skips versions already on crates.io) |
 | `announce` | Final confirmation |
-| `cleanup-release-notes` | PR to delete `RELEASE_NOTES.md` from main after apply (non-fatal) |
+| Apply release notes | Cheap re-apply of curated notes (no compile); deletes the notes branch |
 
 If `publish-crates` fails mid-graph, fix on `main` and re-dispatch the same
 tag (idempotent for already-uploaded crates). You cannot overwrite a version

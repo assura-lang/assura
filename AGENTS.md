@@ -686,25 +686,19 @@ Examples:
 are not Conventional Commit types; release-please will not open a
 release PR.
 
-### RELEASE_NOTES.md cleanup (dual-token)
+### Curated release notes (notes branch)
 
-Curated release notes use root `RELEASE_NOTES.md` (override on the
-GitHub Release body). The post-release cleanup job must **not** open
-that PR with the same GitHub App that auto-approves it (self-approval
-is forbidden; cleanup sat in `REVIEW_REQUIRED` after v0.4.2 #1499).
+Do not commit `RELEASE_NOTES.md` to `main`. Push a one-file orphan
+branch named `release-note-<semver>` (tag `v0.4.5` maps to
+`release-note-0.4.5`). Do not open a PR for that branch.
 
-Correct pattern in `.github/workflows/release.yml` `cleanup-release-notes`:
+`scripts/apply-release-notes.sh` (cargo-dist host in `release.yml`,
+or `.github/workflows/apply-release-notes.yml`) copies the file onto
+the GitHub Release and deletes the branch. Missing notes leave the
+auto changelog in place.
 
-1. Create branch / commit / PR with `GITHUB_TOKEN` (`github-actions[bot]`)
-2. Start required checks as the **App** (`scripts/start-cleanup-pr-ci.sh`:
-   approve `action_required` stubs). A GITHUB_TOKEN-authored
-   `pull_request` does not start jobs; review alone leaves the PR
-   `BLOCKED` (#1516 / #1517). Do **not** push an empty commit as the
-   App (`require_last_push_approval` dismisses the App review, #1520).
-3. Approve + `gh pr merge --auto` with the App token (different identity)
-
-Do not merge release-please PRs without explicit user approval. Full
-pattern: `ci-build-release` skill (RELEASE_NOTES dual-token section).
+Do not merge release-please PRs without explicit user approval.
+Full pattern: `ci-build-release` skill (RELEASE_NOTES.md override).
 
 ### License
 
