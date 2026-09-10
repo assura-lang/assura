@@ -24,6 +24,7 @@ runs:
       uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       with:
         shared-key: ${{ inputs.shared-key }}
+        save-if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'workflow_dispatch' }}
 
     - name: Install system dependencies (Linux)
       if: ${{ runner.os == 'Linux' && inputs.install-system-deps == 'true' }}

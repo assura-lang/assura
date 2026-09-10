@@ -1,8 +1,8 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
+  # Recipe A: product compile on PR and merge_group only. Daily schedule
+  # is an intentional full SMT matrix, not a post-merge rebuild.
   pull_request:
   merge_group:
   schedule:
@@ -158,6 +158,11 @@ jobs:
       - name: Check dependencies
         if: ${{ !cancelled() }}
         run: cargo deny check
+      - name: Lock Recipe A and notes-branch apply
+        if: ${{ !cancelled() }}
+        run: |
+          python3 scripts/test_apply_release_notes.py
+          python3 scripts/test_workflow_triggers.py
 
   # ── Clippy (parallel with test / lint-fast / heavy jobs) ──────────────────
   clippy:
@@ -183,7 +188,11 @@ jobs:
           toolchain-components: clippy
 
       - name: Clippy
+        if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')
         run: cargo clippy --workspace --locked -- -D warnings
+      - name: Release-please check
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please')
+        run: cargo check --workspace --locked --all-targets
 
   # ── Workflow linting (actionlint + zizmor) ────────────────────────────────
   workflow-sanity:
@@ -243,7 +252,11 @@ jobs:
           HOME: ${{ runner.temp }}/install-action-home
 
       - name: Test (nextest)
+        if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')
         run: cargo nextest run --workspace --locked
+      - name: Release-please check
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please')
+        run: cargo check --workspace --locked --all-targets
 
 
 
@@ -251,7 +264,7 @@ jobs:
   benchmark:
     name: Pipeline benchmarks
     needs: changes
-    if: ${{ needs.changes.outputs.codegen == 'true' || needs.changes.outputs.tooling-only == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.codegen == 'true' || needs.changes.outputs.tooling-only == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -290,7 +303,7 @@ jobs:
   codegen-validation:
     name: Generated code compiles
     needs: changes
-    if: ${{ needs.changes.outputs.codegen == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.codegen == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -345,7 +358,7 @@ jobs:
   # ── No-Z3 fallback check (~30s on ubuntu) ───────────────────────────────
   no-z3:
     needs: changes
-    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -369,7 +382,7 @@ jobs:
   cvc5:
     name: CVC5 native tests
     needs: changes
-    if: ${{ needs.changes.outputs.smt == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.smt == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -426,7 +439,7 @@ jobs:
   tree-sitter:
     name: Tree-sitter grammar tests
     needs: changes
-    if: ${{ needs.changes.outputs.editors-ts == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.editors-ts == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -459,7 +472,7 @@ jobs:
   vscode-extension:
     name: VS Code extension compiles
     needs: changes
-    if: ${{ needs.changes.outputs.editors-vscode == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.editors-vscode == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -490,7 +503,7 @@ jobs:
   cargo-package:
     name: Cargo package (publishable)
     needs: changes
-    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    if: ${{ (needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
