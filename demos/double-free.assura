@@ -42,6 +42,8 @@ contract DtlsFragmentBounds {
     requires { message_length > 0 }
     requires { fragment_offset >= 0 }
     requires { fragment_length > 0 }
+    requires { fragment_offset + fragment_length >= fragment_offset }
+    requires { fragment_length <= message_length }
     requires { fragment_offset + fragment_length <= message_length }
 
     // PROVEN BY Z3: fragment stays within message bounds
@@ -70,6 +72,8 @@ contract FragmentNonOverlap {
     // Fragment A ends before fragment B starts
     requires { frag_a_length > 0 }
     requires { frag_b_length > 0 }
+    requires { frag_a_offset + frag_a_length >= frag_a_offset }
+    requires { frag_a_length <= frag_b_offset }
     requires { frag_a_offset + frag_a_length <= frag_b_offset }
 
     // PROVEN BY Z3: fragments do not overlap
@@ -119,6 +123,8 @@ contract FragmentCopyBounds {
     requires { buffer_size > 0 }
     requires { fragment_offset >= 0 }
     requires { fragment_length > 0 }
+    requires { fragment_offset + fragment_length >= fragment_offset }
+    requires { fragment_length <= buffer_size }
     requires { fragment_offset + fragment_length <= buffer_size }
 
     // PROVEN BY Z3: copy stays within buffer

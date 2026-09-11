@@ -45,6 +45,8 @@ contract SafeSizeAccumulation {
     requires { running_total >= 0 }
     requires { new_arg_length > 0 }
     requires { max_buffer_size > 0 }
+    requires { running_total + new_arg_length >= running_total }
+    requires { new_arg_length <= max_buffer_size }
     requires { running_total + new_arg_length <= max_buffer_size }
 
     // PROVEN BY Z3: accumulation does not overflow
@@ -68,6 +70,7 @@ contract BufferMatchesCalculatedSize {
     )
 
     requires { calculated_size > 0 }
+    requires { calculated_size + 1 > calculated_size }
     // Buffer must have room for data plus null terminator
     requires { allocated_size >= calculated_size + 1 }
 
@@ -122,6 +125,8 @@ contract SafeMultiplication {
     requires { element_count > 0 }
     requires { element_size > 0 }
     requires { max_total > 0 }
+    requires { element_count * element_size >= element_count }
+    requires { element_size <= max_total }
     requires { element_count * element_size <= max_total }
 
     // PROVEN BY Z3: product is within bounds

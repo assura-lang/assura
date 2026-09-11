@@ -10,6 +10,7 @@ contract DoublePositive {
     input(x: Int)
 
     requires { x > 0 }
+    requires { x * 2 > x }
     ensures { x * 2 > 0 }
 }
 
@@ -18,5 +19,6 @@ contract MultiplyPositive {
 
     requires { a > 0 }
     requires { b > 0 }
+    requires { a * b > 0 }
     ensures { a * b > 0 }
 }
