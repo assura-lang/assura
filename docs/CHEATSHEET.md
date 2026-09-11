@@ -4,8 +4,8 @@
 
 | Rust | Assura | Notes |
 |------|--------|-------|
-| `i8`..`i128`, `isize` | `Int` | Arbitrary-precision signed |
-| `u8`..`u128`, `usize` | `Nat` | Non-negative integer |
+| `i8`..`i128`, `isize` | `Int` | 64-bit signed (wraps like `i64`) |
+| `u8`..`u128`, `usize` | `Nat` | 64-bit unsigned (wraps like `u64`) |
 | `f32`, `f64` | `Float` | IEEE 754 |
 | `bool` | `Bool` | |
 | `String`, `&str` | `String` | UTF-8 |
