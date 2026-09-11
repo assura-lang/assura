@@ -1076,6 +1076,25 @@ fn wrap_literal_minus_nat_suffixes_receiver() {
     assert_eq!(result, "3_u64.wrapping_sub(a)");
 }
 
+#[test]
+fn wrap_literal_minus_int_suffixes_receiver() {
+    let vars = NumericVars {
+        int: ["a".into()].into_iter().collect(),
+        ..NumericVars::default()
+    };
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("3".into())))),
+        op: BinOp::Sub,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+    });
+    let result = expr_to_rust_with_numeric(&e, &vars);
+    assert!(
+        !result.contains("3.wrapping_sub"),
+        "untyped literal wrapping_sub is E0689, got: {result}"
+    );
+    assert_eq!(result, "3_i64.wrapping_sub(a)");
+}
+
 fn length_minus_lit(recv: &str, lit: &str) -> SpExpr {
     Spanned::no_span(Expr::BinOp {
         lhs: Box::new(Spanned::no_span(Expr::MethodCall {
