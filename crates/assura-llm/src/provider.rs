@@ -50,12 +50,13 @@ impl HttpProvider {
     }
 
     fn call_api(&self, system_prompt: &str, user_prompt: &str) -> Result<String, LlmError> {
-        let is_anthropic = self.config.provider == "anthropic"
+        let is_anthropic = self.config.provider.eq_ignore_ascii_case("anthropic")
             || self
                 .config
                 .base_url
                 .as_deref()
                 .unwrap_or("")
+                .to_ascii_lowercase()
                 .contains("anthropic");
 
         if is_anthropic {
