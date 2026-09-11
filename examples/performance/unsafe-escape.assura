@@ -32,9 +32,11 @@ contract SimdAlignment {
 contract ZeroCopyView {
     input(data_len: Nat, view_offset: Nat, view_len: Nat)
 
+    requires { view_offset + view_len > view_offset }
     requires { view_offset + view_len <= data_len }
     requires { data_len > 0 }
     requires { view_len > 0 }
 
+    ensures { view_offset + view_len > view_offset }
     ensures { view_offset + view_len <= data_len }
 }

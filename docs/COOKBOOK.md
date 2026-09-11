@@ -32,6 +32,7 @@ contract SafeAdd {
 
     requires { a >= 0 }
     requires { b >= 0 }
+    requires { a + b >= a }
     requires { a + b <= max }
     ensures  { result == a + b }
     ensures  { result >= 0 }
@@ -82,6 +83,7 @@ contract SafeSlice {
     input(buf: Bytes, offset: Nat, len: Nat)
     output(data: Bytes)
 
+    requires { offset + len >= offset }
     requires { offset + len <= buf.length() }
     ensures  { data.length() == len }
     effects  { pure }

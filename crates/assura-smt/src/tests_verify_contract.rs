@@ -167,6 +167,55 @@ fn nat_wrapping_add_is_counterexample() {
     );
 }
 
+/// Signed Int `+` wraps at 2^63 (codegen `i64`). Wrapping
+/// `a + b >= a` is not a theorem, so unconstrained Int add is a CE.
+#[cfg(feature = "z3-verify")]
+#[test]
+fn int_wrapping_add_is_counterexample() {
+    use crate::z3_backend::verify_contract_impl_with_types_and_ir;
+    use assura_ast::{Param, TypeExpr};
+
+    let clauses = vec![Clause {
+        kind: ClauseKind::Ensures,
+        body: Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+                op: BinOp::Add,
+                rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+            })),
+            op: BinOp::Gte,
+            rhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        }),
+        effect_variables: vec![],
+    }];
+    let params = vec![
+        Param {
+            name: "a".into(),
+            ty: Some(TypeExpr::Named("Int".into())),
+        },
+        Param {
+            name: "b".into(),
+            ty: Some(TypeExpr::Named("Int".into())),
+        },
+    ];
+    let ctx = crate::verify_context::ContractVerifyContext {
+        contract_name: "IntSumNoOverflow",
+        clauses: &clauses,
+        params: &params,
+        return_ty: &[],
+        constants: &[],
+        ir: None,
+        callee_specs: None,
+        lemma_defs: None,
+    };
+    let results = verify_contract_impl_with_types_and_ir(&ctx);
+    assert_eq!(results.len(), 1, "one ensures: {results:?}");
+    assert!(
+        matches!(&results[0], VerificationResult::Counterexample { .. }),
+        "unconstrained Int a+b >= a must CE under i64 wrap, got: {results:?}"
+    );
+}
+
 /// Overflow-guarded Nat add still verifies once wrap is excluded.
 #[cfg(feature = "z3-verify")]
 #[test]

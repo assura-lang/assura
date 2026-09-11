@@ -264,4 +264,21 @@ mod tests {
             "unsigned wrap of 2^64-1+1 must be 0"
         );
     }
+
+    #[cfg(feature = "cvc5-verify")]
+    #[test]
+    fn wrap_cvc5_machine_int_signed_max_plus_one_is_min() {
+        let tm = cvc5::TermManager::new();
+        let mut solver = cvc5::Solver::new(&tm);
+        let max = tm.mk_integer(i64::MAX);
+        let sum = tm.mk_term(cvc5::Kind::Add, &[max, tm.mk_integer(1)]);
+        let wrapped = wrap_cvc5_machine_int(&tm, sum, Some((64, true)));
+        assert!(wrapped.sort().is_integer());
+        let eq_min = tm.mk_term(cvc5::Kind::Equal, &[wrapped, tm.mk_integer(i64::MIN)]);
+        solver.assert_formula(eq_min);
+        assert!(
+            solver.check_sat().is_sat(),
+            "signed wrap of i64::MAX+1 must be i64::MIN"
+        );
+    }
 }
