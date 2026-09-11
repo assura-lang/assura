@@ -21,8 +21,10 @@ contract MemoryBudget {
 
     requires { quota > 0 }
     requires { request > 0 }
+    requires { allocated + request > allocated }
     requires { allocated + request <= quota }
 
+    ensures { allocated + request > allocated }
     ensures { allocated + request <= quota }
 }
 
