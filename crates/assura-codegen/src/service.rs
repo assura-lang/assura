@@ -73,10 +73,8 @@ fn build_service_method_fn(
         }
     }
 
-    // Collect float-typed parameter / result names so the expression folder
-    // skips i128::from() wrapping (f64 does not implement Into<i128>).
     let extra: Vec<&str> = output_name.iter().map(String::as_str).collect();
-    let float_vars = float_idents(
+    let num_vars = numeric_vars(
         input_params.iter().map(|(n, t)| (n.as_str(), t.as_str())),
         Some(output_type.as_str()),
         &extra,
@@ -88,18 +86,18 @@ fn build_service_method_fn(
                 if let Some(state) = extract_state_comparison(&clause.body) {
                     pre_state = Some(state);
                 } else {
-                    requires_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
+                    requires_exprs.push(expr_to_rust_with_numeric(&clause.body, &num_vars));
                 }
             }
             ClauseKind::Ensures => {
                 if let Some(state) = extract_state_comparison(&clause.body) {
                     post_state = Some(state);
                 } else {
-                    ensures_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
+                    ensures_exprs.push(expr_to_rust_with_numeric(&clause.body, &num_vars));
                 }
             }
             ClauseKind::Invariant => {
-                invariants.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
+                invariants.push(expr_to_rust_with_numeric(&clause.body, &num_vars));
             }
             _ => {}
         }
@@ -256,10 +254,8 @@ fn build_typestate_method_fn(
         }
     }
 
-    // Collect float-typed parameter / result names so the expression folder
-    // skips i128::from() wrapping (f64 does not implement Into<i128>).
     let extra: Vec<&str> = output_name.iter().map(String::as_str).collect();
-    let float_vars = float_idents(
+    let num_vars = numeric_vars(
         input_params.iter().map(|(n, t)| (n.as_str(), t.as_str())),
         Some(output_type.as_str()),
         &extra,
@@ -269,18 +265,18 @@ fn build_typestate_method_fn(
         match &clause.kind {
             ClauseKind::Requires => {
                 if extract_state_comparison(&clause.body).is_none() {
-                    requires_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
+                    requires_exprs.push(expr_to_rust_with_numeric(&clause.body, &num_vars));
                 }
             }
             ClauseKind::Ensures => {
                 if let Some(state) = extract_state_comparison(&clause.body) {
                     post_state = Some(state);
                 } else {
-                    ensures_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
+                    ensures_exprs.push(expr_to_rust_with_numeric(&clause.body, &num_vars));
                 }
             }
             ClauseKind::Invariant => {
-                invariants.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
+                invariants.push(expr_to_rust_with_numeric(&clause.body, &num_vars));
             }
             _ => {}
         }

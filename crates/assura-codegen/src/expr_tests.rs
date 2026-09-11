@@ -959,3 +959,54 @@ fn mixed_float_and_int_in_if_skips_i128() {
         "Float if-branches must not use i128::from, got: {result}"
     );
 }
+
+// ---- same-kind Int/Nat wrap (#1590) ----
+
+fn add_ab() -> SpExpr {
+    Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        op: BinOp::Add,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    })
+}
+
+#[test]
+fn same_kind_nat_add_emits_wrapping_add() {
+    let vars = NumericVars {
+        nat: ["a".into(), "b".into()].into_iter().collect(),
+        ..NumericVars::default()
+    };
+    assert_eq!(
+        expr_to_rust_with_numeric(&add_ab(), &vars),
+        "a.wrapping_add(b)"
+    );
+}
+
+#[test]
+fn same_kind_int_mul_emits_wrapping_mul() {
+    let vars = NumericVars {
+        int: ["a".into(), "b".into()].into_iter().collect(),
+        ..NumericVars::default()
+    };
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        op: BinOp::Mul,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
+    assert_eq!(expr_to_rust_with_numeric(&e, &vars), "a.wrapping_mul(b)");
+}
+
+#[test]
+fn mixed_int_nat_add_still_emits_i128() {
+    let vars = NumericVars {
+        int: ["a".into()].into_iter().collect(),
+        nat: ["b".into()].into_iter().collect(),
+        ..NumericVars::default()
+    };
+    let result = expr_to_rust_with_numeric(&add_ab(), &vars);
+    assert!(
+        result.contains("i128::from(a)") && result.contains("i128::from(b)"),
+        "mixed Int/Nat must widen, got: {result}"
+    );
+    assert!(!result.contains("wrapping_add"), "got: {result}");
+}

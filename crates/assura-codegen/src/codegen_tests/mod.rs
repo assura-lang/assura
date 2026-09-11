@@ -22,3 +22,4 @@ mod remaining;
 mod safe_division;
 mod struct_enum;
 mod type_mapping;
+mod wrap_arith;
