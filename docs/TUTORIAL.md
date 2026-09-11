@@ -478,6 +478,7 @@ contract SafeAverage {
   requires { max > 0 }
   requires { a <= max }
   requires { b <= max }
+  requires { a + b >= a }
 
   ensures { max >= 0 }
   ensures { a + b >= 0 }

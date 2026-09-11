@@ -75,6 +75,7 @@ requires { sender_bal >= 0 }
 requires { receiver_bal >= 0 }
 requires { amount > 0 }
 requires { amount <= sender_bal }
+requires { sender_bal + receiver_bal >= sender_bal }
 ensures  { sender_bal - amount + receiver_bal + amount == sender_bal + receiver_bal }
 ensures  { sender_bal + receiver_bal >= amount }
 effects: pure
@@ -119,6 +120,8 @@ min_balance: Nat
 requires { balance >= 0 }
 requires { debit > 0 }
 requires { min_balance >= 0 }
+requires { balance >= debit }
+requires { debit + min_balance >= debit }
 requires { balance - debit >= min_balance }
 ensures  { balance - debit >= min_balance }
 ensures  { balance >= debit + min_balance }

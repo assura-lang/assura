@@ -94,6 +94,7 @@ contract SafeStringExtraction {
     // Length prefix is 4 bytes, then the string content
     requires { remaining_bytes >= 4 }
     requires { declared_length > 0 }
+    requires { declared_length + 4 >= declared_length }
     requires { declared_length + 4 <= remaining_bytes }
 
     // PROVEN BY Z3: string fits within remaining message

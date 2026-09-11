@@ -2,7 +2,7 @@
 //!
 //! Wraps the existing CVC5 encoder functions to satisfy the trait interface.
 //! Each trait method delegates to the corresponding `cvc5_*_encode` module
-//! function. This is a thin adapter with no behavior change.
+//! function. Machine `Int`/`Nat` wrap is applied in `maybe_wrap_machine_*`.
 
 #![cfg(feature = "cvc5-verify")]
 
@@ -112,6 +112,49 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         rhs: cvc5::Term<'a>,
     ) -> Option<cvc5::Term<'a>> {
         encode_ast_binop_cvc5(self.tm, op, lhs, rhs, self.state)
+    }
+
+    fn maybe_wrap_machine_arith(
+        &mut self,
+        op: &BinOp,
+        lhs: &assura_ast::SpExpr,
+        rhs: &assura_ast::SpExpr,
+        term: cvc5::Term<'a>,
+    ) -> cvc5::Term<'a> {
+        if !matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul) {
+            return term;
+        }
+        if self.state.machine_wrap.is_none() {
+            return term;
+        }
+        if crate::prelude_policy::is_machine_arith_atom(lhs, &self.state.wrap_vars)
+            && crate::prelude_policy::is_machine_arith_atom(rhs, &self.state.wrap_vars)
+        {
+            return crate::cvc5_binop_encode::wrap_cvc5_machine_int(
+                self.tm,
+                term,
+                self.state.machine_wrap,
+            );
+        }
+        term
+    }
+
+    fn maybe_wrap_machine_neg(
+        &mut self,
+        inner: &assura_ast::SpExpr,
+        term: cvc5::Term<'a>,
+    ) -> cvc5::Term<'a> {
+        if self.state.machine_wrap.is_none() {
+            return term;
+        }
+        if crate::prelude_policy::is_machine_arith_atom(inner, &self.state.wrap_vars) {
+            return crate::cvc5_binop_encode::wrap_cvc5_machine_int(
+                self.tm,
+                term,
+                self.state.machine_wrap,
+            );
+        }
+        term
     }
 
     // === Unary operations ===

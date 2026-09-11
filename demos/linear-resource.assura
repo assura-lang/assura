@@ -60,6 +60,8 @@ contract ReadWithinBuffer {
     requires { buffer_size > 0 }
     requires { read_request > 0 }
     requires { offset >= 0 }
+    requires { offset + read_request >= offset }
+    requires { read_request <= buffer_size }
     requires { offset + read_request <= buffer_size }
     ensures  { offset + read_request <= buffer_size }
     ensures  { read_request <= buffer_size }
@@ -79,6 +81,8 @@ contract WriteWithinData {
     requires { data_length > 0 }
     requires { write_length > 0 }
     requires { data_offset >= 0 }
+    requires { data_offset + write_length >= data_offset }
+    requires { write_length <= data_length }
     requires { data_offset + write_length <= data_length }
     ensures  { data_offset + write_length <= data_length }
     ensures  { write_length <= data_length }

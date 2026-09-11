@@ -108,6 +108,10 @@ impl<'a, 'v, 's> IrTermBuilder for Cvc5IrBuilder<'a, 'v, 's, '_> {
         }
     }
 
+    fn wrap_machine_term(&mut self, term: Self::Term) -> Self::Term {
+        crate::cvc5_binop_encode::wrap_cvc5_machine_int(self.tm, term, self.state.machine_wrap)
+    }
+
     fn cmp_as_int(
         &mut self,
         op: crate::ir::IrCmpOp,

@@ -97,6 +97,10 @@ pub(crate) struct Encoder {
     pub(crate) adt_defs: HashMap<String, AdtDef>,
     /// Fixed-width params: name -> signed? (false = unsigned).
     pub(crate) bv_signed: HashMap<String, bool>,
+    /// Wrap Int `+`/`-`/`*` at this width (#1584). `Int`/`Nat` stay SMT Int.
+    pub(crate) machine_wrap: Option<(u32, bool)>,
+    /// Param/result names whose arithmetic should wrap at `machine_wrap`.
+    pub(crate) wrap_vars: std::collections::HashSet<String>,
     /// Canonical `.length()` variables per identifier (#267).
     canonical_lengths: HashMap<String, ast::Int>,
     /// Same-file pure callees with `ensures { result == <expr> }` for equating

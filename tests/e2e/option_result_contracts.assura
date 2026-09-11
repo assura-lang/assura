@@ -15,5 +15,6 @@ contract PositiveInput {
     input(a: Int, b: Int)
     requires { a > 0 }
     requires { b > 0 }
+    requires { a + b > a }
     ensures  { a + b > 0 }
 }

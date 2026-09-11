@@ -39,9 +39,7 @@ pub fn apply_ir_body_constraints<B: IrTermBuilder>(
             slot_types: &slot_types,
         };
         let computed = encode_ir_expr(builder, &instr.expr, slots, ctx);
-        if let Some(target) = slots.get(&instr.target) {
-            builder.push_eq_axiom(computed, target.clone());
-        }
+        crate::ir_lower::bind_ir_computed(builder, instr.target, computed, slots, &instr.expr);
         // Track flatten names for nested field loads so hop 2+ use
         // `param__f1__f2` free vars matching AST deep-field encoding (#896).
         // Numeric indices use `"0"`, `"1"`, … so nested tuples `t.1.0` match (#899).

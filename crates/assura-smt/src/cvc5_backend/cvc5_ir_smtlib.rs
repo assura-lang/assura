@@ -113,6 +113,10 @@ impl IrTermBuilder for SmtlibIrBuilder<'_, '_> {
         mk_ir_arith_smtlib(op, &lhs, &rhs)
     }
 
+    fn wrap_machine_term(&mut self, term: Self::Term) -> Self::Term {
+        crate::cvc5_expr_smtlib::wrap_smtlib_ir_result(&term)
+    }
+
     fn cmp_as_int(&mut self, op: IrCmpOp, lhs: Self::Term, rhs: Self::Term) -> Self::Term {
         let b = mk_ir_cmp_bool_smtlib(op, &lhs, &rhs);
         format!("(ite {b} 1 0)")

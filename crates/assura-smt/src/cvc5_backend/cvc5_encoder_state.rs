@@ -21,6 +21,10 @@ pub(crate) struct Cvc5EncoderState<'a> {
     pub(crate) trigger_manager: crate::advanced::TriggerManager,
     /// Fixed-width params: name -> signed? (false = unsigned). Parity with Z3 `bv_signed` (#453).
     pub(crate) bv_signed: HashMap<String, bool>,
+    /// Wrap Int `+`/`-`/`*` at this width (#1584). Parity with Z3 `machine_wrap`.
+    pub(crate) machine_wrap: Option<(u32, bool)>,
+    /// Param/result names whose arithmetic should wrap at `machine_wrap`.
+    pub(crate) wrap_vars: std::collections::HashSet<String>,
     /// Same-file pure callees for ensures-side call equating (Z3 parity).
     pub(crate) callee_specs: HashMap<String, crate::encode_callee_policy::CalleeFunctionalSpec>,
 }
@@ -38,6 +42,8 @@ pub(crate) fn default_cvc5_encoder_state<'a>() -> Cvc5EncoderState<'a> {
         struct_adt_defs: HashMap::new(),
         trigger_manager: crate::advanced::TriggerManager::new(),
         bv_signed: HashMap::new(),
+        machine_wrap: None,
+        wrap_vars: std::collections::HashSet::new(),
         callee_specs: HashMap::new(),
     }
 }

@@ -69,6 +69,9 @@ contract SafeQueryConstruction {
     requires { param_count > 0 }
     requires { max_param_size > 0 }
     requires { max_query_size > 0 }
+    requires { param_count * max_param_size >= param_count }
+    requires { template_length + param_count * max_param_size >= template_length }
+    requires { template_length <= max_query_size }
     requires { template_length + param_count * max_param_size <= max_query_size }
 
     // PROVEN BY Z3: total query size is bounded
@@ -96,6 +99,8 @@ contract SanitizeInputBounds {
     requires { raw_length > 0 }
     requires { buffer_size > 0 }
     // Worst-case expansion: each character could double (escape)
+    requires { raw_length * 2 >= raw_length }
+    requires { raw_length <= buffer_size }
     requires { raw_length * 2 <= buffer_size }
 
     // PROVEN BY Z3: sanitized output fits in the buffer

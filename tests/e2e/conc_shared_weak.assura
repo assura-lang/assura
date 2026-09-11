@@ -9,6 +9,7 @@ contract AtomicIncrement {
 
     requires { delta > 0 }
     requires { counter >= 0 }
+    requires { counter + delta > counter }
     ensures { counter + delta > counter }
 }
 

@@ -108,6 +108,46 @@ pub trait IrTermBuilder {
     fn push_ir_post(&mut self, _pred: &crate::ir::IrPred, _slots: &HashMap<usize, Self::Term>) {
         // Default: backends that cannot encode IR postconditions skip them.
     }
+
+    /// Reduce a term into the contract machine range. No-op when the
+    /// contract has no wrap (mixed Int/Nat, non-numeric).
+    ///
+    /// Applied only at `$result` bind, not on every `arith`. Wrapping
+    /// every IR add/mul collapses the synthetic `2^32 * 2^32` i64
+    /// modulus to 0 and breaks `wrapping_add` (#1584).
+    fn wrap_machine_term(&mut self, term: Self::Term) -> Self::Term {
+        term
+    }
+}
+
+fn ir_arith_is_machine_op(expr: &IrExprKind) -> bool {
+    matches!(
+        expr,
+        IrExprKind::Arith {
+            op: IrArithOp::Add | IrArithOp::Sub | IrArithOp::Mul,
+            ..
+        }
+    )
+}
+
+/// Bind `computed` to `target`. `$result` from `+`/`-`/`*` is reduced
+/// to the machine range so a body `x + 1` matches a wrapped annotation.
+/// Length, field, and `abs` results stay unbounded.
+pub(crate) fn bind_ir_computed<B: IrTermBuilder>(
+    builder: &mut B,
+    target: usize,
+    computed: B::Term,
+    slots: &HashMap<usize, B::Term>,
+    expr: &IrExprKind,
+) {
+    let computed = if target == RESULT_SLOT && ir_arith_is_machine_op(expr) {
+        builder.wrap_machine_term(computed)
+    } else {
+        computed
+    };
+    if let Some(slot) = slots.get(&target) {
+        builder.push_eq_axiom(computed, slot.clone());
+    }
 }
 
 /// Evaluate a sibling `fn #N` block with a block-local `RESULT_SLOT` (#297).
@@ -128,9 +168,7 @@ pub fn eval_ir_block<B: IrTermBuilder>(
             local.insert(instr.target, builder.get_or_create_named(&name));
         }
         let computed = encode_ir_expr(builder, &instr.expr, &local, ctx);
-        if let Some(target) = local.get(&instr.target) {
-            builder.push_eq_axiom(computed.clone(), target.clone());
-        }
+        bind_ir_computed(builder, instr.target, computed, &local, &instr.expr);
         last = local.get(&instr.target).cloned();
     }
     last
@@ -181,9 +219,7 @@ pub fn eval_ir_call<B: IrTermBuilder>(
             local.insert(instr.target, builder.get_or_create_named(&name));
         }
         let computed = encode_ir_expr(builder, &instr.expr, &local, callee_ctx);
-        if let Some(target) = local.get(&instr.target) {
-            builder.push_eq_axiom(computed.clone(), target.clone());
-        }
+        bind_ir_computed(builder, instr.target, computed, &local, &instr.expr);
     }
 
     local.get(&RESULT_SLOT).cloned()

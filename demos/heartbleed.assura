@@ -66,6 +66,8 @@ contract HeartbeatSafeResponse {
 
     // This is the one-line fix that was missing in OpenSSL:
     // header (3) + payload + padding must fit within the record
+    requires { payload_length + padding_length >= payload_length }
+    requires { 3 + payload_length + padding_length >= payload_length + padding_length }
     requires { 3 + payload_length + padding_length <= record_length }
 
     // PROVEN BY Z3: the payload we copy back fits within received data.
@@ -105,6 +107,8 @@ contract SafeMemcpy {
     requires { src_offset >= 0 }
     requires { src_offset < src_length }
     requires { copy_length > 0 }
+    requires { src_offset + copy_length >= src_offset }
+    requires { copy_length <= src_length }
     requires { src_offset + copy_length <= src_length }
 
     // PROVEN BY Z3: the copy end does not exceed the buffer
@@ -138,6 +142,8 @@ contract ValidateHeartbeatRequest {
 
     // The declared payload must fit within what we actually received
     requires { declared_payload_len >= 1 }
+    requires { declared_payload_len + 16 >= declared_payload_len }
+    requires { 3 + declared_payload_len + 16 >= declared_payload_len + 16 }
     requires { 3 + declared_payload_len + 16 <= record_data.length() }
 
     // PROVEN BY Z3: the actual available data exceeds the declared payload.

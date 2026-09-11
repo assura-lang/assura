@@ -51,6 +51,10 @@ impl IrTermBuilder for Z3IrBuilder<'_, '_> {
         }
     }
 
+    fn wrap_machine_term(&mut self, term: Self::Term) -> Self::Term {
+        self.encoder.wrap_machine_int(&term)
+    }
+
     fn cmp_as_int(&mut self, op: IrCmpOp, lhs: Self::Term, rhs: Self::Term) -> Self::Term {
         let b = match op {
             IrCmpOp::Eq => lhs.eq(&rhs),

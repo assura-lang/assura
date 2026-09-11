@@ -21,6 +21,38 @@ use crate::encode_binop_policy::{AstBinOpKind, classify_ast_binop};
 #[cfg(feature = "cvc5-verify")]
 use assura_ast::{BinOp, UnaryOp};
 
+/// Reduce an Int term into the contract machine range (#1584).
+#[cfg(feature = "cvc5-verify")]
+pub(crate) fn wrap_cvc5_machine_int<'a>(
+    tm: &'a cvc5::TermManager,
+    x: cvc5::Term<'a>,
+    wrap: Option<(u32, bool)>,
+) -> cvc5::Term<'a> {
+    let Some((width, signed)) = wrap else {
+        return x;
+    };
+    if width == 0 || width > 64 {
+        return x;
+    }
+    let modulus = if width == 64 {
+        let max = tm.mk_integer_from_str("18446744073709551615");
+        tm.mk_term(cvc5::Kind::Add, &[max, tm.mk_integer(1)])
+    } else {
+        tm.mk_integer(1i64 << width)
+    };
+    if !signed {
+        return tm.mk_term(cvc5::Kind::IntsModulus, &[x, modulus]);
+    }
+    let half = if width == 64 {
+        tm.mk_integer_from_str("9223372036854775808")
+    } else {
+        tm.mk_integer(1i64 << (width - 1))
+    };
+    let shifted = tm.mk_term(cvc5::Kind::Add, &[x, half.clone()]);
+    let reduced = tm.mk_term(cvc5::Kind::IntsModulus, &[shifted, modulus]);
+    tm.mk_term(cvc5::Kind::Sub, &[reduced, half])
+}
+
 /// Encode an AST binary operator as a native CVC5 term.
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn encode_ast_binop_cvc5<'a>(

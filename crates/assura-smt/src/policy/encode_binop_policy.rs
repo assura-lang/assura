@@ -52,6 +52,32 @@ pub(crate) fn encode_ast_unary_smtlib(op: &UnaryOp, inner: &str) -> String {
     }
 }
 
+/// Reduce an Int SMT-LIB term into the contract machine range (#1584).
+///
+/// Unsigned: `(mod x 2^w)`. Signed: `(- (mod (+ x 2^(w-1)) 2^w) 2^(w-1))`.
+pub(crate) fn wrap_smtlib_machine_int(term: &str, wrap: Option<(u32, bool)>) -> String {
+    let Some((width, signed)) = wrap else {
+        return term.to_string();
+    };
+    if width == 0 || width > 64 {
+        return term.to_string();
+    }
+    let modulus = if width == 64 {
+        "18446744073709551616".to_string()
+    } else {
+        (1u64 << width).to_string()
+    };
+    if !signed {
+        return format!("(mod {term} {modulus})");
+    }
+    let half = if width == 64 {
+        "9223372036854775808".to_string()
+    } else {
+        (1u64 << (width - 1)).to_string()
+    };
+    format!("(- (mod (+ {term} {half}) {modulus}) {half})")
+}
+
 /// Kind of AST binop for planning (special forms vs standard SMT operator).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AstBinOpKind {
@@ -136,5 +162,18 @@ mod tests {
         assert!(!is_comparison_ast_binop(&BinOp::Add));
         assert!(!is_comparison_ast_binop(&BinOp::And));
         assert!(!is_comparison_ast_binop(&BinOp::Or));
+    }
+
+    #[test]
+    fn wrap_smtlib_machine_int_nat64() {
+        assert_eq!(
+            wrap_smtlib_machine_int("(+ a b)", Some((64, false))),
+            "(mod (+ a b) 18446744073709551616)"
+        );
+        assert_eq!(
+            wrap_smtlib_machine_int("(+ x y)", Some((64, true))),
+            "(- (mod (+ (+ x y) 9223372036854775808) 18446744073709551616) 9223372036854775808)"
+        );
+        assert_eq!(wrap_smtlib_machine_int("(+ a b)", None), "(+ a b)");
     }
 }

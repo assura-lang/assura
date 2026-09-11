@@ -158,6 +158,9 @@ fn check_implication(
         solver.set_params(&params);
         let mut encoder = Encoder::new();
         encoder.init_bitvector_infrastructure();
+        encoder.machine_wrap =
+            crate::prelude_policy::contract_machine_wrap(typed_params, return_ty);
+        encoder.wrap_vars = crate::prelude_policy::collect_wrap_var_names(typed_params, return_ty);
 
         // #855: register fixed-width params/result and assert Nat non-negativity
         // from shared prelude_policy (same helpers as normal verify).
@@ -176,7 +179,16 @@ fn check_implication(
                 crate::prelude_policy::PreludeConstraint::NatNonNegative(name) => {
                     let v = encoder.get_or_create_int(name);
                     let zero = z3::ast::Int::from_i64(0);
+                    let max = z3::ast::Int::from_u64(u64::MAX);
                     solver.assert(v.ge(&zero));
+                    solver.assert(v.le(&max));
+                }
+                crate::prelude_policy::PreludeConstraint::IntBounded(name) => {
+                    let v = encoder.get_or_create_int(name);
+                    let lo = z3::ast::Int::from_i64(i64::MIN);
+                    let hi = z3::ast::Int::from_i64(i64::MAX);
+                    solver.assert(v.ge(&lo));
+                    solver.assert(v.le(&hi));
                 }
                 crate::prelude_policy::PreludeConstraint::BoolZeroOrOne(name) => {
                     let v = encoder.get_or_create_int(name);

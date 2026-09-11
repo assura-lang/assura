@@ -23,5 +23,6 @@ contract BoundedSum {
 
     requires { a >= 1 }
     requires { b >= 1 }
+    requires { a + b >= a }
     ensures { a + b >= 2 }
 }

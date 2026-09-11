@@ -68,6 +68,10 @@ pub(crate) fn check_clause_cvc5_native(
         );
 
         let mut enc_state = default_cvc5_encoder_state();
+        enc_state.machine_wrap =
+            crate::prelude_policy::contract_machine_wrap(contract.params, contract.return_ty);
+        enc_state.wrap_vars =
+            crate::prelude_policy::collect_wrap_var_names(contract.params, contract.return_ty);
         if let Some(specs) = contract.callee_specs {
             enc_state.callee_specs.clone_from(specs);
         }
