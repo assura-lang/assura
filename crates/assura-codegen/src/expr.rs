@@ -108,6 +108,16 @@ fn wrapping_is_commutative(op: &BinOp) -> bool {
     matches!(op, BinOp::Add | BinOp::Mul)
 }
 
+/// `len() as u64.wrapping_sub(3)` is parsed as `len() as (u64.wrapping_sub(3))`.
+/// Parenthesize unparenthesized `as` casts used as wrapping operands.
+fn parenthesize_as_cast_before_wrapping(s: String) -> String {
+    if s.contains(" as ") && !(s.starts_with('(') && s.ends_with(')')) {
+        format!("({s})")
+    } else {
+        s
+    }
+}
+
 /// Bare integer literals (and unary `-N`) are `{integer}` in Rust.
 /// Using them as a `wrapping_*` receiver is E0689.
 fn is_untyped_int_literal_expr(expr: &SpExpr) -> bool {
@@ -417,10 +427,11 @@ impl RustCodegenFolder {
     }
 
     /// Fold a wrapping receiver. Suffix a bare integer literal so rustc
-    /// does not see `{integer}.wrapping_add` (E0689).
+    /// does not see `{integer}.wrapping_add` (E0689). Parenthesize `as`
+    /// casts so `.wrapping_*` binds to the value, not the cast type.
     fn fold_wrapping_receiver(&mut self, expr: &SpExpr, kind: MachineKind) -> String {
         let suffix = machine_lit_suffix(kind);
-        match &expr.node {
+        let folded = match &expr.node {
             Expr::Literal(Literal::Int(s)) => format!("{s}_{suffix}"),
             Expr::UnaryOp {
                 op: UnaryOp::Neg,
@@ -433,7 +444,12 @@ impl RustCodegenFolder {
                 }
             }
             _ => self.fold_expr(expr),
-        }
+        };
+        parenthesize_as_cast_before_wrapping(folded)
+    }
+
+    fn fold_wrapping_arg(&mut self, expr: &SpExpr) -> String {
+        parenthesize_as_cast_before_wrapping(self.fold_expr(expr))
     }
 }
 
@@ -589,7 +605,7 @@ impl ExprFolder for RustCodegenFolder {
                         "{}.{}({})",
                         self.fold_wrapping_receiver(recv, kind),
                         method,
-                        self.fold_expr(arg)
+                        self.fold_wrapping_arg(arg)
                     );
                 }
                 return format!(

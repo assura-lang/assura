@@ -1075,3 +1075,50 @@ fn wrap_literal_minus_nat_suffixes_receiver() {
     );
     assert_eq!(result, "3_u64.wrapping_sub(a)");
 }
+
+fn length_minus_lit(recv: &str, lit: &str) -> SpExpr {
+    Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+            receiver: Box::new(Spanned::no_span(Expr::Ident(recv.into()))),
+            method: "length".into(),
+            args: vec![],
+        })),
+        op: BinOp::Sub,
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int(lit.into())))),
+    })
+}
+
+/// `data.length() - 3` emits `.len() as u64`. That cast must be
+/// parenthesized before `.wrapping_sub`, or rustc parses
+/// `len() as u64.wrapping_sub(3)` as `len() as (u64.wrapping_sub(3))`.
+#[test]
+fn wrap_length_minus_lit_parenthesizes_as_cast() {
+    let result = expr_to_rust_with_numeric(&length_minus_lit("data", "3"), &NumericVars::default());
+    assert!(
+        !result.contains("as u64.wrapping_"),
+        "unparenthesized as-cast wrapping is a parse error, got: {result}"
+    );
+    assert!(
+        result.contains("(data.len() as u64).wrapping_sub"),
+        "as-cast must be parenthesized before wrapping_sub, got: {result}"
+    );
+}
+
+/// Heartbleed: `record_data.length() - 3 - 16`.
+#[test]
+fn wrap_length_minus_lits_parenthesizes_as_cast_chain() {
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(length_minus_lit("record_data", "3")),
+        op: BinOp::Sub,
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("16".into())))),
+    });
+    let result = expr_to_rust_with_numeric(&e, &NumericVars::default());
+    assert!(
+        !result.contains("as u64.wrapping_"),
+        "unparenthesized as-cast wrapping is a parse error, got: {result}"
+    );
+    assert!(
+        result.contains("(record_data.len() as u64).wrapping_sub"),
+        "as-cast must be parenthesized before wrapping_sub, got: {result}"
+    );
+}

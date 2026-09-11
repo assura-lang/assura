@@ -155,3 +155,26 @@ contract HeartbleedLike {
         "same-kind Nat + must wrap, got: {rust}"
     );
 }
+
+/// `record_data.length() - 3 - 16` must not emit `as u64.wrapping_sub`.
+#[test]
+fn wrap_bytes_length_minus_lits_parenthesizes_as_cast() {
+    let project = codegen_ok(
+        r#"
+contract HeartbleedLen {
+    input(record_data: Bytes, declared_payload_len: Nat)
+    requires { true }
+    ensures { declared_payload_len <= record_data.length() - 3 - 16 }
+}
+"#,
+    );
+    let rust = &project.files[0].1;
+    assert!(
+        !rust.contains("as u64.wrapping_"),
+        "unparenthesized as-cast wrapping is a parse error, got: {rust}"
+    );
+    assert!(
+        rust.contains("(record_data.len() as u64).wrapping_sub"),
+        "as-cast must be parenthesized before wrapping_sub, got: {rust}"
+    );
+}
