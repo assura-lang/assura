@@ -109,3 +109,49 @@ contract NatSubMul {
         "same-kind Nat -/* must not widen, got: {rust}"
     );
 }
+
+/// `3.wrapping_add(a)` is E0689 (`{integer}` method). Prefer the named Nat.
+#[test]
+fn wrap_literal_plus_nat_does_not_use_untyped_receiver() {
+    let project = codegen_ok(
+        r#"
+contract LitPlusNat {
+    input(a: Nat)
+    requires { true }
+    ensures { 3 + a >= a }
+}
+"#,
+    );
+    let rust = &project.files[0].1;
+    assert!(
+        !rust.contains("3.wrapping_add"),
+        "literal wrapping receiver is E0689, got: {rust}"
+    );
+    assert!(
+        rust.contains("wrapping_add"),
+        "3 + a (Nat) must still wrap, got: {rust}"
+    );
+}
+
+/// Heartbleed-style `3 + payload + padding` must not emit `3.wrapping_add`.
+#[test]
+fn wrap_heartbleed_like_header_plus_lengths_typed_receiver() {
+    let project = codegen_ok(
+        r#"
+contract HeartbleedLike {
+    input(record_length: Nat, payload_length: Nat, padding_length: Nat)
+    requires { true }
+    ensures { 3 + payload_length + padding_length <= record_length }
+}
+"#,
+    );
+    let rust = &project.files[0].1;
+    assert!(
+        !rust.contains("3.wrapping_add"),
+        "header literal must not be wrapping receiver, got: {rust}"
+    );
+    assert!(
+        rust.contains("wrapping_add"),
+        "same-kind Nat + must wrap, got: {rust}"
+    );
+}

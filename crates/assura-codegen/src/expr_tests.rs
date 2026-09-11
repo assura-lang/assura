@@ -1010,3 +1010,68 @@ fn mixed_int_nat_add_still_emits_i128() {
     );
     assert!(!result.contains("wrapping_add"), "got: {result}");
 }
+
+fn lit_plus_ident(lit: &str, name: &str) -> SpExpr {
+    Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int(lit.into())))),
+        op: BinOp::Add,
+        rhs: Box::new(Spanned::no_span(Expr::Ident(name.into()))),
+    })
+}
+
+#[test]
+fn wrap_literal_plus_nat_prefers_named_receiver() {
+    let vars = NumericVars {
+        nat: ["a".into()].into_iter().collect(),
+        ..NumericVars::default()
+    };
+    let result = expr_to_rust_with_numeric(&lit_plus_ident("3", "a"), &vars);
+    assert!(
+        !result.contains("3.wrapping_add"),
+        "literal wrapping receiver is E0689, got: {result}"
+    );
+    assert_eq!(result, "a.wrapping_add(3)");
+}
+
+#[test]
+fn wrap_nested_lit_plus_nats_prefers_named_receiver() {
+    let vars = NumericVars {
+        nat: ["payload_length".into(), "padding_length".into()]
+            .into_iter()
+            .collect(),
+        ..NumericVars::default()
+    };
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(lit_plus_ident("3", "payload_length")),
+        op: BinOp::Add,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("padding_length".into()))),
+    });
+    let result = expr_to_rust_with_numeric(&e, &vars);
+    assert!(
+        !result.contains("3.wrapping_add"),
+        "nested header + lengths must not use 3.wrapping_add, got: {result}"
+    );
+    assert_eq!(
+        result,
+        "payload_length.wrapping_add(3).wrapping_add(padding_length)"
+    );
+}
+
+#[test]
+fn wrap_literal_minus_nat_suffixes_receiver() {
+    let vars = NumericVars {
+        nat: ["a".into()].into_iter().collect(),
+        ..NumericVars::default()
+    };
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("3".into())))),
+        op: BinOp::Sub,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+    });
+    let result = expr_to_rust_with_numeric(&e, &vars);
+    assert!(
+        !result.contains("3.wrapping_sub"),
+        "untyped literal wrapping_sub is E0689, got: {result}"
+    );
+    assert_eq!(result, "3_u64.wrapping_sub(a)");
+}

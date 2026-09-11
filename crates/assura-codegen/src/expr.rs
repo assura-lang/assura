@@ -104,6 +104,30 @@ fn wrapping_arith_method(op: &BinOp) -> Option<&'static str> {
     }
 }
 
+fn wrapping_is_commutative(op: &BinOp) -> bool {
+    matches!(op, BinOp::Add | BinOp::Mul)
+}
+
+/// Bare integer literals (and unary `-N`) are `{integer}` in Rust.
+/// Using them as a `wrapping_*` receiver is E0689.
+fn is_untyped_int_literal_expr(expr: &SpExpr) -> bool {
+    match &expr.node {
+        Expr::Literal(Literal::Int(_)) => true,
+        Expr::UnaryOp {
+            op: UnaryOp::Neg,
+            expr: inner,
+        } => matches!(&inner.node, Expr::Literal(Literal::Int(_))),
+        _ => false,
+    }
+}
+
+fn machine_lit_suffix(kind: MachineKind) -> &'static str {
+    match kind {
+        MachineKind::Nat => "u64",
+        MachineKind::Int | MachineKind::Lit => "i64",
+    }
+}
+
 /// Returns true if the expression contains a literal that exceeds i128 range
 /// (e.g. u128::MAX). Such literals cannot be wrapped in `i128::from(...)`.
 fn has_u128_literal(expr: &SpExpr) -> bool {
@@ -384,6 +408,33 @@ impl RustCodegenFolder {
             Some(MachineKind::Int) | Some(MachineKind::Nat)
         )
     }
+
+    fn wrapping_kind(&self, lhs: &SpExpr, rhs: &SpExpr) -> MachineKind {
+        match unify_machine_kind(self.machine_kind(lhs), self.machine_kind(rhs)) {
+            Some(MachineKind::Nat) => MachineKind::Nat,
+            _ => MachineKind::Int,
+        }
+    }
+
+    /// Fold a wrapping receiver. Suffix a bare integer literal so rustc
+    /// does not see `{integer}.wrapping_add` (E0689).
+    fn fold_wrapping_receiver(&mut self, expr: &SpExpr, kind: MachineKind) -> String {
+        let suffix = machine_lit_suffix(kind);
+        match &expr.node {
+            Expr::Literal(Literal::Int(s)) => format!("{s}_{suffix}"),
+            Expr::UnaryOp {
+                op: UnaryOp::Neg,
+                expr: inner,
+            } => {
+                if let Expr::Literal(Literal::Int(s)) = &inner.node {
+                    format!("(-{s}_{suffix})")
+                } else {
+                    self.fold_expr(expr)
+                }
+            }
+            _ => self.fold_expr(expr),
+        }
+    }
 }
 
 impl ExprFolder for RustCodegenFolder {
@@ -521,11 +572,24 @@ impl ExprFolder for RustCodegenFolder {
                 if let Some(method) = wrapping_arith_method(op)
                     && self.same_kind_int_nat(lhs, rhs)
                 {
+                    let kind = self.wrapping_kind(lhs, rhs);
+                    // Prefer a named/typed operand as the receiver so
+                    // `3 + a` becomes `a.wrapping_add(3)`, not
+                    // `3.wrapping_add(a)` (E0689). Subtraction is not
+                    // commutative; suffix the literal instead.
+                    let (recv, arg) = if wrapping_is_commutative(op)
+                        && is_untyped_int_literal_expr(lhs)
+                        && !is_untyped_int_literal_expr(rhs)
+                    {
+                        (rhs, lhs)
+                    } else {
+                        (lhs, rhs)
+                    };
                     return format!(
                         "{}.{}({})",
-                        self.fold_expr(lhs),
+                        self.fold_wrapping_receiver(recv, kind),
                         method,
-                        self.fold_expr(rhs)
+                        self.fold_expr(arg)
                     );
                 }
                 return format!(
