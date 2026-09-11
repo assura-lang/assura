@@ -63,6 +63,11 @@ jobs:
   # and Cargo.lock workspace member versions so CI --locked stays green.
   # release-type "simple" + workspace.package.version does NOT update the lock
   # (unlike release-type "rust" on a single root package, e.g. patchloom).
+  #
+  # Push as the same App that opened the PR. A GITHUB_TOKEN push makes
+  # github-actions[bot] the last pusher. Auto-approve then cannot use
+  # GITHUB_TOKEN (require_last_push_approval) and cannot use the App
+  # (self-review). App push + github-actions approve is the split.
   sync-release-pr-versions:
     needs: [release-please]
     if: >-
@@ -89,20 +94,31 @@ jobs:
           ref: ${{ steps.pr-branch.outputs.branch }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
+          private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
       - name: Sync path-dep versions
         run: bash scripts/sync-path-dep-versions.sh
       - name: Sync Cargo.lock workspace package versions
         run: bash scripts/sync-cargo-lock-workspace-versions.sh
       - name: Commit and push if changed
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "FAIL: App token required to push lock-sync (GITHUB_TOKEN last-push deadlocks App-authored PRs)" >&2
+            exit 1
+          fi
           if git diff --quiet; then
             echo "path-dep versions and Cargo.lock already aligned"
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "assura-auto-approve[bot]"
+          git config user.email "299660608+assura-auto-approve[bot]@users.noreply.github.com"
           git add crates/*/Cargo.toml Cargo.lock
           git commit -s -m "chore: sync path-dep versions and Cargo.lock with workspace version"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"

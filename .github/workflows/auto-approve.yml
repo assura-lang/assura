@@ -81,14 +81,40 @@ jobs:
           fi
           echo "number=$n" >> "$GITHUB_OUTPUT"
 
+      # Identity split: the same App opens the release-please PR
+      # (release-please.yml). GitHub rejects App self-review
+      # ("Can not approve your own pull request"). Approve those
+      # PRs as github-actions[bot]. Other PRs still use the App so
+      # require_last_push_approval works after a human or
+      # GITHUB_TOKEN last push (Dependabot rebase, forks).
       - name: Approve PR
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          ACTIONS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           REPO: ${{ github.repository }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
-          gh pr review --approve "${PR_NUMBER}" --repo "${REPO}" \
-            || echo "Approve failed or already approved; continuing."
+          if [ -z "${PR_AUTHOR}" ]; then
+            PR_AUTHOR="$(GH_TOKEN="${ACTIONS_TOKEN}" gh pr view "${PR_NUMBER}" --repo "${REPO}" --json author --jq '.author.login')"
+          fi
+          if [ "${PR_AUTHOR}" = "assura-auto-approve[bot]" ]; then
+            if [ -z "${ACTIONS_TOKEN}" ]; then
+              echo "FAIL: GITHUB_TOKEN required to approve App-authored PRs" >&2
+              exit 1
+            fi
+            export GH_TOKEN="${ACTIONS_TOKEN}"
+            echo "PR authored by auto-approve App; approving as github-actions[bot]"
+          else
+            export GH_TOKEN="${APP_TOKEN:-${ACTIONS_TOKEN}}"
+          fi
+          if ! gh pr review --approve "${PR_NUMBER}" --repo "${REPO}"; then
+            if [ "${PR_AUTHOR}" = "assura-auto-approve[bot]" ]; then
+              echo "FAIL: could not approve App-authored PR as github-actions[bot]" >&2
+              exit 1
+            fi
+            echo "Approve failed or already approved; continuing."
+          fi
 
       - name: Enable auto-merge
         env:
