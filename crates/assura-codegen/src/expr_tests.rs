@@ -260,6 +260,51 @@ fn expr_to_rust_eq_no_cast() {
 }
 
 #[test]
+fn expr_to_rust_keep_result_widens_without_renaming() {
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("result".into()))),
+        op: BinOp::Lte,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("max_depth".into()))),
+    });
+    assert_eq!(
+        expr_to_rust_keep_result(&e, HashSet::new()),
+        "(i128::from(result) <= i128::from(max_depth))"
+    );
+    assert_eq!(
+        expr_to_rust(&e),
+        "(i128::from(__assura_result) <= i128::from(max_depth))"
+    );
+}
+
+#[test]
+fn expr_to_rust_keep_result_old_inlines_inner() {
+    let e = Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(Expr::Ident(
+        "b".into(),
+    )))));
+    assert_eq!(expr_to_rust_keep_result(&e, HashSet::new()), "b");
+    assert!(
+        expr_to_rust(&e).contains(OLD_VAR_PREFIX),
+        "check() path still snapshots old(), got: {}",
+        expr_to_rust(&e)
+    );
+}
+
+#[test]
+fn expr_to_rust_keep_result_raw_keeps_result_token() {
+    let e = Spanned::no_span(Expr::Raw(vec!["result".into(), ">".into(), "x".into()]));
+    let kept = expr_to_rust_keep_result(&e, HashSet::new());
+    assert!(
+        kept.contains("result") && !kept.contains(RESULT_VAR),
+        "Raw keep-result must not rewrite result, got: {kept}"
+    );
+    let renamed = expr_to_rust(&e);
+    assert!(
+        renamed.contains(RESULT_VAR),
+        "check() Raw path still rewrites result, got: {renamed}"
+    );
+}
+
+#[test]
 fn expr_to_rust_unary_neg() {
     let e = Spanned::no_span(Expr::UnaryOp {
         op: UnaryOp::Neg,

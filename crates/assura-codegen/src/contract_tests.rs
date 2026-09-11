@@ -885,6 +885,85 @@ fn bounded_nat_strategy_uses_u64_not_i64() {
 }
 
 #[test]
+fn proptest_mixed_int_nat_comparison_widens_to_i128() {
+    // PathDepthValidation-style: Int compared with Nat. Without i128
+    // widening the generated proptest fails rustc (E0308).
+    let c = mk_contract(
+        "PathDepth",
+        vec![
+            mk_clause(
+                ClauseKind::Input,
+                Spanned::no_span(Expr::Cast {
+                    expr: Box::new(Spanned::no_span(Expr::Ident("path_depth".into()))),
+                    ty: "Int".into(),
+                }),
+            ),
+            mk_clause(
+                ClauseKind::Input,
+                Spanned::no_span(Expr::Cast {
+                    expr: Box::new(Spanned::no_span(Expr::Ident("max_depth".into()))),
+                    ty: "Nat".into(),
+                }),
+            ),
+            mk_clause(
+                ClauseKind::Requires,
+                Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("path_depth".into()))),
+                    op: BinOp::Lte,
+                    rhs: Box::new(Spanned::no_span(Expr::Ident("max_depth".into()))),
+                }),
+            ),
+            mk_clause(
+                ClauseKind::Ensures,
+                Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("max_depth".into()))),
+                    op: BinOp::Gte,
+                    rhs: Box::new(Spanned::no_span(Expr::Ident("path_depth".into()))),
+                }),
+            ),
+        ],
+    );
+    let mut code = String::new();
+    generate_proptest_for_contract_contents(&c, &mut code);
+    assert!(
+        code.contains("i128::from(path_depth)") && code.contains("i128::from(max_depth)"),
+        "mixed Int/Nat comparison must widen to i128, got: {code}"
+    );
+    assert!(
+        !code.contains("path_depth <= max_depth"),
+        "raw mixed-type compare must not remain, got: {code}"
+    );
+}
+
+#[test]
+fn proptest_old_inlines_inner_without_snapshot_var() {
+    let c = mk_contract(
+        "FrameOld",
+        vec![
+            mk_clause(
+                ClauseKind::Input,
+                Spanned::no_span(Expr::Cast {
+                    expr: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+                    ty: "Int".into(),
+                }),
+            ),
+            mk_clause(
+                ClauseKind::Ensures,
+                Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(Expr::Ident(
+                    "b".into(),
+                ))))),
+            ),
+        ],
+    );
+    let mut code = String::new();
+    generate_proptest_for_contract_contents(&c, &mut code);
+    assert!(
+        !code.contains(OLD_VAR_PREFIX),
+        "proptest must not emit unbound old() snapshots, got: {code}"
+    );
+}
+
+#[test]
 fn param_range_nat_clamps_negative_lower() {
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::GteVal(-5));

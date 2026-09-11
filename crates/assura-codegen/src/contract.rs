@@ -704,27 +704,44 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
     }
 
     let mut input_params: Vec<(String, String)> = Vec::new();
-    let mut requires_exprs: Vec<String> = Vec::new();
     let mut requires_ast: Vec<&SpExpr> = Vec::new();
-    let mut ensures_exprs: Vec<String> = Vec::new();
+    let mut ensures_ast: Vec<&SpExpr> = Vec::new();
     let mut output_name: Option<String> = None;
+    let mut output_type = "()".to_string();
 
     for clause in &c.clauses {
         match &clause.kind {
             ClauseKind::Input => extract_input_params(&clause.body, &mut input_params),
             ClauseKind::Requires => {
-                requires_exprs.push(expr_to_rust_static(&clause.body));
                 requires_ast.push(&clause.body);
             }
             ClauseKind::Ensures => {
-                ensures_exprs.push(expr_to_rust_static(&clause.body));
+                ensures_ast.push(&clause.body);
             }
             ClauseKind::Output => {
                 output_name = extract_output_name(&clause.body);
+                output_type = extract_output_type(&clause.body);
             }
             _ => {}
         }
     }
+
+    // Same i128 widening as `check()` so mixed Int/Nat comparisons compile.
+    // Keep the identifier `result` (proptest binds `let result = check(...)`).
+    let extra: Vec<&str> = output_name.iter().map(String::as_str).collect();
+    let float_vars = float_idents(
+        input_params.iter().map(|(n, t)| (n.as_str(), t.as_str())),
+        Some(output_type.as_str()),
+        &extra,
+    );
+    let requires_exprs: Vec<String> = requires_ast
+        .iter()
+        .map(|body| expr_to_rust_keep_result(body, float_vars.clone()))
+        .collect();
+    let ensures_exprs: Vec<String> = ensures_ast
+        .iter()
+        .map(|body| expr_to_rust_keep_result(body, float_vars.clone()))
+        .collect();
 
     if input_params.is_empty() || ensures_exprs.is_empty() {
         return;
