@@ -60,6 +60,9 @@ is the usual custom path. Unset `assura.serverPath` still runs `assura lsp`.
 
 ## Development
 
+Use Node 22 or newer (`@vscode/test-electron` requires it). Rebuild
+`package-lock.json` with that same Node and npm. CI uses Node 22.
+
 ```bash
 cd editors/vscode
 npm install

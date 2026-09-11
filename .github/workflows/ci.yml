@@ -93,6 +93,7 @@ jobs:
               - 'editors/tree-sitter-assura/**'
             editors-vscode:
               - 'editors/vscode/**'
+              - '.github/workflows/ci.yml'
             smt:
               - 'crates/assura-smt/**'
               - 'Cargo.toml'
@@ -484,10 +485,13 @@ jobs:
         with:
           persist-credentials: false
 
+      # @vscode/test-electron 3.1 engines.node is >=22. Rebuild
+      # editors/vscode/package-lock.json with this same Node/npm
+      # (do not use a laptop Node 26 / npm 11 lock).
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install dependencies
         working-directory: editors/vscode

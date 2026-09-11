@@ -10,7 +10,8 @@
     "url": "https://github.com/assura-lang/assura"
   },
   "engines": {
-    "vscode": "^1.80.0"
+    "vscode": "^1.80.0",
+    "node": ">=22"
   },
   "categories": [
     "Programming Languages"
