@@ -118,6 +118,207 @@ fn verify_contract_no_verifiable_clauses() {
     assert!(results.is_empty(), "no verifiable clauses: {results:?}");
 }
 
+/// #1584: Nat `+` wraps at 2^64 (codegen `u64`). Wrapping
+/// `a + b >= a` is not a theorem, so unconstrained Nat add is a CE.
+#[cfg(feature = "z3-verify")]
+#[test]
+fn nat_wrapping_add_is_counterexample() {
+    use crate::z3_backend::verify_contract_impl_with_types_and_ir;
+    use assura_ast::{Param, TypeExpr};
+
+    let clauses = vec![Clause {
+        kind: ClauseKind::Ensures,
+        body: Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+                op: BinOp::Add,
+                rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+            })),
+            op: BinOp::Gte,
+            rhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        }),
+        effect_variables: vec![],
+    }];
+    let params = vec![
+        Param {
+            name: "a".into(),
+            ty: Some(TypeExpr::Named("Nat".into())),
+        },
+        Param {
+            name: "b".into(),
+            ty: Some(TypeExpr::Named("Nat".into())),
+        },
+    ];
+    let ctx = crate::verify_context::ContractVerifyContext {
+        contract_name: "SumNoOverflow",
+        clauses: &clauses,
+        params: &params,
+        return_ty: &[],
+        constants: &[],
+        ir: None,
+        callee_specs: None,
+        lemma_defs: None,
+    };
+    let results = verify_contract_impl_with_types_and_ir(&ctx);
+    assert_eq!(results.len(), 1, "one ensures: {results:?}");
+    assert!(
+        matches!(&results[0], VerificationResult::Counterexample { .. }),
+        "unconstrained Nat a+b >= a must CE under u64 wrap, got: {results:?}"
+    );
+}
+
+/// Overflow-guarded Nat add still verifies once wrap is excluded.
+#[cfg(feature = "z3-verify")]
+#[test]
+fn nat_wrapping_add_verifies_with_no_wrap_requires() {
+    use crate::z3_backend::verify_contract_impl_with_types_and_ir;
+    use assura_ast::{Param, TypeExpr};
+
+    let add_ge_a = Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+            op: BinOp::Add,
+            rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+        })),
+        op: BinOp::Gte,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+    };
+    let clauses = vec![
+        Clause {
+            kind: ClauseKind::Requires,
+            body: Spanned::no_span(add_ge_a.clone()),
+            effect_variables: vec![],
+        },
+        Clause {
+            kind: ClauseKind::Ensures,
+            body: Spanned::no_span(add_ge_a),
+            effect_variables: vec![],
+        },
+    ];
+    let params = vec![
+        Param {
+            name: "a".into(),
+            ty: Some(TypeExpr::Named("Nat".into())),
+        },
+        Param {
+            name: "b".into(),
+            ty: Some(TypeExpr::Named("Nat".into())),
+        },
+    ];
+    let ctx = crate::verify_context::ContractVerifyContext {
+        contract_name: "SafeNatAdd",
+        clauses: &clauses,
+        params: &params,
+        return_ty: &[],
+        constants: &[],
+        ir: None,
+        callee_specs: None,
+        lemma_defs: None,
+    };
+    let results = verify_contract_impl_with_types_and_ir(&ctx);
+    assert_eq!(results.len(), 1, "one ensures: {results:?}");
+    assert!(
+        matches!(&results[0], VerificationResult::Verified { .. }),
+        "requires a+b >= a should make the same ensures verify, got: {results:?}"
+    );
+}
+
+/// Nat values are in `0..=u64::MAX`, so `a + 0 == a` must still verify.
+#[cfg(feature = "z3-verify")]
+#[test]
+fn nat_plus_zero_is_identity() {
+    use crate::z3_backend::verify_contract_impl_with_types_and_ir;
+    use assura_ast::{Param, TypeExpr};
+
+    let clauses = vec![Clause {
+        kind: ClauseKind::Ensures,
+        body: Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+                op: BinOp::Add,
+                rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
+            })),
+            op: BinOp::Eq,
+            rhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        }),
+        effect_variables: vec![],
+    }];
+    let params = vec![Param {
+        name: "a".into(),
+        ty: Some(TypeExpr::Named("Nat".into())),
+    }];
+    let ctx = crate::verify_context::ContractVerifyContext {
+        contract_name: "NatId",
+        clauses: &clauses,
+        params: &params,
+        return_ty: &[],
+        constants: &[],
+        ir: None,
+        callee_specs: None,
+        lemma_defs: None,
+    };
+    let results = verify_contract_impl_with_types_and_ir(&ctx);
+    assert!(
+        matches!(&results[0], VerificationResult::Verified { .. }),
+        "Nat a+0 == a must verify inside u64, got: {results:?}"
+    );
+}
+
+/// Nested machine add must wrap too: `(a + b) + c >= a` is not a theorem.
+#[cfg(feature = "z3-verify")]
+#[test]
+fn nat_nested_wrapping_add_is_counterexample() {
+    use crate::z3_backend::verify_contract_impl_with_types_and_ir;
+    use assura_ast::{Param, TypeExpr};
+
+    let add = |l: Expr, r: Expr| Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(l)),
+        op: BinOp::Add,
+        rhs: Box::new(Spanned::no_span(r)),
+    };
+    let clauses = vec![Clause {
+        kind: ClauseKind::Ensures,
+        body: Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(add(
+                add(Expr::Ident("a".into()), Expr::Ident("b".into())),
+                Expr::Ident("c".into()),
+            ))),
+            op: BinOp::Gte,
+            rhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        }),
+        effect_variables: vec![],
+    }];
+    let params = vec![
+        Param {
+            name: "a".into(),
+            ty: Some(TypeExpr::Named("Nat".into())),
+        },
+        Param {
+            name: "b".into(),
+            ty: Some(TypeExpr::Named("Nat".into())),
+        },
+        Param {
+            name: "c".into(),
+            ty: Some(TypeExpr::Named("Nat".into())),
+        },
+    ];
+    let ctx = crate::verify_context::ContractVerifyContext {
+        contract_name: "NestedSum",
+        clauses: &clauses,
+        params: &params,
+        return_ty: &[],
+        constants: &[],
+        ir: None,
+        callee_specs: None,
+        lemma_defs: None,
+    };
+    let results = verify_contract_impl_with_types_and_ir(&ctx);
+    assert!(
+        matches!(&results[0], VerificationResult::Counterexample { .. }),
+        "nested Nat add must CE under u64 wrap, got: {results:?}"
+    );
+}
+
 // ===================================================================
 // #264: Incremental solving (push/pop) tests
 // ===================================================================

@@ -130,6 +130,10 @@ fn verify_clauses_with_types(
         enable_unsat_cores(&solver);
     }
     let mut base_encoder = Encoder::with_string_theory(types.use_string_theory);
+    base_encoder.machine_wrap =
+        crate::prelude_policy::contract_machine_wrap(types.params, types.return_ty);
+    base_encoder.wrap_vars =
+        crate::prelude_policy::collect_wrap_var_names(types.params, types.return_ty);
     // ADT axioms (forall over uninterpreted tag UFs) are initialized lazily
     // during encoding when a match/constructor pattern needs them (#262).
     base_encoder.init_bitvector_infrastructure();
@@ -209,7 +213,16 @@ fn verify_clauses_with_types(
             PreludeConstraint::NatNonNegative(name) => {
                 let p = base_encoder.get_or_create_int(&name);
                 let zero = ast::Int::from_i64(0);
+                let max = ast::Int::from_u64(u64::MAX);
                 solver.assert(p.ge(&zero));
+                solver.assert(p.le(&max));
+            }
+            PreludeConstraint::IntBounded(name) => {
+                let p = base_encoder.get_or_create_int(&name);
+                let lo = ast::Int::from_i64(i64::MIN);
+                let hi = ast::Int::from_i64(i64::MAX);
+                solver.assert(p.ge(&lo));
+                solver.assert(p.le(&hi));
             }
             PreludeConstraint::BoolZeroOrOne(name) => {
                 let p = base_encoder.get_or_create_int(&name);

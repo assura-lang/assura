@@ -85,6 +85,16 @@ pub(crate) fn assert_cvc5_solver_prelude<'a>(
                 if let Some(term) = var_map.get(&name) {
                     solver
                         .assert_formula(tm.mk_term(cvc5::Kind::Geq, &[term.clone(), zero.clone()]));
+                    let max = tm.mk_integer_from_str("18446744073709551615");
+                    solver.assert_formula(tm.mk_term(cvc5::Kind::Leq, &[term.clone(), max]));
+                }
+            }
+            Cvc5TypeConstraint::IntBounded(name) => {
+                if let Some(term) = var_map.get(&name) {
+                    let lo = tm.mk_integer(i64::MIN);
+                    let hi = tm.mk_integer(i64::MAX);
+                    solver.assert_formula(tm.mk_term(cvc5::Kind::Geq, &[term.clone(), lo]));
+                    solver.assert_formula(tm.mk_term(cvc5::Kind::Leq, &[term.clone(), hi]));
                 }
             }
             Cvc5TypeConstraint::BoolZeroOrOne(name) => {

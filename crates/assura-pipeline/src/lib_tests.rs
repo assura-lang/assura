@@ -1773,3 +1773,73 @@ fn compile_full_no_ir_sidecar_no_counterexample() {
         );
     }
 }
+
+/// #1584: Nat/Int wrap at 64-bit. `a + b >= a` is not a theorem under wrap.
+#[test]
+fn compile_full_nat_add_no_overflow_is_counterexample() {
+    let source = "\
+contract SumNoOverflow {
+    input(a: Nat, b: Nat)
+    ensures { a + b >= a }
+}
+";
+    let config = CompilerConfig {
+        verify: assura_config::VerifyOptions {
+            layer: 1,
+            parallel: false,
+            decrease_checks: false,
+            enable_cache: false,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let output = compile_full(source, "sum.assura", &config);
+    assert!(
+        !output.has_errors,
+        "repro should type-check, got: {:?}",
+        output.diagnostics
+    );
+    let counterexamples: Vec<_> = output
+        .verification
+        .iter()
+        .filter(|r| matches!(r, assura_smt::VerificationResult::Counterexample { .. }))
+        .collect();
+    assert!(
+        !counterexamples.is_empty(),
+        "Nat a+b >= a must CE under u64 wrap, got: {:?}",
+        output.verification
+    );
+}
+
+/// Same contract with an overflow requires still verifies.
+#[test]
+fn compile_full_nat_add_with_no_wrap_requires_verifies() {
+    let source = "\
+contract SafeNatAdd {
+    input(a: Nat, b: Nat)
+    requires { a + b >= a }
+    ensures { a + b >= a }
+}
+";
+    let config = CompilerConfig {
+        verify: assura_config::VerifyOptions {
+            layer: 1,
+            parallel: false,
+            decrease_checks: false,
+            enable_cache: false,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let output = compile_full(source, "safe_sum.assura", &config);
+    assert!(
+        !output.has_errors,
+        "guarded add should type-check, got: {:?}",
+        output.diagnostics
+    );
+    assert!(
+        verification_strict_succeeded(&output.verification),
+        "overflow-guarded Nat add should verify, got: {:?}",
+        output.verification
+    );
+}

@@ -141,9 +141,10 @@ A matching precondition is:
 requires { !(a == -2147483648 && b == -1) }
 ```
 
-`Int` and `Nat` are mathematical integers (unbounded SMT `Int`). They
-have no `MIN` / `MAX`, and Z3 will not produce a wraparound witness
-for them. Use `U8`–`I64` when overflow should be part of the proof.
+`Int` and `Nat` are 64-bit machine integers (`i64` / `u64`) in both
+the SMT model and generated Rust. Overflow wraps. Write
+`requires { a + b >= a }` (or an explicit bound) when a clause needs
+no wrap. Use `U8`–`I32` when you want a narrower width.
 See [What we prove](WHAT-WE-PROVE.md).
 
 **Tips for reading counterexamples:**

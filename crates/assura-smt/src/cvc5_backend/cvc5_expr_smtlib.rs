@@ -3,8 +3,9 @@
 //! Prefer [`crate::encode_*_policy`] for solver-neutral shapes; `cvc5_*_encode`
 //! modules remain for term/orchestration that is CVC5-specific.
 
-use assura_ast::{Expr, SpExpr};
+use assura_ast::{BinOp, Expr, SpExpr, UnaryOp};
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::sync::OnceLock;
 
 use crate::cvc5_adt::{Cvc5AdtDef, adt_is_constructor_smt, define_adt_cvc5};
@@ -57,6 +58,63 @@ pub struct SmtlibSideEffects {
 
 thread_local! {
     static SMTLIB_CTX: RefCell<Option<SmtlibSideEffects>> = const { RefCell::new(None) };
+    static SMTLIB_WRAP: RefCell<Option<SmtlibWrapCtx>> = const { RefCell::new(None) };
+}
+
+/// Machine wrap for shell SMT-LIB encode (#1584).
+struct SmtlibWrapCtx {
+    wrap: Option<(u32, bool)>,
+    vars: HashSet<String>,
+}
+
+/// Install wrap context for the duration of `f` (nested calls restore).
+pub fn with_smtlib_machine_wrap<R>(
+    wrap: Option<(u32, bool)>,
+    vars: HashSet<String>,
+    f: impl FnOnce() -> R,
+) -> R {
+    SMTLIB_WRAP.with(|cell| {
+        let prev = cell.replace(Some(SmtlibWrapCtx { wrap, vars }));
+        let result = f();
+        *cell.borrow_mut() = prev;
+        result
+    })
+}
+
+fn maybe_wrap_smtlib_arith(op: &BinOp, lhs: &SpExpr, rhs: &SpExpr, term: String) -> String {
+    if !matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul) {
+        return term;
+    }
+    SMTLIB_WRAP.with(|cell| {
+        let borrowed = cell.borrow();
+        let Some(ctx) = borrowed.as_ref() else {
+            return term;
+        };
+        if crate::prelude_policy::is_machine_arith_atom(lhs, &ctx.vars)
+            && crate::prelude_policy::is_machine_arith_atom(rhs, &ctx.vars)
+        {
+            crate::encode_binop_policy::wrap_smtlib_machine_int(&term, ctx.wrap)
+        } else {
+            term.clone()
+        }
+    })
+}
+
+fn maybe_wrap_smtlib_neg(op: &UnaryOp, inner: &SpExpr, term: String) -> String {
+    if !matches!(op, UnaryOp::Neg) {
+        return term;
+    }
+    SMTLIB_WRAP.with(|cell| {
+        let borrowed = cell.borrow();
+        let Some(ctx) = borrowed.as_ref() else {
+            return term;
+        };
+        if crate::prelude_policy::is_machine_arith_atom(inner, &ctx.vars) {
+            crate::encode_binop_policy::wrap_smtlib_machine_int(&term, ctx.wrap)
+        } else {
+            term.clone()
+        }
+    })
 }
 
 /// Install a fresh side-effect context, run `f`, then return the context.
@@ -131,10 +189,15 @@ pub fn expr_to_smtlib(expr: &SpExpr) -> Option<String> {
             let l = expr_to_smtlib(lhs)?;
             let r = expr_to_smtlib(rhs)?;
             encode_ast_binop_smtlib(op, &l, &r)
+                .map(|term| maybe_wrap_smtlib_arith(op, lhs, rhs, term))
         }
         Expr::UnaryOp { op, expr: inner } => {
             let e = expr_to_smtlib(inner)?;
-            Some(encode_ast_unary_smtlib(op, &e))
+            Some(maybe_wrap_smtlib_neg(
+                op,
+                inner,
+                encode_ast_unary_smtlib(op, &e),
+            ))
         }
         Expr::If {
             cond,
@@ -265,4 +328,23 @@ fn encode_list_smtlib_with_ctx(elems: &[SpExpr]) -> String {
     ));
 
     list_name
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assura_ast::{BinOp, Spanned};
+
+    #[test]
+    fn shell_wrap_nat_add_emits_mod() {
+        let add = Spanned::no_span(Expr::BinOp {
+            lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+            op: BinOp::Add,
+            rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+        });
+        let vars = HashSet::from(["a".into(), "b".into()]);
+        let smt = with_smtlib_machine_wrap(Some((64, false)), vars, || expr_to_smtlib(&add));
+        assert_eq!(smt.as_deref(), Some("(mod (+ a b) 18446744073709551616)"));
+        assert_eq!(expr_to_smtlib(&add).as_deref(), Some("(+ a b)"));
+    }
 }

@@ -8,13 +8,17 @@
 //! [`crate::havoc_assume`] (havoc+assume order). Does **not** unify expression
 //! encoding (`Encoder` vs `encode_expr_cvc5`).
 
+use std::collections::HashSet;
+
 use assura_ast::Param;
 
 /// Solver-neutral prelude constraint (Nat bounds, named constants, feature_max caps).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PreludeConstraint {
-    /// `name >= 0` (Nat parameters / result slots).
+    /// `0 <= name <= 2^64-1` (Nat parameters / result slots).
     NatNonNegative(String),
+    /// `i64::MIN <= name <= i64::MAX` (Int parameters / result).
+    IntBounded(String),
     /// `0 <= name <= 1` (Bool parameters / result as 0/1 Int encoding).
     /// Without this, free Int models assign Bool vars values like 2 and break
     /// match/ITE encodings that only distinguish 0 vs non-zero or 0 vs 1.
@@ -72,6 +76,12 @@ pub(crate) fn is_nat_type_tokens(ty: &[String]) -> bool {
     ty.len() == 1 && ty[0] == "Nat"
 }
 
+/// True if type tokens are exactly `Int`.
+#[inline]
+pub(crate) fn is_int_type_tokens(ty: &[String]) -> bool {
+    ty.len() == 1 && ty[0] == "Int"
+}
+
 /// True if type tokens are exactly `Bool`.
 #[inline]
 pub(crate) fn is_bool_type_tokens(ty: &[String]) -> bool {
@@ -100,6 +110,79 @@ pub(crate) fn fixed_width_bits(ty: &[String]) -> Option<(u32, bool)> {
     }
 }
 
+/// Width and signedness for wrapping `Int`/`Nat` arithmetic (#1584).
+///
+/// These stay SMT `Int` (so IR identity stays on one sort) but `+`/`-`/`*`
+/// wrap at the codegen width. Distinct from [`fixed_width_bits`], which
+/// selects a bitvector *sort* for `U8`–`I64`.
+pub(crate) fn machine_arith_bits(ty: &[String]) -> Option<(u32, bool)> {
+    if ty.len() != 1 {
+        return None;
+    }
+    match ty[0].as_str() {
+        "Int" | "int" => Some((64, true)),
+        "Nat" | "nat" => Some((64, false)),
+        _ => None,
+    }
+}
+
+/// If every numeric param/return is the same machine integer kind, wrap
+/// all Int arithmetic in this contract at that width. Mixed Int/Nat stays
+/// unbounded (codegen widens those to i128).
+pub(crate) fn contract_machine_wrap(params: &[Param], return_ty: &[String]) -> Option<(u32, bool)> {
+    let mut kinds: Vec<(u32, bool)> = params
+        .iter()
+        .filter_map(|p| machine_arith_bits(&param_type_tokens(p)))
+        .collect();
+    if let Some(w) = machine_arith_bits(return_ty) {
+        kinds.push(w);
+    }
+    let first = kinds.first().copied()?;
+    kinds.iter().all(|k| *k == first).then_some(first)
+}
+
+/// Names of `Int`/`Nat` params and result slots that participate in wrap.
+pub(crate) fn collect_wrap_var_names(params: &[Param], return_ty: &[String]) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for param in params {
+        if machine_arith_bits(&param_type_tokens(param)).is_some() {
+            names.insert(param.name.clone());
+        }
+    }
+    if machine_arith_bits(return_ty).is_some() {
+        names.insert("result".into());
+        names.insert(crate::encode_atom_policy::RESULT_VAR_NAME.into());
+    }
+    names
+}
+
+/// True when `expr` is machine `Int`/`Nat` arithmetic we should wrap.
+///
+/// Atoms are wrap-vars, integer literals, and `old` of those. Nested
+/// `+`/`-`/`*` and unary `-` of machine operands also count so
+/// `(a + b) + c` wraps. Length UFs / method calls stay unbounded.
+pub(crate) fn is_machine_arith_atom(
+    expr: &assura_ast::SpExpr,
+    wrap_vars: &HashSet<String>,
+) -> bool {
+    match &expr.node {
+        assura_ast::Expr::Ident(name) => wrap_vars.contains(name),
+        assura_ast::Expr::Literal(assura_ast::Literal::Int(_)) => true,
+        assura_ast::Expr::Old(inner) => is_machine_arith_atom(inner, wrap_vars),
+        assura_ast::Expr::BinOp { op, lhs, rhs } => {
+            matches!(
+                op,
+                assura_ast::BinOp::Add | assura_ast::BinOp::Sub | assura_ast::BinOp::Mul
+            ) && is_machine_arith_atom(lhs, wrap_vars)
+                && is_machine_arith_atom(rhs, wrap_vars)
+        }
+        assura_ast::Expr::UnaryOp { op, expr: inner } => {
+            matches!(op, assura_ast::UnaryOp::Neg) && is_machine_arith_atom(inner, wrap_vars)
+        }
+        _ => false,
+    }
+}
+
 /// Param type tokens via shared entry helper (single source of truth).
 pub(crate) fn param_type_tokens(param: &Param) -> Vec<String> {
     crate::entry::type_expr_to_token_vec(param.ty.as_ref())
@@ -122,11 +205,20 @@ pub(crate) fn collect_prelude_constraints(
         if is_nat_type_tokens(&pt) {
             out.push(PreludeConstraint::NatNonNegative(param.name.clone()));
         }
+        if is_int_type_tokens(&pt) {
+            out.push(PreludeConstraint::IntBounded(param.name.clone()));
+        }
         if is_bool_type_tokens(&pt) {
             out.push(PreludeConstraint::BoolZeroOrOne(param.name.clone()));
         }
     }
 
+    if is_int_type_tokens(return_ty) {
+        out.push(PreludeConstraint::IntBounded("result".into()));
+        out.push(PreludeConstraint::IntBounded(
+            crate::encode_atom_policy::RESULT_VAR_NAME.into(),
+        ));
+    }
     if is_nat_type_tokens(return_ty) {
         // Z3 always asserts both; CVC5 filters if the var was not collected in the script/map.
         out.push(PreludeConstraint::NatNonNegative("result".into()));
@@ -175,6 +267,26 @@ pub(crate) fn filter_prelude_constraints_by_vars(
                 let key_sanitized = sanitize(name);
                 if vars.contains(name) || vars.contains(&key) || vars.contains(&key_sanitized) {
                     Some(PreludeConstraint::NatNonNegative(if vars.contains(name) {
+                        name.clone()
+                    } else if vars.contains(&key) {
+                        key
+                    } else {
+                        key_sanitized
+                    }))
+                } else {
+                    None
+                }
+            }
+            PreludeConstraint::IntBounded(name) => {
+                let key = if name == "result" || name == crate::encode_atom_policy::RESULT_VAR_NAME
+                {
+                    name.clone()
+                } else {
+                    sanitize(name)
+                };
+                let key_sanitized = sanitize(name);
+                if vars.contains(name) || vars.contains(&key) || vars.contains(&key_sanitized) {
+                    Some(PreludeConstraint::IntBounded(if vars.contains(name) {
                         name.clone()
                     } else if vars.contains(&key) {
                         key
@@ -372,6 +484,55 @@ mod tests {
         assert_eq!(fixed_width_bits(&["I8".into()]), Some((8, true)));
         assert_eq!(fixed_width_bits(&["Int".into()]), None);
         assert_eq!(fixed_width_bits(&["Nat".into()]), None);
+        assert_eq!(machine_arith_bits(&["Int".into()]), Some((64, true)));
+        assert_eq!(machine_arith_bits(&["Nat".into()]), Some((64, false)));
         assert_eq!(fixed_width_bits(&["u8".into(), "extra".into()]), None);
+    }
+
+    #[test]
+    fn contract_machine_wrap_same_kind_only() {
+        let nats = vec![param_nat("a"), param_nat("b")];
+        assert_eq!(contract_machine_wrap(&nats, &[]), Some((64, false)));
+        let ints = vec![Param {
+            name: "x".into(),
+            ty: Some(TypeExpr::named("Int")),
+        }];
+        assert_eq!(
+            contract_machine_wrap(&ints, &["Int".into()]),
+            Some((64, true))
+        );
+        let mixed = vec![
+            param_nat("a"),
+            Param {
+                name: "b".into(),
+                ty: Some(TypeExpr::named("Int")),
+            },
+        ];
+        assert_eq!(contract_machine_wrap(&mixed, &[]), None);
+    }
+
+    #[test]
+    fn nested_add_is_machine_arith() {
+        use assura_ast::{BinOp, Expr, Spanned};
+        let add = |l, r| {
+            Spanned::no_span(Expr::BinOp {
+                lhs: Box::new(l),
+                op: BinOp::Add,
+                rhs: Box::new(r),
+            })
+        };
+        let a = Spanned::no_span(Expr::Ident("a".into()));
+        let b = Spanned::no_span(Expr::Ident("b".into()));
+        let c = Spanned::no_span(Expr::Ident("c".into()));
+        let vars = HashSet::from(["a".into(), "b".into(), "c".into()]);
+        let nested = add(add(a, b), c);
+        assert!(is_machine_arith_atom(&nested, &vars));
+        let length = Spanned::no_span(Expr::MethodCall {
+            receiver: Box::new(Spanned::no_span(Expr::Ident("xs".into()))),
+            method: "length".into(),
+            args: vec![],
+        });
+        let one = Spanned::no_span(Expr::Literal(assura_ast::Literal::Int("1".into())));
+        assert!(!is_machine_arith_atom(&add(length, one), &vars));
     }
 }

@@ -87,7 +87,16 @@ pub(crate) fn append_cvc5_shellout_constraints(
     for constraint in constraints {
         match constraint {
             Cvc5TypeConstraint::NatNonNegative(name) => {
-                script.push_str(&format!("(assert (>= {name} 0))\n"));
+                script.push_str(&format!(
+                    "(assert (and (>= {name} 0) (<= {name} 18446744073709551615)))\n"
+                ));
+            }
+            Cvc5TypeConstraint::IntBounded(name) => {
+                script.push_str(&format!(
+                    "(assert (and (>= {name} {min}) (<= {name} {max})))\n",
+                    min = i64::MIN,
+                    max = i64::MAX
+                ));
             }
             Cvc5TypeConstraint::BoolZeroOrOne(name) => {
                 script.push_str(&format!("(assert (and (>= {name} 0) (<= {name} 1)))\n"));

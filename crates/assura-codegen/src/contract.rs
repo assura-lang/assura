@@ -503,11 +503,13 @@ pub(crate) fn generate_contract(
 /// Map a Rust type to a proptest strategy expression.
 pub(crate) fn proptest_strategy_for_type(rust_type: &str) -> String {
     match rust_type {
-        // Prefer i32-range for i64/u64 so generated `+`/`*` proptest tests do not
-        // panic on debug overflow while still covering wide values. Full-range
-        // i64 + i64 overflows in debug Rust; Assura Int is mathematical in SMT.
-        "i64" => "proptest::prelude::any::<i32>().prop_map(|n| i64::from(n))".to_string(),
-        "u64" => "proptest::prelude::any::<u32>().prop_map(|n| u64::from(n))".to_string(),
+        // Draw from the full 32-bit range plus the 64-bit extremes so wrap
+        // is reachable (#1584). Full `any::<u64>()` makes debug `+` panic on
+        // almost every overflow sample before the assertion runs.
+        "i64" => "proptest::prelude::prop_oneof![\n            proptest::prelude::any::<i32>().prop_map(|n| i64::from(n)),\n            proptest::prelude::Just(i64::MAX),\n            proptest::prelude::Just(i64::MIN),\n        ]"
+            .to_string(),
+        "u64" => "proptest::prelude::prop_oneof![\n            proptest::prelude::any::<u32>().prop_map(|n| u64::from(n)),\n            proptest::prelude::Just(u64::MAX),\n            proptest::prelude::Just(0u64),\n        ]"
+            .to_string(),
         "i32" => "proptest::prelude::any::<i32>()".to_string(),
         "u32" => "proptest::prelude::any::<u32>()".to_string(),
         "i16" => "proptest::prelude::any::<i16>()".to_string(),

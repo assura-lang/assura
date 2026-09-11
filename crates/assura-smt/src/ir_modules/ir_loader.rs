@@ -650,6 +650,8 @@ contract Echo {
 contract Nested {
   input(x: Int)
   output(result: Int)
+  requires { x >= 0 }
+  requires { x <= 1000 }
   ensures { result == (x + 1) * 2 }
 }
 "#;
@@ -931,6 +933,7 @@ contract IncNonNeg {
   input(x: Int)
   output(result: Int)
   requires { x >= 0 }
+  requires { x + 1 > x }
   ensures { result == x + 1 }
   ensures { result >= x }
   ensures { result > 0 }
@@ -1656,6 +1659,8 @@ contract GetY {
 contract LetBind {
   input(x: Int)
   output(result: Int)
+  requires { x >= 0 }
+  requires { x <= 1000 }
   ensures { result == let y = x + 1 in y * 2 }
 }
 "#;

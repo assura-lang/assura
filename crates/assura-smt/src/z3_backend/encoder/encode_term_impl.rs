@@ -85,6 +85,42 @@ impl EncodeTerm for Encoder {
 
     // === Binary operations ===
 
+    fn maybe_wrap_machine_arith(
+        &mut self,
+        op: &BinOp,
+        lhs: &assura_ast::SpExpr,
+        rhs: &assura_ast::SpExpr,
+        term: Z3Value,
+    ) -> Z3Value {
+        if !matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul) {
+            return term;
+        }
+        if self.machine_wrap.is_none() {
+            return term;
+        }
+        if matches!(term, Z3Value::Bv(_, _)) {
+            return term;
+        }
+        if crate::prelude_policy::is_machine_arith_atom(lhs, &self.wrap_vars)
+            && crate::prelude_policy::is_machine_arith_atom(rhs, &self.wrap_vars)
+        {
+            let i = term.as_int(&mut self.fresh_counter);
+            return Z3Value::Int(self.wrap_machine_int(&i));
+        }
+        term
+    }
+
+    fn maybe_wrap_machine_neg(&mut self, inner: &assura_ast::SpExpr, term: Z3Value) -> Z3Value {
+        if self.machine_wrap.is_none() {
+            return term;
+        }
+        if crate::prelude_policy::is_machine_arith_atom(inner, &self.wrap_vars) {
+            let i = term.as_int(&mut self.fresh_counter);
+            return Z3Value::Int(self.wrap_machine_int(&i));
+        }
+        term
+    }
+
     fn apply_binop(&mut self, op: &BinOp, lhs: Z3Value, rhs: Z3Value) -> Option<Z3Value> {
         // Delegate to the full encode_binop which handles BV/Real/Int
         // overloads, Neq, In, NotIn, Concat, Range.

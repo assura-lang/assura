@@ -64,6 +64,22 @@ pub(crate) trait EncodeTerm {
     /// Returns `None` for genuinely unsupported operator/type combinations.
     fn apply_binop(&mut self, op: &BinOp, lhs: Self::Term, rhs: Self::Term) -> Option<Self::Term>;
 
+    /// Wrap `+`/`-`/`*` when both sides are `Int`/`Nat` atoms (#1584).
+    fn maybe_wrap_machine_arith(
+        &mut self,
+        _op: &BinOp,
+        _lhs: &SpExpr,
+        _rhs: &SpExpr,
+        term: Self::Term,
+    ) -> Self::Term {
+        term
+    }
+
+    /// Wrap unary `-` of an `Int`/`Nat` atom (#1584).
+    fn maybe_wrap_machine_neg(&mut self, _inner: &SpExpr, term: Self::Term) -> Self::Term {
+        term
+    }
+
     // === Unary operations ===
 
     /// Negate an arithmetic term.
@@ -313,7 +329,8 @@ pub(crate) fn encode_expr_shared<B: EncodeTerm>(b: &mut B, expr: &SpExpr) -> Opt
             }
             let l = encode_expr_shared(b, lhs)?;
             let r = encode_expr_shared(b, rhs)?;
-            b.apply_binop(op, l, r)
+            let term = b.apply_binop(op, l, r)?;
+            Some(b.maybe_wrap_machine_arith(op, lhs, rhs, term))
         }
 
         // --- Unary operations ---
@@ -321,7 +338,10 @@ pub(crate) fn encode_expr_shared<B: EncodeTerm>(b: &mut B, expr: &SpExpr) -> Opt
             use crate::encode_binop_policy::{AstUnaryKind, classify_ast_unary};
             let val = encode_expr_shared(b, inner)?;
             match classify_ast_unary(op) {
-                AstUnaryKind::Neg => Some(b.make_neg(val)),
+                AstUnaryKind::Neg => {
+                    let negated = b.make_neg(val);
+                    Some(b.maybe_wrap_machine_neg(inner, negated))
+                }
                 AstUnaryKind::Not => Some(b.make_not(val)),
             }
         }

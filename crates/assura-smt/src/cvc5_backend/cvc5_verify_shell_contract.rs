@@ -42,6 +42,22 @@ struct IncrementalShellScriptInput<'a> {
 pub(crate) fn verify_contract_cvc5_shellout(
     session: &mut Cvc5ContractVerifySession<'_>,
 ) -> Vec<VerificationResult> {
+    let wrap = crate::prelude_policy::contract_machine_wrap(
+        session.contract.params,
+        session.contract.return_ty,
+    );
+    let wrap_vars = crate::prelude_policy::collect_wrap_var_names(
+        session.contract.params,
+        session.contract.return_ty,
+    );
+    crate::cvc5_expr_smtlib::with_smtlib_machine_wrap(wrap, wrap_vars, || {
+        verify_contract_cvc5_shellout_inner(session)
+    })
+}
+
+fn verify_contract_cvc5_shellout_inner(
+    session: &mut Cvc5ContractVerifySession<'_>,
+) -> Vec<VerificationResult> {
     let contract_name = session.contract.contract_name;
     let verifiable = session.prepared.verifiable.clone();
     let mut results = Vec::new();

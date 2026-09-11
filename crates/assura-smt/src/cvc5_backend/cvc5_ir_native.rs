@@ -99,13 +99,14 @@ impl<'a, 'v, 's> IrTermBuilder for Cvc5IrBuilder<'a, 'v, 's, '_> {
 
     fn arith(&mut self, op: crate::ir::IrArithOp, lhs: Self::Term, rhs: Self::Term) -> Self::Term {
         use crate::ir::IrArithOp;
-        match op {
+        let raw = match op {
             IrArithOp::Add => self.tm.mk_term(cvc5::Kind::Add, &[lhs, rhs]),
             IrArithOp::Sub => self.tm.mk_term(cvc5::Kind::Sub, &[lhs, rhs]),
             IrArithOp::Mul => self.tm.mk_term(cvc5::Kind::Mult, &[lhs, rhs]),
-            IrArithOp::Div => self.tm.mk_term(cvc5::Kind::IntsDivision, &[lhs, rhs]),
-            IrArithOp::Mod => self.tm.mk_term(cvc5::Kind::IntsModulus, &[lhs, rhs]),
-        }
+            IrArithOp::Div => return self.tm.mk_term(cvc5::Kind::IntsDivision, &[lhs, rhs]),
+            IrArithOp::Mod => return self.tm.mk_term(cvc5::Kind::IntsModulus, &[lhs, rhs]),
+        };
+        crate::cvc5_binop_encode::wrap_cvc5_machine_int(self.tm, raw, self.state.machine_wrap)
     }
 
     fn cmp_as_int(

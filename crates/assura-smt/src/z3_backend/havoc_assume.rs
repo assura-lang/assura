@@ -42,13 +42,14 @@ impl IrTermBuilder for Z3IrBuilder<'_, '_> {
     }
 
     fn arith(&mut self, op: IrArithOp, lhs: Self::Term, rhs: Self::Term) -> Self::Term {
-        match op {
+        let raw = match op {
             IrArithOp::Add => ast::Int::add(&[&lhs, &rhs]),
             IrArithOp::Sub => ast::Int::sub(&[&lhs, &rhs]),
             IrArithOp::Mul => ast::Int::mul(&[&lhs, &rhs]),
-            IrArithOp::Div => lhs.div(&rhs),
-            IrArithOp::Mod => lhs.modulo(&rhs),
-        }
+            IrArithOp::Div => return lhs.div(&rhs),
+            IrArithOp::Mod => return lhs.modulo(&rhs),
+        };
+        self.encoder.wrap_machine_int(&raw)
     }
 
     fn cmp_as_int(&mut self, op: IrCmpOp, lhs: Self::Term, rhs: Self::Term) -> Self::Term {

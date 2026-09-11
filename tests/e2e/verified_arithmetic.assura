@@ -4,6 +4,7 @@
 
 contract IncrementPositive {
     requires { x > 5 }
+    requires { x + 1 > x }
     ensures  { x + 1 > 5 }
 }
 
@@ -12,5 +13,6 @@ contract IncrementPositive {
 contract SumNonNegative {
     requires { a >= 0 }
     requires { b >= 0 }
+    requires { a + b >= a }
     ensures  { a + b >= 0 }
 }

@@ -21,6 +21,8 @@ impl Encoder {
             use_string_theory: false,
             adt_defs: HashMap::new(),
             bv_signed: HashMap::new(),
+            machine_wrap: None,
+            wrap_vars: std::collections::HashSet::new(),
             canonical_lengths: HashMap::new(),
             callee_specs: HashMap::new(),
         }
@@ -41,6 +43,8 @@ impl Encoder {
         self.func_arities.clone_from(&base.func_arities);
         self.canonical_lengths.clone_from(&base.canonical_lengths);
         self.callee_specs.clone_from(&base.callee_specs);
+        self.machine_wrap = base.machine_wrap;
+        self.wrap_vars.clone_from(&base.wrap_vars);
     }
 
     /// Return bit width for fixed-width type tokens (`u8`, `i32`, etc.).
@@ -97,6 +101,34 @@ impl Encoder {
         }
         self.canonical_lengths.insert(name.to_string(), v.clone());
         v
+    }
+
+    /// Reduce `x` into the machine integer range for this contract (#1584).
+    ///
+    /// Unsigned: `x mod 2^w`. Signed: `((x + 2^(w-1)) mod 2^w) - 2^(w-1)`.
+    pub(crate) fn wrap_machine_int(&self, x: &ast::Int) -> ast::Int {
+        let Some((width, signed)) = self.machine_wrap else {
+            return x.clone();
+        };
+        if width == 0 || width > 64 {
+            return x.clone();
+        }
+        let modulus = if width == 64 {
+            ast::Int::add(&[&ast::Int::from_u64(u64::MAX), &ast::Int::from_i64(1)])
+        } else {
+            ast::Int::from_u64(1u64 << width)
+        };
+        let reduced = x.modulo(&modulus);
+        if !signed {
+            return reduced;
+        }
+        let half = if width == 64 {
+            ast::Int::from_u64(1u64 << 63)
+        } else {
+            ast::Int::from_u64(1u64 << (width - 1))
+        };
+        let shifted = ast::Int::add(&[x, &half]);
+        ast::Int::sub(&[&shifted.modulo(&modulus), &half])
     }
 
     /// Get or create a named integer variable.
