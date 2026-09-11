@@ -803,8 +803,8 @@ contract Name {
 
 | Type | Description | Example |
 |------|------------|---------|
-| `Int` | Arbitrary-precision integer | `42`, `-1` |
-| `Nat` | Non-negative integer | `0`, `100` |
+| `Int` | 64-bit signed integer (wraps like `i64`) | `42`, `-1` |
+| `Nat` | 64-bit unsigned integer (wraps like `u64`) | `0`, `100` |
 | `Float` | Floating-point number | `3.14` |
 | `Bool` | Boolean | `true`, `false` |
 | `String` | Text string | `"hello"` |
