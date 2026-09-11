@@ -503,10 +503,11 @@ pub(crate) fn generate_contract(
 /// Map a Rust type to a proptest strategy expression.
 pub(crate) fn proptest_strategy_for_type(rust_type: &str) -> String {
     match rust_type {
-        // Draw from the full 32-bit range plus the 64-bit extremes so wrap
+        // Draw from the 32-bit range plus 64-bit MAX (and MIN+1) so wrap
         // is reachable (#1584). Full `any::<u64>()` makes debug `+` panic on
-        // almost every overflow sample before the assertion runs.
-        "i64" => "proptest::prelude::prop_oneof![\n            proptest::prelude::any::<i32>().prop_map(|n| i64::from(n)),\n            proptest::prelude::Just(i64::MAX),\n            proptest::prelude::Just(i64::MIN),\n        ]"
+        // almost every overflow sample. `i64::MIN` panics debug `.abs()` /
+        // `0 - x`; SMT wrap of MIN is covered by unit tests.
+        "i64" => "proptest::prelude::prop_oneof![\n            proptest::prelude::any::<i32>().prop_map(|n| i64::from(n)),\n            proptest::prelude::Just(i64::MAX),\n            proptest::prelude::Just(i64::MIN + 1),\n        ]"
             .to_string(),
         "u64" => "proptest::prelude::prop_oneof![\n            proptest::prelude::any::<u32>().prop_map(|n| u64::from(n)),\n            proptest::prelude::Just(u64::MAX),\n            proptest::prelude::Just(0u64),\n        ]"
             .to_string(),

@@ -113,7 +113,7 @@ fn enum_def_empty_variants_no_exhaustive() {
 
 #[test]
 fn proptest_strategy_known_types() {
-    // i64 mixes i32-range with MIN/MAX so wrap is reachable (#1584).
+    // i64 mixes i32-range with MAX / MIN+1 so wrap is reachable (#1584).
     let i64s = proptest_strategy_for_type("i64");
     assert!(
         i64s.contains("any::<i32>()")
