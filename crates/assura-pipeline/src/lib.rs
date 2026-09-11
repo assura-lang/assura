@@ -304,10 +304,16 @@ fn a04008_contract_name(message: &str) -> Option<&str> {
 
 /// True when no verification result is a counterexample or timeout.
 ///
-/// `Unknown` (including [`assura_smt::KNOWN_SMT_LIMITATION_MARKER`]) is treated
-/// as non-fatal here, matching lightweight test / MCP success heuristics.
-/// Callers that need stricter policy should inspect `verification` directly,
-/// or use [`verification_strict_succeeded`].
+/// An empty slice is success: there were no counterexamples and no
+/// timeouts. Pair this with [`vacuous_status`] / `PipelineResult.vacuous`
+/// so "nothing to prove" is not mistaken for a proof.
+///
+/// `Unknown` (including [`assura_smt::KNOWN_SMT_LIMITATION_MARKER`] and
+/// genuine solver-unknown) is treated as non-fatal here, matching
+/// lightweight test / MCP success heuristics. The CLI is stricter
+/// (A05103 on non-limitation Unknown). Callers that need that policy
+/// should inspect `verification` directly, or use
+/// [`verification_strict_succeeded`].
 pub fn verification_succeeded(results: &[assura_smt::VerificationResult]) -> bool {
     !results.iter().any(|r| {
         matches!(

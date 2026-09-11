@@ -22,9 +22,13 @@ inputs:
     required: false
     default: 'false'
   version:
-    description: 'Assura version to install'
+    description: 'Assura version to install (crates.io version, or latest)'
     required: false
     default: 'latest'
+  allow-empty:
+    description: 'Succeed when the files glob matches nothing'
+    required: false
+    default: 'false'
 
 outputs:
   total-contracts:
@@ -45,12 +49,9 @@ runs:
   steps:
     - name: Install Assura
       shell: bash
-      run: |
-        if ! command -v assura &> /dev/null; then
-          echo "Installing Assura..."
-          cargo install --git https://github.com/assura-lang/assura assura
-        fi
-        assura --version || echo "assura installed"
+      env:
+        VERSION: ${{ inputs.version }}
+      run: bash "${{ github.action_path }}/verify.sh" --step install
 
     - name: Install Z3
       shell: bash
@@ -66,36 +67,10 @@ runs:
     - name: Run verification
       id: verify
       shell: bash
-      run: |
-        TOTAL=0
-        VERIFIED=0
-        ERRORS=0
-        RESULTS="[]"
-
-        LAYER="${{ inputs.layer }}"
-        JSON_FLAG=""
-        if [ "${{ inputs.json-output }}" = "true" ]; then
-          JSON_FLAG="--json"
-        fi
-
-        for file in ${{ inputs.files }}; do
-          if [ -f "$file" ]; then
-            TOTAL=$((TOTAL + 1))
-            if assura check --layer "$LAYER" $JSON_FLAG "$file" 2>/dev/null; then
-              VERIFIED=$((VERIFIED + 1))
-            else
-              ERRORS=$((ERRORS + 1))
-            fi
-          fi
-        done
-
-        echo "total-contracts=$TOTAL" >> "$GITHUB_OUTPUT"
-        echo "verified=$VERIFIED" >> "$GITHUB_OUTPUT"
-        echo "errors=$ERRORS" >> "$GITHUB_OUTPUT"
-
-        if [ "$ERRORS" -gt 0 ]; then
-          echo "::error::$ERRORS contract(s) failed verification"
-          exit 1
-        fi
-
-        echo "All $VERIFIED contract(s) verified successfully"
+      env:
+        FILES: ${{ inputs.files }}
+        LAYER: ${{ inputs.layer }}
+        JSON_OUTPUT: ${{ inputs.json-output }}
+        FAIL_ON_WARNING: ${{ inputs.fail-on-warning }}
+        ALLOW_EMPTY: ${{ inputs.allow-empty }}
+      run: bash "${{ github.action_path }}/verify.sh" --step run

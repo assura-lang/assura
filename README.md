@@ -200,11 +200,12 @@ assura completions bash --json   # {"command","shell","script"}
 CVE-2023-4863 was a CVSS 9.8 heap buffer overflow in libwebp that affected
 Chrome, Firefox, Safari, Android, iOS, and every Electron app on the planet.
 
-In Assura, it is mathematically impossible. Four features block it: memory
-regions (MEM.1), taint tracking (SEC.1), precomputed table verification
-(NUM.2), and axiomatic definitions (CORE.4). See
-[`demos/libwebp-huffman.assura`](demos/libwebp-huffman.assura) for the full
-contract.
+Assura catches it at compile time. [`demos/libwebp-huffman.assura`](demos/libwebp-huffman.assura)
+states the bounds the decoder must respect, and `assura check` proves no
+input violates them, using memory regions (MEM.1), taint tracking (SEC.1),
+precomputed table verification (NUM.2), and axiomatic definitions (CORE.4).
+
+What that proof does and does not cover: [`docs/WHAT-WE-PROVE.md`](docs/WHAT-WE-PROVE.md).
 
 ## 50 Features, 12 Categories
 

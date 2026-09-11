@@ -46,6 +46,23 @@ See FAQ: Z3 timeout on a contract.
 - Absolute absence of all security bugs (only the properties you state
   and that the solver models)
 - Correctness of the SMT solvers themselves or of `rustc`
+- Overflow and wraparound for `Int` and `Nat`. Those types encode as
+  unbounded SMT integers. Codegen maps them to `i64` / `u64`. A clause
+  that holds for every mathematical integer can still fail at 64-bit
+  width. Use `U8`–`I64` when wraparound is part of what you want
+  proved. Generated `debug_assert!` widens comparisons to `i128`, so
+  it checks the unbounded model, not machine wrap.
+
+## `Int` / `Nat` vs fixed-width integers
+
+| Source type | SMT sort | Generated Rust |
+|-------------|----------|----------------|
+| `Int` | unbounded `Int` | `i64` |
+| `Nat` | unbounded `Int` (`>= 0`) | `u64` |
+| `U8`–`U64`, `I8`–`I64` | bitvector of that width | matching primitive |
+
+`MAX_INT` / `MIN_INT` overflow stories (for example `I32::MIN / -1`)
+apply only to the fixed-width row. They do not apply to `Int` / `Nat`.
 
 ## Vacuous success
 
