@@ -33,6 +33,7 @@ contract StreamingAverage {
     input(sum: Int, count: Nat, new_value: Int)
 
     requires { count >= 0 }
+    requires { count + 1 > count }
 
     ensures { count + 1 > count }
 }

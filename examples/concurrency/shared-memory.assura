@@ -21,6 +21,7 @@ contract AtomicIncrement {
 
     requires { delta > 0 }
     requires { counter >= 0 }
+    requires { counter + delta > counter }
     requires { counter + delta <= 4294967295 }
 
     ensures { counter + delta > counter }

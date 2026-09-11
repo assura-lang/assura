@@ -25,6 +25,7 @@ contract SeqCstCounter {
 
     requires { increment > 0 }
     requires { value >= 0 }
+    requires { value + increment > value }
 
     ensures { value + increment > value }
 }
