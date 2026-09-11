@@ -959,3 +959,166 @@ fn mixed_float_and_int_in_if_skips_i128() {
         "Float if-branches must not use i128::from, got: {result}"
     );
 }
+
+// ---- same-kind Int/Nat wrap (#1590) ----
+
+fn add_ab() -> SpExpr {
+    Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        op: BinOp::Add,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    })
+}
+
+#[test]
+fn same_kind_nat_add_emits_wrapping_add() {
+    let vars = NumericVars {
+        nat: ["a".into(), "b".into()].into_iter().collect(),
+        ..NumericVars::default()
+    };
+    assert_eq!(
+        expr_to_rust_with_numeric(&add_ab(), &vars),
+        "a.wrapping_add(b)"
+    );
+}
+
+#[test]
+fn same_kind_int_mul_emits_wrapping_mul() {
+    let vars = NumericVars {
+        int: ["a".into(), "b".into()].into_iter().collect(),
+        ..NumericVars::default()
+    };
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+        op: BinOp::Mul,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+    });
+    assert_eq!(expr_to_rust_with_numeric(&e, &vars), "a.wrapping_mul(b)");
+}
+
+#[test]
+fn mixed_int_nat_add_still_emits_i128() {
+    let vars = NumericVars {
+        int: ["a".into()].into_iter().collect(),
+        nat: ["b".into()].into_iter().collect(),
+        ..NumericVars::default()
+    };
+    let result = expr_to_rust_with_numeric(&add_ab(), &vars);
+    assert!(
+        result.contains("i128::from(a)") && result.contains("i128::from(b)"),
+        "mixed Int/Nat must widen, got: {result}"
+    );
+    assert!(!result.contains("wrapping_add"), "got: {result}");
+}
+
+fn lit_plus_ident(lit: &str, name: &str) -> SpExpr {
+    Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int(lit.into())))),
+        op: BinOp::Add,
+        rhs: Box::new(Spanned::no_span(Expr::Ident(name.into()))),
+    })
+}
+
+#[test]
+fn wrap_literal_plus_nat_prefers_named_receiver() {
+    let vars = NumericVars {
+        nat: ["a".into()].into_iter().collect(),
+        ..NumericVars::default()
+    };
+    let result = expr_to_rust_with_numeric(&lit_plus_ident("3", "a"), &vars);
+    assert!(
+        !result.contains("3.wrapping_add"),
+        "literal wrapping receiver is E0689, got: {result}"
+    );
+    assert_eq!(result, "a.wrapping_add(3)");
+}
+
+#[test]
+fn wrap_nested_lit_plus_nats_prefers_named_receiver() {
+    let vars = NumericVars {
+        nat: ["payload_length".into(), "padding_length".into()]
+            .into_iter()
+            .collect(),
+        ..NumericVars::default()
+    };
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(lit_plus_ident("3", "payload_length")),
+        op: BinOp::Add,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("padding_length".into()))),
+    });
+    let result = expr_to_rust_with_numeric(&e, &vars);
+    assert!(
+        !result.contains("3.wrapping_add"),
+        "nested header + lengths must not use 3.wrapping_add, got: {result}"
+    );
+    assert_eq!(
+        result,
+        "payload_length.wrapping_add(3).wrapping_add(padding_length)"
+    );
+}
+
+#[test]
+fn wrap_literal_minus_nat_suffixes_receiver() {
+    let vars = NumericVars {
+        nat: ["a".into()].into_iter().collect(),
+        ..NumericVars::default()
+    };
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("3".into())))),
+        op: BinOp::Sub,
+        rhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
+    });
+    let result = expr_to_rust_with_numeric(&e, &vars);
+    assert!(
+        !result.contains("3.wrapping_sub"),
+        "untyped literal wrapping_sub is E0689, got: {result}"
+    );
+    assert_eq!(result, "3_u64.wrapping_sub(a)");
+}
+
+fn length_minus_lit(recv: &str, lit: &str) -> SpExpr {
+    Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(Spanned::no_span(Expr::MethodCall {
+            receiver: Box::new(Spanned::no_span(Expr::Ident(recv.into()))),
+            method: "length".into(),
+            args: vec![],
+        })),
+        op: BinOp::Sub,
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int(lit.into())))),
+    })
+}
+
+/// `data.length() - 3` emits `.len() as u64`. That cast must be
+/// parenthesized before `.wrapping_sub`, or rustc parses
+/// `len() as u64.wrapping_sub(3)` as `len() as (u64.wrapping_sub(3))`.
+#[test]
+fn wrap_length_minus_lit_parenthesizes_as_cast() {
+    let result = expr_to_rust_with_numeric(&length_minus_lit("data", "3"), &NumericVars::default());
+    assert!(
+        !result.contains("as u64.wrapping_"),
+        "unparenthesized as-cast wrapping is a parse error, got: {result}"
+    );
+    assert!(
+        result.contains("(data.len() as u64).wrapping_sub"),
+        "as-cast must be parenthesized before wrapping_sub, got: {result}"
+    );
+}
+
+/// Heartbleed: `record_data.length() - 3 - 16`.
+#[test]
+fn wrap_length_minus_lits_parenthesizes_as_cast_chain() {
+    let e = Spanned::no_span(Expr::BinOp {
+        lhs: Box::new(length_minus_lit("record_data", "3")),
+        op: BinOp::Sub,
+        rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("16".into())))),
+    });
+    let result = expr_to_rust_with_numeric(&e, &NumericVars::default());
+    assert!(
+        !result.contains("as u64.wrapping_"),
+        "unparenthesized as-cast wrapping is a parse error, got: {result}"
+    );
+    assert!(
+        result.contains("(record_data.len() as u64).wrapping_sub"),
+        "as-cast must be parenthesized before wrapping_sub, got: {result}"
+    );
+}

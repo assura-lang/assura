@@ -46,6 +46,8 @@ contract TreeSizeInvariant {
     requires { total == 1 + left_size + right_size }
     requires { left_size >= 0 }
     requires { right_size >= 0 }
+    requires { 1 + left_size + right_size > left_size }
+    requires { 1 + left_size + right_size > right_size }
 
     ensures { total > left_size }
     ensures { total > right_size }

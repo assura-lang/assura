@@ -37,6 +37,7 @@ contract LSNMonotonicity {
     input(lsn_before: Nat, lsn_after: Nat, entries_written: Nat)
 
     requires { entries_written > 0 }
+    requires { lsn_before + entries_written > lsn_before }
     requires { lsn_after == lsn_before + entries_written }
 
     ensures { lsn_after > lsn_before }

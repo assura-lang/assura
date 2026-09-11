@@ -34,6 +34,10 @@ pub(crate) fn wrap_cvc5_machine_int<'a>(
     if width == 0 || width > 64 {
         return x;
     }
+    // IntsModulus on Bool/Real/BV corrupts the native heap (SIGABRT).
+    if !x.sort().is_integer() {
+        return x;
+    }
     let modulus = if width == 64 {
         let max = tm.mk_integer_from_str("18446744073709551615");
         tm.mk_term(cvc5::Kind::Add, &[max, tm.mk_integer(1)])
@@ -231,6 +235,33 @@ mod tests {
         assert_eq!(
             bv_ast_binop_cvc5_kind(&BinOp::Eq, false),
             Some(cvc5::Kind::Equal)
+        );
+    }
+
+    #[cfg(feature = "cvc5-verify")]
+    #[test]
+    fn wrap_cvc5_machine_int_skips_non_integer() {
+        let tm = cvc5::TermManager::new();
+        let flag = tm.mk_const(tm.boolean_sort(), "flag");
+        let wrapped = wrap_cvc5_machine_int(&tm, flag.clone(), Some((64, false)));
+        assert!(wrapped.sort().is_boolean(), "wrap on Bool must be a no-op");
+        assert_eq!(wrapped.to_string(), flag.to_string());
+    }
+
+    #[cfg(feature = "cvc5-verify")]
+    #[test]
+    fn wrap_cvc5_machine_int_unsigned_max_plus_one_is_zero() {
+        let tm = cvc5::TermManager::new();
+        let mut solver = cvc5::Solver::new(&tm);
+        let max = tm.mk_integer_from_str("18446744073709551615");
+        let sum = tm.mk_term(cvc5::Kind::Add, &[max, tm.mk_integer(1)]);
+        let wrapped = wrap_cvc5_machine_int(&tm, sum, Some((64, false)));
+        assert!(wrapped.sort().is_integer());
+        let eq0 = tm.mk_term(cvc5::Kind::Equal, &[wrapped, tm.mk_integer(0)]);
+        solver.assert_formula(eq0);
+        assert!(
+            solver.check_sat().is_sat(),
+            "unsigned wrap of 2^64-1+1 must be 0"
         );
     }
 }

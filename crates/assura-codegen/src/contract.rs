@@ -179,10 +179,10 @@ pub(crate) fn generate_contract_contents_opts(
         }
     }
 
-    // Collect float-typed parameter / result names so the expression folder
-    // skips i128::from() wrapping (f64 does not implement Into<i128>).
+    // Collect float / Int / Nat names: floats skip i128; same-kind
+    // Int/Nat +,-,* wrap at 64-bit; mixed Int/Nat still widens.
     let extra: Vec<&str> = output_name.iter().map(String::as_str).collect();
-    let float_vars = float_idents(
+    let num_vars = numeric_vars(
         input_params.iter().map(|(n, t)| (n.as_str(), t.as_str())),
         Some(output_type.as_str()),
         &extra,
@@ -192,15 +192,15 @@ pub(crate) fn generate_contract_contents_opts(
     for clause in &c.clauses {
         match &clause.kind {
             ClauseKind::Requires => {
-                requires_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()))
+                requires_exprs.push(expr_to_rust_with_numeric(&clause.body, &num_vars))
             }
             ClauseKind::Ensures => {
-                ensures_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()))
+                ensures_exprs.push(expr_to_rust_with_numeric(&clause.body, &num_vars))
             }
             ClauseKind::Effects => effects.push(expr_to_rust(&clause.body)),
             ClauseKind::Modifies => modifies.push(expr_to_rust(&clause.body)),
             ClauseKind::Invariant => {
-                invariants.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()))
+                invariants.push(expr_to_rust_with_numeric(&clause.body, &num_vars))
             }
             ClauseKind::Input
             | ClauseKind::Output
@@ -729,21 +729,21 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
         }
     }
 
-    // Same i128 widening as `check()` so mixed Int/Nat comparisons compile.
-    // Keep the identifier `result` (proptest binds `let result = check(...)`).
+    // Same wrap / i128 policy as `check()`. Keep identifier `result`
+    // (proptest binds `let result = check(...)`).
     let extra: Vec<&str> = output_name.iter().map(String::as_str).collect();
-    let float_vars = float_idents(
+    let num_vars = numeric_vars(
         input_params.iter().map(|(n, t)| (n.as_str(), t.as_str())),
         Some(output_type.as_str()),
         &extra,
     );
     let requires_exprs: Vec<String> = requires_ast
         .iter()
-        .map(|body| expr_to_rust_keep_result(body, float_vars.clone()))
+        .map(|body| expr_to_rust_keep_result_numeric(body, &num_vars))
         .collect();
     let ensures_exprs: Vec<String> = ensures_ast
         .iter()
-        .map(|body| expr_to_rust_keep_result(body, float_vars.clone()))
+        .map(|body| expr_to_rust_keep_result_numeric(body, &num_vars))
         .collect();
 
     if input_params.is_empty() || ensures_exprs.is_empty() {

@@ -20,29 +20,122 @@ fn is_float_rust_ty(ty: &str) -> bool {
     ty == "f64" || ty == "f32"
 }
 
-/// Collect identifiers that must skip `i128::from` wrapping.
+fn is_int_rust_ty(ty: &str) -> bool {
+    ty == "i64"
+}
+
+fn is_nat_rust_ty(ty: &str) -> bool {
+    ty == "u64"
+}
+
+/// Parameter/result kinds used to choose wrapping vs i128 widening.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct NumericVars {
+    pub float: HashSet<String>,
+    pub int: HashSet<String>,
+    pub nat: HashSet<String>,
+}
+
+/// Collect float / Int (`i64`) / Nat (`u64`) identifiers from mapped types.
 ///
-/// Input names whose mapped type is `f64`/`f32` are included. When the
-/// output/return type is a float, `result` and `extra_names` (output()
-/// names) are included as well.
-pub(crate) fn float_idents(
+/// Same-kind Int/Nat `+`, `-`, `*` wrap at 64-bit. Mixed Int/Nat still
+/// widens to `i128`. Float names skip `i128::from` (`f64` is not `Into<i128>`).
+pub(crate) fn numeric_vars(
     inputs: impl IntoIterator<Item = (impl AsRef<str>, impl AsRef<str>)>,
     output_ty: Option<&str>,
     extra_names: &[&str],
-) -> HashSet<String> {
-    let mut set = HashSet::new();
+) -> NumericVars {
+    let mut vars = NumericVars::default();
     for (name, ty) in inputs {
-        if is_float_rust_ty(ty.as_ref()) {
-            set.insert(name.as_ref().to_string());
+        let name = name.as_ref();
+        let ty = ty.as_ref();
+        if is_float_rust_ty(ty) {
+            vars.float.insert(name.to_string());
+        } else if is_int_rust_ty(ty) {
+            vars.int.insert(name.to_string());
+        } else if is_nat_rust_ty(ty) {
+            vars.nat.insert(name.to_string());
         }
     }
-    if output_ty.is_some_and(is_float_rust_ty) {
-        set.insert("result".to_string());
-        for name in extra_names {
-            set.insert((*name).to_string());
+    if let Some(out) = output_ty {
+        let dest = if is_float_rust_ty(out) {
+            Some(&mut vars.float)
+        } else if is_int_rust_ty(out) {
+            Some(&mut vars.int)
+        } else if is_nat_rust_ty(out) {
+            Some(&mut vars.nat)
+        } else {
+            None
+        };
+        if let Some(dest) = dest {
+            dest.insert("result".to_string());
+            for name in extra_names {
+                dest.insert((*name).to_string());
+            }
         }
     }
-    set
+    vars
+}
+
+/// 64-bit machine kind for same-kind wrap vs mixed i128 widening.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MachineKind {
+    Int,
+    Nat,
+    Lit,
+}
+
+fn unify_machine_kind(a: Option<MachineKind>, b: Option<MachineKind>) -> Option<MachineKind> {
+    use MachineKind::{Int, Lit, Nat};
+    match (a, b) {
+        (Some(Int), Some(Int)) | (Some(Int), Some(Lit)) | (Some(Lit), Some(Int)) => Some(Int),
+        (Some(Nat), Some(Nat)) | (Some(Nat), Some(Lit)) | (Some(Lit), Some(Nat)) => Some(Nat),
+        (Some(Lit), Some(Lit)) => Some(Lit),
+        _ => None,
+    }
+}
+
+fn wrapping_arith_method(op: &BinOp) -> Option<&'static str> {
+    match op {
+        BinOp::Add => Some("wrapping_add"),
+        BinOp::Sub => Some("wrapping_sub"),
+        BinOp::Mul => Some("wrapping_mul"),
+        _ => None,
+    }
+}
+
+fn wrapping_is_commutative(op: &BinOp) -> bool {
+    matches!(op, BinOp::Add | BinOp::Mul)
+}
+
+/// `len() as u64.wrapping_sub(3)` is parsed as `len() as (u64.wrapping_sub(3))`.
+/// Parenthesize unparenthesized `as` casts used as wrapping operands.
+fn parenthesize_as_cast_before_wrapping(s: String) -> String {
+    if s.contains(" as ") && !(s.starts_with('(') && s.ends_with(')')) {
+        format!("({s})")
+    } else {
+        s
+    }
+}
+
+/// Bare integer literals (and unary `-N`) are `{integer}` in Rust.
+/// Using them as a `wrapping_*` receiver is E0689.
+fn is_untyped_int_literal_expr(expr: &SpExpr) -> bool {
+    match &expr.node {
+        Expr::Literal(Literal::Int(_)) => true,
+        Expr::UnaryOp {
+            op: UnaryOp::Neg,
+            expr: inner,
+        } => matches!(&inner.node, Expr::Literal(Literal::Int(_))),
+        _ => false,
+    }
+}
+
+fn machine_lit_suffix(kind: MachineKind) -> &'static str {
+    match kind {
+        MachineKind::Nat => "u64",
+        MachineKind::Int | MachineKind::Lit => "i64",
+    }
 }
 
 /// Returns true if the expression contains a literal that exceeds i128 range
@@ -178,39 +271,58 @@ pub(crate) fn resolve_ordering_variant(body: &SpExpr) -> Option<&'static str> {
     MemoryOrdering::parse(s).map(|o| o.to_rust_ordering())
 }
 
-/// Convert an Assura `Expr` to a Rust expression string.
-pub(crate) fn expr_to_rust(expr: &SpExpr) -> String {
+fn folder_from_vars(vars: &NumericVars, rename_result: bool) -> RustCodegenFolder {
     RustCodegenFolder {
         static_context: false,
-        rename_result: true,
-        float_vars: HashSet::new(),
+        rename_result,
+        float_vars: vars.float.clone(),
+        int_vars: vars.int.clone(),
+        nat_vars: vars.nat.clone(),
     }
-    .fold_expr(expr)
+}
+
+/// Convert an Assura `Expr` to a Rust expression string.
+pub(crate) fn expr_to_rust(expr: &SpExpr) -> String {
+    folder_from_vars(&NumericVars::default(), true).fold_expr(expr)
 }
 
 /// Like [`expr_to_rust`] but with knowledge of which variables are float-typed.
 /// Comparisons and arithmetic involving these variables use direct `f64`
 /// operations instead of `i128::from()` widening.
+#[cfg(test)]
 pub(crate) fn expr_to_rust_with_floats(expr: &SpExpr, float_vars: HashSet<String>) -> String {
-    RustCodegenFolder {
-        static_context: false,
-        rename_result: true,
-        float_vars,
-    }
-    .fold_expr(expr)
+    expr_to_rust_with_numeric(
+        expr,
+        &NumericVars {
+            float: float_vars,
+            ..NumericVars::default()
+        },
+    )
+}
+
+/// Like [`expr_to_rust_with_floats`] plus Int/Nat kinds for 64-bit wrap.
+pub(crate) fn expr_to_rust_with_numeric(expr: &SpExpr, vars: &NumericVars) -> String {
+    folder_from_vars(vars, true).fold_expr(expr)
 }
 
 /// Runtime widening (i128 casts, Implies/In/Concat) without renaming `result`.
 ///
 /// Proptest binds `let result = check(...)`, so the identifier must stay
 /// `result`. [`expr_to_rust`] would emit [`RESULT_VAR`] and fail to compile.
+#[cfg(test)]
 pub(crate) fn expr_to_rust_keep_result(expr: &SpExpr, float_vars: HashSet<String>) -> String {
-    RustCodegenFolder {
-        static_context: false,
-        rename_result: false,
-        float_vars,
-    }
-    .fold_expr(expr)
+    expr_to_rust_keep_result_numeric(
+        expr,
+        &NumericVars {
+            float: float_vars,
+            ..NumericVars::default()
+        },
+    )
+}
+
+/// Like [`expr_to_rust_keep_result`] plus Int/Nat kinds for 64-bit wrap.
+pub(crate) fn expr_to_rust_keep_result_numeric(expr: &SpExpr, vars: &NumericVars) -> String {
+    folder_from_vars(vars, false).fold_expr(expr)
 }
 
 /// Convert an Assura `Expr` to a Rust expression for use in const context.
@@ -227,6 +339,8 @@ pub fn expr_to_rust_static(expr: &SpExpr) -> String {
         static_context: true,
         rename_result: false,
         float_vars: HashSet::new(),
+        int_vars: HashSet::new(),
+        nat_vars: HashSet::new(),
     }
     .fold_expr(expr)
 }
@@ -246,6 +360,97 @@ struct RustCodegenFolder {
     /// comparison or arithmetic involves a float variable or literal,
     /// `i128::from()` wrapping is skipped (f64 does not implement `Into<i128>`).
     float_vars: HashSet<String>,
+    /// Names typed as Assura `Int` (Rust `i64`). Same-kind `+`/`-`/`*` wrap.
+    int_vars: HashSet<String>,
+    /// Names typed as Assura `Nat` (Rust `u64`). Same-kind `+`/`-`/`*` wrap.
+    nat_vars: HashSet<String>,
+}
+
+impl RustCodegenFolder {
+    fn machine_kind(&self, expr: &SpExpr) -> Option<MachineKind> {
+        match &expr.node {
+            Expr::Ident(name) => {
+                if self.nat_vars.contains(name) {
+                    Some(MachineKind::Nat)
+                } else if self.int_vars.contains(name) {
+                    Some(MachineKind::Int)
+                } else {
+                    None
+                }
+            }
+            Expr::Literal(Literal::Int(_)) => Some(MachineKind::Lit),
+            Expr::BinOp { op, lhs, rhs } if wrapping_arith_method(op).is_some() => {
+                unify_machine_kind(self.machine_kind(lhs), self.machine_kind(rhs))
+            }
+            Expr::UnaryOp {
+                op: UnaryOp::Neg,
+                expr: inner,
+            }
+            | Expr::Old(inner) => self.machine_kind(inner),
+            Expr::Cast { expr: inner, ty } => match map_type_token(ty) {
+                "u64" => Some(MachineKind::Nat),
+                "i64" => Some(MachineKind::Int),
+                _ => self.machine_kind(inner),
+            },
+            Expr::If {
+                then_branch,
+                else_branch,
+                ..
+            } => match else_branch {
+                Some(eb) => {
+                    unify_machine_kind(self.machine_kind(then_branch), self.machine_kind(eb))
+                }
+                None => self.machine_kind(then_branch),
+            },
+            Expr::Let { body, .. } => self.machine_kind(body),
+            Expr::MethodCall { method, args, .. }
+                if args.is_empty() && matches!(method.as_str(), "length" | "len" | "size") =>
+            {
+                Some(MachineKind::Nat)
+            }
+            _ => None,
+        }
+    }
+
+    fn same_kind_int_nat(&self, lhs: &SpExpr, rhs: &SpExpr) -> bool {
+        matches!(
+            unify_machine_kind(self.machine_kind(lhs), self.machine_kind(rhs)),
+            Some(MachineKind::Int) | Some(MachineKind::Nat)
+        )
+    }
+
+    fn wrapping_kind(&self, lhs: &SpExpr, rhs: &SpExpr) -> MachineKind {
+        match unify_machine_kind(self.machine_kind(lhs), self.machine_kind(rhs)) {
+            Some(MachineKind::Nat) => MachineKind::Nat,
+            _ => MachineKind::Int,
+        }
+    }
+
+    /// Fold a wrapping receiver. Suffix a bare integer literal so rustc
+    /// does not see `{integer}.wrapping_add` (E0689). Parenthesize `as`
+    /// casts so `.wrapping_*` binds to the value, not the cast type.
+    fn fold_wrapping_receiver(&mut self, expr: &SpExpr, kind: MachineKind) -> String {
+        let suffix = machine_lit_suffix(kind);
+        let folded = match &expr.node {
+            Expr::Literal(Literal::Int(s)) => format!("{s}_{suffix}"),
+            Expr::UnaryOp {
+                op: UnaryOp::Neg,
+                expr: inner,
+            } => {
+                if let Expr::Literal(Literal::Int(s)) = &inner.node {
+                    format!("(-{s}_{suffix})")
+                } else {
+                    self.fold_expr(expr)
+                }
+            }
+            _ => self.fold_expr(expr),
+        };
+        parenthesize_as_cast_before_wrapping(folded)
+    }
+
+    fn fold_wrapping_arg(&mut self, expr: &SpExpr) -> String {
+        parenthesize_as_cast_before_wrapping(self.fold_expr(expr))
+    }
 }
 
 impl ExprFolder for RustCodegenFolder {
@@ -363,13 +568,10 @@ impl ExprFolder for RustCodegenFolder {
                 _ => {}
             }
             let op_s = op.as_rust_str();
-            // Widen all numeric comparisons and arithmetic to i128 to prevent
-            // mixed-type errors (e.g. i64 + u64, u64 == i128) in generated
-            // code when contracts mix Int and Nat typed inputs.
-            // Skip i128 wrapping when either side has a u128-scale literal
-            // (e.g. u128::MAX) since i128::from(u128) does not exist.
-            // Also skip when either side involves Float (f64 does not
-            // implement Into<i128>).
+            // Mixed Int/Nat comparisons and arithmetic widen to i128
+            // (AGENTS invariant 19). Same-kind Int/Nat +,-,* wrap at
+            // 64-bit to match SMT. Skip i128 when either side has a
+            // u128-scale literal or a Float (not Into<i128>).
             if (op.is_comparison() || op.is_arithmetic())
                 && is_numeric_expr(lhs)
                 && is_numeric_expr(rhs)
@@ -381,6 +583,29 @@ impl ExprFolder for RustCodegenFolder {
                         "(({} as u128) {op_s} ({} as u128))",
                         self.fold_expr(lhs),
                         self.fold_expr(rhs)
+                    );
+                }
+                if let Some(method) = wrapping_arith_method(op)
+                    && self.same_kind_int_nat(lhs, rhs)
+                {
+                    let kind = self.wrapping_kind(lhs, rhs);
+                    // Prefer a named/typed operand as the receiver so
+                    // `3 + a` becomes `a.wrapping_add(3)`, not
+                    // `3.wrapping_add(a)` (E0689). Subtraction is not
+                    // commutative; suffix the literal instead.
+                    let (recv, arg) = if wrapping_is_commutative(op)
+                        && is_untyped_int_literal_expr(lhs)
+                        && !is_untyped_int_literal_expr(rhs)
+                    {
+                        (rhs, lhs)
+                    } else {
+                        (lhs, rhs)
+                    };
+                    return format!(
+                        "{}.{}({})",
+                        self.fold_wrapping_receiver(recv, kind),
+                        method,
+                        self.fold_wrapping_arg(arg)
                     );
                 }
                 return format!(
@@ -534,8 +759,18 @@ impl ExprFolder for RustCodegenFolder {
 
     fn fold_let(&mut self, name: &str, value: &SpExpr, body: &SpExpr) -> String {
         let bind_float = has_float_expr(value, &self.float_vars);
+        let bind_kind = self.machine_kind(value);
         if bind_float {
             self.float_vars.insert(name.to_string());
+        }
+        match bind_kind {
+            Some(MachineKind::Int) => {
+                self.int_vars.insert(name.to_string());
+            }
+            Some(MachineKind::Nat) => {
+                self.nat_vars.insert(name.to_string());
+            }
+            Some(MachineKind::Lit) | None => {}
         }
         let result = format!(
             "{{ let {} = {}; {} }}",
@@ -545,6 +780,15 @@ impl ExprFolder for RustCodegenFolder {
         );
         if bind_float {
             self.float_vars.remove(name);
+        }
+        match bind_kind {
+            Some(MachineKind::Int) => {
+                self.int_vars.remove(name);
+            }
+            Some(MachineKind::Nat) => {
+                self.nat_vars.remove(name);
+            }
+            Some(MachineKind::Lit) | None => {}
         }
         result
     }

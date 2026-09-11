@@ -40,8 +40,7 @@ pub(crate) fn generate_bind(b: &BindDecl, code: &mut String) {
 
     let rust_path = &b.target_path;
 
-    // Collect float-typed parameter / result names to skip i128::from() wrapping.
-    let float_vars = float_idents(
+    let num_vars = numeric_vars(
         params.iter().filter_map(|p| match &p.ty {
             RustType::Raw(t) => Some((p.name.as_str(), t.as_str())),
             _ => None,
@@ -61,14 +60,14 @@ pub(crate) fn generate_bind(b: &BindDecl, code: &mut String) {
                     "let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();"
                 )));
             }
-            ensures_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
+            ensures_exprs.push(expr_to_rust_with_numeric(&clause.body, &num_vars));
         }
     }
 
     // Requires assertions
     for clause in &b.clauses {
         if clause.kind == ClauseKind::Requires {
-            let expr = expr_to_rust_with_floats(&clause.body, float_vars.clone());
+            let expr = expr_to_rust_with_numeric(&clause.body, &num_vars);
             body.push(RustStmt::Assert {
                 cond: expr,
                 label: "requires".into(),
@@ -143,8 +142,7 @@ pub(crate) fn generate_extern(ex: &ExternDecl, code: &mut String) {
         .iter()
         .any(|c| c.kind == ClauseKind::Requires || c.kind == ClauseKind::Ensures);
 
-    // Collect float-typed parameter / result names to skip i128::from() wrapping.
-    let float_vars = float_idents(
+    let num_vars = numeric_vars(
         params.iter().filter_map(|p| match &p.ty {
             RustType::Raw(t) => Some((p.name.as_str(), t.as_str())),
             _ => None,
@@ -173,14 +171,14 @@ pub(crate) fn generate_extern(ex: &ExternDecl, code: &mut String) {
                     "let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();"
                 )));
             }
-            ensures_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
+            ensures_exprs.push(expr_to_rust_with_numeric(&clause.body, &num_vars));
         }
     }
 
     // Requires assertions
     for clause in &ex.clauses {
         if clause.kind == ClauseKind::Requires {
-            let expr = expr_to_rust_with_floats(&clause.body, float_vars.clone());
+            let expr = expr_to_rust_with_numeric(&clause.body, &num_vars);
             body.push(RustStmt::Assert {
                 cond: expr,
                 label: "requires".into(),
@@ -273,8 +271,7 @@ pub(crate) fn generate_fn_def(
         Some(RustType::Raw(return_type))
     };
 
-    // Collect float-typed parameter / result names to skip i128::from() wrapping.
-    let float_vars = float_idents(
+    let num_vars = numeric_vars(
         params.iter().filter_map(|p| match &p.ty {
             RustType::Raw(t) => Some((p.name.as_str(), t.as_str())),
             _ => None,
@@ -294,14 +291,14 @@ pub(crate) fn generate_fn_def(
                     "let {OLD_VAR_PREFIX}{var} = {rust_expr}.clone();"
                 )));
             }
-            ensures_exprs.push(expr_to_rust_with_floats(&clause.body, float_vars.clone()));
+            ensures_exprs.push(expr_to_rust_with_numeric(&clause.body, &num_vars));
         }
     }
 
     // Requires assertions
     for clause in &f.clauses {
         if clause.kind == ClauseKind::Requires {
-            let expr = expr_to_rust_with_floats(&clause.body, float_vars.clone());
+            let expr = expr_to_rust_with_numeric(&clause.body, &num_vars);
             body.push(RustStmt::Assert {
                 cond: expr,
                 label: "requires".into(),
