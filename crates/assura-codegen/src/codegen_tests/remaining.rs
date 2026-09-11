@@ -1183,6 +1183,30 @@ contract Testable {
 }
 
 #[test]
+fn cargo_toml_includes_proptest_for_struct_arbitrary() {
+    // zlib-inflate ValidXlen: Arbitrary impl under cfg(test) with no
+    // testable contract. --all-targets compiles that impl.
+    let project = codegen_ok(
+        r#"
+type ValidXlen {
+    value: Int
+    capped_len: Nat
+}
+"#,
+    );
+    assert!(
+        project.cargo_toml.contains("proptest"),
+        "struct Arbitrary impl requires proptest in Cargo.toml: {}",
+        project.cargo_toml
+    );
+    let lib = &project.files[0].1;
+    assert!(
+        lib.contains("impl proptest::prelude::Arbitrary for ValidXlen"),
+        "expected Arbitrary impl, got: {lib}"
+    );
+}
+
+#[test]
 fn s009_cargo_toml_no_proptest_when_not_needed() {
     let project = codegen_ok(
         r#"

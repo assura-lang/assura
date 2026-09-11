@@ -863,6 +863,26 @@ pub(crate) fn source_has_error_types(source: &assura_ast::SourceFile) -> bool {
     v.0
 }
 
+/// Cargo.toml needs proptest when we emit `proptest!` tests or
+/// `#[cfg(test)]` Arbitrary impls for user structs.
+pub(crate) fn source_needs_proptest(source: &assura_ast::SourceFile) -> bool {
+    if source_has_testable_contracts(source) {
+        return true;
+    }
+    use assura_ast::{DeclVisitor, TypeDef};
+    struct HasArbitrary(bool);
+    impl DeclVisitor for HasArbitrary {
+        fn visit_type_def(&mut self, t: &TypeDef) {
+            if crate::hir::type_def_emits_arbitrary(t) {
+                self.0 = true;
+            }
+        }
+    }
+    let mut v = HasArbitrary(false);
+    assura_ast::walk_decls(&mut v, &source.decls);
+    v.0
+}
+
 pub(crate) fn source_has_testable_contracts(source: &assura_ast::SourceFile) -> bool {
     use assura_ast::{ContractDecl, DeclVisitor};
 
