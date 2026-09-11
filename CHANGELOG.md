@@ -3,6 +3,15 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.5](https://github.com/assura-lang/assura/compare/v0.4.4...v0.4.5) (2026-09-11)
+
+
+### Bug Fixes
+
+* **ci:** verify action, typed strategies, and demo matrix ([#1587](https://github.com/assura-lang/assura/issues/1587)) ([273217a](https://github.com/assura-lang/assura/commit/273217aa4b037cb61edc11836c78997ce3c672da))
+* **smt:** complete 64-bit wrap for examples and codegen ([#1591](https://github.com/assura-lang/assura/issues/1591)) ([1f1c576](https://github.com/assura-lang/assura/commit/1f1c5762e996a73411add3eef817b0441a931b4f))
+* **smt:** wrap Int/Nat arithmetic at 64-bit ([#1589](https://github.com/assura-lang/assura/issues/1589)) ([d7bfa7d](https://github.com/assura-lang/assura/commit/d7bfa7d1413c47be9b4735223a62c623a6c3e6d4))
+
 ## [0.4.4](https://github.com/assura-lang/assura/compare/v0.4.3...v0.4.4) (2026-09-05)
 
 
