@@ -835,6 +835,27 @@ fn render_item_with_opts(item: &RustItem, out: &mut String, opts: &RenderOpts) {
 // Builders: AST -> HIR
 // ---------------------------------------------------------------------------
 
+/// True when [`build_type_def`] emits a `#[cfg(test)]` Arbitrary impl.
+/// Cargo.toml must include proptest whenever this is true.
+pub(crate) fn type_def_emits_arbitrary(t: &assura_ast::TypeDef) -> bool {
+    use assura_ast::TypeBody;
+    let TypeBody::Struct(fields) = &t.body else {
+        return false;
+    };
+    if !t.type_params.is_empty() || fields.is_empty() {
+        return false;
+    }
+    const PRIMS: &[&str] = &[
+        "i64", "u64", "i32", "u32", "bool", "f64", "f32", "i8", "u8", "i16", "u16", "isize",
+        "usize", "String",
+    ];
+    fields.iter().all(|f| {
+        let ty_tokens = f.ty.as_ref().map(|t| t.to_tokens()).unwrap_or_default();
+        let rust_ty = crate::map_type_tokens(&ty_tokens);
+        PRIMS.contains(&rust_ty.as_str()) || crate::types_gen::is_user_type_name(&rust_ty)
+    })
+}
+
 /// Build HIR items for an Assura `TypeDef`.
 ///
 /// Returns a `Vec<RustItem>` because some type bodies produce multiple items
@@ -868,7 +889,7 @@ pub fn build_type_def(t: &assura_ast::TypeDef) -> Vec<RustItem> {
                 derives: vec!["Debug".into(), "Clone".into(), "PartialEq".into()],
                 ..RustStruct::default()
             })];
-            if tps.is_empty() && !rust_fields.is_empty() {
+            if type_def_emits_arbitrary(t) {
                 let field_names: Vec<&str> = rust_fields.iter().map(|f| f.name.as_str()).collect();
                 let field_tys: Vec<String> = rust_fields
                     .iter()
@@ -877,48 +898,38 @@ pub fn build_type_def(t: &assura_ast::TypeDef) -> Vec<RustItem> {
                         other => format!("{other:?}"),
                     })
                     .collect();
-                const PRIMS: &[&str] = &[
-                    "i64", "u64", "i32", "u32", "bool", "f64", "f32", "i8", "u8", "i16", "u16",
-                    "isize", "usize", "String",
-                ];
-                // Primitives or peer user structs (already emit Arbitrary when
-                // declared earlier in the file, e.g. Outer { inner: Inner }).
-                let arb_field =
-                    |ty: &str| PRIMS.contains(&ty) || crate::types_gen::is_user_type_name(ty);
-                if field_tys.iter().all(|ty| arb_field(ty.as_str())) {
-                    // Use the same strategies as contract proptest (i32-range for i64)
-                    // so field-bearing structs do not re-introduce full-range overflow.
-                    let field_strats: Vec<String> = field_tys
-                        .iter()
-                        .map(|ty| crate::contract::proptest_strategy_for_type(ty))
-                        .collect();
-                    let destructure = field_names.join(", ");
-                    let construct = field_names.join(", ");
-                    let strategy = if field_names.len() == 1 {
-                        format!(
-                            "({}).prop_map(|{destructure}| {} {{ {construct} }})",
-                            field_strats[0], t.name
-                        )
-                    } else {
-                        format!(
-                            "({}).prop_map(|({destructure})| {} {{ {construct} }})",
-                            field_strats.join(", "),
-                            t.name
-                        )
-                    };
-                    items.push(RustItem::Raw(format!(
-                        "#[cfg(test)]\n\
-                         impl proptest::prelude::Arbitrary for {} {{\n\
-                             type Parameters = ();\n\
-                             type Strategy = proptest::strategy::BoxedStrategy<Self>;\n\
-                             fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {{\n\
-                                 use proptest::prelude::*;\n\
-                                 {strategy}.boxed()\n\
-                             }}\n\
-                         }}\n",
+                // Use the same strategies as contract proptest (i32-range for i64)
+                // so field-bearing structs do not re-introduce full-range overflow.
+                let field_strats: Vec<String> = field_tys
+                    .iter()
+                    .map(|ty| crate::contract::proptest_strategy_for_type(ty))
+                    .collect();
+                let destructure = field_names.join(", ");
+                let construct = field_names.join(", ");
+                let strategy = if field_names.len() == 1 {
+                    format!(
+                        "({}).prop_map(|{destructure}| {} {{ {construct} }})",
+                        field_strats[0], t.name
+                    )
+                } else {
+                    format!(
+                        "({}).prop_map(|({destructure})| {} {{ {construct} }})",
+                        field_strats.join(", "),
                         t.name
-                    )));
-                }
+                    )
+                };
+                items.push(RustItem::Raw(format!(
+                    "#[cfg(test)]\n\
+                     impl proptest::prelude::Arbitrary for {} {{\n\
+                         type Parameters = ();\n\
+                         type Strategy = proptest::strategy::BoxedStrategy<Self>;\n\
+                         fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {{\n\
+                             use proptest::prelude::*;\n\
+                             {strategy}.boxed()\n\
+                         }}\n\
+                     }}\n",
+                    t.name
+                )));
             }
             items
         }

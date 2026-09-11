@@ -130,7 +130,7 @@ jobs:
 
       # guards.sh uses ripgrep; full system-deps install is unnecessary here.
       - name: Install ripgrep
-        run: sudo apt-get install -y ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
         env:
           DEBIAN_FRONTEND: noninteractive
 
@@ -222,7 +222,26 @@ jobs:
         run: actionlint -color
 
       - name: Run zizmor
-        run: zizmor --config .github/zizmor.yml .github/workflows/*.yml
+        run: zizmor --config .github/zizmor.yml .github/workflows/ .github/actions/
+
+      - name: Composite actions stay in the lint net
+        run: |
+          set -euo pipefail
+          mapfile -t actions < <(find .github/actions -name action.yml | sort)
+          if [[ "${#actions[@]}" -eq 0 ]]; then
+            echo "No composite actions found"
+            exit 1
+          fi
+          grep -q 'zizmor --config .github/zizmor.yml .github/workflows/ .github/actions/' \
+            .github/workflows/ci.yml
+          grep -q 'needs: \[changes,' .github/workflows/ci.yml
+          echo "linted ${#actions[@]} composite action(s)"
+
+      - name: Test verify composite helper
+        run: bash .github/actions/verify/verify_test.sh
+
+      - name: Classify demo headers
+        run: bash scripts/check-demos.sh --step classify
 
   # ── Tests (parallel with clippy) ──────────────────────────────────────────
   test:
@@ -329,12 +348,7 @@ jobs:
 
       - name: E2E check all demos (parse + resolve + typecheck + verify)
         run: |
-          for demo in demos/*.assura; do
-            # Audit demos have intentional counterexamples (real CVE models); skip them
-            case "$demo" in *-audit*|*audit-*) echo "=== Skipping audit demo $demo ==="; continue;; esac
-            echo "=== Checking $demo ==="
-            cargo run --locked --bin assura -- check "$demo"
-          done
+          ASSURA="cargo run --locked --bin assura --" bash scripts/check-demos.sh --step check
 
       - name: Getting-started smoke (check + write-ir + bin + cargo test)
         if: ${{ !cancelled() }}
@@ -344,13 +358,19 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           for demo in demos/*.assura; do
-            case "$demo" in *-audit*|*audit-*) continue;; esac
             echo "=== Building $demo ==="
             cargo run --locked --bin assura -- build --no-check "$demo"
             # build writes to <input-parent>/generated/ (e.g. demos/generated/)
             gen_dir="$(dirname "$demo")/generated"
             echo "=== Checking generated Rust for $demo ==="
-            (cd "$gen_dir" && cargo check)
+            # Must-pass demos compile the proptest harness (#1573).
+            # EXPECT FAIL audits can mix Int/Nat in one contract; lib-only
+            # check still proves the generated API compiles.
+            if head -n 5 "$demo" | grep -q "EXPECT FAIL"; then
+              (cd "$gen_dir" && cargo check)
+            else
+              (cd "$gen_dir" && cargo check --all-targets)
+            fi
             rm -rf "$gen_dir"
           done
 
@@ -532,7 +552,7 @@ jobs:
   # ── Gate job (single required status check for branch protection) ────
   ci:
     if: always()
-    needs: [lint-fast, clippy, test, benchmark, codegen-validation, no-z3, cvc5, tree-sitter, vscode-extension, workflow-sanity, cargo-package]
+    needs: [changes, lint-fast, clippy, test, benchmark, codegen-validation, no-z3, cvc5, tree-sitter, vscode-extension, workflow-sanity, cargo-package]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

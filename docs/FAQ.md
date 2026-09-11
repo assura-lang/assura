@@ -124,7 +124,9 @@ or `Counterexample`.
 **Symptom:** Z3 returns a `Counterexample` but the values look strange.
 
 A counterexample is a concrete set of inputs that violates a contract
-clause. For example:
+clause. The values depend on the declared types.
+
+Fixed-width example (`a: I32`, `b: I32`):
 
 ```
 Counterexample for SafeDivision ensures clause:
@@ -132,19 +134,24 @@ Counterexample for SafeDivision ensures clause:
   b = -1
 ```
 
-This means signed integer division of `INT_MIN / -1` overflows. The
-fix is to add a precondition:
+That is signed 32-bit division of `I32::MIN / -1`, which overflows.
+A matching precondition is:
 
 ```assura
-requires { !(a == -9223372036854775808 && b == -1) }
+requires { !(a == -2147483648 && b == -1) }
 ```
+
+`Int` and `Nat` are mathematical integers (unbounded SMT `Int`). They
+have no `MIN` / `MAX`, and Z3 will not produce a wraparound witness
+for them. Use `U8`–`I64` when overflow should be part of the proof.
+See [What we prove](WHAT-WE-PROVE.md).
 
 **Tips for reading counterexamples:**
 
-- Z3 picks adversarial edge cases: `0`, `-1`, `MAX_INT`, `MIN_INT`,
-  empty collections.
-- If the counterexample involves very large numbers, your contract may
-  be missing overflow guards.
+- Z3 picks adversarial edge cases: `0`, `-1`, empty collections, and
+  (for fixed-width types) `MIN` / `MAX`.
+- If the counterexample involves very large numbers on a fixed-width
+  type, the contract may be missing overflow guards.
 - If the values look random, the contract clause may be too weak to
   constrain the search space.
 

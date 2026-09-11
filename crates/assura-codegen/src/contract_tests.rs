@@ -213,21 +213,21 @@ fn param_range_both_bounds_merged() {
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::GteVal(0));
     range.apply(&ParamBound::LteVal(1000));
-    assert_eq!(range.to_strategy(), "(0i64..=1000i64)");
+    assert_eq!(range.to_strategy_for("i64"), "(0i64..=1000i64)");
 }
 
 #[test]
 fn param_range_lower_only() {
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::GteVal(5));
-    assert_eq!(range.to_strategy(), "(5i64..=i64::MAX)");
+    assert_eq!(range.to_strategy_for("i64"), "(5i64..=i64::MAX)");
 }
 
 #[test]
 fn param_range_upper_only() {
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::LteVal(100));
-    assert_eq!(range.to_strategy(), "(i64::MIN..=100i64)");
+    assert_eq!(range.to_strategy_for("i64"), "(i64::MIN..=100i64)");
 }
 
 #[test]
@@ -238,7 +238,7 @@ fn param_range_tightest_bounds_win() {
     range.apply(&ParamBound::GteVal(10));
     range.apply(&ParamBound::LteVal(1000));
     range.apply(&ParamBound::LteVal(500));
-    assert_eq!(range.to_strategy(), "(10i64..=500i64)");
+    assert_eq!(range.to_strategy_for("i64"), "(10i64..=500i64)");
 }
 
 #[test]
@@ -246,7 +246,7 @@ fn param_range_gt_exclusive_becomes_inclusive() {
     // x > 0 -> lower bound is 1
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::GtVal(0));
-    assert_eq!(range.to_strategy(), "(1i64..=i64::MAX)");
+    assert_eq!(range.to_strategy_for("i64"), "(1i64..=i64::MAX)");
 }
 
 #[test]
@@ -254,7 +254,7 @@ fn param_range_lt_exclusive_becomes_inclusive() {
     // x < 100 -> upper bound is 99
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::LtVal(100));
-    assert_eq!(range.to_strategy(), "(i64::MIN..=99i64)");
+    assert_eq!(range.to_strategy_for("i64"), "(i64::MIN..=99i64)");
 }
 
 #[test]
@@ -262,7 +262,7 @@ fn param_range_neq_zero_uses_filter() {
     // #710: x != 0 preserves negative domain via prop_filter
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::NeqZero);
-    let s = range.to_strategy();
+    let s = range.to_strategy_for("i64");
     assert!(s.contains("prop_filter"), "expected prop_filter, got: {s}");
     assert!(s.contains("!= 0"), "expected != 0 in filter, got: {s}");
 }
@@ -273,7 +273,7 @@ fn param_range_neq_zero_with_upper() {
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::NeqZero);
     range.apply(&ParamBound::LteVal(50));
-    let s = range.to_strategy();
+    let s = range.to_strategy_for("i64");
     assert!(s.contains("50i64"), "expected upper bound 50, got: {s}");
     assert!(s.contains("prop_filter"), "expected prop_filter, got: {s}");
 }
@@ -284,7 +284,7 @@ fn param_range_neq_zero_with_negative_lower() {
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::GteVal(-100));
     range.apply(&ParamBound::NeqZero);
-    let s = range.to_strategy();
+    let s = range.to_strategy_for("i64");
     assert!(s.contains("-100i64"), "expected lower bound -100, got: {s}");
     assert!(s.contains("prop_filter"), "expected prop_filter, got: {s}");
 }
@@ -295,7 +295,10 @@ fn param_range_contradictory_bounds_fallback() {
     let mut range = super::ParamRange::default();
     range.apply(&ParamBound::GteVal(10));
     range.apply(&ParamBound::LteVal(5));
-    assert_eq!(range.to_strategy(), "proptest::prelude::any::<i64>()");
+    assert_eq!(
+        range.to_strategy_for("i64"),
+        "proptest::prelude::any::<i64>()"
+    );
 }
 
 #[test]
@@ -305,7 +308,7 @@ fn param_range_contradictory_bounds_with_neq_zero() {
     range.apply(&ParamBound::GteVal(10));
     range.apply(&ParamBound::LteVal(5));
     range.apply(&ParamBound::NeqZero);
-    let s = range.to_strategy();
+    let s = range.to_strategy_for("i64");
     assert!(s.contains("any::<i64>()"), "expected fallback, got: {s}");
     assert!(s.contains("prop_filter"), "expected filter, got: {s}");
 }
@@ -837,4 +840,140 @@ fn proptest_ensures_uses_result_not_internal_var() {
         code.contains("result"),
         "proptest should reference `result`: {code}"
     );
+}
+
+#[test]
+fn bounded_nat_strategy_uses_u64_not_i64() {
+    let c = mk_contract(
+        "BoundedNat",
+        vec![
+            mk_clause(
+                ClauseKind::Input,
+                Spanned::no_span(Expr::Cast {
+                    expr: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
+                    ty: "Nat".into(),
+                }),
+            ),
+            mk_clause(
+                ClauseKind::Requires,
+                Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
+                    op: BinOp::Gte,
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+                }),
+            ),
+            mk_clause(
+                ClauseKind::Ensures,
+                Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("n".into()))),
+                    op: BinOp::Gte,
+                    rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("1".into())))),
+                }),
+            ),
+        ],
+    );
+    let mut code = String::new();
+    generate_proptest_for_contract_contents(&c, &mut code);
+    assert!(
+        code.contains("n in (1u64..=u64::MAX)"),
+        "Nat requires bound must emit a u64 strategy, got: {code}"
+    );
+    assert!(
+        !code.contains("1i64"),
+        "Nat strategy must not use i64 literals: {code}"
+    );
+}
+
+#[test]
+fn proptest_mixed_int_nat_comparison_widens_to_i128() {
+    // PathDepthValidation-style: Int compared with Nat. Without i128
+    // widening the generated proptest fails rustc (E0308).
+    let c = mk_contract(
+        "PathDepth",
+        vec![
+            mk_clause(
+                ClauseKind::Input,
+                Spanned::no_span(Expr::Cast {
+                    expr: Box::new(Spanned::no_span(Expr::Ident("path_depth".into()))),
+                    ty: "Int".into(),
+                }),
+            ),
+            mk_clause(
+                ClauseKind::Input,
+                Spanned::no_span(Expr::Cast {
+                    expr: Box::new(Spanned::no_span(Expr::Ident("max_depth".into()))),
+                    ty: "Nat".into(),
+                }),
+            ),
+            mk_clause(
+                ClauseKind::Requires,
+                Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("path_depth".into()))),
+                    op: BinOp::Lte,
+                    rhs: Box::new(Spanned::no_span(Expr::Ident("max_depth".into()))),
+                }),
+            ),
+            mk_clause(
+                ClauseKind::Ensures,
+                Spanned::no_span(Expr::BinOp {
+                    lhs: Box::new(Spanned::no_span(Expr::Ident("max_depth".into()))),
+                    op: BinOp::Gte,
+                    rhs: Box::new(Spanned::no_span(Expr::Ident("path_depth".into()))),
+                }),
+            ),
+        ],
+    );
+    let mut code = String::new();
+    generate_proptest_for_contract_contents(&c, &mut code);
+    assert!(
+        code.contains("i128::from(path_depth)") && code.contains("i128::from(max_depth)"),
+        "mixed Int/Nat comparison must widen to i128, got: {code}"
+    );
+    assert!(
+        !code.contains("path_depth <= max_depth"),
+        "raw mixed-type compare must not remain, got: {code}"
+    );
+}
+
+#[test]
+fn proptest_old_inlines_inner_without_snapshot_var() {
+    let c = mk_contract(
+        "FrameOld",
+        vec![
+            mk_clause(
+                ClauseKind::Input,
+                Spanned::no_span(Expr::Cast {
+                    expr: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
+                    ty: "Int".into(),
+                }),
+            ),
+            mk_clause(
+                ClauseKind::Ensures,
+                Spanned::no_span(Expr::Old(Box::new(Spanned::no_span(Expr::Ident(
+                    "b".into(),
+                ))))),
+            ),
+        ],
+    );
+    let mut code = String::new();
+    generate_proptest_for_contract_contents(&c, &mut code);
+    assert!(
+        !code.contains(OLD_VAR_PREFIX),
+        "proptest must not emit unbound old() snapshots, got: {code}"
+    );
+}
+
+#[test]
+fn param_range_nat_clamps_negative_lower() {
+    let mut range = super::ParamRange::default();
+    range.apply(&ParamBound::GteVal(-5));
+    assert_eq!(range.to_strategy_for("u64"), "(0u64..=u64::MAX)");
+}
+
+#[test]
+fn param_range_u8_clamps_upper() {
+    let mut range = super::ParamRange::default();
+    range.apply(&ParamBound::GteVal(1));
+    range.apply(&ParamBound::LteVal(300));
+    assert_eq!(range.to_strategy_for("u8"), "(1u8..=255u8)");
 }

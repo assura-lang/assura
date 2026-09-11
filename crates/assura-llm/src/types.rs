@@ -175,14 +175,18 @@ impl LlmConfig {
     /// signature stays crates.io 0.4.3 compatible (`-> Self`). Callers
     /// that must reject typos validate the name before calling.
     pub fn from_provider(provider: &str, model_override: Option<&str>) -> Self {
-        let model = model_override
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| match provider {
-                "openai" => "gpt-4o".to_string(),
-                "ollama" => "llama3".to_string(),
-                _ => "claude-sonnet-4-20250514".to_string(),
-            });
-        let api_key_env = match provider {
+        // Callers validate the name (case-insensitive). Normalize here so
+        // dispatch and env-var selection cannot diverge on capitalization.
+        let provider = provider.to_ascii_lowercase();
+        let model =
+            model_override
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| match provider.as_str() {
+                    "openai" => "gpt-4o".to_string(),
+                    "ollama" => "llama3".to_string(),
+                    _ => "claude-sonnet-4-20250514".to_string(),
+                });
+        let api_key_env = match provider.as_str() {
             "openai" => "OPENAI_API_KEY".to_string(),
             "ollama" => "OLLAMA_API_KEY".to_string(),
             _ => "ANTHROPIC_API_KEY".to_string(),
@@ -193,7 +197,7 @@ impl LlmConfig {
             None
         };
         Self {
-            provider: provider.to_string(),
+            provider,
             model,
             api_key_env,
             base_url,
@@ -405,6 +409,27 @@ mod tests {
         assert_eq!(cfg.provider, "openaii");
         assert_eq!(cfg.api_key_env, "ANTHROPIC_API_KEY");
         assert!(cfg.model.contains("claude"));
+    }
+
+    #[test]
+    fn from_provider_normalizes_capitalized_names() {
+        let anthropic = LlmConfig::from_provider("Anthropic", None);
+        assert_eq!(anthropic.provider, "anthropic");
+        assert_eq!(anthropic.api_key_env, "ANTHROPIC_API_KEY");
+        assert!(anthropic.base_url.is_none());
+
+        let openai = LlmConfig::from_provider("OpenAI", Some("gpt-4-turbo"));
+        assert_eq!(openai.provider, "openai");
+        assert_eq!(openai.api_key_env, "OPENAI_API_KEY");
+        assert_eq!(openai.model, "gpt-4-turbo");
+
+        let ollama = LlmConfig::from_provider("Ollama", None);
+        assert_eq!(ollama.provider, "ollama");
+        assert_eq!(ollama.api_key_env, "OLLAMA_API_KEY");
+        assert_eq!(
+            ollama.base_url.as_deref(),
+            Some("http://localhost:11434/v1")
+        );
     }
 
     #[test]

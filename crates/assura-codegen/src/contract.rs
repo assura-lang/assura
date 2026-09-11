@@ -523,6 +523,26 @@ pub(crate) fn proptest_strategy_for_type(rust_type: &str) -> String {
     }
 }
 
+/// Suffix plus inclusive domain for a generated Rust numeric type.
+///
+/// Used by [`ParamRange::to_strategy_for`] so bounded `requires` emit
+/// `u64`/`u8`/… literals instead of always `i64`.
+fn numeric_strategy_spec(rust_ty: &str) -> Option<(&'static str, i128, i128)> {
+    Some(match rust_ty {
+        "u8" => ("u8", 0, u8::MAX as i128),
+        "u16" => ("u16", 0, u16::MAX as i128),
+        "u32" => ("u32", 0, u32::MAX as i128),
+        "u64" => ("u64", 0, u64::MAX as i128),
+        "usize" => ("usize", 0, u64::MAX as i128),
+        "i8" => ("i8", i8::MIN as i128, i8::MAX as i128),
+        "i16" => ("i16", i16::MIN as i128, i16::MAX as i128),
+        "i32" => ("i32", i32::MIN as i128, i32::MAX as i128),
+        "i64" => ("i64", i64::MIN as i128, i64::MAX as i128),
+        "isize" => ("isize", i64::MIN as i128, i64::MAX as i128),
+        _ => return None,
+    })
+}
+
 /// A single bound extracted from a requires constraint.
 #[derive(Debug, Clone)]
 pub(crate) enum ParamBound {
@@ -613,16 +633,22 @@ impl ParamRange {
         }
     }
 
-    fn to_strategy(&self) -> String {
-        // #709: contradictory bounds (lo > hi) fall back to any()
-        let base = match (self.lower, self.upper) {
-            (Some(lo), Some(hi)) if lo > hi => "proptest::prelude::any::<i64>()".to_string(),
-            (Some(lo), Some(hi)) => format!("({lo}i64..={hi}i64)"),
-            (Some(lo), None) => format!("({lo}i64..=i64::MAX)"),
-            (None, Some(hi)) => format!("(i64::MIN..={hi}i64)"),
-            (None, None) => "proptest::prelude::any::<i64>()".to_string(),
+    /// Emit a proptest strategy whose literal type matches `rust_ty`.
+    ///
+    /// Bounds are clamped into the target type's domain so a `Nat` (`u64`)
+    /// parameter never gets `i64` literals or a negative lower bound.
+    fn to_strategy_for(&self, rust_ty: &str) -> String {
+        let spec = numeric_strategy_spec(rust_ty);
+        let (suffix, min_v, max_v) = spec.unwrap_or(("i64", i64::MIN as i128, i64::MAX as i128));
+        let lo = self.lower.map(|v| (v as i128).clamp(min_v, max_v));
+        let hi = self.upper.map(|v| (v as i128).clamp(min_v, max_v));
+        let base = match (lo, hi) {
+            (Some(lo), Some(hi)) if lo > hi => format!("proptest::prelude::any::<{suffix}>()"),
+            (Some(lo), Some(hi)) => format!("({lo}{suffix}..={hi}{suffix})"),
+            (Some(lo), None) => format!("({lo}{suffix}..={suffix}::MAX)"),
+            (None, Some(hi)) => format!("({suffix}::MIN..={hi}{suffix})"),
+            (None, None) => format!("proptest::prelude::any::<{suffix}>()"),
         };
-        // #710: neq_zero uses a filter to preserve both positive and negative domain
         if self.neq_zero {
             format!("{base}.prop_filter(\"!= 0\", |&v| v != 0)")
         } else {
@@ -678,27 +704,44 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
     }
 
     let mut input_params: Vec<(String, String)> = Vec::new();
-    let mut requires_exprs: Vec<String> = Vec::new();
     let mut requires_ast: Vec<&SpExpr> = Vec::new();
-    let mut ensures_exprs: Vec<String> = Vec::new();
+    let mut ensures_ast: Vec<&SpExpr> = Vec::new();
     let mut output_name: Option<String> = None;
+    let mut output_type = "()".to_string();
 
     for clause in &c.clauses {
         match &clause.kind {
             ClauseKind::Input => extract_input_params(&clause.body, &mut input_params),
             ClauseKind::Requires => {
-                requires_exprs.push(expr_to_rust_static(&clause.body));
                 requires_ast.push(&clause.body);
             }
             ClauseKind::Ensures => {
-                ensures_exprs.push(expr_to_rust_static(&clause.body));
+                ensures_ast.push(&clause.body);
             }
             ClauseKind::Output => {
                 output_name = extract_output_name(&clause.body);
+                output_type = extract_output_type(&clause.body);
             }
             _ => {}
         }
     }
+
+    // Same i128 widening as `check()` so mixed Int/Nat comparisons compile.
+    // Keep the identifier `result` (proptest binds `let result = check(...)`).
+    let extra: Vec<&str> = output_name.iter().map(String::as_str).collect();
+    let float_vars = float_idents(
+        input_params.iter().map(|(n, t)| (n.as_str(), t.as_str())),
+        Some(output_type.as_str()),
+        &extra,
+    );
+    let requires_exprs: Vec<String> = requires_ast
+        .iter()
+        .map(|body| expr_to_rust_keep_result(body, float_vars.clone()))
+        .collect();
+    let ensures_exprs: Vec<String> = ensures_ast
+        .iter()
+        .map(|body| expr_to_rust_keep_result(body, float_vars.clone()))
+        .collect();
 
     if input_params.is_empty() || ensures_exprs.is_empty() {
         return;
@@ -715,10 +758,17 @@ fn generate_proptest_impl(c: &ContractDecl, code: &mut String, check_call_path: 
             unrefined_requires.push(requires_exprs[i].clone());
         }
     }
+    let rust_ty_for = |name: &str| -> &str {
+        input_params
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, t)| t.as_str())
+            .unwrap_or("i64")
+    };
     let refined: std::collections::HashMap<String, String> = param_ranges
         .iter()
         .filter(|(_, range)| range.has_bounds())
-        .map(|(param, range)| (param.clone(), range.to_strategy()))
+        .map(|(param, range)| (param.clone(), range.to_strategy_for(rust_ty_for(param))))
         .collect();
 
     let fn_name = c.name.to_lowercase();
@@ -809,6 +859,26 @@ pub(crate) fn source_has_error_types(source: &assura_ast::SourceFile) -> bool {
         }
     }
     let mut v = HasErrors(false);
+    assura_ast::walk_decls(&mut v, &source.decls);
+    v.0
+}
+
+/// Cargo.toml needs proptest when we emit `proptest!` tests or
+/// `#[cfg(test)]` Arbitrary impls for user structs.
+pub(crate) fn source_needs_proptest(source: &assura_ast::SourceFile) -> bool {
+    if source_has_testable_contracts(source) {
+        return true;
+    }
+    use assura_ast::{DeclVisitor, TypeDef};
+    struct HasArbitrary(bool);
+    impl DeclVisitor for HasArbitrary {
+        fn visit_type_def(&mut self, t: &TypeDef) {
+            if crate::hir::type_def_emits_arbitrary(t) {
+                self.0 = true;
+            }
+        }
+    }
+    let mut v = HasArbitrary(false);
     assura_ast::walk_decls(&mut v, &source.decls);
     v.0
 }

@@ -1,3 +1,4 @@
+// FEATURE: mbedTLS arithmetic audit (must-pass on current main).
 // mbedTLS Arithmetic Audit Contracts
 // Targets: DTLS reassembly, CBC decryption, record parsing
 // Source: library/ssl_msg.c (Mbed-TLS/mbedtls, latest main)

@@ -580,7 +580,7 @@ pub fn codegen_with_config(typed: &TypedFile, config: &BackendConfig) -> Generat
         })
         .collect();
 
-    let has_proptest = source_has_testable_contracts(source);
+    let has_proptest = source_needs_proptest(source);
     let has_errors = source_has_error_types(source);
     let cargo_toml = generate_cargo_toml_impl(&crate_name, config, has_proptest, has_errors);
 

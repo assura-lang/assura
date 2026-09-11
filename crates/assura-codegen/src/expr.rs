@@ -182,6 +182,7 @@ pub(crate) fn resolve_ordering_variant(body: &SpExpr) -> Option<&'static str> {
 pub(crate) fn expr_to_rust(expr: &SpExpr) -> String {
     RustCodegenFolder {
         static_context: false,
+        rename_result: true,
         float_vars: HashSet::new(),
     }
     .fold_expr(expr)
@@ -193,6 +194,20 @@ pub(crate) fn expr_to_rust(expr: &SpExpr) -> String {
 pub(crate) fn expr_to_rust_with_floats(expr: &SpExpr, float_vars: HashSet<String>) -> String {
     RustCodegenFolder {
         static_context: false,
+        rename_result: true,
+        float_vars,
+    }
+    .fold_expr(expr)
+}
+
+/// Runtime widening (i128 casts, Implies/In/Concat) without renaming `result`.
+///
+/// Proptest binds `let result = check(...)`, so the identifier must stay
+/// `result`. [`expr_to_rust`] would emit [`RESULT_VAR`] and fail to compile.
+pub(crate) fn expr_to_rust_keep_result(expr: &SpExpr, float_vars: HashSet<String>) -> String {
+    RustCodegenFolder {
+        static_context: false,
+        rename_result: false,
         float_vars,
     }
     .fold_expr(expr)
@@ -210,6 +225,7 @@ pub(crate) fn expr_to_rust_with_floats(expr: &SpExpr, float_vars: HashSet<String
 pub fn expr_to_rust_static(expr: &SpExpr) -> String {
     RustCodegenFolder {
         static_context: true,
+        rename_result: false,
         float_vars: HashSet::new(),
     }
     .fold_expr(expr)
@@ -218,11 +234,14 @@ pub fn expr_to_rust_static(expr: &SpExpr) -> String {
 /// Unified Assura-to-Rust expression folder.
 ///
 /// When `static_context` is false (runtime), produces full Rust code with
-/// `result` renaming, `i128` casts, quantifier-to-iterator translation, etc.
-/// When `static_context` is true, produces simplified Rust suitable for
-/// const/static contexts.
+/// `i128` casts and quantifier-to-iterator translation. `result` renaming
+/// is controlled by `rename_result` (off for proptest bodies). When
+/// `static_context` is true, produces simplified Rust for const/static.
 struct RustCodegenFolder {
     static_context: bool,
+    /// When true, `result` is rewritten to [`RESULT_VAR`]. False for
+    /// const/static emission and for proptest bodies that bind `result`.
+    rename_result: bool,
     /// Names of variables known to be `Float` (`f64` in Rust). When a
     /// comparison or arithmetic involves a float variable or literal,
     /// `i128::from()` wrapping is skipped (f64 does not implement `Into<i128>`).
@@ -257,7 +276,7 @@ impl ExprFolder for RustCodegenFolder {
     }
 
     fn fold_ident(&mut self, name: &str) -> String {
-        if !self.static_context && name == "result" {
+        if self.rename_result && name == "result" {
             RESULT_VAR.to_string()
         } else {
             name.to_string()
@@ -389,8 +408,8 @@ impl ExprFolder for RustCodegenFolder {
     }
 
     fn fold_old(&mut self, inner: &SpExpr) -> String {
-        if self.static_context {
-            // old() is verification-only; emit inner for static
+        if self.static_context || !self.rename_result {
+            // No snapshot lets in const/static or proptest bodies.
             self.fold_expr(inner)
         } else {
             format!("{OLD_VAR_PREFIX}{}", old_var_name(inner))
@@ -620,8 +639,10 @@ impl ExprFolder for RustCodegenFolder {
                 return clean[1..].join(" ");
             }
             clean.join(" ")
-        } else {
+        } else if self.rename_result {
             raw_tokens_to_rust(tokens)
+        } else {
+            raw_tokens_to_rust_impl(tokens, false)
         }
     }
 }
@@ -633,6 +654,10 @@ impl ExprFolder for RustCodegenFolder {
 /// `.iter().any(|var| body)` respectively. Falls back to joined tokens
 /// for non-quantifier sequences.
 pub(crate) fn raw_tokens_to_rust(tokens: &[String]) -> String {
+    raw_tokens_to_rust_impl(tokens, true)
+}
+
+fn raw_tokens_to_rust_impl(tokens: &[String], rename_result: bool) -> String {
     if tokens.is_empty() {
         return String::new();
     }
@@ -654,7 +679,7 @@ pub(crate) fn raw_tokens_to_rust(tokens: &[String]) -> String {
                 let mapped: Vec<&str> = domain_tokens.iter().map(|t| map_type_token(t)).collect();
                 smart_join_type_tokens(&mapped)
             };
-            let body = raw_tokens_to_rust(body_tokens);
+            let body = raw_tokens_to_rust_impl(body_tokens, rename_result);
 
             let method = if first == "forall" { "all" } else { "any" };
             return format!("{domain}.iter().copied().{method}(|{var}| {body})");
@@ -665,16 +690,16 @@ pub(crate) fn raw_tokens_to_rust(tokens: &[String]) -> String {
     if let Some(at_pos) = tokens.iter().position(|t| t == "@") {
         let before = &tokens[..at_pos];
         let after = &tokens[at_pos + 1..];
-        let expr_s = raw_tokens_to_rust(before);
+        let expr_s = raw_tokens_to_rust_impl(before, rename_result);
         let state_s = after.join(" ");
         return format!("true /* typestate: {expr_s} @ {state_s} */");
     }
 
-    // Check for `result` keyword — replace with result var
+    // Check for `result` keyword — replace with result var unless keep-result
     let mapped: Vec<String> = tokens
         .iter()
         .map(|t| {
-            if t == "result" {
+            if rename_result && t == "result" {
                 RESULT_VAR.to_string()
             } else {
                 map_type_token(t).to_string()

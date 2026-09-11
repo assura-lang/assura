@@ -858,6 +858,8 @@ fn verified_passes_both_success_checks() {
 
 #[test]
 fn empty_results_passes_both() {
+    // Empty slice is success by design (no CE / timeout). Vacuous is a
+    // separate signal on PipelineResult, not a failure of this predicate.
     assert!(verification_succeeded(&[]));
     assert!(verification_strict_succeeded(&[]));
 }
