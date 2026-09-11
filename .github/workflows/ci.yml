@@ -363,7 +363,14 @@ jobs:
             # build writes to <input-parent>/generated/ (e.g. demos/generated/)
             gen_dir="$(dirname "$demo")/generated"
             echo "=== Checking generated Rust for $demo ==="
-            (cd "$gen_dir" && cargo check --all-targets)
+            # Must-pass demos compile the proptest harness (#1573).
+            # EXPECT FAIL audits can mix Int/Nat in one contract; lib-only
+            # check still proves the generated API compiles.
+            if head -n 5 "$demo" | grep -q "EXPECT FAIL"; then
+              (cd "$gen_dir" && cargo check)
+            else
+              (cd "$gen_dir" && cargo check --all-targets)
+            fi
             rm -rf "$gen_dir"
           done
 

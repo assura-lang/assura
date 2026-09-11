@@ -45,8 +45,9 @@ crate: [examples/interop-rust](../examples/interop-rust).
 Do **not** start with `demos/*-audit.assura` or `defi-audit.assura` unless you
 are studying expected failures. CI still checks those files: `EXPECT FAIL`
 headers must produce a non-zero `assura check`, and every other demo must
-pass. Generated Rust is checked with `cargo check --all-targets` for all
-31 files.
+pass. Generated Rust is `cargo check --all-targets` for must-pass demos
+(so the proptest harness compiles) and lib-only `cargo check` for
+`EXPECT FAIL` files that mix `Int`/`Nat` in one contract.
 
 ## SHOWCASE (must-pass)
 
