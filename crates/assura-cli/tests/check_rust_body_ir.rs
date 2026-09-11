@@ -1946,7 +1946,7 @@ fn check_rust_encodes_checked_div_unwrap() {
     std::fs::write(
         tmp.join("ok.rs"),
         r#"
-/// @ensures result * 2 <= x + 1
+/// @ensures result == x / 2
 fn f(x: i64) -> i64 {
     x.checked_div(2).unwrap_or(0)
 }
@@ -1999,6 +1999,7 @@ fn check_rust_encodes_let_mut_no_reassign() {
     std::fs::write(
         tmp.join("ok.rs"),
         r#"
+/// @requires x + 1 > x
 /// @ensures result >= x
 fn f(x: i64) -> i64 {
     let mut y = x;
@@ -2074,6 +2075,7 @@ fn check_rust_encodes_let_mut_if_join() {
     std::fs::write(
         tmp.join("then.rs"),
         r#"
+/// @requires x + 1 > x
 /// @ensures result >= x
 fn f(x: i64) -> i64 {
     let mut y = x;
@@ -2139,6 +2141,7 @@ fn check_rust_encodes_let_mut_match_join() {
     std::fs::write(
         tmp.join("m.rs"),
         r#"
+/// @requires x + 2 > x
 /// @ensures result >= x + 1
 fn f(x: i64) -> i64 {
     let mut y = x;
@@ -5999,7 +6002,7 @@ fn m(x: i64) -> i64 { x.wrapping_mul(2) }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
-/// Wrong i64 wrapping_add ensures must CE (proves wrap of MAX is live).
+/// Wrong i64 wrapping_add ensures must CE (`x + 1` now wraps, so `+ 2` is the miss).
 #[test]
 fn check_rust_i64_wrapping_add_wrong_ce() {
     let tmp = unique_temp("assura_check_rust_i64_wrap_ce");
@@ -6008,7 +6011,7 @@ fn check_rust_i64_wrapping_add_wrong_ce() {
     std::fs::write(
         tmp.join("bad.rs"),
         r#"
-/// @ensures result == x + 1
+/// @ensures result == x + 2
 fn w(x: i64) -> i64 { x.wrapping_add(1) }
 "#,
     )
@@ -6018,7 +6021,7 @@ fn w(x: i64) -> i64 { x.wrapping_add(1) }
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(!out.status.success(), "must CE on wrap of MAX: {stdout}");
+    assert!(!out.status.success(), "must CE: {stdout}");
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
     assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
@@ -6483,7 +6486,7 @@ fn m(x: i32) -> i32 { x.wrapping_mul(2) }
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
 }
 
-/// Wrong i64 wrapping_mul ensures must CE (synthetic 2^64 modulus live).
+/// Wrong i64 wrapping_mul ensures must CE (`x * 2` now wraps, so `* 3` is the miss).
 #[test]
 fn check_rust_i64_wrapping_mul_wrong_ce() {
     let tmp = unique_temp("assura_check_rust_i64_mul_ce");
@@ -6492,7 +6495,7 @@ fn check_rust_i64_wrapping_mul_wrong_ce() {
     std::fs::write(
         tmp.join("bad.rs"),
         r#"
-/// @ensures result == x * 2
+/// @ensures result == x * 3
 fn m(x: i64) -> i64 { x.wrapping_mul(2) }
 "#,
     )
@@ -6502,10 +6505,7 @@ fn m(x: i64) -> i64 { x.wrapping_mul(2) }
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        !out.status.success(),
-        "must CE on i64 overflow mul: {stdout}"
-    );
+    assert!(!out.status.success(), "must CE: {stdout}");
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
     assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
     assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
@@ -10349,6 +10349,7 @@ fn check_rust_encodes_signed_next_multiple_of() {
     std::fs::write(
         tmp.join("ok.rs"),
         r#"
+/// @requires x + 4 > x
 /// @ensures result >= x
 fn n(x: i64) -> i64 { x.next_multiple_of(4) }
 "#,

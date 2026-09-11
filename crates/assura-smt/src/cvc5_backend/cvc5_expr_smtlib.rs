@@ -67,6 +67,18 @@ struct SmtlibWrapCtx {
     vars: HashSet<String>,
 }
 
+/// Wrap an IR `$result` term using the installed shell wrap context.
+#[cfg(not(feature = "cvc5-verify"))]
+pub(crate) fn wrap_smtlib_ir_result(term: &str) -> String {
+    SMTLIB_WRAP.with(|cell| {
+        let borrowed = cell.borrow();
+        match borrowed.as_ref() {
+            Some(ctx) => crate::encode_binop_policy::wrap_smtlib_machine_int(term, ctx.wrap),
+            None => term.to_string(),
+        }
+    })
+}
+
 /// Install wrap context for the duration of `f` (nested calls restore).
 pub fn with_smtlib_machine_wrap<R>(
     wrap: Option<(u32, bool)>,
