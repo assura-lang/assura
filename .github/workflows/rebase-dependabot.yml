@@ -12,7 +12,10 @@ name: Rebase Dependabot
 # action_required with zero jobs (#1516 / #1522). The following step uses
 # the App token (minted with permission-actions: write) to approve
 # those stubs and re-approve the PR. Omitting permission-actions
-# 403s even when the App install has actions: write.
+# 403s even when the App install has actions: write. After a
+# GITHUB_TOKEN force-push, poll until GitHub creates the stubs
+# (or live CI). Treating "no stubs yet" as success races the
+# create and leaves required ci unreported.
 
 on:
   push:
@@ -72,6 +75,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          : > "${RUNNER_TEMP}/rebased-prs.txt"
 
           nums=$(gh pr list --repo "${REPO}" --author "app/dependabot" --state open \
             --json number,mergeStateStatus \
@@ -113,6 +117,7 @@ jobs:
                 continue
               fi
             fi
+            echo "${n}" >> "${RUNNER_TEMP}/rebased-prs.txt"
           done
 
       - name: Require App token to unstick CI
@@ -136,6 +141,43 @@ jobs:
           # pusher, so it can also satisfy require_last_push_approval.
           # Only touch PRs that already have auto-merge armed (skip majors).
           echo "PLAN: unstick Dependabot PRs with action_required stubs"
+          # GITHUB_TOKEN force-push can finish before GitHub creates the
+          # new action_required stubs. Do not treat "no stubs yet" as
+          # success on a branch we just rebased.
+          if [ -s "${RUNNER_TEMP}/rebased-prs.txt" ]; then
+            echo "WAIT: poll for post-rebase stubs or live CI"
+            ready=0
+            for _wait in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              pending=0
+              while read -r n; do
+                [ -z "${n}" ] && continue
+                branch=$(gh pr view "${n}" --repo "${REPO}" --json headRefName \
+                  --jq .headRefName)
+                sha=$(gh pr view "${n}" --repo "${REPO}" --json headRefOid \
+                  --jq .headRefOid)
+                stubs=$(gh run list --repo "${REPO}" --branch "${branch}" \
+                  --limit 15 --json conclusion,headSha \
+                  --jq "[.[] | select(.conclusion == \"action_required\" and .headSha == \"${sha}\")] | length")
+                live=$(gh run list --repo "${REPO}" --branch "${branch}" \
+                  --limit 15 --json status,conclusion,name,headSha \
+                  --jq "[.[] | select(.headSha == \"${sha}\" and .name == \"CI\" and (.status == \"in_progress\" or .status == \"queued\" or .conclusion == \"success\"))] | length")
+                if [ "${stubs}" = "0" ] && [ "${live}" = "0" ]; then
+                  echo "WAIT: #${n} ${sha:0:7} has no stubs and no live CI"
+                  pending=1
+                else
+                  echo "OK: #${n} stubs=${stubs} live_ci=${live}"
+                fi
+              done < "${RUNNER_TEMP}/rebased-prs.txt"
+              if [ "${pending}" -eq 0 ]; then
+                ready=1
+                break
+              fi
+              sleep 2
+            done
+            if [ "${ready}" -eq 0 ]; then
+              echo "WAIT: stubs still missing after poll; unstick will try anyway"
+            fi
+          fi
           approve_fail=0
           for _try in 1 2 3 4 5; do
             found=0
@@ -169,6 +211,11 @@ jobs:
                 || echo "auto-merge already armed or blocked on #${n}"
             done
             if [ "${found}" -eq 0 ]; then
+              if [ -s "${RUNNER_TEMP}/rebased-prs.txt" ] && [ "${_try}" -lt 5 ]; then
+                echo "WAIT: no stubs yet after rebase; retry"
+                sleep 4
+                continue
+              fi
               echo "OK: no action_required Dependabot stubs"
               break
             fi
@@ -195,19 +242,31 @@ jobs:
             sleep 8
           fi
           leftover=$(gh pr list --repo "${REPO}" --author "app/dependabot" \
-            --state open --json number,autoMergeRequest,headRefName \
-            --jq '.[] | select(.autoMergeRequest != null) | .headRefName')
+            --state open --json number,autoMergeRequest \
+            --jq '.[] | select(.autoMergeRequest != null) | .number')
           still=0
-          for branch in ${leftover}; do
-            [ -z "${branch}" ] && continue
+          for n in ${leftover}; do
+            [ -z "${n}" ] && continue
+            branch=$(gh pr view "${n}" --repo "${REPO}" --json headRefName \
+              --jq .headRefName)
+            sha=$(gh pr view "${n}" --repo "${REPO}" --json headRefOid \
+              --jq .headRefOid)
             ids=$(gh run list --repo "${REPO}" --branch "${branch}" --limit 8 \
-              --json conclusion \
-              --jq '[.[] | select(.conclusion == "action_required")] | length')
+              --json conclusion,headSha \
+              --jq "[.[] | select(.conclusion == \"action_required\" and .headSha == \"${sha}\")] | length")
             live=$(gh run list --repo "${REPO}" --branch "${branch}" --limit 8 \
-              --json status,conclusion,name \
-              --jq '[.[] | select(.name == "CI" and (.status == "in_progress" or .status == "queued" or .conclusion == "success"))] | length')
-            if [ "${ids}" != "0" ] && [ "${live}" = "0" ]; then
+              --json status,conclusion,name,headSha \
+              --jq "[.[] | select(.headSha == \"${sha}\" and .name == \"CI\" and (.status == \"in_progress\" or .status == \"queued\" or .conclusion == \"success\"))] | length")
+            rebased=0
+            if [ -s "${RUNNER_TEMP}/rebased-prs.txt" ] \
+              && grep -qx "${n}" "${RUNNER_TEMP}/rebased-prs.txt"; then
+              rebased=1
+            fi
+            if [ "${live}" = "0" ] && [ "${ids}" != "0" ]; then
               echo "FAIL: ${branch} still has action_required CI and no live CI"
+              still=1
+            elif [ "${live}" = "0" ] && [ "${rebased}" -eq 1 ]; then
+              echo "FAIL: rebased #${n} has no stubs and no live CI on ${sha:0:7}"
               still=1
             fi
           done
