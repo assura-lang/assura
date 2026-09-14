@@ -10,7 +10,9 @@ name: Rebase Dependabot
 # dismisses the last pusher's review. If the App pushed, it could not approve
 # (#1520). That GITHUB_TOKEN push leaves CI/Security/Auto-approve at
 # action_required with zero jobs (#1516 / #1522). The following step uses
-# the App token to approve those stubs and re-approve the PR.
+# the App token (minted with permission-actions: write) to approve
+# those stubs and re-approve the PR. Omitting permission-actions
+# 403s even when the App install has actions: write.
 
 on:
   push:
@@ -33,6 +35,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: write
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -47,6 +50,9 @@ jobs:
       # App is not last pusher (rebase uses GITHUB_TOKEN). That is required
       # so this token can approve the PR under require_last_push_approval
       # and start action_required stub runs (#1516 / #1522).
+      # permission-actions is required for POST .../actions/runs/ID/approve.
+      # The install already has actions: write; omitting it here mints a
+      # token without Actions and stub-approve 403s (#1596 / #1597).
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token
         continue-on-error: true
@@ -56,6 +62,7 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
           permission-workflows: write
+          permission-actions: write
 
       - name: Rebase Dependabot PRs that are behind main
         env:
@@ -119,15 +126,17 @@ jobs:
         if: steps.app-token.outputs.token != ''
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ACTIONS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           # GITHUB_TOKEN rebase leaves pull_request runs at action_required
           # with zero jobs. User tokens 404 on run-approve; App token works
-          # (start-cleanup-pr-ci.sh). App is not last pusher, so it can also
-          # satisfy require_last_push_approval. Only touch PRs that already
-          # have auto-merge armed (skip unreviewed majors).
+          # when minted with permission-actions: write. App is not last
+          # pusher, so it can also satisfy require_last_push_approval.
+          # Only touch PRs that already have auto-merge armed (skip majors).
           echo "PLAN: unstick Dependabot PRs with action_required stubs"
+          approve_fail=0
           for _try in 1 2 3 4 5; do
             found=0
             nums=$(gh pr list --repo "${REPO}" --author "app/dependabot" \
@@ -146,9 +155,13 @@ jobs:
               echo "DO: approve stubs on #${n}"
               while read -r id; do
                 [ -z "${id}" ] && continue
-                gh api -X POST "repos/${REPO}/actions/runs/${id}/approve" \
-                  >/dev/null && echo "OK: approved run ${id}" \
-                  || echo "FAIL: approve ${id} (continuing)"
+                if gh api -X POST "repos/${REPO}/actions/runs/${id}/approve" \
+                  >/dev/null; then
+                  echo "OK: approved run ${id}"
+                else
+                  echo "FAIL: approve ${id}"
+                  approve_fail=1
+                fi
               done <<<"${ids}"
               gh pr review --approve "${n}" --repo "${REPO}" \
                 || echo "Approve #${n} failed or already approved"
@@ -161,4 +174,45 @@ jobs:
             fi
             sleep 4
           done
+          if [ "${approve_fail}" -ne 0 ]; then
+            echo "WAIT: stub-approve failed; dispatch CI on armed Dependabot heads"
+            nums=$(gh pr list --repo "${REPO}" --author "app/dependabot" \
+              --state open --json number,autoMergeRequest \
+              --jq '.[] | select(.autoMergeRequest != null) | .number')
+            for n in ${nums}; do
+              branch=$(gh pr view "${n}" --repo "${REPO}" --json headRefName \
+                --jq .headRefName)
+              ids=$(gh run list --repo "${REPO}" --branch "${branch}" --limit 15 \
+                --json databaseId,conclusion \
+                --jq '.[] | select(.conclusion == "action_required") | .databaseId')
+              [ -z "${ids}" ] && continue
+              echo "DO: workflow_dispatch ci.yml --ref ${branch}"
+              GH_TOKEN="${ACTIONS_TOKEN}" gh workflow run ci.yml \
+                --repo "${REPO}" --ref "${branch}" \
+                && echo "OK: dispatched ci.yml for #${n}" \
+                || echo "FAIL: dispatch ci.yml for #${n}"
+            done
+            sleep 8
+          fi
+          leftover=$(gh pr list --repo "${REPO}" --author "app/dependabot" \
+            --state open --json number,autoMergeRequest,headRefName \
+            --jq '.[] | select(.autoMergeRequest != null) | .headRefName')
+          still=0
+          for branch in ${leftover}; do
+            [ -z "${branch}" ] && continue
+            ids=$(gh run list --repo "${REPO}" --branch "${branch}" --limit 8 \
+              --json conclusion \
+              --jq '[.[] | select(.conclusion == "action_required")] | length')
+            live=$(gh run list --repo "${REPO}" --branch "${branch}" --limit 8 \
+              --json status,conclusion,name \
+              --jq '[.[] | select(.name == "CI" and (.status == "in_progress" or .status == "queued" or .conclusion == "success"))] | length')
+            if [ "${ids}" != "0" ] && [ "${live}" = "0" ]; then
+              echo "FAIL: ${branch} still has action_required CI and no live CI"
+              still=1
+            fi
+          done
+          if [ "${still}" -ne 0 ]; then
+            echo "FAIL: Dependabot unstick did not start required ci"
+            exit 1
+          fi
           echo "DONE: Dependabot unstick pass"
