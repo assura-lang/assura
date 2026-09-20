@@ -7,7 +7,7 @@
   "main": "bindings/node",
   "keywords": ["tree-sitter", "parser", "assura"],
   "dependencies": {
-    "nan": "^2.18.0"
+    "nan": "^2.29.0"
   },
   "devDependencies": {
     "tree-sitter-cli": "^0.27.0"
