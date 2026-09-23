@@ -534,11 +534,35 @@ pub(crate) fn is_internal_encoder_var(name: &str) -> bool {
             .any(|prefix| name.starts_with(prefix))
 }
 
+/// Prefix for the tracking literals used to name `requires` clauses in unsat cores.
+///
+/// Generated as `{REQUIRES_TRACK_LABEL_PREFIX}{index}` (e.g. `req_0`) by every
+/// verify path that tracks preconditions. These are Boolean tracking constants,
+/// not user variables: they are meaningful in unsat-core output but are pure
+/// noise in a counterexample model, where they always read `= true`.
+pub(crate) const REQUIRES_TRACK_LABEL_PREFIX: &str = "req_";
+
+/// Whether `name` is a generated `requires` tracking literal (`req_` + digits).
+///
+/// Matches the digit suffix exactly rather than the bare prefix so a genuine
+/// contract input such as `req_count` is never mistaken for a tracking literal.
+pub(crate) fn is_requires_track_label(name: &str) -> bool {
+    match name.strip_prefix(REQUIRES_TRACK_LABEL_PREFIX) {
+        Some(rest) => !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()),
+        None => false,
+    }
+}
+
 /// Whether a model variable should appear in user-facing counterexample output.
 ///
 /// Internal encoder temporaries are suppressed, except [`RESULT_VAR_NAME`] which
-/// represents contract `result` and must stay visible.
+/// represents contract `result` and must stay visible. Generated `requires`
+/// tracking literals are suppressed too (see [`is_requires_track_label`]); they
+/// stay visible in unsat-core output, which is where they carry meaning.
 pub(crate) fn is_counterexample_user_var(name: &str) -> bool {
+    if is_requires_track_label(name) {
+        return false;
+    }
     !is_internal_encoder_var(name) || name == RESULT_VAR_NAME
 }
 
@@ -637,6 +661,20 @@ mod tests {
         assert!(is_counterexample_user_var(RESULT_VAR_NAME));
         assert!(!is_counterexample_user_var("__fresh_0"));
         assert!(!is_counterexample_user_var("__field_len"));
+
+        // Generated `requires` tracking literals are noise in a model (#260 follow-up):
+        // they always read `= true` and drowned the real inputs in CVE demo output.
+        assert!(!is_counterexample_user_var("req_0"));
+        assert!(!is_counterexample_user_var("req_15"));
+        assert!(is_requires_track_label("req_0"));
+        assert!(is_requires_track_label("req_15"));
+
+        // A real contract input that merely starts with `req_` must survive.
+        assert!(!is_requires_track_label("req_count"));
+        assert!(!is_requires_track_label("req_"));
+        assert!(!is_requires_track_label("req_1a"));
+        assert!(is_counterexample_user_var("req_count"));
+        assert!(is_counterexample_user_var("request_len"));
     }
 
     #[test]

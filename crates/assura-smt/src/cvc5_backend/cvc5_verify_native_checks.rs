@@ -44,7 +44,10 @@ pub(crate) fn check_validity_cvc5(
     // Track assumptions with labels for unsat-core extraction (#266).
     for (i, a) in assumptions.iter().enumerate() {
         if let Some(term) = encode_expr_cvc5(&tm, a, &mut var_map, &mut enc_state) {
-            let label = format!("req_{i}");
+            let label = format!(
+                "{}{i}",
+                crate::encode_atom_policy::REQUIRES_TRACK_LABEL_PREFIX
+            );
             let track = tm.mk_const(bool_sort.clone(), &label);
             tracked_assumptions.push(track.clone());
             let implication = tm.mk_term(cvc5::Kind::Implies, &[track, term]);

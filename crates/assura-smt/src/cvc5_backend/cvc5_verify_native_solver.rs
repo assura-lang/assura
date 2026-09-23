@@ -437,7 +437,10 @@ pub(crate) fn assert_cvc5_requires_tracked<'a>(
     let mut tracked = Vec::with_capacity(requires.len());
     for (i, req) in requires.iter().enumerate() {
         if let Some(term) = encode_expr_cvc5(tm, req, var_map, enc_state) {
-            let label = format!("req_{i}");
+            let label = format!(
+                "{}{i}",
+                crate::encode_atom_policy::REQUIRES_TRACK_LABEL_PREFIX
+            );
             let track = tm.mk_const(bool_sort.clone(), &label);
             tracked.push(track.clone());
             let implication = tm.mk_term(cvc5::Kind::Implies, &[track, term]);
