@@ -5,13 +5,14 @@
 **Write what it should do. AI proves it does.**
 
 A contract-first language for the AI era. You write behavioral contracts.
-AI writes the implementation. An SMT solver proves it correct — or hands you
+AI writes the implementation. An SMT solver proves it correct, or hands you
 the exact input that breaks it. Ships as Rust.
 
 [![CI](https://github.com/assura-lang/assura/actions/workflows/ci.yml/badge.svg)](https://github.com/assura-lang/assura/actions/workflows/ci.yml)
+[![Security](https://github.com/assura-lang/assura/actions/workflows/security.yml/badge.svg)](https://github.com/assura-lang/assura/actions/workflows/security.yml)
 [![Crates.io](https://img.shields.io/crates/v/assura.svg)](https://crates.io/crates/assura)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/assura-lang/assura/badge)](https://scorecard.dev/viewer/?uri=github.com/assura-lang/assura)
-[![Tests](https://img.shields.io/badge/tests-5800%2B%20passing-brightgreen)](#)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13476/badge)](https://www.bestpractices.dev/projects/13476)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](LICENSE)
 
 [Docs](https://assura-lang.github.io/assura/) ·
@@ -28,7 +29,7 @@ the exact input that breaks it. Ships as Rust.
 
 Here is a real invariant from the [`zip`](https://github.com/zip-rs/zip2) crate's
 central-directory parser. The archive offset is computed as
-`cd_offset - relative_cd_offset` — an unchecked subtraction on a `u64`:
+`cd_offset - relative_cd_offset`, an unchecked subtraction on a `u64`:
 
 ```assura
 contract FindCdSubtractSafe {
@@ -54,22 +55,28 @@ $ assura check demos/zip-crate-audit.assura
       | cd_offset = 0, eocd_offset = 0, relative_cd_offset = 1
 ```
 
-No fuzzing. No sampling. The solver reasoned symbolically over **every input
-allowed by those preconditions** and returned one that underflows — a crafted
-archive whose central directory claims a relative offset larger than its
-absolute one. A fuzzer might find this. A proof cannot miss it.
+This file has no implementation body. The check asks whether those
+preconditions imply the ensures. They do not. For this linear query the
+solver returns one input inside the preconditions that underflows: a
+crafted archive whose central directory claims a relative offset larger
+than its absolute one. A fuzzer might find this. A complete decision
+procedure for this fragment does not miss it. Where the encoding is
+incomplete, the result is **Unknown**, not a green check.
 
-That is the whole idea: you get **Verified**, a **Counterexample**, or an honest
-**Unknown**. Never a green check that means "we didn't look hard enough."
+You get **Verified**, a **Counterexample**, or an honest **Unknown**.
 
 ![Assura check demo](assets/demo/assura-check.gif)
+
+*Regenerate: `vhs assets/demo/assura-check.tape` (requires [VHS](https://github.com/charmbracelet/vhs) and `assura` on `PATH`).*
 
 ## Try it without installing anything
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/assura-lang/assura?quickstart=1)
 
-The devcontainer ships Rust and Z3, so there is nothing to install. The first
-build takes a few minutes; after that:
+The devcontainer installs Rust and `libz3-dev`. The first build takes a few
+minutes. A warm start needs [Codespaces prebuilds](https://docs.github.com/en/codespaces/prebuilding-your-codespaces/about-github-codespaces-prebuilds)
+enabled in the repo settings. Without that, the build still runs when the
+container is created. After the build:
 
 ```bash
 cargo run -- check demos/zip-crate-audit.assura   # counterexamples (intentional)
@@ -83,7 +90,9 @@ cargo install assura --locked
 ```
 
 Needs a [Rust toolchain](https://rustup.rs/) (edition 2024 / rustc 1.87+). Z3
-comes prebuilt via the `z3` crate — no manual install.
+comes prebuilt via the `z3` crate. No manual Z3 install for a normal build.
+See [Getting started](docs/GETTING-STARTED.md) for Homebrew, the LSP, and
+the unpublished VS Code extension.
 
 Prefer a binary? Use the [shell installer](https://github.com/assura-lang/assura/releases/latest)
 (Linux x86_64, macOS arm64/x64):
@@ -111,10 +120,12 @@ tests are especially weak here: they tend to mirror the implementation. If
 `divide(10, 0)` returns `0` because of a bug, the generated test asserts `== 0`.
 The test passes. The bug ships.
 
-Assura replaces that trust with proof. Contracts state *what* must hold. The
-compiler uses Z3/CVC5 to prove the implementation satisfies them for **all**
-inputs, or returns a counterexample the AI can fix against — a loop that closes
-without a human guessing at edge cases.
+Assura replaces that trust with proof. Contracts state *what* must hold.
+With an implementation (IR, synthesized body, or `check-rust`), Z3/CVC5
+checks that body against the contract. With no body, as in the zip example
+above, it checks whether the ensures follows from the requires. Either way
+you get a counterexample the AI can fix against, for the fragments the
+solver can model. A loop can close without a human guessing at edge cases.
 
 Property tests and fuzzing sample the input space. A solver reasons over all of
 it, for the fragments it can model. Where it cannot, Assura says `Unknown`
@@ -149,8 +160,8 @@ Three tiers, fastest first:
 
 | Demo | Models |
 |------|--------|
-| [`heartbleed.assura`](demos/heartbleed.assura) | CVE-2014-0160 — TLS heartbeat over-read |
-| [`libwebp-huffman.assura`](demos/libwebp-huffman.assura) | CVE-2023-4863 — CVSS 9.8 heap overflow that hit every major browser |
+| [`heartbleed.assura`](demos/heartbleed.assura) | CVE-2014-0160, TLS heartbeat over-read |
+| [`libwebp-huffman.assura`](demos/libwebp-huffman.assura) | CVE-2023-4863, CVSS 9.8 heap overflow that hit every major browser |
 | [`zip-crate-audit.assura`](demos/zip-crate-audit.assura) | Offset arithmetic in a real Rust crate |
 
 More in [`demos/`](demos/) and one worked example per feature in [`examples/`](examples/).
@@ -159,11 +170,11 @@ Case studies: [docs/CASE-STUDIES.md](docs/CASE-STUDIES.md).
 ## Contributing
 
 **New here? [Good first issues](https://github.com/assura-lang/assura/labels/good%20first%20issue)
-are kept stocked and scoped** — each one names the file to open and how to verify it.
+are kept stocked and scoped.** Each one names the file to open and how to verify it.
 
 Bug reports are just as valuable as patches. If `assura check` gives you a wrong
 answer, a confusing counterexample, or an `Unknown` you think should verify,
-[open an issue](https://github.com/assura-lang/assura/issues/new/choose) — those
+[open an issue](https://github.com/assura-lang/assura/issues/new/choose). Those
 reports are how the solver encoding gets better.
 
 Start with [CONTRIBUTING.md](CONTRIBUTING.md). Architecture and crate map:
@@ -172,7 +183,7 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md). Architecture and crate map:
 ## Documentation
 
 **Site:** [assura-lang.github.io/assura](https://assura-lang.github.io/assura/)
-(not [assura.dev](https://assura.dev) — a different product)
+(not [assura.dev](https://assura.dev), a different product)
 
 | | |
 |---|---|
@@ -187,6 +198,9 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md). Architecture and crate map:
 | [FAQ](docs/FAQ.md) | Z3 timeouts, counterexamples, common errors |
 | [Internals](docs/INTERNALS.md) | Architecture, crate map, SMT encoding |
 | [Specification](docs/SPECIFICATION.md) | EBNF, 50 verification features, error codes |
+| [Roadmap](docs/ROADMAP.md) | Phased implementation plan |
+| [Competitive analysis](docs/INVESTIGATION.md) | How Assura compares in the survey |
+| [Preferred URLs](docs/URLS.md) | Canonical links, including installers |
 
 <details>
 <summary><b>The 50 verification features, by category</b></summary>

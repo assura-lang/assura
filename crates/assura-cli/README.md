@@ -4,8 +4,9 @@
 
 The command-line compiler for [Assura](https://github.com/assura-lang/assura), a
 contract-first language. You write behavioral contracts; an SMT solver (Z3/CVC5)
-proves an implementation satisfies them for all inputs — or returns the exact
-input that breaks it. Verified contracts compile to Rust.
+checks an implementation against them, or, when there is no body, checks
+whether the ensures follows from the requires. It returns the exact input
+that breaks the claim. Verified contracts compile to Rust.
 
 ```bash
 cargo install assura --locked
@@ -38,9 +39,10 @@ $ assura check demos/zip-crate-audit.assura
       | cd_offset = 0, eocd_offset = 0, relative_cd_offset = 1
 ```
 
-The solver reasoned over every input allowed by those preconditions and returned
-one that underflows. You get **Verified**, a **Counterexample**, or an honest
-**Unknown** — never a green check that means "we didn't look hard enough."
+This demo has no implementation. The counterexample is an input allowed by
+the preconditions that makes the ensures false. You get **Verified**, a
+**Counterexample**, or an honest **Unknown**. An incomplete encoding is
+**Unknown**, not a green check.
 
 ## Commands
 
@@ -56,13 +58,13 @@ assura mcp                      # run the MCP server for agent hosts
 ## Requirements
 
 A [Rust toolchain](https://rustup.rs/) (edition 2024 / rustc 1.87+). Z3 ships
-prebuilt via the `z3` crate — no manual install for normal use.
+prebuilt via the `z3` crate. No manual Z3 install for a normal build.
 
 ## Documentation
 
 - [Getting started](https://github.com/assura-lang/assura/blob/main/docs/GETTING-STARTED.md)
 - [Tutorial](https://github.com/assura-lang/assura/blob/main/docs/TUTORIAL.md)
-- [What we prove](https://github.com/assura-lang/assura/blob/main/docs/WHAT-WE-PROVE.md) — the honest limits
+- [What we prove](https://github.com/assura-lang/assura/blob/main/docs/WHAT-WE-PROVE.md): the honest limits
 - [Docs site](https://assura-lang.github.io/assura/)
 
 Embedding Assura in your own tool? Use

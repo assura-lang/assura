@@ -4,7 +4,7 @@ set -u
 
 cat <<'BANNER'
 
-  Assura — write what it should do, prove it does.
+  Assura: write what it should do, prove it does.
 
   Try a counterexample (intentional: this demo models real bugs):
 
@@ -23,7 +23,10 @@ cat <<'BANNER'
 BANNER
 
 if ! cargo build --locked -p assura --offline >/dev/null 2>&1; then
-  echo "  Note: first build still running or not yet cached; the commands above"
-  echo "  will compile on demand (a few minutes the first time)."
+  echo "  Note: \`cargo build --locked -p assura --offline\` failed."
+  echo "  If this is a new container, the first compile has not finished yet"
+  echo "  and the commands above will build on demand (a few minutes)."
+  echo "  If the project was already built, that failure is a real build error;"
+  echo "  rerun the command without \`--offline\` to see it."
   echo
 fi

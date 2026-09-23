@@ -4,7 +4,7 @@ The canonical compile/verify facade for
 [Assura](https://github.com/assura-lang/assura), a contract-first language whose
 contracts are proved by an SMT solver (Z3/CVC5) and compiled to Rust.
 
-This is the crate to depend on when you want to **embed** Assura — in a build
+This is the crate to depend on when you want to **embed** Assura, in a build
 script, an editor plugin, an agent tool, or CI. It wraps the whole chain
 (parse → resolve → type-check → SMT → codegen) behind a few functions, so you
 do not re-chain the compiler passes yourself.
@@ -44,14 +44,17 @@ if !verification_succeeded(&output.verification) {
 ```
 
 Use `verification_succeeded` (lenient) or `verification_strict_succeeded`
-(strict). An empty result set means "no proof obligations", which is success —
-pair it with the vacuity fields if empty coverage would be misleading.
+(strict). Lenient success ignores `Unknown`. An empty result set means
+"no proof obligations", which is success. Vacuity is not a field on
+`CompilationOutput`. Call `vacuous_status`, or read `PipelineResult.vacuous`
+and `PipelineResult.vacuous_reason`, so empty coverage is not mistaken
+for a proof.
 
 ## Documentation
 
-- [For AI agents](https://github.com/assura-lang/assura/blob/main/docs/AI-AGENTS.md) — JSON output, MCP server
-- [Internals](https://github.com/assura-lang/assura/blob/main/docs/INTERNALS.md) — architecture and crate map
-- [What we prove](https://github.com/assura-lang/assura/blob/main/docs/WHAT-WE-PROVE.md) — the honest limits
+- [For AI agents](https://github.com/assura-lang/assura/blob/main/docs/AI-AGENTS.md): JSON output, MCP server
+- [Internals](https://github.com/assura-lang/assura/blob/main/docs/INTERNALS.md): architecture and crate map
+- [What we prove](https://github.com/assura-lang/assura/blob/main/docs/WHAT-WE-PROVE.md): the honest limits
 
 ## License
 
