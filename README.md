@@ -1,213 +1,195 @@
-[![CI](https://github.com/assura-lang/assura/actions/workflows/ci.yml/badge.svg)](https://github.com/assura-lang/assura/actions/workflows/ci.yml)
-[![Security](https://github.com/assura-lang/assura/actions/workflows/security.yml/badge.svg)](https://github.com/assura-lang/assura/actions/workflows/security.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/assura-lang/assura/badge)](https://scorecard.dev/viewer/?uri=github.com/assura-lang/assura)
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13476/badge)](https://www.bestpractices.dev/projects/13476)
-[![Crates.io](https://img.shields.io/crates/v/assura.svg)](https://crates.io/crates/assura)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-5800%2B%20passing-brightgreen)](#)
+<div align="center">
 
 # Assura
 
 **Write what it should do. AI proves it does.**
 
-A contract-first language for the AI era. Humans write behavioral contracts.
-AI writes verified implementations. The compiler proves correctness
-mathematically. Ships as Rust.
+A contract-first language for the AI era. You write behavioral contracts.
+AI writes the implementation. An SMT solver proves it correct — or hands you
+the exact input that breaks it. Ships as Rust.
 
-![Assura check demo](assets/demo/assura-check.gif)
+[![CI](https://github.com/assura-lang/assura/actions/workflows/ci.yml/badge.svg)](https://github.com/assura-lang/assura/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/assura.svg)](https://crates.io/crates/assura)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/assura-lang/assura/badge)](https://scorecard.dev/viewer/?uri=github.com/assura-lang/assura)
+[![Tests](https://img.shields.io/badge/tests-5800%2B%20passing-brightgreen)](#)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](LICENSE)
 
-*Regenerate: `vhs assets/demo/assura-check.tape` (requires [VHS](https://github.com/charmbracelet/vhs) and `assura` on `PATH`).*
+[Docs](https://assura-lang.github.io/assura/) ·
+[Getting started](docs/GETTING-STARTED.md) ·
+[Try in browser](#try-it-without-installing-anything) ·
+[What we prove](docs/WHAT-WE-PROVE.md) ·
+[Contributing](CONTRIBUTING.md)
+
+</div>
+
+---
+
+## A test tells you it failed. Assura tells you why.
+
+Here is a real invariant from the [`zip`](https://github.com/zip-rs/zip2) crate's
+central-directory parser. The archive offset is computed as
+`cd_offset - relative_cd_offset` — an unchecked subtraction on a `u64`:
 
 ```assura
-contract HeartbeatResponse {
-  input(record_length: Nat, payload_length: Nat, padding_length: Nat)
+contract FindCdSubtractSafe {
+    input(cd_offset: Nat, relative_cd_offset: Nat, eocd_offset: Nat)
 
-  requires { record_length >= 3 }              // TLS header: type + 2-byte length
-  requires { payload_length >= 1 }
-  requires { padding_length >= 16 }            // RFC 6520 minimum
-  requires { 3 + payload_length + padding_length <= record_length }
+    requires { cd_offset <= 18446744073709551615 }
+    requires { relative_cd_offset <= 18446744073709551615 }
+    requires { eocd_offset <= 18446744073709551615 }
+    requires { cd_offset <= eocd_offset }
 
-  ensures  { payload_length + 16 <= record_length }   // response fits in buffer
-  effects  { pure }
+    // archive_offset = cd_offset - relative_cd_offset (unchecked)
+    ensures { cd_offset >= relative_cd_offset }
 }
 ```
 
-You write *what*. AI figures out *how*. Z3 proves it. `rustc` compiles the result.
+Run it:
 
-## The Problem
+```console
+$ assura check demos/zip-crate-audit.assura
 
-AI writes most new code. Nobody trusts it. AI-generated tests mirror
-implementation bugs: if `divide(10, 0)` returns `0` due to a bug, the
-generated test asserts `== 0`. The test passes. The bug ships.
-
-Assura replaces trust with proof. Contracts define *what* the code must do.
-The compiler uses SMT solvers (Z3/CVC5) to *prove* the implementation
-satisfies every contract, or returns a counterexample showing exactly how
-it fails.
-
-## How It Works
-
-```
-Human writes contracts (.assura)
-    |
-    v
-AI generates implementation
-    |
-    v
-Assura compiler verifies (Z3/CVC5 SMT solver)
-    |
-    +--[proof fails]--> counterexample returned to AI --> AI fixes --> re-verify
-    |
-    v
-Generates Rust source (.rs)
-    |
-    v
-rustc compiles --> native binary / WASM
+  FindCdSubtractSafe:
+    ensures              ... COUNTEREXAMPLE
+      | cd_offset = 0, eocd_offset = 0, relative_cd_offset = 1
 ```
 
-Three verification tiers, fastest first:
+No fuzzing. No sampling. The solver reasoned symbolically over **every input
+allowed by those preconditions** and returned one that underflows — a crafted
+archive whose central directory claims a relative offset larger than its
+absolute one. A fuzzer might find this. A proof cannot miss it.
 
-| Tier | Time | What it checks |
-|------|------|----------------|
-| Structural | < 10ms | Types, syntax, names |
-| Decidable SMT | < 200ms | Refinement types, flow analysis, effects |
-| Heavy SMT | < 10s | Full invariants, temporal properties |
+That is the whole idea: you get **Verified**, a **Counterexample**, or an honest
+**Unknown**. Never a green check that means "we didn't look hard enough."
 
-## Quick Start
+![Assura check demo](assets/demo/assura-check.gif)
 
-### Install the CLI
+## Try it without installing anything
 
-**Preferred (crates.io):**
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/assura-lang/assura?quickstart=1)
+
+The devcontainer ships Rust and Z3, so there is nothing to install. The first
+build takes a few minutes; after that:
+
+```bash
+cargo run -- check demos/zip-crate-audit.assura   # counterexamples (intentional)
+cargo run -- check demos/heartbleed.assura        # a clean proof
+```
+
+## Install
 
 ```bash
 cargo install assura --locked
 ```
 
-Requires a [Rust toolchain](https://rustup.rs/) (edition 2024 / rustc 1.87+).
-The first build downloads a Z3 prebuilt via the `z3` crate (`gh-release`); no
-manual Z3 install is needed for normal use. See
-[docs/CRATES-IO.md](docs/CRATES-IO.md).
+Needs a [Rust toolchain](https://rustup.rs/) (edition 2024 / rustc 1.87+). Z3
+comes prebuilt via the `z3` crate — no manual install.
 
-**Prebuilt binaries (shell installer, no Rust toolchain required for the
-binary itself):** [GitHub Releases](https://github.com/assura-lang/assura/releases)
-via cargo-dist (`assura-installer.sh` on the release; Linux x86_64 and
-macOS arm64/x64). Example:
+Prefer a binary? Use the [shell installer](https://github.com/assura-lang/assura/releases/latest)
+(Linux x86_64, macOS arm64/x64):
 
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf \
   https://github.com/assura-lang/assura/releases/latest/download/assura-installer.sh | sh
 ```
 
-There is **no Homebrew formula** published today (`installers = ["shell"]`
-in `dist-workspace.toml`). Prefer crates.io or the shell installer.
-
-**From a monorepo clone:**
+Then:
 
 ```bash
-git clone https://github.com/assura-lang/assura.git
-cd assura
-cargo install --path crates/assura-cli --locked
-# Optional standalone LSP binary:
-cargo install --path crates/assura-lsp --locked
+assura init my-project          # scaffold a project
+assura check contract.assura    # prove it (add --json for agents)
+assura build contract.assura    # emit Rust
 ```
 
-**VS Code extension:** lives in [`editors/vscode/`](editors/vscode/) and is
-**not published** to the Marketplace yet. Build from source (see that folder's
-README) or use the LSP binary from Releases / `cargo install --path crates/assura-lsp`.
+Full command reference, LSP, VS Code extension, and library embedding:
+**[Getting started](docs/GETTING-STARTED.md)** · [Cheatsheet](docs/CHEATSHEET.md)
 
-**Embedding as a library:** the public compile/verify facade is
-[`assura-pipeline`](https://crates.io/crates/assura-pipeline) on crates.io
-(v0.3.0+):
+## Why this exists
 
-```toml
-[dependencies]
-assura-pipeline = "0.4"
+AI writes a lot of new code, and reviewing it is the bottleneck. AI-generated
+tests are especially weak here: they tend to mirror the implementation. If
+`divide(10, 0)` returns `0` because of a bug, the generated test asserts `== 0`.
+The test passes. The bug ships.
+
+Assura replaces that trust with proof. Contracts state *what* must hold. The
+compiler uses Z3/CVC5 to prove the implementation satisfies them for **all**
+inputs, or returns a counterexample the AI can fix against — a loop that closes
+without a human guessing at edge cases.
+
+Property tests and fuzzing sample the input space. A solver reasons over all of
+it, for the fragments it can model. Where it cannot, Assura says `Unknown`
+rather than pretending. The honest map of that boundary is
+[What we prove](docs/WHAT-WE-PROVE.md).
+
+## How it works
+
+```
+contracts (.assura) ──► AI generates implementation
+                              │
+                              ▼
+                     Assura verifies (Z3 / CVC5)
+                              │
+        ┌─────────────────────┴──────────────────────┐
+        │                                            │
+   counterexample ──► back to the AI            proof holds
+        ▲                    │                       │
+        └────────────────────┘                       ▼
+                                          Rust source ──► rustc ──► binary / WASM
 ```
 
-Prefer crates.io for apps; use a git path dependency only when tracking
-unreleased `main`. Release process: [docs/CRATES-IO.md](docs/CRATES-IO.md).
+Three tiers, fastest first:
 
-### Usage
+| Tier | Time | Checks |
+|------|------|--------|
+| Structural | < 10ms | Types, syntax, names |
+| Decidable SMT | < 200ms | Refinement types, flow analysis, effects |
+| Heavy SMT | < 10s | Full invariants, temporal properties |
 
-**Docs site (preferred entry):**
-[https://assura-lang.github.io/assura/](https://assura-lang.github.io/assura/)
+## Real CVEs, as contracts
 
-**Primary path (install → check → build → test):** see
-[docs/GETTING-STARTED.md](docs/GETTING-STARTED.md). That guide works on a
-clean machine with copy-paste files (no monorepo required).
+| Demo | Models |
+|------|--------|
+| [`heartbleed.assura`](demos/heartbleed.assura) | CVE-2014-0160 — TLS heartbeat over-read |
+| [`libwebp-huffman.assura`](demos/libwebp-huffman.assura) | CVE-2023-4863 — CVSS 9.8 heap overflow that hit every major browser |
+| [`zip-crate-audit.assura`](demos/zip-crate-audit.assura) | Offset arithmetic in a real Rust crate |
 
-```bash
-# Initialize a new project
-assura init my-project
+More in [`demos/`](demos/) and one worked example per feature in [`examples/`](examples/).
+Case studies: [docs/CASE-STUDIES.md](docs/CASE-STUDIES.md).
 
-# Happy-path demos (must-pass). Prefer these over *-audit.assura files.
-# See demos/README.md for the showcase vs EXPECT FAIL taxonomy.
-assura check demos/heartbleed.assura
-# Result-bearing ensures: assura check synthesizes analyzable shapes in memory
-# (no hand IR). See docs/GETTING-STARTED.md for the synthesizable table and
-# residual ladder (`--write-ir` offline, then `--auto-implement`).
-assura check demos/showcase-echo.assura
-# Verify, inject IR into Rust, and cargo test:
-#   assura build demos/showcase-echo.assura --write-ir --output /tmp/assura-out
-#   (cd /tmp/assura-out && cargo test)
+## Contributing
 
-# Check with JSON output
-assura check demos/libwebp-huffman.assura --json
-# Agents: on success, inspect file_info.vacuous / vacuous_reason so empty
-# sources or contracts with no SMT proof obligations are not treated as
-# verified coverage (see also human-mode check-passed summaries).
+**New here? [Good first issues](https://github.com/assura-lang/assura/labels/good%20first%20issue)
+are kept stocked and scoped** — each one names the file to open and how to verify it.
 
-# Check with verbose timing info
-assura check demos/libwebp-huffman.assura --verbose
+Bug reports are just as valuable as patches. If `assura check` gives you a wrong
+answer, a confusing counterexample, or an `Unknown` you think should verify,
+[open an issue](https://github.com/assura-lang/assura/issues/new/choose) — those
+reports are how the solver encoding gets better.
 
-# Check with verification statistics
-assura check demos/libwebp-huffman.assura --stats
+Start with [CONTRIBUTING.md](CONTRIBUTING.md). Architecture and crate map:
+[docs/INTERNALS.md](docs/INTERNALS.md).
 
-# Explain an error code
-assura explain A03001
+## Documentation
 
-# Build and generate Rust code
-assura build demos/libwebp-huffman.assura
+**Site:** [assura-lang.github.io/assura](https://assura-lang.github.io/assura/)
+(not [assura.dev](https://assura.dev) — a different product)
 
-# Format a contract file
-assura fmt demos/libwebp-huffman.assura
+| | |
+|---|---|
+| [Getting started](docs/GETTING-STARTED.md) | Install → check → build |
+| [Tutorial](docs/TUTORIAL.md) | Your first contract |
+| [Cheatsheet](docs/CHEATSHEET.md) | Types, clauses, effects, CLI on one page |
+| [Cookbook](docs/COOKBOOK.md) | Ready-to-copy contract patterns |
+| [What we prove](docs/WHAT-WE-PROVE.md) | The honesty map: Verified / Unknown / Counterexample |
+| [Compared to other tools](docs/COMPARE.md) | Dafny, Verus, Liquid Haskell, tests |
+| [For AI agents](docs/AI-AGENTS.md) | JSON output, IR acceptance, MCP server |
+| [Scenarios](docs/SCENARIOS.md) | Greenfield, retrofit, audit, CI, onboarding |
+| [FAQ](docs/FAQ.md) | Z3 timeouts, counterexamples, common errors |
+| [Internals](docs/INTERNALS.md) | Architecture, crate map, SMT encoding |
+| [Specification](docs/SPECIFICATION.md) | EBNF, 50 verification features, error codes |
 
-# Infer contracts from Rust source
-assura infer src/main.rs
-
-# Verify inline contract annotations in Rust source files
-assura check-rust src/
-# Body proof paths (in order):
-#   1) co-located {Name}.ir
-#   2) encoded Rust body (arith/if/match/wrapping/bitops/…; see docs/CHECK-RUST-SURFACE.md)
-# Otherwise ensures are body_not_modeled (not silent verified/skipped).
-# User map: docs/CHECK-RUST-SURFACE.md  |  demos: demos/check-rust/  |  interop: examples/interop-rust/
-assura check-rust src/ --json
-assura check-rust demos/check-rust/ok   # prove demos (expect exit 0)
-
-# Suggest contracts for unannotated functions
-assura check-rust src/ --suggest
-
-# Shell completions (raw script, or JSON with --json for agents)
-assura completions zsh
-assura completions bash --json   # {"command","shell","script"}
-```
-
-> **Tip:** If running from source without installing, prefix commands with `cargo run --`, e.g. `cargo run -- check demos/libwebp-huffman.assura`.
-
-## Example: CVE Prevention
-
-CVE-2023-4863 was a CVSS 9.8 heap buffer overflow in libwebp that affected
-Chrome, Firefox, Safari, Android, iOS, and every Electron app on the planet.
-
-Assura catches it at compile time. [`demos/libwebp-huffman.assura`](demos/libwebp-huffman.assura)
-states the bounds the decoder must respect, and `assura check` proves no
-input violates them, using memory regions (MEM.1), taint tracking (SEC.1),
-precomputed table verification (NUM.2), and axiomatic definitions (CORE.4).
-
-What that proof does and does not cover: [`docs/WHAT-WE-PROVE.md`](docs/WHAT-WE-PROVE.md).
-
-## 50 Features, 12 Categories
+<details>
+<summary><b>The 50 verification features, by category</b></summary>
 
 | Category | Features |
 |----------|----------|
@@ -226,28 +208,7 @@ What that proof does and does not cover: [`docs/WHAT-WE-PROVE.md`](docs/WHAT-WE-
 
 A project activates only the categories it needs. CORE is always on.
 
-## Documentation
-
-**Site:** [assura-lang.github.io/assura](https://assura-lang.github.io/assura/)
-([preferred URLs](docs/URLS.md); not [assura.dev](https://assura.dev), a different product)
-
-- [Getting started](docs/GETTING-STARTED.md) (install → check → build)
-- [Tutorial](docs/TUTORIAL.md) (first contract, verification layers)
-- [What we prove](docs/WHAT-WE-PROVE.md) (Verified / Unknown / Counterexample; honesty map)
-- [Compared to other tools](docs/COMPARE.md) (Dafny, Verus, Liquid Haskell, tests)
-- [Case studies](docs/CASE-STUDIES.md) (Heartbleed, libwebp, showcase)
-- [For AI agents](docs/AI-AGENTS.md) (JSON check, IR acceptance, MCP)
-- [Quick Reference](docs/CHEATSHEET.md) (types, clauses, effects, CLI commands on one page)
-- [Scenario Guides](docs/SCENARIOS.md) (greenfield dev, retrofit existing code, security audit, CI, team onboarding)
-- [Contract Cookbook](docs/COOKBOOK.md) (ready-to-copy contract patterns by category)
-- [Troubleshooting / FAQ](docs/FAQ.md) (Z3 timeouts, counterexamples, common errors)
-- [Internals](docs/INTERNALS.md) (architecture, crate map, SMT encoding)
-- [Language Specification](docs/SPECIFICATION.md) (EBNF, verification features, error codes)
-- [Implementation Roadmap](docs/ROADMAP.md)
-- [Competitive Analysis](docs/INVESTIGATION.md)
-- [Contributing](CONTRIBUTING.md)
-- [Demo Contracts](demos/) (CVE-prevention and showcase examples)
-- [50 Example Contracts](examples/) (one per verification feature, organized by category)
+</details>
 
 ## License
 
