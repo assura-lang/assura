@@ -1,10 +1,12 @@
 name: Rebase Dependabot
 
-# After a merge, strict required checks leave other Dependabot PRs BEHIND.
-# Dependabot rebase-strategy: auto is slow, so auto-merge sits armed forever.
-# Replay each behind branch onto origin/main. Do not comment
-# @dependabot rebase: github-actions[bot] and the auto-approve App are
-# both rejected ("only users with push access", #1508 / #1509).
+# After a merge, other Dependabot branches do not contain the new main.
+# mergeStateStatus lags that fact, so do not select on BEHIND. Rebase
+# when origin/main is not an ancestor of the PR branch. Skip when it is.
+# Dependabot rebase-strategy: auto is slow, so auto-merge sits armed on
+# stale CI until this job runs. Do not comment @dependabot rebase:
+# github-actions[bot] and the auto-approve App are both rejected
+# ("only users with push access", #1508 / #1509).
 #
 # Push the rebase with GITHUB_TOKEN (not the App). require_last_push_approval
 # dismisses the last pusher's review. If the App pushed, it could not approve
@@ -78,10 +80,10 @@ jobs:
           : > "${RUNNER_TEMP}/rebased-prs.txt"
 
           nums=$(gh pr list --repo "${REPO}" --author "app/dependabot" --state open \
-            --json number,mergeStateStatus \
-            --jq '[.[] | select(.mergeStateStatus == "BEHIND") | .number] | .[]')
+            --json number \
+            --jq '.[].number')
           if [ -z "${nums}" ]; then
-            echo "No Dependabot PRs behind main."
+            echo "No open Dependabot PRs."
             exit 0
           fi
 
@@ -89,10 +91,14 @@ jobs:
           remote_url="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
           for n in ${nums}; do
             branch=$(gh pr view "${n}" --repo "${REPO}" --json headRefName --jq .headRefName)
-            echo "Rebasing #${n} (${branch}) onto origin/main"
             # Named-remote lease needs a tracking SHA. Pushing to a URL has none,
             # so bare --force-with-lease reports stale info and aborts (#1513).
             git fetch origin "refs/heads/${branch}:refs/remotes/origin/${branch}"
+            if git merge-base --is-ancestor origin/main "origin/${branch}"; then
+              echo "Skip #${n}: already contains origin/main"
+              continue
+            fi
+            echo "Rebasing #${n} (${branch}) onto origin/main"
             expected=$(git rev-parse "origin/${branch}")
             git checkout -B "${branch}" "origin/${branch}"
             if ! git rebase origin/main; then
