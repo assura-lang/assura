@@ -75,13 +75,13 @@
     "vscode-languageclient": "^10.1.1"
   },
   "devDependencies": {
-    "@types/vscode": "^1.136.0",
-    "@types/node": "^26.4.1",
+    "@types/vscode": "^1.138.0",
+    "@types/node": "^26.6.1",
     "@types/mocha": "^10.0.0",
     "typescript": "^7.0.2",
     "@vscode/vsce": "^4.0.0",
     "@vscode/test-electron": "^3.1.0",
-    "mocha": "^12.0.0",
+    "mocha": "^12.0.2",
     "glob": "^13.0.6"
   },
   "overrides": {
