@@ -6,7 +6,7 @@
 use rmcp::{
     ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{ServerCapabilities, ServerInfo},
+    model::{ServerCapabilities, ServerConfig},
     schemars, tool, tool_handler, tool_router,
 };
 use serde::Deserialize;
@@ -227,8 +227,8 @@ impl AssuraMcpServer {
 
 #[tool_handler]
 impl ServerHandler for AssuraMcpServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
             "Assura contract-first AI-native language tools. Use assura_check to verify \
                  contracts, assura_infer to generate contracts from Rust code, assura_ir_prompt \
                  to generate Implementation IR prompts, assura_ir_verify to verify IR \
