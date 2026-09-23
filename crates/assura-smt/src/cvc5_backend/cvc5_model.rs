@@ -21,6 +21,9 @@ pub(crate) fn parse_smtlib_model(model_str: &str) -> Option<CounterexampleModel>
                 if let Some(space_idx) = type_and_value.find(' ') {
                     let raw = &type_and_value[space_idx + 1..];
                     let value = raw.strip_suffix(')').unwrap_or(raw).trim().to_string();
+                    if crate::encode_atom_policy::is_requires_track_noise(&name, &value) {
+                        continue;
+                    }
                     if crate::encode_atom_policy::is_counterexample_user_var(&name) {
                         let clean = crate::encode_atom_policy::counterexample_display_name(&name)
                             .to_string();

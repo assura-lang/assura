@@ -556,14 +556,44 @@ pub(crate) fn is_requires_track_label(name: &str) -> bool {
 /// Whether a model variable should appear in user-facing counterexample output.
 ///
 /// Internal encoder temporaries are suppressed, except [`RESULT_VAR_NAME`] which
-/// represents contract `result` and must stay visible. Generated `requires`
-/// tracking literals are suppressed too (see [`is_requires_track_label`]); they
-/// stay visible in unsat-core output, which is where they carry meaning.
+/// represents contract `result` and must stay visible. A name shaped like
+/// `req_0` is not suppressed here: a contract input may use that name.
+/// Boolean tracking literals are dropped separately by
+/// [`is_requires_track_noise`].
 pub(crate) fn is_counterexample_user_var(name: &str) -> bool {
-    if is_requires_track_label(name) {
-        return false;
-    }
     !is_internal_encoder_var(name) || name == RESULT_VAR_NAME
+}
+
+/// Solver values that are Boolean literals, not integers.
+pub(crate) fn is_solver_bool_value(value: &str) -> bool {
+    matches!(value.trim(), "true" | "false")
+}
+
+/// `req_N` is noise only when it is the Boolean tracking literal.
+///
+/// An integer (or other non-bool) value means a real input happened to be
+/// named `req_0`. Those stay in the model. Unsat cores still use the label
+/// and are not filtered here.
+pub(crate) fn is_requires_track_noise(name: &str, value: &str) -> bool {
+    is_requires_track_label(name) && is_solver_bool_value(value)
+}
+
+/// Drop single-line `req_N -> true` / `false` assignments from a raw solver dump.
+///
+/// Structured `variables` are filtered at extraction. The raw `model` string
+/// is a separate field and still contained the tracking literals.
+pub(crate) fn strip_requires_track_model_lines(model: &str) -> String {
+    let mut kept = Vec::new();
+    for line in model.lines() {
+        let trimmed = line.trim();
+        if let Some((name, rest)) = trimmed.split_once("->") {
+            if is_requires_track_noise(name.trim(), rest.trim()) {
+                continue;
+            }
+        }
+        kept.push(line);
+    }
+    kept.join("\n")
 }
 
 /// Clean a solver variable name for user-facing counterexample display.
@@ -662,12 +692,15 @@ mod tests {
         assert!(!is_counterexample_user_var("__fresh_0"));
         assert!(!is_counterexample_user_var("__field_len"));
 
-        // Generated `requires` tracking literals are noise in a model (#260 follow-up):
-        // they always read `= true` and drowned the real inputs in CVE demo output.
-        assert!(!is_counterexample_user_var("req_0"));
-        assert!(!is_counterexample_user_var("req_15"));
+        // Boolean `req_N` tracking literals are noise. An integer named `req_0`
+        // is a user input and must survive.
         assert!(is_requires_track_label("req_0"));
         assert!(is_requires_track_label("req_15"));
+        assert!(is_requires_track_noise("req_0", "true"));
+        assert!(is_requires_track_noise("req_15", "false"));
+        assert!(!is_requires_track_noise("req_0", "1"));
+        assert!(!is_requires_track_noise("req_0", "18446744073709486051"));
+        assert!(is_counterexample_user_var("req_0"));
 
         // A real contract input that merely starts with `req_` must survive.
         assert!(!is_requires_track_label("req_count"));
@@ -675,6 +708,12 @@ mod tests {
         assert!(!is_requires_track_label("req_1a"));
         assert!(is_counterexample_user_var("req_count"));
         assert!(is_counterexample_user_var("request_len"));
+        let raw = "cd_offset -> 0\nreq_0 -> true\nreq_1 -> false\nreq_2 -> 5\n";
+        let stripped = strip_requires_track_model_lines(raw);
+        assert!(!stripped.contains("req_0"));
+        assert!(!stripped.contains("req_1"));
+        assert!(stripped.contains("req_2 -> 5"));
+        assert!(stripped.contains("cd_offset -> 0"));
     }
 
     #[test]

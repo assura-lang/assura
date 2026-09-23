@@ -36,16 +36,21 @@ pub(super) fn extract_counter_model(model: &Model) -> CounterexampleModel {
             continue;
         }
         let name = decl.name();
-        // Skip internal/fresh/coercion variables via shared policy, but keep contract
-        // `result` binding (`__result` is classified internal by the same helper).
-        if !crate::encode_atom_policy::is_counterexample_user_var(&name) {
-            continue;
-        }
         // Try to get the interpretation as a string
         let value = model
             .get_const_interp(&decl.apply(&[]))
             .map(|v| format!("{v}"))
             .unwrap_or_else(|| "?".into());
+        // Boolean `req_N` literals are unsat-core trackers. An integer `req_0`
+        // is a user input and stays.
+        if crate::encode_atom_policy::is_requires_track_noise(&name, &value) {
+            continue;
+        }
+        // Skip internal/fresh/coercion variables via shared policy, but keep contract
+        // `result` binding (`__result` is classified internal by the same helper).
+        if !crate::encode_atom_policy::is_counterexample_user_var(&name) {
+            continue;
+        }
         let clean_name = crate::encode_atom_policy::counterexample_display_name(&name).to_string();
         variables.push((clean_name, value));
     }
