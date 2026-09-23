@@ -249,7 +249,9 @@ impl From<&VerificationResult> for VerificationSummary {
             } => Self {
                 status: "counterexample".into(),
                 clause: clause_desc.clone(),
-                model: Some(crate::encode_atom_policy::strip_requires_track_model_lines(model)),
+                model: Some(crate::encode_atom_policy::strip_requires_track_model_lines(
+                    model,
+                )),
                 reason: None,
             },
             VerificationResult::Timeout { clause_desc } => Self {

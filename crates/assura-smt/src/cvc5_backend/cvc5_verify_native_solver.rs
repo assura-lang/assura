@@ -266,13 +266,8 @@ pub(crate) fn extract_cvc5_counterexample_model<'a>(
     let mut variables: Vec<(String, String)> = var_map
         .iter()
         .filter_map(|(name, term)| {
-            let val_term = solver.get_value(term.clone());
-            let val = val_term.to_string();
-            // Sort check covers CVC5 printers that do not say exactly `true`.
-            if crate::encode_atom_policy::is_requires_track_label(name)
-                && (val_term.sort().is_boolean()
-                    || crate::encode_atom_policy::is_solver_bool_value(&val))
-            {
+            let val = solver.get_value(term.clone()).to_string();
+            if crate::encode_atom_policy::is_requires_track_noise(name, &val) {
                 return None;
             }
             if !crate::encode_atom_policy::is_counterexample_user_var(name) {
