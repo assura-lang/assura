@@ -190,7 +190,10 @@ fn verify_clauses_with_types(
         let req_val = base_encoder.encode_expr(&req.body);
         let req_bool = req_val.as_bool();
         if crate::prelude_policy::track_requires_unsat_cores(requires.len()) {
-            let label = format!("req_{i}");
+            let label = format!(
+                "{}{i}",
+                crate::encode_atom_policy::REQUIRES_TRACK_LABEL_PREFIX
+            );
             assert_tracked(&solver, &req_bool, &label);
         } else {
             solver.assert(&req_bool);
