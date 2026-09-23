@@ -180,7 +180,7 @@ impl VerificationResult {
                 let mut val = serde_json::json!({
                     "status": "counterexample",
                     "clause": clause_desc,
-                    "model": model,
+                    "model": crate::encode_atom_policy::strip_requires_track_model_lines(model),
                 });
                 if let Some(cm) = counter_model {
                     let vars: serde_json::Map<String, serde_json::Value> = cm
@@ -249,7 +249,9 @@ impl From<&VerificationResult> for VerificationSummary {
             } => Self {
                 status: "counterexample".into(),
                 clause: clause_desc.clone(),
-                model: Some(model.clone()),
+                model: Some(crate::encode_atom_policy::strip_requires_track_model_lines(
+                    model,
+                )),
                 reason: None,
             },
             VerificationResult::Timeout { clause_desc } => Self {
