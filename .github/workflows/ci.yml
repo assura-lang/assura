@@ -418,6 +418,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: SMT feature-matrix cfg lint
+        run: bash scripts/check-smt-feature-matrix.sh --lint
+
       - uses: ./.github/actions/setup-rust-ci
         with:
           shared-key: ci-cvc5
