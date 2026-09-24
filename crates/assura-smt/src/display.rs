@@ -96,10 +96,14 @@ pub fn write_grouped_verification_with_cores(
                 VerificationResult::Verified {
                     clause_desc,
                     unsat_core,
+                    vacuous_reason,
                 } => {
                     let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
                     let kind = truncate_display_name(kind, 32);
                     writeln!(w, "{indent}  {kind:<20} ... verified")?;
+                    if let Some(reason) = vacuous_reason {
+                        writeln!(w, "{indent}    (vacuous: {reason})")?;
+                    }
                     if show_cores
                         && let Some(core) = unsat_core
                         && !core.is_empty()

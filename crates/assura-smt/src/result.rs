@@ -40,6 +40,9 @@ pub enum VerificationResult {
         /// Labels of tracked assumptions in the unsat core (requires clauses
         /// that were necessary to prove validity), when available.
         unsat_core: Option<Vec<String>>,
+        /// Set when the clause verified without saying more than its
+        /// assumptions, or because a `Nat` wrap ceiling is true for every input.
+        vacuous_reason: Option<String>,
     },
     /// A counterexample was found (the clause does not hold).
     Counterexample {
@@ -97,6 +100,7 @@ impl VerificationResult {
         Self::Verified {
             clause_desc: clause_desc.into(),
             unsat_core: None,
+            vacuous_reason: None,
         }
     }
 
@@ -138,6 +142,7 @@ impl VerificationResult {
             } else {
                 Some(unsat_core)
             },
+            vacuous_reason: None,
         }
     }
 
@@ -162,6 +167,7 @@ impl VerificationResult {
             Self::Verified {
                 clause_desc,
                 unsat_core,
+                vacuous_reason,
             } => {
                 let mut val = serde_json::json!({
                     "status": "verified",
@@ -169,6 +175,9 @@ impl VerificationResult {
                 });
                 if let Some(core) = unsat_core {
                     val["unsat_core"] = serde_json::json!(core);
+                }
+                if let Some(reason) = vacuous_reason {
+                    val["vacuous_reason"] = serde_json::json!(reason);
                 }
                 val
             }

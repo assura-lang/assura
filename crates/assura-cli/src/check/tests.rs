@@ -189,10 +189,7 @@ fn project_a04008_suppressed_after_verified_ensures() {
         diags.iter().any(|d| d.code == "A04008"),
         "precondition: A04008 must be present before suppress, got: {diags:?}"
     );
-    let results = vec![assura_smt::VerificationResult::Verified {
-        clause_desc: "Unc::ensures".into(),
-        unsat_core: None,
-    }];
+    let results = vec![assura_smt::VerificationResult::verified("Unc::ensures")];
     super::suppress_a04008_for_verified_ensures(&mut diags, &results);
     assert!(
         diags.iter().all(|d| d.code != "A04008"),
