@@ -1112,7 +1112,9 @@ fn run_llm_analysis(
 /// Strip trailing `//` comments from doc annotation bodies so
 /// `/// @ensures result == x // identity` stays valid Assura.
 fn clause_body(raw: &str) -> String {
-    raw.split("//").next().unwrap_or(raw).trim().to_string()
+    assura_rust_analyzer::strip_doc_clause_line(raw)
+        .trim()
+        .to_string()
 }
 
 /// Body to emit for `@modifies`. `None` when empty, comment-only, or
@@ -1411,6 +1413,20 @@ fn bump(x: i32, xs: i32) -> i32 { x }
         assert!(
             !block_comment.contains("modifies {"),
             "block-comment @modifies must not emit, got:\n{block_comment}"
+        );
+    }
+
+    #[test]
+    fn keeps_url_inside_a_string_literal() {
+        let source = synth_from_rust(
+            "\
+/// @ensures endpoint == \"https://example.com\"
+fn f(endpoint: i32) -> i32 { endpoint }
+",
+        );
+        assert!(
+            source.contains("https://example.com"),
+            "a URL inside a string must survive comment stripping, got:\n{source}"
         );
     }
 

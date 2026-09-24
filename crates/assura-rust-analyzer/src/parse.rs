@@ -15,10 +15,30 @@ use crate::types::{
 ///
 /// Done per line, before continuations are joined. Stripping the joined
 /// body would delete a later line that was appended after a `//`.
-fn strip_doc_clause_line(line: &str) -> String {
+/// A `//` or `/*` inside a `"` string stays, so `https://example.com`
+/// is not treated as a comment.
+pub fn strip_doc_clause_line(line: &str) -> String {
     let mut out = String::new();
     let mut chars = line.chars().peekable();
+    let mut in_string = false;
+    let mut escaped = false;
     while let Some(c) = chars.next() {
+        if in_string {
+            out.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if c == '"' {
+            in_string = true;
+            out.push(c);
+            continue;
+        }
         if c == '/' {
             match chars.peek() {
                 Some('/') => break,
