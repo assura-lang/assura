@@ -61,6 +61,11 @@ impl LlmCache {
     }
 }
 
+fn update_len_prefixed(hasher: &mut Sha256, value: &str) {
+    hasher.update((value.len() as u64).to_le_bytes());
+    hasher.update(value.as_bytes());
+}
+
 /// Compute cache key for analysis.
 pub fn analysis_cache_key(
     function_name: &str,
@@ -70,16 +75,16 @@ pub fn analysis_cache_key(
     model: &str,
 ) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"analysis-v1:");
-    hasher.update(function_name.as_bytes());
-    hasher.update(function_body.as_bytes());
+    hasher.update(b"analysis-v2:");
+    update_len_prefixed(&mut hasher, function_name);
+    update_len_prefixed(&mut hasher, function_body);
     for c in contracts {
-        hasher.update(c.kind.as_bytes());
-        hasher.update(c.expression.as_bytes());
+        update_len_prefixed(&mut hasher, &c.kind);
+        update_len_prefixed(&mut hasher, &c.expression);
     }
-    hasher.update(context_hash.as_bytes());
-    hasher.update(model.as_bytes());
-    hasher.update(crate::prompt::prompt_version().as_bytes());
+    update_len_prefixed(&mut hasher, context_hash);
+    update_len_prefixed(&mut hasher, model);
+    update_len_prefixed(&mut hasher, crate::prompt::prompt_version());
     hex::encode(hasher.finalize())
 }
 
@@ -93,14 +98,14 @@ pub fn suggest_cache_key(
     model: &str,
 ) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"suggest-v1:");
-    hasher.update(function_name.as_bytes());
-    hasher.update(function_body.as_bytes());
-    hasher.update(function_signature.as_bytes());
-    hasher.update(doc_comments.as_bytes());
-    hasher.update(siblings_hash.as_bytes());
-    hasher.update(model.as_bytes());
-    hasher.update(crate::prompt::prompt_version().as_bytes());
+    hasher.update(b"suggest-v2:");
+    update_len_prefixed(&mut hasher, function_name);
+    update_len_prefixed(&mut hasher, function_body);
+    update_len_prefixed(&mut hasher, function_signature);
+    update_len_prefixed(&mut hasher, doc_comments);
+    update_len_prefixed(&mut hasher, siblings_hash);
+    update_len_prefixed(&mut hasher, model);
+    update_len_prefixed(&mut hasher, crate::prompt::prompt_version());
     hex::encode(hasher.finalize())
 }
 
@@ -108,12 +113,12 @@ pub fn suggest_cache_key(
 pub fn context_hash(called: &[CalledFunctionContract]) -> String {
     let mut hasher = Sha256::new();
     for cf in called {
-        hasher.update(cf.name.as_bytes());
+        update_len_prefixed(&mut hasher, &cf.name);
         for r in &cf.requires {
-            hasher.update(r.as_bytes());
+            update_len_prefixed(&mut hasher, r);
         }
         for e in &cf.ensures {
-            hasher.update(e.as_bytes());
+            update_len_prefixed(&mut hasher, e);
         }
     }
     hex::encode(hasher.finalize())
@@ -147,6 +152,61 @@ mod tests {
         let k1 = analysis_cache_key("foo", "x + 1", &[], "", "mock");
         let k2 = analysis_cache_key("foo", "x + 2", &[], "", "mock");
         assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn analysis_cache_key_name_body_boundary() {
+        let left = analysis_cache_key("ab", "c", &[], "", "mock");
+        let right = analysis_cache_key("a", "bc", &[], "", "mock");
+        assert_ne!(left, right);
+    }
+
+    #[test]
+    fn analysis_cache_key_context_model_boundary() {
+        let left = analysis_cache_key("foo", "body", &[], "x", "m");
+        let right = analysis_cache_key("foo", "body", &[], "", "xm");
+        assert_ne!(left, right);
+    }
+
+    #[test]
+    fn analysis_cache_key_clause_boundary() {
+        let split_kind = [ContractClauseInfo {
+            kind: "ab".to_string(),
+            expression: "c".to_string(),
+        }];
+        let split_expr = [ContractClauseInfo {
+            kind: "a".to_string(),
+            expression: "bc".to_string(),
+        }];
+        let left = analysis_cache_key("foo", "body", &split_kind, "", "mock");
+        let right = analysis_cache_key("foo", "body", &split_expr, "", "mock");
+        assert_ne!(left, right);
+    }
+
+    #[test]
+    fn suggest_cache_key_name_body_boundary() {
+        let left = suggest_cache_key("ab", "c", "sig", "doc", "sib", "mock");
+        let right = suggest_cache_key("a", "bc", "sig", "doc", "sib", "mock");
+        assert_ne!(left, right);
+    }
+
+    #[test]
+    fn context_hash_name_requires_boundary() {
+        let name_longer = vec![CalledFunctionContract {
+            name: "ab".to_string(),
+            signature: String::new(),
+            requires: vec!["c".to_string()],
+            ensures: vec![],
+            source_file: String::new(),
+        }];
+        let requires_longer = vec![CalledFunctionContract {
+            name: "a".to_string(),
+            signature: String::new(),
+            requires: vec!["bc".to_string()],
+            ensures: vec![],
+            source_file: String::new(),
+        }];
+        assert_ne!(context_hash(&name_longer), context_hash(&requires_longer));
     }
 
     #[test]
