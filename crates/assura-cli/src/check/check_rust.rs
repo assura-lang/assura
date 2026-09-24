@@ -361,12 +361,14 @@ pub(crate) fn run_check_rust(
                     .requires
                     .iter()
                     .map(|c| clause_to_json(c, "requires"))
-                    .chain(
-                        item.contract
-                            .ensures
-                            .iter()
-                            .map(|c| clause_to_json(c, "ensures")),
-                    )
+                    .chain(item.contract.ensures.iter().map(|c| {
+                        let kind = match c.kind {
+                            assura_rust_analyzer::InlineClauseKind::EnsuresOk => "ensures_ok",
+                            assura_rust_analyzer::InlineClauseKind::EnsuresErr => "ensures_err",
+                            _ => "ensures",
+                        };
+                        clause_to_json(c, kind)
+                    }))
                     .chain(
                         item.contract
                             .invariants
@@ -1214,6 +1216,12 @@ fn synthesize_inline_contract(
         }
     }
     for clause in &item.contract.ensures {
+        // ensures_ok / ensures_err apply only to one Result path. The
+        // Assura contract language has a single ensures, so emitting
+        // them as ensures would prove a stronger clause than the user wrote.
+        if clause.kind != InlineClauseKind::Ensures {
+            continue;
+        }
         contract_source.push_str(&format!("  ensures {{ {} }}\n", clause_body(&clause.body)));
         total_clauses += 1;
     }
@@ -1420,6 +1428,26 @@ fn bump(x: i32, xs: i32) -> i32 { x }
             other => panic!("expected function, got {other:?}"),
         };
         super::synthesize_inline_contract(name, item).0
+    }
+
+    #[test]
+    fn does_not_emit_ensures_ok_as_unconditional_ensures() {
+        let source = synth_from_rust(
+            "\
+/// @ensures_ok result > 0
+/// @ensures_err result != 0
+/// @ensures result < 10
+fn f(x: i32) -> i32 { x }
+",
+        );
+        assert!(
+            source.contains("ensures { result < 10 }"),
+            "plain ensures must still be emitted, got:\n{source}"
+        );
+        assert!(
+            !source.contains("result > 0") && !source.contains("result != 0"),
+            "Ok/Err postconditions must not be emitted as ensures, got:\n{source}"
+        );
     }
 
     #[test]
