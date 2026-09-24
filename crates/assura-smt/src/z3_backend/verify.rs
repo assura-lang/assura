@@ -376,8 +376,75 @@ fn verify_clauses_with_types(
     crate::policy::vacuity::stamp_vacuity(
         verifiable,
         &prep.requires_exprs,
+        crate::policy::vacuity::VacuityPrelude {
+            params: types.params,
+            return_ty: types.return_ty,
+            constants: types.constants,
+            narrowings: types.narrowings,
+        },
         &mut results[vacuity_from..],
     );
+}
+
+/// True when `body` is valid from type bounds, constants, narrowings, and
+/// wrap axioms alone. User `requires` are not asserted.
+#[cfg(feature = "z3-verify")]
+pub(crate) fn clause_holds_without_user_requires(
+    body: &assura_ast::SpExpr,
+    params: &[assura_ast::Param],
+    return_ty: &[String],
+    constants: &[(String, i64)],
+    narrowings: &[(String, i64)],
+) -> bool {
+    let solver = Solver::new();
+    let mut encoder = Encoder::with_string_theory(false);
+    encoder.machine_wrap = crate::prelude_policy::contract_machine_wrap(params, return_ty);
+    encoder.wrap_vars = crate::prelude_policy::collect_wrap_var_names(params, return_ty);
+    encoder.init_bitvector_infrastructure();
+    use crate::prelude_policy::PreludeConstraint;
+    for constraint in
+        crate::prelude_policy::collect_prelude_constraints(params, return_ty, constants, narrowings)
+    {
+        match constraint {
+            PreludeConstraint::NatNonNegative(name) => {
+                let p = encoder.get_or_create_int(&name);
+                let zero = ast::Int::from_i64(0);
+                let max = ast::Int::from_u64(u64::MAX);
+                solver.assert(p.ge(&zero));
+                solver.assert(p.le(&max));
+            }
+            PreludeConstraint::IntBounded(name) => {
+                let p = encoder.get_or_create_int(&name);
+                let lo = ast::Int::from_i64(i64::MIN);
+                let hi = ast::Int::from_i64(i64::MAX);
+                solver.assert(p.ge(&lo));
+                solver.assert(p.le(&hi));
+            }
+            PreludeConstraint::BoolZeroOrOne(name) => {
+                let p = encoder.get_or_create_int(&name);
+                let zero = ast::Int::from_i64(0);
+                let one = ast::Int::from_i64(1);
+                solver.assert(p.ge(&zero));
+                solver.assert(p.le(&one));
+            }
+            PreludeConstraint::ConstantEq(_, _) => {}
+            PreludeConstraint::NarrowingLe(name, bound) => {
+                let var = encoder.get_or_create_int(&name);
+                let upper = ast::Int::from_i64(bound);
+                solver.assert(var.le(&upper));
+            }
+        }
+    }
+    let clause_val = encoder.encode_expr(body);
+    let clause_bool = clause_val.as_bool();
+    for axiom in &encoder.background_axioms {
+        solver.assert(axiom);
+    }
+    solver.assert(clause_bool.not());
+    matches!(
+        z3_clause_sat_outcome(&solver),
+        crate::solver_outcome_policy::ClauseSatOutcome::Unsat { .. }
+    )
 }
 
 // -----------------------------------------------------------------------
