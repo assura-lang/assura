@@ -739,7 +739,7 @@ pub fn get_contract_overlays(source: &str) -> ContractOverlayResponse {
             }
             for c in &item.contract.ensures {
                 clauses.push(OverlayClause {
-                    kind: "ensures".to_string(),
+                    kind: c.kind.as_str().to_string(),
                     body: c.body.clone(),
                 });
             }

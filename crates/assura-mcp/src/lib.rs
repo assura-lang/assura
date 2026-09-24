@@ -591,7 +591,7 @@ fn infer_contracts_from_rust(source: &str) -> String {
                     output.push_str(&format!("//   @requires {}\n", r.body));
                 }
                 for e in &item.contract.ensures {
-                    output.push_str(&format!("//   @ensures {}\n", e.body));
+                    output.push_str(&format!("//   @{} {}\n", e.kind.as_str(), e.body));
                 }
                 output.push('\n');
             }
