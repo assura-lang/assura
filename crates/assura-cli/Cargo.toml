@@ -9,6 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
+readme = "README.md"
 # Co-published to crates.io (with frontends) so `cargo install assura` works.
 # Also built by cargo-dist for GitHub Release installers.
 [package.metadata.dist]

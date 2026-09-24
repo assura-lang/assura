@@ -166,7 +166,13 @@ Look up any code: `assura explain A03001`
 
 ```bash
 assura check file.assura          # verify (parse + resolve + types + SMT)
+assura check file.assura --json   # machine-readable; see file_info.vacuous
+assura check file.assura --verbose
+assura check file.assura --stats
+assura check file.assura --show-cores
 assura check file.assura --watch  # re-verify on save
+assura check-rust src/            # inline /// @requires / @ensures
+assura check-rust src/ --suggest  # suggest contracts for unannotated items
 assura build file.assura          # verify + generate Rust code
 assura init my-project            # scaffold new project
 assura fmt file.assura            # format source

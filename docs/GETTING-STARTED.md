@@ -43,19 +43,34 @@ From a git checkout instead of crates.io:
 
 ```bash
 cargo install --path crates/assura-cli --locked
+# Optional standalone LSP binary (same release channel as the CLI):
+cargo install --path crates/assura-lsp --locked
 ```
+
+The VS Code extension in [`editors/vscode/`](../editors/vscode/) is not
+published to the Marketplace or Open VSX yet. Build it from that folder,
+or use the LSP binary above.
+
+To embed the compiler instead of shelling out, depend on
+[`assura-pipeline`](https://crates.io/crates/assura-pipeline). See that
+crate's README and [CRATES-IO.md](CRATES-IO.md). Use a git path dependency
+only when tracking unreleased `main`.
 
 ## 1b. Try without a full local install
 
 If you only want to see a check result before installing:
 
 1. **Open the repo in GitHub Codespaces** (`.devcontainer/devcontainer.json`
-   installs Rust + `libz3-dev`), then:
+   installs Rust + `libz3-dev` and builds the CLI). A warm container
+   requires Codespaces prebuilds enabled for the repo. Without them the
+   first `cargo` command compiles. Then:
    ```bash
-   cargo install --path crates/assura-cli --locked
-   assura check demos/showcase-echo.assura
+   cargo run -- check demos/zip-crate-audit.assura   # counterexamples (intentional)
+   cargo run -- check demos/heartbleed.assura        # clean proof
    ```
-   Same commands work on any machine that already has Rust 1.87+ and Z3.
+   The same `cargo run --` form works on any machine that already has
+   Rust 1.87+ and a built workspace. `libz3-dev` (or the `z3` crate's
+   prebuilt download) is required to compile.
 2. **Watch the demo GIF** (no install):  
    https://github.com/assura-lang/assura/blob/main/assets/demo/assura-check.gif
 3. **Copy-paste the showcase** from section 2 into a file after

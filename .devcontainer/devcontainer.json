@@ -7,7 +7,12 @@
       "extensions": ["rust-lang.rust-analyzer"]
     }
   },
-  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y libz3-dev && rustup update stable && rustup default stable",
+  "onCreateCommand": "sudo apt-get update && sudo apt-get install -y libz3-dev && rustup update stable && rustup default stable",
+  "updateContentCommand": "cargo build --locked -p assura",
+  "postAttachCommand": "bash .devcontainer/welcome.sh",
   "forwardPorts": [],
-  "remoteUser": "vscode"
+  "remoteUser": "vscode",
+  "hostRequirements": {
+    "cpus": 4
+  }
 }

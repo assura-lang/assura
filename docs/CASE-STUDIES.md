@@ -40,8 +40,13 @@ assura check demos/libwebp-huffman.assura
 assura check demos/libwebp-huffman.assura --verbose --stats
 ```
 
-**What the contract encodes:** memory region, taint, table, and related
-feature surface aimed at the class of bug (see file header comments).
+**What the contract encodes:** memory regions (MEM.1), taint tracking
+(SEC.1), precomputed table verification (NUM.2), axiomatic definitions
+(CORE.4), and the related feature surface aimed at the class of bug
+(see file header comments). The bounds are what `assura check` tries to
+prove no input violates. Unknown markers are incomplete encoding, not
+a green proof. What that proof does and does not cover:
+[WHAT-WE-PROVE.md](WHAT-WE-PROVE.md).
 
 **What is proved:** structural + SMT obligations that fire for the
 features actually modeled on that file. Treat Unknown limitation markers
