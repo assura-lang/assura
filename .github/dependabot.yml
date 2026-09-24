@@ -21,10 +21,11 @@ updates:
       # would be a new API break. Allow 0.6.x patches through.
       - dependency-name: ariadne
         versions: [">=0.7"]
-      # z3 0.20 is current (no lifetime params, no &ctx first arg);
-      # 0.21+ is a new major. Allow 0.20.x patches through.
+      # z3 0.21 keeps the 0.20 call shape (no lifetime params, no &ctx).
+      # gh-release links a static Z3 5.1.0, not distro libz3. Allow 0.21.x
+      # patches. 0.22+ is a new major.
       - dependency-name: z3
-        versions: [">=0.21"]
+        versions: [">=0.22"]
       # cvc5 0.4 is current (TermManager factory, Sort not Copy).
       # 0.5 binds wrapper lifetimes to the arena (cvc5-rs#62).
       # Allow 0.4.x patches through. Closed #1533.
