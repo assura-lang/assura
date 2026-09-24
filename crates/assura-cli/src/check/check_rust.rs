@@ -791,7 +791,7 @@ fn run_llm_analysis(
                             expression: c.body.clone(),
                         })
                         .chain(item.contract.ensures.iter().map(|c| ContractClauseInfo {
-                            kind: "ensures".to_string(),
+                            kind: c.kind.as_str().to_string(),
                             expression: c.body.clone(),
                         }))
                         .collect();
@@ -898,7 +898,7 @@ fn run_llm_analysis(
                             expression: c.body.clone(),
                         })
                         .chain(item.contract.ensures.iter().map(|c| ContractClauseInfo {
-                            kind: "ensures".to_string(),
+                            kind: c.kind.as_str().to_string(),
                             expression: c.body.clone(),
                         }))
                         .collect();
