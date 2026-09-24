@@ -34,10 +34,9 @@ contract DataStartOverflow {
     requires { extra_field_length <= 65535 }
 
     // data_start = hdr_start + 30 + file_name_length + extra_field_length
-    // Nat `+` wraps at 2^64, so `hdr_start + 30 + name + extra <= u64::MAX`
-    // is true for every input and would verify. The no-wrap check is the
-    // remaining space. This still counterexamples.
-    ensures { hdr_start <= 18446744073709551615 - 30 - file_name_length - extra_field_length }
+    // Nat `+` wraps at 2^64, so comparing that sum to u64::MAX is true
+    // for every input. No-wrap is the same test as `a + b >= a`.
+    ensures { hdr_start + 30 + file_name_length + extra_field_length >= hdr_start }
 }
 
 contract FindCdSubtractSafe {
