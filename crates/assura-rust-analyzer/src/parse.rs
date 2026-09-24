@@ -17,7 +17,7 @@ use crate::types::{
 /// body would delete a later line that was appended after a `//`.
 /// A `//` or `/*` inside a `"` string stays, so `https://example.com`
 /// is not treated as a comment.
-pub fn strip_doc_clause_line(line: &str) -> String {
+fn strip_doc_clause_line(line: &str) -> String {
     let mut out = String::new();
     let mut chars = line.chars().peekable();
     let mut in_string = false;

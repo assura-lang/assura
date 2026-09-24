@@ -13,7 +13,6 @@ pub use merge::{ClauseSource, MergedContract, SourcedClause, merge_contracts};
 pub use parse::{
     ScanOptions, parse_doc_clauses, parse_rust_file, parse_rust_file_with_options,
     parse_rust_source, parse_rust_source_with_options, scan_directory, scan_directory_with_options,
-    strip_doc_clause_line,
 };
 pub use python::PythonAdapter;
 pub use types::{

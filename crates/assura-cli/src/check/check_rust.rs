@@ -1112,9 +1112,57 @@ fn run_llm_analysis(
 /// Strip trailing `//` comments from doc annotation bodies so
 /// `/// @ensures result == x // identity` stays valid Assura.
 fn clause_body(raw: &str) -> String {
-    assura_rust_analyzer::strip_doc_clause_line(raw)
-        .trim()
-        .to_string()
+    // Local copy: `cargo package` builds this crate against the published
+    // analyzer, so a new analyzer function is not available yet.
+    strip_doc_comments_outside_strings(raw).trim().to_string()
+}
+
+fn strip_doc_comments_outside_strings(line: &str) -> String {
+    let mut out = String::new();
+    let mut chars = line.chars().peekable();
+    let mut in_string = false;
+    let mut escaped = false;
+    while let Some(c) = chars.next() {
+        if in_string {
+            out.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if c == '"' {
+            in_string = true;
+            out.push(c);
+            continue;
+        }
+        if c == '/' {
+            match chars.peek() {
+                Some('/') => break,
+                Some('*') => {
+                    chars.next();
+                    loop {
+                        match chars.next() {
+                            Some('*') if chars.peek() == Some(&'/') => {
+                                chars.next();
+                                break;
+                            }
+                            None => break,
+                            _ => {}
+                        }
+                    }
+                    out.push(' ');
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// Body to emit for `@modifies`. `None` when empty, comment-only, or
