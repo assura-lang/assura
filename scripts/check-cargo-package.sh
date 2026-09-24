@@ -107,8 +107,11 @@ for crate in "${ORDER[@]}"; do
     # would have caught missing monorepo templates inside assura-smt (#812).
     if ! cargo package -p "$crate" --locked; then
       echo "error: cargo package failed for ${crate}" >&2
+      echo "  hint: the cargo error above is the cause. This is not always a missing file." >&2
       echo "  hint: include_str! / build scripts must only reference files" >&2
       echo "  under crates/${crate}/ so they ship in the package tarball." >&2
+      echo "  hint: a dependency build script can fail the same step" >&2
+      echo "  (z3-sys has failed with HTTP 403). That is not include_str!." >&2
       echo "  hint: if this is a pre-publish version bump and deps are not" >&2
       echo "  on crates.io yet, re-run without --full or wait until co-publish." >&2
       failed+=("$crate")
