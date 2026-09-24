@@ -457,9 +457,12 @@ pub(super) fn encode_unsigned_next_power_of_two(
 }
 
 /// `ilog2` for unsigned `a` with width `bits`: highest set bit index.
-/// `sum_i i * bit_i * prod_{j>i}(1-bit_j)`. When `a==0`, result is 0 (Rust panics;
+/// `sum_{k=1..bits-1} (a >= 2^k)`. When `a==0`, result is 0 (Rust panics;
 /// documented honesty: not a panic model; range ensures still CE if they require
 /// a nonzero log for all inputs).
+///
+/// Threshold comparisons stay in linear arithmetic. A product of extracted
+/// bits does not return under Z3 5.1.
 pub(super) fn encode_unsigned_ilog2(
     a: usize,
     bits: u32,
@@ -469,50 +472,19 @@ pub(super) fn encode_unsigned_ilog2(
     if bits == 0 || bits > 64 {
         return None;
     }
-    let two = *next;
-    *next += 1;
-    lines.push(format!("${two} = const 2 : Int"));
-    let one = *next;
-    *next += 1;
-    lines.push(format!("${one} = const 1 : Int"));
     let zero = *next;
     *next += 1;
     lines.push(format!("${zero} = const 0 : Int"));
-    // higher bits still zero (start from MSB side)
-    let mut higher_zero = one;
     let mut acc = zero;
-    for i in (0..bits).rev() {
-        let f = emit_pow2_factor(i, lines, next)?;
-        let shifted = *next;
+    for k in 1..bits {
+        let thr = emit_pow2_factor(k, lines, next)?;
+        let ge = *next;
         *next += 1;
-        lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
-        let bit = *next;
+        lines.push(format!("${ge} = cmp ge ${a} ${thr} : Bool"));
+        let sum = *next;
         *next += 1;
-        lines.push(format!("${bit} = arith mod ${shifted} ${two} : Int"));
-        // term = i * bit * higher_zero
-        let i_c = *next;
-        *next += 1;
-        lines.push(format!("${i_c} = const {i} : Int"));
-        let ib = *next;
-        *next += 1;
-        lines.push(format!("${ib} = arith mul ${i_c} ${bit} : Int"));
-        let term = *next;
-        *next += 1;
-        lines.push(format!("${term} = arith mul ${ib} ${higher_zero} : Int"));
-        let new_acc = *next;
-        *next += 1;
-        lines.push(format!("${new_acc} = arith add ${acc} ${term} : Int"));
-        acc = new_acc;
-        // higher_zero *= (1 - bit)
-        let one_m = *next;
-        *next += 1;
-        lines.push(format!("${one_m} = arith sub ${one} ${bit} : Int"));
-        let new_hz = *next;
-        *next += 1;
-        lines.push(format!(
-            "${new_hz} = arith mul ${higher_zero} ${one_m} : Int"
-        ));
-        higher_zero = new_hz;
+        lines.push(format!("${sum} = arith add ${acc} ${ge} : Int"));
+        acc = sum;
     }
     Some(acc)
 }

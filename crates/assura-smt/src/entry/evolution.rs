@@ -154,7 +154,7 @@ fn check_implication(
 
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        params.set_u32("timeout", 2000);
+        crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
         solver.set_params(&params);
         let mut encoder = Encoder::new();
         encoder.init_bitvector_infrastructure();

@@ -24,7 +24,7 @@ pub(crate) fn check_refinement_subtype_impl(
 ) -> VerificationResult {
     let solver = Solver::new();
     let mut params = z3::Params::new();
-    params.set_u32("timeout", 1000);
+    crate::z3_backend::solver::set_solver_timeout(&mut params, 1000);
     solver.set_params(&params);
 
     let mut encoder = Encoder::new();
@@ -56,7 +56,7 @@ pub(crate) fn check_refinement_subtype_with_context_impl(
 ) -> VerificationResult {
     let solver = Solver::new();
     let mut params = z3::Params::new();
-    params.set_u32("timeout", 1000);
+    crate::z3_backend::solver::set_solver_timeout(&mut params, 1000);
     solver.set_params(&params);
 
     let mut encoder = Encoder::new();
@@ -105,7 +105,7 @@ pub(crate) fn verify_buffer_bounds_impl(
 ) -> VerificationResult {
     let solver = Solver::new();
     let mut params = z3::Params::new();
-    params.set_u32("timeout", 1000);
+    crate::z3_backend::solver::set_solver_timeout(&mut params, 1000);
     solver.set_params(&params);
     let mut encoder = Encoder::new();
 
@@ -143,7 +143,7 @@ pub(crate) fn verify_region_containment_impl(
 ) -> VerificationResult {
     let solver = Solver::new();
     let mut params = z3::Params::new();
-    params.set_u32("timeout", 1000);
+    crate::z3_backend::solver::set_solver_timeout(&mut params, 1000);
     solver.set_params(&params);
     let mut encoder = Encoder::new();
 
@@ -215,7 +215,7 @@ pub(crate) fn verify_taint_safety_impl(
 ) -> VerificationResult {
     let solver = Solver::new();
     let mut params = z3::Params::new();
-    params.set_u32("timeout", 1000);
+    crate::z3_backend::solver::set_solver_timeout(&mut params, 1000);
     solver.set_params(&params);
 
     // Create taint level variables for each labeled variable
@@ -404,7 +404,7 @@ pub(crate) fn verify_with_measures_impl(
     let solver = Solver::new();
     // Measures add quantified axioms; give the solver more time
     let mut params = z3::Params::new();
-    params.set_u32("timeout", 5000);
+    crate::z3_backend::solver::set_solver_timeout(&mut params, 5000);
     solver.set_params(&params);
     let mut encoder = Encoder::new();
 
@@ -459,7 +459,7 @@ pub(crate) fn verify_decrease_impl(
 ) -> VerificationResult {
     let solver = Solver::new();
     let mut params = z3::Params::new();
-    params.set_u32("timeout", 2000);
+    crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
     solver.set_params(&params);
     let mut encoder = Encoder::new();
 
@@ -539,7 +539,7 @@ pub(crate) fn verify_monotonic_state_impl(
     if !expr_has_unmodelable_features(body) {
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        params.set_u32("timeout", 2000);
+        crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
         solver.set_params(&params);
         let mut encoder = Encoder::new();
 
@@ -572,7 +572,7 @@ pub(crate) fn verify_monotonic_state_impl(
     if !expr_has_unmodelable_features(body) {
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        params.set_u32("timeout", 2000);
+        crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
         solver.set_params(&params);
         let mut encoder = Encoder::new();
 
@@ -644,7 +644,7 @@ pub(crate) fn verify_lock_ordering_impl(
     {
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        params.set_u32("timeout", 2000);
+        crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
         solver.set_params(&params);
         let mut encoder = Encoder::new();
 
@@ -696,7 +696,7 @@ pub(crate) fn verify_lock_ordering_impl(
     if !expr_has_unmodelable_features(body) {
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        params.set_u32("timeout", 2000);
+        crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
         solver.set_params(&params);
         let mut encoder = Encoder::new();
 
@@ -772,7 +772,7 @@ pub(crate) fn verify_constant_time_impl(
     {
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        params.set_u32("timeout", 3000);
+        crate::z3_backend::solver::set_solver_timeout(&mut params, 3000);
         solver.set_params(&params);
         let mut encoder = Encoder::new();
 
@@ -816,7 +816,7 @@ pub(crate) fn verify_constant_time_impl(
     if !expr_has_unmodelable_features(body) {
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        params.set_u32("timeout", 2000);
+        crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
         solver.set_params(&params);
         let mut encoder = Encoder::new();
 
@@ -885,7 +885,7 @@ pub(crate) fn verify_secure_erasure_impl(
     {
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        params.set_u32("timeout", 2000);
+        crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
         solver.set_params(&params);
         let mut encoder = Encoder::new();
 
@@ -937,7 +937,7 @@ pub(crate) fn verify_secure_erasure_impl(
     if !expr_has_unmodelable_features(body) {
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        params.set_u32("timeout", 2000);
+        crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
         solver.set_params(&params);
         let mut encoder = Encoder::new();
 
@@ -1016,7 +1016,7 @@ pub(crate) fn verify_crash_recovery_impl(
     {
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        params.set_u32("timeout", 2000);
+        crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
         solver.set_params(&params);
         let mut encoder = Encoder::new();
 
@@ -1047,7 +1047,7 @@ pub(crate) fn verify_crash_recovery_impl(
     {
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        params.set_u32("timeout", 2000);
+        crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
         solver.set_params(&params);
         let mut encoder = Encoder::new();
 
@@ -1138,7 +1138,7 @@ pub(crate) fn verify_mvcc_isolation_impl(
     {
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        params.set_u32("timeout", 3000);
+        crate::z3_backend::solver::set_solver_timeout(&mut params, 3000);
         solver.set_params(&params);
         let mut encoder = Encoder::new();
 
@@ -1170,7 +1170,7 @@ pub(crate) fn verify_mvcc_isolation_impl(
     {
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        params.set_u32("timeout", 2000);
+        crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
         solver.set_params(&params);
         let mut encoder = Encoder::new();
 
@@ -1247,7 +1247,7 @@ pub(crate) fn verify_crypto_conformance_impl(
     {
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        params.set_u32("timeout", 2000);
+        crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
         solver.set_params(&params);
         let mut encoder = Encoder::new();
 
@@ -1278,7 +1278,7 @@ pub(crate) fn verify_crypto_conformance_impl(
     {
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        params.set_u32("timeout", 2000);
+        crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
         solver.set_params(&params);
         let mut encoder = Encoder::new();
 
