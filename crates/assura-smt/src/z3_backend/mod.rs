@@ -6,9 +6,6 @@ pub(crate) mod encoder;
 mod features;
 mod havoc_assume;
 pub(crate) mod solver;
-#[cfg(not(test))]
-mod verify;
-#[cfg(test)]
 pub(crate) mod verify;
 
 pub(crate) use features::{

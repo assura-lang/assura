@@ -12,6 +12,16 @@ use crate::VerificationResult;
 
 pub(crate) const RESTATES_REQUIRES: &str = "restates a requires";
 pub(crate) const NAT_WRAP_CEILING: &str = "true for every Nat because + and * wrap at 2^64";
+pub(crate) const HOLDS_WITHOUT_REQUIRES: &str = "holds without the requires";
+
+/// Prelude facts that stay when user `requires` are omitted.
+#[derive(Clone, Copy)]
+pub(crate) struct VacuityPrelude<'a> {
+    pub params: &'a [assura_ast::Param],
+    pub return_ty: &'a [String],
+    pub constants: &'a [(String, i64)],
+    pub narrowings: &'a [(String, i64)],
+}
 
 pub(crate) fn clause_vacuity_reason(clause: &Clause, requires: &[&SpExpr]) -> Option<&'static str> {
     if !matches!(clause.kind, ClauseKind::Ensures | ClauseKind::Invariant) {
@@ -36,6 +46,7 @@ pub(crate) fn clause_vacuity_reason(clause: &Clause, requires: &[&SpExpr]) -> Op
 pub(crate) fn stamp_vacuity(
     verifiable: &[&Clause],
     requires: &[&SpExpr],
+    prelude: VacuityPrelude<'_>,
     results: &mut [VerificationResult],
 ) {
     if verifiable.len() != results.len() {
@@ -50,6 +61,41 @@ pub(crate) fn stamp_vacuity(
         {
             *vacuous_reason = Some(reason.to_string());
         }
+    }
+    // Second query: still valid when the user's requires are not asserted.
+    // Type bounds and wrap axioms stay. Only an UNSAT answer is marked, so a
+    // timeout is not reported as vacuous.
+    for (clause, result) in verifiable.iter().zip(results.iter_mut()) {
+        if !matches!(clause.kind, ClauseKind::Ensures) {
+            continue;
+        }
+        let VerificationResult::Verified { vacuous_reason, .. } = result else {
+            continue;
+        };
+        if vacuous_reason.is_some() {
+            continue;
+        }
+        if clause_holds_without_user_requires(clause, prelude) {
+            *vacuous_reason = Some(HOLDS_WITHOUT_REQUIRES.to_string());
+        }
+    }
+}
+
+fn clause_holds_without_user_requires(clause: &Clause, prelude: VacuityPrelude<'_>) -> bool {
+    #[cfg(feature = "z3-verify")]
+    {
+        crate::z3_backend::verify::clause_holds_without_user_requires(
+            &clause.body,
+            prelude.params,
+            prelude.return_ty,
+            prelude.constants,
+            prelude.narrowings,
+        )
+    }
+    #[cfg(not(feature = "z3-verify"))]
+    {
+        let _ = (clause, prelude);
+        false
     }
 }
 

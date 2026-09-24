@@ -75,6 +75,12 @@ fn verify_contract_cvc5_shellout_inner(
         crate::policy::vacuity::stamp_vacuity(
             &verifiable,
             &session.prepared.requires_exprs,
+            crate::policy::vacuity::VacuityPrelude {
+                params: session.contract.params,
+                return_ty: session.contract.return_ty,
+                constants: session.contract.constants,
+                narrowings: &session.prepared.narrowings,
+            },
             &mut results,
         );
         return results;
@@ -190,6 +196,12 @@ fn verify_contract_cvc5_shellout_incremental(
     crate::policy::vacuity::stamp_vacuity(
         &prepared.verifiable,
         &prepared.requires_exprs,
+        crate::policy::vacuity::VacuityPrelude {
+            params: session.contract.params,
+            return_ty: session.contract.return_ty,
+            constants: session.contract.constants,
+            narrowings: &prepared.narrowings,
+        },
         &mut results,
     );
     results

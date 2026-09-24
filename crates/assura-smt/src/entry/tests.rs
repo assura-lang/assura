@@ -254,6 +254,51 @@ fn portfolio_parallel_prefers_z3_when_cvc5_missing() {
 }
 
 #[cfg(feature = "z3-verify")]
+#[test]
+fn ensures_true_from_nat_bound_is_vacuous_without_requires() {
+    let typed = crate::test_util::typecheck_ok(
+        "contract T { input(a: Nat) requires { a > 5 } ensures { a >= 0 } }",
+    );
+    let results = crate::Verifier::new(&typed)
+        .apply_options(assura_config::VerifyOptions::for_tests())
+        .verify();
+    let reason = results.iter().find_map(|r| match r {
+        VerificationResult::Verified {
+            clause_desc,
+            vacuous_reason,
+            ..
+        } if clause_desc.ends_with("::ensures") => vacuous_reason.clone(),
+        _ => None,
+    });
+    assert_eq!(
+        reason.as_deref(),
+        Some(crate::policy::vacuity::HOLDS_WITHOUT_REQUIRES)
+    );
+}
+
+#[cfg(feature = "z3-verify")]
+#[test]
+fn ensures_that_needs_requires_is_not_vacuous() {
+    let typed = crate::test_util::typecheck_ok(
+        "contract T { input(a: Nat) requires { a > 5 } ensures { a > 4 } }",
+    );
+    let results = crate::Verifier::new(&typed)
+        .apply_options(assura_config::VerifyOptions::for_tests())
+        .verify();
+    let verified = results.iter().any(|r| {
+        matches!(
+            r,
+            VerificationResult::Verified {
+                clause_desc,
+                vacuous_reason: None,
+                ..
+            } if clause_desc.ends_with("::ensures")
+        )
+    });
+    assert!(verified, "a > 4 needs the requires, got {results:?}");
+}
+
+#[cfg(feature = "z3-verify")]
 fn clause_desc_of(result: &VerificationResult) -> &str {
     match result {
         VerificationResult::Verified { clause_desc, .. }
