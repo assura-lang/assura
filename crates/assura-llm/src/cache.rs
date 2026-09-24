@@ -61,6 +61,19 @@ impl LlmCache {
     }
 }
 
+pub(crate) fn update_len_prefixed(hasher: &mut Sha256, value: &str) {
+    hasher.update((value.len() as u64).to_le_bytes());
+    hasher.update(value.as_bytes());
+}
+
+pub(crate) fn update_count(hasher: &mut Sha256, n: usize) {
+    hasher.update((n as u64).to_le_bytes());
+}
+
+fn update_bool(hasher: &mut Sha256, value: bool) {
+    update_len_prefixed(hasher, if value { "1" } else { "0" });
+}
+
 /// Compute cache key for analysis.
 pub fn analysis_cache_key(
     function_name: &str,
@@ -68,22 +81,31 @@ pub fn analysis_cache_key(
     contracts: &[ContractClauseInfo],
     context_hash: &str,
     model: &str,
+    function_signature: &str,
+    surrounding_types: &[TypeInfo],
 ) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"analysis-v1:");
-    hasher.update(function_name.as_bytes());
-    hasher.update(function_body.as_bytes());
+    hasher.update(b"analysis-v3:");
+    update_len_prefixed(&mut hasher, function_name);
+    update_len_prefixed(&mut hasher, function_body);
     for c in contracts {
-        hasher.update(c.kind.as_bytes());
-        hasher.update(c.expression.as_bytes());
+        update_len_prefixed(&mut hasher, &c.kind);
+        update_len_prefixed(&mut hasher, &c.expression);
     }
-    hasher.update(context_hash.as_bytes());
-    hasher.update(model.as_bytes());
-    hasher.update(crate::prompt::prompt_version().as_bytes());
+    update_len_prefixed(&mut hasher, context_hash);
+    update_len_prefixed(&mut hasher, model);
+    update_len_prefixed(&mut hasher, crate::prompt::prompt_version());
+    update_len_prefixed(&mut hasher, function_signature);
+    update_count(&mut hasher, surrounding_types.len());
+    for ty in surrounding_types {
+        update_len_prefixed(&mut hasher, &ty.name);
+        update_len_prefixed(&mut hasher, &ty.definition);
+    }
     hex::encode(hasher.finalize())
 }
 
 /// Compute cache key for suggestions.
+#[allow(clippy::too_many_arguments)]
 pub fn suggest_cache_key(
     function_name: &str,
     function_body: &str,
@@ -91,16 +113,24 @@ pub fn suggest_cache_key(
     doc_comments: &str,
     siblings_hash: &str,
     model: &str,
+    impl_type: Option<&str>,
+    visibility: &str,
+    is_unsafe: bool,
+    is_async: bool,
 ) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"suggest-v1:");
-    hasher.update(function_name.as_bytes());
-    hasher.update(function_body.as_bytes());
-    hasher.update(function_signature.as_bytes());
-    hasher.update(doc_comments.as_bytes());
-    hasher.update(siblings_hash.as_bytes());
-    hasher.update(model.as_bytes());
-    hasher.update(crate::prompt::prompt_version().as_bytes());
+    hasher.update(b"suggest-v3:");
+    update_len_prefixed(&mut hasher, function_name);
+    update_len_prefixed(&mut hasher, function_body);
+    update_len_prefixed(&mut hasher, function_signature);
+    update_len_prefixed(&mut hasher, doc_comments);
+    update_len_prefixed(&mut hasher, siblings_hash);
+    update_len_prefixed(&mut hasher, model);
+    update_len_prefixed(&mut hasher, crate::prompt::prompt_version());
+    update_len_prefixed(&mut hasher, impl_type.unwrap_or(""));
+    update_len_prefixed(&mut hasher, visibility);
+    update_bool(&mut hasher, is_unsafe);
+    update_bool(&mut hasher, is_async);
     hex::encode(hasher.finalize())
 }
 
@@ -108,12 +138,16 @@ pub fn suggest_cache_key(
 pub fn context_hash(called: &[CalledFunctionContract]) -> String {
     let mut hasher = Sha256::new();
     for cf in called {
-        hasher.update(cf.name.as_bytes());
+        update_len_prefixed(&mut hasher, &cf.name);
+        update_len_prefixed(&mut hasher, &cf.signature);
+        update_len_prefixed(&mut hasher, &cf.source_file);
+        update_count(&mut hasher, cf.requires.len());
         for r in &cf.requires {
-            hasher.update(r.as_bytes());
+            update_len_prefixed(&mut hasher, r);
         }
+        update_count(&mut hasher, cf.ensures.len());
         for e in &cf.ensures {
-            hasher.update(e.as_bytes());
+            update_len_prefixed(&mut hasher, e);
         }
     }
     hex::encode(hasher.finalize())
@@ -137,16 +171,75 @@ mod tests {
 
     #[test]
     fn cache_key_deterministic() {
-        let k1 = analysis_cache_key("foo", "x + 1", &[], "", "mock");
-        let k2 = analysis_cache_key("foo", "x + 1", &[], "", "mock");
+        let k1 = analysis_cache_key("foo", "x + 1", &[], "", "mock", "", &[]);
+        let k2 = analysis_cache_key("foo", "x + 1", &[], "", "mock", "", &[]);
         assert_eq!(k1, k2);
     }
 
     #[test]
     fn cache_key_changes_with_body() {
-        let k1 = analysis_cache_key("foo", "x + 1", &[], "", "mock");
-        let k2 = analysis_cache_key("foo", "x + 2", &[], "", "mock");
+        let k1 = analysis_cache_key("foo", "x + 1", &[], "", "mock", "", &[]);
+        let k2 = analysis_cache_key("foo", "x + 2", &[], "", "mock", "", &[]);
         assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn analysis_cache_key_name_body_boundary() {
+        let left = analysis_cache_key("ab", "c", &[], "", "mock", "", &[]);
+        let right = analysis_cache_key("a", "bc", &[], "", "mock", "", &[]);
+        assert_ne!(left, right);
+    }
+
+    #[test]
+    fn analysis_cache_key_context_model_boundary() {
+        let left = analysis_cache_key("foo", "body", &[], "x", "m", "", &[]);
+        let right = analysis_cache_key("foo", "body", &[], "", "xm", "", &[]);
+        assert_ne!(left, right);
+    }
+
+    #[test]
+    fn analysis_cache_key_clause_boundary() {
+        let split_kind = [ContractClauseInfo {
+            kind: "ab".to_string(),
+            expression: "c".to_string(),
+        }];
+        let split_expr = [ContractClauseInfo {
+            kind: "a".to_string(),
+            expression: "bc".to_string(),
+        }];
+        let left = analysis_cache_key("foo", "body", &split_kind, "", "mock", "", &[]);
+        let right = analysis_cache_key("foo", "body", &split_expr, "", "mock", "", &[]);
+        assert_ne!(left, right);
+    }
+
+    #[test]
+    fn suggest_cache_key_name_body_boundary() {
+        let left = suggest_cache_key(
+            "ab", "c", "sig", "doc", "sib", "mock", None, "", false, false,
+        );
+        let right = suggest_cache_key(
+            "a", "bc", "sig", "doc", "sib", "mock", None, "", false, false,
+        );
+        assert_ne!(left, right);
+    }
+
+    #[test]
+    fn context_hash_name_requires_boundary() {
+        let name_longer = vec![CalledFunctionContract {
+            name: "ab".to_string(),
+            signature: String::new(),
+            requires: vec!["c".to_string()],
+            ensures: vec![],
+            source_file: String::new(),
+        }];
+        let requires_longer = vec![CalledFunctionContract {
+            name: "a".to_string(),
+            signature: String::new(),
+            requires: vec!["bc".to_string()],
+            ensures: vec![],
+            source_file: String::new(),
+        }];
+        assert_ne!(context_hash(&name_longer), context_hash(&requires_longer));
     }
 
     #[test]
@@ -193,6 +286,94 @@ mod tests {
         assert_eq!(got.suggestions[0].expression, "x > 0");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn context_hash_separates_requires_and_ensures() {
+        let requires_both = vec![CalledFunctionContract {
+            name: "f".to_string(),
+            signature: String::new(),
+            requires: vec!["a".to_string(), "b".to_string()],
+            ensures: vec![],
+            source_file: String::new(),
+        }];
+        let split = vec![CalledFunctionContract {
+            name: "f".to_string(),
+            signature: String::new(),
+            requires: vec!["a".to_string()],
+            ensures: vec!["b".to_string()],
+            source_file: String::new(),
+        }];
+        assert_ne!(context_hash(&requires_both), context_hash(&split));
+    }
+
+    #[test]
+    fn context_hash_changes_with_signature() {
+        let base = CalledFunctionContract {
+            name: "f".to_string(),
+            signature: "fn f()".to_string(),
+            requires: vec![],
+            ensures: vec![],
+            source_file: "a.rs".to_string(),
+        };
+        let changed = CalledFunctionContract {
+            signature: "fn f(x: i32)".to_string(),
+            ..base.clone()
+        };
+        assert_ne!(context_hash(&[base]), context_hash(&[changed]));
+    }
+
+    #[test]
+    fn analysis_cache_key_changes_with_signature() {
+        let left = analysis_cache_key("foo", "body", &[], "", "mock", "fn foo()", &[]);
+        let right = analysis_cache_key("foo", "body", &[], "", "mock", "fn foo(x: i32)", &[]);
+        assert_ne!(left, right);
+    }
+
+    #[test]
+    fn analysis_cache_key_changes_with_surrounding_type() {
+        let original = [TypeInfo {
+            name: "Point".to_string(),
+            definition: "struct Point { x: i32 }".to_string(),
+        }];
+        let changed = [TypeInfo {
+            name: "Point".to_string(),
+            definition: "struct Point { x: i64 }".to_string(),
+        }];
+        let left = analysis_cache_key("foo", "body", &[], "", "mock", "fn foo()", &original);
+        let right = analysis_cache_key("foo", "body", &[], "", "mock", "fn foo()", &changed);
+        assert_ne!(left, right);
+    }
+
+    #[test]
+    fn suggest_cache_key_changes_with_unsafe() {
+        let safe = suggest_cache_key(
+            "foo", "body", "fn foo()", "", "", "mock", None, "pub", false, false,
+        );
+        let unsafe_fn = suggest_cache_key(
+            "foo", "body", "fn foo()", "", "", "mock", None, "pub", true, false,
+        );
+        assert_ne!(safe, unsafe_fn);
+    }
+
+    #[test]
+    fn suggest_cache_key_changes_with_impl_type() {
+        let free = suggest_cache_key(
+            "foo", "body", "fn foo()", "", "", "mock", None, "pub", false, false,
+        );
+        let method = suggest_cache_key(
+            "foo",
+            "body",
+            "fn foo()",
+            "",
+            "",
+            "mock",
+            Some("Foo"),
+            "pub",
+            false,
+            false,
+        );
+        assert_ne!(free, method);
     }
 
     #[test]

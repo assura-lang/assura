@@ -51,7 +51,8 @@ runs:
       shell: bash
       env:
         VERSION: ${{ inputs.version }}
-      run: bash "${{ github.action_path }}/verify.sh" --step install
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/verify.sh" --step install
 
     - name: Install Z3
       shell: bash
@@ -73,4 +74,5 @@ runs:
         JSON_OUTPUT: ${{ inputs.json-output }}
         FAIL_ON_WARNING: ${{ inputs.fail-on-warning }}
         ALLOW_EMPTY: ${{ inputs.allow-empty }}
-      run: bash "${{ github.action_path }}/verify.sh" --step run
+        ACTION_PATH: ${{ github.action_path }}
+      run: bash "$ACTION_PATH/verify.sh" --step run

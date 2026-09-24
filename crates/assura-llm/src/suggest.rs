@@ -17,6 +17,8 @@ pub fn analyze_function(
         &request.contracts,
         &ctx_hash,
         provider.model_id(),
+        &request.function_signature,
+        &request.context.surrounding_types,
     );
 
     // Check cache first
@@ -56,6 +58,10 @@ pub fn suggest_contracts(
         &request.doc_comments,
         &siblings_hash,
         provider.model_id(),
+        request.impl_type.as_deref(),
+        &request.visibility,
+        request.is_unsafe,
+        request.is_async,
     );
 
     if let Some(cached) = cache.get_suggestions(&key) {

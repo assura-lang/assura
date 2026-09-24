@@ -227,9 +227,14 @@ impl VerificationResult {
     }
 
     /// Counterexample model text for gRPC responses.
+    ///
+    /// Boolean `req_N` tracking literals are dropped, matching JSON and
+    /// [`VerificationSummary`]. Other variants return an empty string.
     pub fn grpc_counterexample(&self) -> String {
         match self {
-            Self::Counterexample { model, .. } => model.clone(),
+            Self::Counterexample { model, .. } => {
+                crate::encode_atom_policy::strip_requires_track_model_lines(model)
+            }
             _ => String::new(),
         }
     }
@@ -376,5 +381,30 @@ mod tests {
         let r = VerificationResult::verified("test");
         let r2 = r.clone();
         assert!(format!("{r:?}") == format!("{r2:?}"));
+    }
+
+    #[test]
+    fn grpc_counterexample_strips_requires_track_lines() {
+        let model = "\
+cd_offset -> 0
+req_0 -> true
+req_1 -> false
+req_2 -> 5
+";
+        let r = VerificationResult::Counterexample {
+            clause_desc: "SafeDiv: ensures".into(),
+            model: model.into(),
+            counter_model: None,
+        };
+        let grpc = r.grpc_counterexample();
+        assert!(!grpc.contains("req_0"));
+        assert!(!grpc.contains("req_1 -> false"));
+        assert!(grpc.contains("cd_offset -> 0"));
+        assert!(grpc.contains("req_2 -> 5"));
+        assert!(
+            VerificationResult::verified("SafeDiv: ensures")
+                .grpc_counterexample()
+                .is_empty()
+        );
     }
 }
