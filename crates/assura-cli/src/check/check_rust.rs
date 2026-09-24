@@ -1399,6 +1399,44 @@ fn bump(x: i32, xs: i32) -> i32 { x }
             !comment_only.contains("modifies {"),
             "comment-only @modifies must not emit, got:\n{comment_only}"
         );
+
+        let block_comment = synth_from_rust(
+            "\
+/// @requires x > 0
+/// @ensures result >= x
+/// @modifies /* note */
+fn bump(x: i32, xs: i32) -> i32 { x }
+",
+        );
+        assert!(
+            !block_comment.contains("modifies {"),
+            "block-comment @modifies must not emit, got:\n{block_comment}"
+        );
+    }
+
+    #[test]
+    fn keeps_clause_text_after_an_inline_comment() {
+        let source = synth_from_rust(
+            "\
+/// @requires x > 0 // positive
+/// && xs > 0
+/// @modifies xs // buf
+/// ys
+fn bump(x: i32, xs: i32, ys: i32) -> i32 { x }
+",
+        );
+        assert!(
+            source.contains("x > 0 && xs > 0"),
+            "continuation after // must survive, got:\n{source}"
+        );
+        assert!(
+            source.contains("modifies { xs ys }"),
+            "modifies continuation after // must survive, got:\n{source}"
+        );
+        assert!(
+            !source.contains("buf"),
+            "inline // comment must not be emitted, got:\n{source}"
+        );
     }
 
     #[test]

@@ -11,6 +11,40 @@ use crate::types::{
     ParamInfo,
 };
 
+/// Drop `//` tails and `/* */` spans from one doc line.
+///
+/// Done per line, before continuations are joined. Stripping the joined
+/// body would delete a later line that was appended after a `//`.
+fn strip_doc_clause_line(line: &str) -> String {
+    let mut out = String::new();
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '/' {
+            match chars.peek() {
+                Some('/') => break,
+                Some('*') => {
+                    chars.next();
+                    loop {
+                        match chars.next() {
+                            Some('*') if chars.peek() == Some(&'/') => {
+                                chars.next();
+                                break;
+                            }
+                            None => break,
+                            _ => {}
+                        }
+                    }
+                    out.push(' ');
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Parse contract clauses from a sequence of doc comment lines.
 ///
 /// Each line should be the content of a `///` doc comment (without the `///` prefix).
@@ -47,7 +81,7 @@ pub fn parse_doc_clauses(doc_lines: &[(String, usize)]) -> InlineContract {
 
             if let Some(kind) = InlineClauseKind::from_keyword(keyword) {
                 current_kind = Some(kind);
-                current_body = body_rest.to_string();
+                current_body = strip_doc_clause_line(body_rest).trim().to_string();
                 current_offset = *offset;
             }
             // If keyword is not recognized, ignore this line
@@ -67,11 +101,17 @@ pub fn parse_doc_clauses(doc_lines: &[(String, usize)]) -> InlineContract {
                     current_body.clear();
                 }
             } else {
-                // Continuation: append to current body
+                // Continuation: append to current body. Strip comments on
+                // this line first so a `//` on an earlier line cannot eat
+                // the next line after the lines are joined.
+                let piece = strip_doc_clause_line(trimmed);
+                if piece.trim().is_empty() {
+                    continue;
+                }
                 if !current_body.is_empty() {
                     current_body.push(' ');
                 }
-                current_body.push_str(trimmed);
+                current_body.push_str(piece.trim());
             }
         }
         // Non-@, non-continuation lines are regular doc comments; skip.
