@@ -34,6 +34,19 @@ fn non_negative_only(x: i32) -> i32 {
     x + 1
 }
 
+#[contract]
+/// @ensures_ok result > 0
+/// @ensures_err result != 0
+fn ok_path_doc_is_not_an_ensures(x: i32) -> Result<i32, i32> {
+    if x > 0 { Ok(x) } else { Err(x) }
+}
+
+#[test]
+fn ensures_ok_doc_comment_does_not_become_ensures() {
+    assert_eq!(ok_path_doc_is_not_an_ensures(2).unwrap(), 2);
+    assert_eq!(ok_path_doc_is_not_an_ensures(-1), Err(-1));
+}
+
 #[test]
 fn contract_no_ensures_works() {
     assert_eq!(non_negative_only(0), 1);
