@@ -368,26 +368,38 @@ pub fn deduplicate_crashes(crashes: &[CrashAnalysis]) -> Vec<&CrashAnalysis> {
 // ---------------------------------------------------------------------------
 
 /// Compute cache key for crash suggestion.
-/// Keyed by (function + panic class), not specific input.
+/// Length-prefixed so adjacent prompt fields cannot collide.
+#[allow(clippy::too_many_arguments)]
 pub fn crash_cache_key(
     function_name: &str,
     function_body: &str,
     crash_kind: &str,
     panic_message: &str,
+    input_summary: &str,
+    panic_location: &str,
+    crash_function: &str,
+    crash_file: &str,
+    crash_line: &str,
     existing_contracts: &[String],
     model: &str,
 ) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"crash-v1:");
-    hasher.update(function_name.as_bytes());
-    hasher.update(function_body.as_bytes());
-    hasher.update(crash_kind.as_bytes());
-    hasher.update(panic_message.as_bytes());
+    hasher.update(b"crash-v2:");
+    cache::update_len_prefixed(&mut hasher, function_name);
+    cache::update_len_prefixed(&mut hasher, function_body);
+    cache::update_len_prefixed(&mut hasher, crash_kind);
+    cache::update_len_prefixed(&mut hasher, input_summary);
+    cache::update_len_prefixed(&mut hasher, panic_message);
+    cache::update_len_prefixed(&mut hasher, panic_location);
+    cache::update_len_prefixed(&mut hasher, crash_function);
+    cache::update_len_prefixed(&mut hasher, crash_file);
+    cache::update_len_prefixed(&mut hasher, crash_line);
+    cache::update_count(&mut hasher, existing_contracts.len());
     for c in existing_contracts {
-        hasher.update(c.as_bytes());
+        cache::update_len_prefixed(&mut hasher, c);
     }
-    hasher.update(model.as_bytes());
-    hasher.update(crate::prompt::prompt_version().as_bytes());
+    cache::update_len_prefixed(&mut hasher, model);
+    cache::update_len_prefixed(&mut hasher, crate::prompt::prompt_version());
     cache::hex::encode(hasher.finalize())
 }
 
@@ -405,13 +417,29 @@ pub fn suggest_from_crash(
     stack_trace: Option<&StackTrace>,
     existing_contracts: &[String],
 ) -> Result<CrashSuggestionResponse, LlmError> {
+    let panic_message = stack_trace
+        .and_then(|t| t.panic_message.as_deref())
+        .unwrap_or("");
+    let panic_location = stack_trace
+        .and_then(|t| t.panic_location.as_deref())
+        .unwrap_or("");
+    let frame = stack_trace.and_then(|t| t.crash_function());
+    let crash_function = frame.map(|f| f.function_name.as_str()).unwrap_or("");
+    let crash_file = frame.and_then(|f| f.file.as_deref()).unwrap_or("");
+    let crash_line = frame
+        .and_then(|f| f.line)
+        .map(|line| line.to_string())
+        .unwrap_or_default();
     let key = crash_cache_key(
         function_name,
         function_source,
         &crash.crash_kind.to_string(),
-        stack_trace
-            .and_then(|t| t.panic_message.as_deref())
-            .unwrap_or(""),
+        panic_message,
+        &crash.input_summary,
+        panic_location,
+        crash_function,
+        crash_file,
+        &crash_line,
         existing_contracts,
         provider.model_id(),
     );
@@ -563,18 +591,55 @@ stack backtrace:
         assert_eq!(deduped[1].function_name, "validate");
     }
 
+    fn crash_key(
+        name: &str,
+        body: &str,
+        panic_message: &str,
+        existing_contracts: &[String],
+    ) -> String {
+        crash_cache_key(
+            name,
+            body,
+            "crash",
+            panic_message,
+            "",
+            "",
+            "",
+            "",
+            "",
+            existing_contracts,
+            "mock",
+        )
+    }
+
     #[test]
     fn crash_cache_key_deterministic() {
-        let k1 = crash_cache_key("foo", "body", "crash", "oob", &[], "mock");
-        let k2 = crash_cache_key("foo", "body", "crash", "oob", &[], "mock");
+        let k1 = crash_key("foo", "body", "oob", &[]);
+        let k2 = crash_key("foo", "body", "oob", &[]);
         assert_eq!(k1, k2);
     }
 
     #[test]
     fn crash_cache_key_differs_on_panic() {
-        let k1 = crash_cache_key("foo", "body", "crash", "oob", &[], "mock");
-        let k2 = crash_cache_key("foo", "body", "crash", "div by zero", &[], "mock");
+        let k1 = crash_key("foo", "body", "oob", &[]);
+        let k2 = crash_key("foo", "body", "div by zero", &[]);
         assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn crash_cache_key_name_body_boundary() {
+        let left = crash_key("ab", "c", "oob", &[]);
+        let right = crash_key("a", "bc", "oob", &[]);
+        assert_ne!(left, right);
+    }
+
+    #[test]
+    fn crash_cache_key_existing_contracts_boundary() {
+        let split = ["ab".to_string(), "c".to_string()];
+        let joined = ["abc".to_string()];
+        let left = crash_key("foo", "body", "oob", &split);
+        let right = crash_key("foo", "body", "oob", &joined);
+        assert_ne!(left, right);
     }
 
     #[test]

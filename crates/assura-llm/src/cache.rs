@@ -61,13 +61,13 @@ impl LlmCache {
     }
 }
 
-fn update_len_prefixed(hasher: &mut Sha256, value: &str) {
+pub(crate) fn update_len_prefixed(hasher: &mut Sha256, value: &str) {
     hasher.update((value.len() as u64).to_le_bytes());
     hasher.update(value.as_bytes());
 }
 
-fn update_count(hasher: &mut Sha256, count: usize) {
-    hasher.update((count as u64).to_le_bytes());
+pub(crate) fn update_count(hasher: &mut Sha256, n: usize) {
+    hasher.update((n as u64).to_le_bytes());
 }
 
 fn update_bool(hasher: &mut Sha256, value: bool) {

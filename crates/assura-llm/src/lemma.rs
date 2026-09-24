@@ -623,24 +623,36 @@ fn run_smtlib_check(query: &str) -> LemmaResult {
 // ---------------------------------------------------------------------------
 
 /// Compute cache key for lemma chain.
+/// Includes Level 1 paths the user prompt sends, length-prefixed.
 pub fn lemma_cache_key(
     function_name: &str,
     function_body: &str,
     contracts: &[ContractClauseInfo],
     level1_verdict: &str,
+    level1_paths: &[PathAnalysis],
     model: &str,
 ) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"lemma-v1:");
-    hasher.update(function_name.as_bytes());
-    hasher.update(function_body.as_bytes());
+    hasher.update(b"lemma-v2:");
+    cache::update_len_prefixed(&mut hasher, function_name);
+    cache::update_len_prefixed(&mut hasher, function_body);
+    cache::update_count(&mut hasher, contracts.len());
     for c in contracts {
-        hasher.update(c.kind.as_bytes());
-        hasher.update(c.expression.as_bytes());
+        cache::update_len_prefixed(&mut hasher, &c.kind);
+        cache::update_len_prefixed(&mut hasher, &c.expression);
     }
-    hasher.update(level1_verdict.as_bytes());
-    hasher.update(model.as_bytes());
-    hasher.update(prompt::prompt_version().as_bytes());
+    cache::update_len_prefixed(&mut hasher, level1_verdict);
+    cache::update_count(&mut hasher, level1_paths.len());
+    for path in level1_paths {
+        cache::update_len_prefixed(&mut hasher, &path.description);
+        cache::update_len_prefixed(
+            &mut hasher,
+            if path.contracts_satisfied { "1" } else { "0" },
+        );
+        cache::update_len_prefixed(&mut hasher, &path.reasoning);
+    }
+    cache::update_len_prefixed(&mut hasher, model);
+    cache::update_len_prefixed(&mut hasher, prompt::prompt_version());
     cache::hex::encode(hasher.finalize())
 }
 
@@ -663,6 +675,7 @@ pub fn generate_and_verify_lemmas(
         function_source,
         contracts,
         level1_verdict,
+        level1_paths,
         provider.model_id(),
     );
 
@@ -925,5 +938,59 @@ mod tests {
         assert!(matches!(&tokens[3], Token::Op(s) if s == "=="));
         assert!(matches!(&tokens[4], Token::Op(s) if s == "<"));
         assert!(matches!(&tokens[5], Token::Op(s) if s == ">"));
+    }
+
+    fn path_with_reasoning(reasoning: &str) -> PathAnalysis {
+        PathAnalysis {
+            description: "then-branch".to_string(),
+            reachable_given_preconditions: true,
+            contracts_satisfied: true,
+            reasoning: reasoning.to_string(),
+        }
+    }
+
+    #[test]
+    fn lemma_cache_key_kind_expression_boundary() {
+        let kind_split = [ContractClauseInfo {
+            kind: "re".to_string(),
+            expression: "quires(x)".to_string(),
+        }];
+        let expr_split = [ContractClauseInfo {
+            kind: "requires".to_string(),
+            expression: "(x)".to_string(),
+        }];
+        let left = lemma_cache_key("fn f()", "body", &kind_split, "pass", &[], "mock");
+        let right = lemma_cache_key("fn f()", "body", &expr_split, "pass", &[], "mock");
+        assert_ne!(left, right);
+    }
+
+    #[test]
+    fn lemma_cache_key_path_reasoning_changes_key() {
+        let left_paths = [path_with_reasoning("holds because x > 0")];
+        let right_paths = [path_with_reasoning("holds because x > 1")];
+        let left = lemma_cache_key("fn f()", "body", &[], "pass", &left_paths, "mock");
+        let right = lemma_cache_key("fn f()", "body", &[], "pass", &right_paths, "mock");
+        assert_ne!(left, right);
+    }
+
+    #[test]
+    fn lemma_cache_key_requires_list_not_concatenated() {
+        let two = [
+            ContractClauseInfo {
+                kind: "requires".to_string(),
+                expression: "x > 0".to_string(),
+            },
+            ContractClauseInfo {
+                kind: "ensures".to_string(),
+                expression: "y".to_string(),
+            },
+        ];
+        let one = [ContractClauseInfo {
+            kind: "requires".to_string(),
+            expression: "x > 0ensuresy".to_string(),
+        }];
+        let left = lemma_cache_key("fn f()", "body", &two, "pass", &[], "mock");
+        let right = lemma_cache_key("fn f()", "body", &one, "pass", &[], "mock");
+        assert_ne!(left, right);
     }
 }
