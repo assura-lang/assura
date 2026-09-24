@@ -546,7 +546,7 @@ Keep dependencies up to date. Run `cargo outdated -R` periodically.
 | rowan | 0.17 | immutable CST only (0.17 removed mutable edit APIs; Assura never used them) |
 | ariadne | 0.6 | Report::build takes (kind, span) with 2 args; span is (Id, Range) |
 | logos | 0.16 | stable, upgrades OK |
-| z3 | 0.20 | No lifetime params on AST types; no &ctx first arg; pre-generated FFI bindings |
+| z3 | 0.21 | No lifetime params on AST types; no &ctx first arg; `gh-release` links static Z3 5.1.0 (not distro libz3) |
 | sha2 | 0.11 | Uses digest 0.11, high-level API unchanged |
 | cvc5 | 0.4 | Native FFI bindings; `Sort` not Copy; `Kind` names differ from SMT-LIB2; requires `features = ["static"]` for static linking |
 
@@ -563,7 +563,7 @@ walks CST children with `as_token()` / `as_node()` only. Matching on
 breaks `cargo package` when crates.io `assura-parser` still pins an
 older rowan (dual type instances). Keep rowan private to `assura-parser`.
 
-**z3 0.20 patterns**: No lifetime params (`Bool`, not `Bool<'ctx>`).
+**z3 0.21 patterns**: No lifetime params (`Bool`, not `Bool<'ctx>`).
 No `&ctx` first arg on constructors (`Int::from_i64(n)`, not
 `Int::from_i64(&ctx, n)`). Use `.eq()` not `._eq()`. Context
 created via `z3::with_z3_config(&cfg, || { ... })`.

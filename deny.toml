@@ -8,9 +8,7 @@ all-features = false
 [advisories]
 version = 2
 yanked = "warn"
-# RUSTSEC-2026-0295 is fixed in z3 0.21. That major is an intentional pin
-# (dependabot.yml, AGENTS.md). ApplyResult is not used in this repo.
-ignore = ["RUSTSEC-2026-0295"]
+ignore = []
 
 [licenses]
 version = 2

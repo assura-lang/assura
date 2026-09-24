@@ -125,7 +125,7 @@ fn verify_clauses_with_types(
 
     let solver = Solver::new();
     let mut solver_params = z3::Params::new();
-    solver_params.set_u32("timeout", timeout_ms);
+    crate::z3_backend::solver::set_solver_timeout(&mut solver_params, timeout_ms);
     solver.set_params(&solver_params);
     if crate::prelude_policy::track_requires_unsat_cores(requires.len()) {
         enable_unsat_cores(&solver);
@@ -462,8 +462,8 @@ pub(crate) fn verify_quantified_impl(
 ) -> VerificationResult {
     let solver = Solver::new();
     let mut params = z3::Params::new();
-    params.set_u32(
-        "timeout",
+    crate::z3_backend::solver::set_solver_timeout(
+        &mut params,
         crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_MS,
     );
     solver.set_params(&params);

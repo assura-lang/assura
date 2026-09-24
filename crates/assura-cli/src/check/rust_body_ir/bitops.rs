@@ -457,9 +457,12 @@ pub(super) fn encode_unsigned_next_power_of_two(
 }
 
 /// `ilog2` for unsigned `a` with width `bits`: highest set bit index.
-/// `sum_i i * bit_i * prod_{j>i}(1-bit_j)`. When `a==0`, result is 0 (Rust panics;
+/// `sum_{k=1..bits-1} (a >= 2^k)`. When `a==0`, result is 0 (Rust panics;
 /// documented honesty: not a panic model; range ensures still CE if they require
 /// a nonzero log for all inputs).
+///
+/// Threshold comparisons stay in linear arithmetic. A product of extracted
+/// bits does not return under Z3 5.1.
 pub(super) fn encode_unsigned_ilog2(
     a: usize,
     bits: u32,
@@ -469,50 +472,19 @@ pub(super) fn encode_unsigned_ilog2(
     if bits == 0 || bits > 64 {
         return None;
     }
-    let two = *next;
-    *next += 1;
-    lines.push(format!("${two} = const 2 : Int"));
-    let one = *next;
-    *next += 1;
-    lines.push(format!("${one} = const 1 : Int"));
     let zero = *next;
     *next += 1;
     lines.push(format!("${zero} = const 0 : Int"));
-    // higher bits still zero (start from MSB side)
-    let mut higher_zero = one;
     let mut acc = zero;
-    for i in (0..bits).rev() {
-        let f = emit_pow2_factor(i, lines, next)?;
-        let shifted = *next;
+    for k in 1..bits {
+        let thr = emit_pow2_factor(k, lines, next)?;
+        let ge = *next;
         *next += 1;
-        lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
-        let bit = *next;
+        lines.push(format!("${ge} = cmp ge ${a} ${thr} : Bool"));
+        let sum = *next;
         *next += 1;
-        lines.push(format!("${bit} = arith mod ${shifted} ${two} : Int"));
-        // term = i * bit * higher_zero
-        let i_c = *next;
-        *next += 1;
-        lines.push(format!("${i_c} = const {i} : Int"));
-        let ib = *next;
-        *next += 1;
-        lines.push(format!("${ib} = arith mul ${i_c} ${bit} : Int"));
-        let term = *next;
-        *next += 1;
-        lines.push(format!("${term} = arith mul ${ib} ${higher_zero} : Int"));
-        let new_acc = *next;
-        *next += 1;
-        lines.push(format!("${new_acc} = arith add ${acc} ${term} : Int"));
-        acc = new_acc;
-        // higher_zero *= (1 - bit)
-        let one_m = *next;
-        *next += 1;
-        lines.push(format!("${one_m} = arith sub ${one} ${bit} : Int"));
-        let new_hz = *next;
-        *next += 1;
-        lines.push(format!(
-            "${new_hz} = arith mul ${higher_zero} ${one_m} : Int"
-        ));
-        higher_zero = new_hz;
+        lines.push(format!("${sum} = arith add ${acc} ${ge} : Int"));
+        acc = sum;
     }
     Some(acc)
 }
@@ -654,7 +626,10 @@ pub(super) fn encode_unsigned_leading_ones(
 }
 
 /// trailing_zeros for unsigned `a` with width `bits`.
-/// `sum_i i * bit_i * prod_{j<i}(1-bit_j) + bits * prod_all(1-bit)`.
+/// `sum_{k=1..bits-1} (a mod 2^k == 0)`, plus 1 when `a == 0`.
+///
+/// Constant moduli stay degree 1. A running product of extracted bits
+/// does not return under Z3 5.1.
 pub(super) fn encode_unsigned_trailing_zeros(
     a: usize,
     bits: u32,
@@ -664,66 +639,40 @@ pub(super) fn encode_unsigned_trailing_zeros(
     if bits == 0 || bits > 64 {
         return None;
     }
-    let two = *next;
-    *next += 1;
-    lines.push(format!("${two} = const 2 : Int"));
-    let one = *next;
-    *next += 1;
-    lines.push(format!("${one} = const 1 : Int"));
     let zero = *next;
     *next += 1;
     lines.push(format!("${zero} = const 0 : Int"));
-    // prod starts at 1 (all lower bits zero so far)
-    let mut prod = one;
+    let one = *next;
+    *next += 1;
+    lines.push(format!("${one} = const 1 : Int"));
     let mut acc = zero;
-    for i in 0..bits {
-        let f = emit_pow2_factor(i, lines, next)?;
-        let shifted = *next;
+    for k in 1..bits {
+        let thr = emit_pow2_factor(k, lines, next)?;
+        let rem = *next;
         *next += 1;
-        lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
-        let bit = *next;
+        lines.push(format!("${rem} = arith mod ${a} ${thr} : Int"));
+        let eq = *next;
         *next += 1;
-        lines.push(format!("${bit} = arith mod ${shifted} ${two} : Int"));
-        // term = i * bit * prod
-        let i_c = *next;
+        lines.push(format!("${eq} = cmp eq ${rem} ${zero} : Bool"));
+        let sum = *next;
         *next += 1;
-        lines.push(format!("${i_c} = const {i} : Int"));
-        let ib = *next;
-        *next += 1;
-        lines.push(format!("${ib} = arith mul ${i_c} ${bit} : Int"));
-        let term = *next;
-        *next += 1;
-        lines.push(format!("${term} = arith mul ${ib} ${prod} : Int"));
-        let new_acc = *next;
-        *next += 1;
-        lines.push(format!("${new_acc} = arith add ${acc} ${term} : Int"));
-        acc = new_acc;
-        // prod *= (1 - bit)
-        let one_m_bit = *next;
-        *next += 1;
-        lines.push(format!("${one_m_bit} = arith sub ${one} ${bit} : Int"));
-        let new_prod = *next;
-        *next += 1;
-        lines.push(format!(
-            "${new_prod} = arith mul ${prod} ${one_m_bit} : Int"
-        ));
-        prod = new_prod;
+        lines.push(format!("${sum} = arith add ${acc} ${eq} : Int"));
+        acc = sum;
     }
-    // + bits when all zero (prod still 1)
-    let bits_c = *next;
+    let is_zero = *next;
     *next += 1;
-    lines.push(format!("${bits_c} = const {bits} : Int"));
-    let all_zero = *next;
+    lines.push(format!("${is_zero} = cmp eq ${a} ${zero} : Bool"));
+    let extra = *next;
     *next += 1;
-    lines.push(format!("${all_zero} = arith mul ${bits_c} ${prod} : Int"));
+    lines.push(format!("${extra} = arith mul ${is_zero} ${one} : Int"));
     let slot = *next;
     *next += 1;
-    lines.push(format!("${slot} = arith add ${acc} ${all_zero} : Int"));
+    lines.push(format!("${slot} = arith add ${acc} ${extra} : Int"));
     Some(slot)
 }
 
 /// leading_zeros for unsigned `a` with width `bits`.
-/// Scan high→low: count consecutive zero bits while still in prefix.
+/// `bits` when `a == 0`, otherwise `bits - 1 - ilog2(a)`.
 pub(super) fn encode_unsigned_leading_zeros(
     a: usize,
     bits: u32,
@@ -733,41 +682,29 @@ pub(super) fn encode_unsigned_leading_zeros(
     if bits == 0 || bits > 64 {
         return None;
     }
-    let two = *next;
+    let ilog = encode_unsigned_ilog2(a, bits, lines, next)?;
+    let bits_c = *next;
     *next += 1;
-    lines.push(format!("${two} = const 2 : Int"));
+    lines.push(format!("${bits_c} = const {bits} : Int"));
     let one = *next;
     *next += 1;
     lines.push(format!("${one} = const 1 : Int"));
     let zero = *next;
     *next += 1;
     lines.push(format!("${zero} = const 0 : Int"));
-    let mut still = one;
-    let mut acc = zero;
-    for i in (0..bits).rev() {
-        let f = emit_pow2_factor(i, lines, next)?;
-        let shifted = *next;
-        *next += 1;
-        lines.push(format!("${shifted} = arith div ${a} ${f} : Int"));
-        let bit = *next;
-        *next += 1;
-        lines.push(format!("${bit} = arith mod ${shifted} ${two} : Int"));
-        let zbit = *next;
-        *next += 1;
-        lines.push(format!("${zbit} = arith sub ${one} ${bit} : Int"));
-        let term = *next;
-        *next += 1;
-        lines.push(format!("${term} = arith mul ${still} ${zbit} : Int"));
-        let new_acc = *next;
-        *next += 1;
-        lines.push(format!("${new_acc} = arith add ${acc} ${term} : Int"));
-        acc = new_acc;
-        let new_still = *next;
-        *next += 1;
-        lines.push(format!("${new_still} = arith mul ${still} ${zbit} : Int"));
-        still = new_still;
-    }
-    Some(acc)
+    let gt = *next;
+    *next += 1;
+    lines.push(format!("${gt} = cmp gt ${a} ${zero} : Bool"));
+    let ilog1 = *next;
+    *next += 1;
+    lines.push(format!("${ilog1} = arith add ${ilog} ${one} : Int"));
+    let delta = *next;
+    *next += 1;
+    lines.push(format!("${delta} = arith mul ${gt} ${ilog1} : Int"));
+    let slot = *next;
+    *next += 1;
+    lines.push(format!("${slot} = arith sub ${bits_c} ${delta} : Int"));
+    Some(slot)
 }
 
 /// reverse_bits for unsigned `a` with width `bits`: sum_i bit_i * 2^(bits-1-i).

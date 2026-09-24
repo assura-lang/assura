@@ -5,6 +5,15 @@ use crate::*;
 use z3::ast::Ast;
 use z3::{Model, Params, SatResult, Solver, ast};
 
+/// Apply a check timeout to both Z3 combined-solver stages.
+///
+/// `push`/`pop` switches Z3 to `solver2`. On Z3 5.1 the `timeout` parameter
+/// does not apply to that stage. `solver2_timeout` is the matching limit.
+pub(crate) fn set_solver_timeout(params: &mut Params, timeout_ms: u32) {
+    params.set_u32("timeout", timeout_ms);
+    params.set_u32("solver2_timeout", timeout_ms);
+}
+
 // -----------------------------------------------------------------------
 // Clause description helper
 // -----------------------------------------------------------------------

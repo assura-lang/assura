@@ -1630,20 +1630,17 @@ fn typed_reverse_bits_and_swap_bytes_peep() {
     assert!(try_ir_from_rust_body("Z", &px(), Some("u32"), "0u32.ilog2()").is_none());
     // Variable unsigned path-param ilog2 (#1174)
     let vilog = try_ir_from_rust_body("V", &pu8(), Some("u32"), "x.ilog2()").expect("var ilog2");
-    assert!(
-        vilog.contains("arith mod") && vilog.contains("arith mul"),
-        "{vilog}"
-    );
+    assert!(vilog.contains("cmp ge"), "{vilog}");
     assura_smt::LoadedVerifyExtras::from_ir_text(&vilog, "V").expect("parse");
     let vilog10 =
         try_ir_from_rust_body("L", &pu8(), Some("u32"), "x.ilog10()").expect("var ilog10");
     assert!(vilog10.contains("cmp ge"), "{vilog10}");
     let vilog16 =
         try_ir_from_rust_body("V16", &pu16(), Some("u32"), "x.ilog2()").expect("u16 ilog2");
-    assert!(vilog16.contains("arith mod"), "{vilog16}");
+    assert!(vilog16.contains("cmp ge"), "{vilog16}");
     let vilog32 =
         try_ir_from_rust_body("V32", &pu32(), Some("u32"), "x.ilog2()").expect("u32 ilog2");
-    assert!(vilog32.contains("arith mod"), "{vilog32}");
+    assert!(vilog32.contains("cmp ge"), "{vilog32}");
     let vilog10_32 =
         try_ir_from_rust_body("L32", &pu32(), Some("u32"), "x.ilog10()").expect("u32 ilog10");
     assert!(vilog10_32.contains("cmp ge"), "{vilog10_32}");
