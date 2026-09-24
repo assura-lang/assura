@@ -165,6 +165,16 @@ fn same_expr(a: &Expr, b: &Expr) -> bool {
                 rhs: rhs_b,
             },
         ) => same_binop(op_a, lhs_a, rhs_a, op_b, lhs_b, rhs_b),
+        (
+            Expr::UnaryOp {
+                op: op_a,
+                expr: expr_a,
+            },
+            Expr::UnaryOp {
+                op: op_b,
+                expr: expr_b,
+            },
+        ) if op_a == op_b => same_expr(&expr_a.node, &expr_b.node),
         _ => a == b,
     }
 }
@@ -210,7 +220,7 @@ fn is_flipped_cmp(a: &BinOp, b: &BinOp) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_ast::{BinOp, Expr, Literal, Spanned};
+    use assura_ast::{BinOp, Expr, Literal, Spanned, UnaryOp};
 
     fn ident(name: &str) -> SpExpr {
         Spanned::no_span(Expr::Ident(name.into()))
@@ -218,6 +228,13 @@ mod tests {
 
     fn lit(n: &str) -> SpExpr {
         Spanned::no_span(Expr::Literal(Literal::Int(n.into())))
+    }
+
+    fn not(inner: SpExpr) -> SpExpr {
+        Spanned::no_span(Expr::UnaryOp {
+            op: UnaryOp::Not,
+            expr: Box::new(inner),
+        })
     }
 
     fn bin(op: BinOp, lhs: SpExpr, rhs: SpExpr) -> SpExpr {
@@ -240,6 +257,16 @@ mod tests {
     fn flipped_comparison_restates_requires() {
         let req = bin(BinOp::Lte, ident("a"), ident("b"));
         let ens = ensures(bin(BinOp::Gte, ident("b"), ident("a")));
+        assert_eq!(
+            clause_vacuity_reason(&ens, &[&req], false),
+            Some(RESTATES_REQUIRES)
+        );
+    }
+
+    #[test]
+    fn negated_flipped_comparison_restates_requires() {
+        let req = not(bin(BinOp::Lte, ident("a"), ident("b")));
+        let ens = ensures(not(bin(BinOp::Gte, ident("b"), ident("a"))));
         assert_eq!(
             clause_vacuity_reason(&ens, &[&req], false),
             Some(RESTATES_REQUIRES)
