@@ -1,10 +1,11 @@
 //! Clause-level vacuity that does not need a second solver query.
 //!
 //! An `ensures` or `invariant` that restates a `requires` (including a flipped
-//! comparison) proves nothing. A `Nat` sum or product compared to `u64::MAX`
-//! is true for every input because `+` and `*` wrap. Both are stamped onto
-//! [`crate::VerificationResult::Verified`] after each backend's clause loop
-//! so Z3 and CVC5 stay aligned.
+//! comparison) proves nothing. On a uniform `Nat` contract, a sum or product
+//! compared to `u64::MAX` is true for every input because `+` and `*` wrap.
+//! Mixed `Int`/`Nat` arithmetic stays unbounded, so that shape is not stamped.
+//! Both checks are applied onto [`crate::VerificationResult::Verified`] after
+//! each backend's clause loop so Z3 and CVC5 stay aligned.
 
 use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, SpExpr};
 
@@ -23,7 +24,11 @@ pub(crate) struct VacuityPrelude<'a> {
     pub narrowings: &'a [(String, i64)],
 }
 
-pub(crate) fn clause_vacuity_reason(clause: &Clause, requires: &[&SpExpr]) -> Option<&'static str> {
+pub(crate) fn clause_vacuity_reason(
+    clause: &Clause,
+    requires: &[&SpExpr],
+    nat_machine_wrap: bool,
+) -> Option<&'static str> {
     if !matches!(clause.kind, ClauseKind::Ensures | ClauseKind::Invariant) {
         return None;
     }
@@ -33,7 +38,10 @@ pub(crate) fn clause_vacuity_reason(clause: &Clause, requires: &[&SpExpr]) -> Op
     {
         return Some(RESTATES_REQUIRES);
     }
-    if matches!(clause.kind, ClauseKind::Ensures) && expr_is_nat_wrap_ceiling(&clause.body) {
+    if nat_machine_wrap
+        && matches!(clause.kind, ClauseKind::Ensures)
+        && expr_is_nat_wrap_ceiling(&clause.body)
+    {
         return Some(NAT_WRAP_CEILING);
     }
     None
@@ -52,8 +60,11 @@ pub(crate) fn stamp_vacuity(
     if verifiable.len() != results.len() {
         return;
     }
+    let nat_machine_wrap =
+        crate::policy::prelude_policy::contract_machine_wrap(prelude.params, prelude.return_ty)
+            == Some((64, false));
     for (clause, result) in verifiable.iter().zip(results.iter_mut()) {
-        let Some(reason) = clause_vacuity_reason(clause, requires) else {
+        let Some(reason) = clause_vacuity_reason(clause, requires, nat_machine_wrap) else {
             continue;
         };
         if let VerificationResult::Verified { vacuous_reason, .. } = result
@@ -154,6 +165,16 @@ fn same_expr(a: &Expr, b: &Expr) -> bool {
                 rhs: rhs_b,
             },
         ) => same_binop(op_a, lhs_a, rhs_a, op_b, lhs_b, rhs_b),
+        (
+            Expr::UnaryOp {
+                op: op_a,
+                expr: expr_a,
+            },
+            Expr::UnaryOp {
+                op: op_b,
+                expr: expr_b,
+            },
+        ) if op_a == op_b => same_expr(&expr_a.node, &expr_b.node),
         _ => a == b,
     }
 }
@@ -199,7 +220,7 @@ fn is_flipped_cmp(a: &BinOp, b: &BinOp) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assura_ast::{BinOp, Expr, Literal, Spanned};
+    use assura_ast::{BinOp, Expr, Literal, Spanned, UnaryOp};
 
     fn ident(name: &str) -> SpExpr {
         Spanned::no_span(Expr::Ident(name.into()))
@@ -207,6 +228,13 @@ mod tests {
 
     fn lit(n: &str) -> SpExpr {
         Spanned::no_span(Expr::Literal(Literal::Int(n.into())))
+    }
+
+    fn not(inner: SpExpr) -> SpExpr {
+        Spanned::no_span(Expr::UnaryOp {
+            op: UnaryOp::Not,
+            expr: Box::new(inner),
+        })
     }
 
     fn bin(op: BinOp, lhs: SpExpr, rhs: SpExpr) -> SpExpr {
@@ -230,7 +258,17 @@ mod tests {
         let req = bin(BinOp::Lte, ident("a"), ident("b"));
         let ens = ensures(bin(BinOp::Gte, ident("b"), ident("a")));
         assert_eq!(
-            clause_vacuity_reason(&ens, &[&req]),
+            clause_vacuity_reason(&ens, &[&req], false),
+            Some(RESTATES_REQUIRES)
+        );
+    }
+
+    #[test]
+    fn negated_flipped_comparison_restates_requires() {
+        let req = not(bin(BinOp::Lte, ident("a"), ident("b")));
+        let ens = ensures(not(bin(BinOp::Gte, ident("b"), ident("a"))));
+        assert_eq!(
+            clause_vacuity_reason(&ens, &[&req], false),
             Some(RESTATES_REQUIRES)
         );
     }
@@ -239,13 +277,23 @@ mod tests {
     fn distinct_ensures_is_not_vacuous() {
         let req = bin(BinOp::Lte, ident("a"), ident("max"));
         let ens = ensures(bin(BinOp::Lt, ident("a"), ident("max")));
-        assert_eq!(clause_vacuity_reason(&ens, &[&req]), None);
+        assert_eq!(clause_vacuity_reason(&ens, &[&req], false), None);
     }
 
     #[test]
     fn nat_sum_against_u64_max_is_a_wrap_ceiling() {
         let sum = bin(BinOp::Add, ident("a"), ident("b"));
         let ens = ensures(bin(BinOp::Lte, sum, lit("18446744073709551615")));
-        assert_eq!(clause_vacuity_reason(&ens, &[]), Some(NAT_WRAP_CEILING));
+        assert_eq!(
+            clause_vacuity_reason(&ens, &[], true),
+            Some(NAT_WRAP_CEILING)
+        );
+    }
+
+    #[test]
+    fn mixed_arith_sum_against_u64_max_is_not_a_wrap_ceiling() {
+        let sum = bin(BinOp::Add, ident("a"), ident("b"));
+        let ens = ensures(bin(BinOp::Lte, sum, lit("18446744073709551615")));
+        assert_eq!(clause_vacuity_reason(&ens, &[], false), None);
     }
 }
