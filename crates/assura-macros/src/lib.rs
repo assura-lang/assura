@@ -420,7 +420,7 @@ fn extract_clauses(attrs: &[syn::Attribute]) -> (Vec<String>, Vec<String>) {
             let content = lit_str.value();
             let trimmed = content.trim();
 
-            if let Some(rest) = trimmed.strip_prefix("@requires") {
+            if let Some(rest) = clause_rest(trimmed, "@requires") {
                 // Flush previous clause
                 flush_clause(
                     &mut current_kind,
@@ -430,7 +430,7 @@ fn extract_clauses(attrs: &[syn::Attribute]) -> (Vec<String>, Vec<String>) {
                 );
                 current_kind = Some("requires");
                 current_body = rest.trim().to_string();
-            } else if let Some(rest) = trimmed.strip_prefix("@ensures") {
+            } else if let Some(rest) = clause_rest(trimmed, "@ensures") {
                 flush_clause(
                     &mut current_kind,
                     &mut current_body,
@@ -464,6 +464,15 @@ fn extract_clauses(attrs: &[syn::Attribute]) -> (Vec<String>, Vec<String>) {
     );
 
     (requires, ensures)
+}
+
+/// `@ensures` must not also match `@ensures_ok` or `@ensures_err`.
+fn clause_rest<'a>(trimmed: &'a str, keyword: &str) -> Option<&'a str> {
+    let rest = trimmed.strip_prefix(keyword)?;
+    match rest.chars().next() {
+        Some(c) if c.is_ascii_alphanumeric() || c == '_' => None,
+        _ => Some(rest),
+    }
 }
 
 fn flush_clause(
