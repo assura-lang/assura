@@ -49,7 +49,9 @@ See FAQ: Z3 timeout on a contract.
 - Host arithmetic that you did not write a `requires` overflow guard
   for. `Int` / `Nat` wrap like `i64` / `u64`. `a + b >= a` is not a
   theorem. Add `requires { a + b >= a }` (or a bound) if you need
-  no-wrap.
+  no-wrap. The other direction is the trap: on `Nat`, `a + b <= u64::MAX`
+  is true for every input because the sum wraps. Write the no-wrap
+  check as remaining space, `a <= u64::MAX - b`.
 
 ## `Int` / `Nat` vs fixed-width integers
 
