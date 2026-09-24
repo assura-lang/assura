@@ -15,10 +15,10 @@
 // If the sum exceeded the integer range, it wrapped around to a small
 // value, and the subsequent memcpy wrote past the undersized buffer.
 //
-// Assura prevention: Refinement types with bounds checking prevent
-// integer overflow by requiring that arithmetic results stay within
-// specified bounds. The compiler proves at compile time that all size
-// calculations produce values within the representable range.
+// Assura prevention: the contracts below state the bounds sudo failed
+// to check. A green `assura check` means those ensures follow from the
+// requires. It does not mean every integer-overflow bug is impossible.
+// An ensures that only repeats a requires is not a proof.
 // ============================================================================
 
 project integer_overflow_demo {
@@ -49,9 +49,9 @@ contract SafeSizeAccumulation {
     requires { new_arg_length <= max_buffer_size }
     requires { running_total + new_arg_length <= max_buffer_size }
 
-    // PROVEN BY Z3: accumulation does not overflow
-    ensures { running_total + new_arg_length <= max_buffer_size }
-    ensures { new_arg_length <= max_buffer_size }
+    // Follows from the no-wrap requires and new_arg_length > 0.
+    // Not a copy of a requires.
+    ensures { running_total < max_buffer_size }
 
     effects { pure }
 }
@@ -74,8 +74,7 @@ contract BufferMatchesCalculatedSize {
     // Buffer must have room for data plus null terminator
     requires { allocated_size >= calculated_size + 1 }
 
-    // PROVEN BY Z3: buffer is sufficient
-    ensures { allocated_size >= calculated_size + 1 }
+    // Follows from allocated_size >= calculated_size + 1 and calculated_size > 0.
     ensures { allocated_size > calculated_size }
 
     effects { pure }
@@ -100,9 +99,8 @@ contract ArgumentLengthBounded {
     requires { arg_length <= max_arg_length }
     requires { max_arg_length <= 131072 }
 
-    // PROVEN BY Z3: argument is within limits
+    // Follows from arg_length <= max_arg_length and max_arg_length <= 131072.
     ensures { arg_length <= 131072 }
-    ensures { max_arg_length >= arg_length }
 
     effects { pure }
 }
@@ -129,9 +127,8 @@ contract SafeMultiplication {
     requires { element_size <= max_total }
     requires { element_count * element_size <= max_total }
 
-    // PROVEN BY Z3: product is within bounds
-    ensures { element_count * element_size <= max_total }
-    ensures { element_size <= max_total }
+    // Follows from product <= max_total and product >= element_count.
+    ensures { element_count <= max_total }
 
     effects { pure }
 }
@@ -149,15 +146,13 @@ requires { max_argc > 0 }
 requires { argc <= max_argc }
 requires { max_argc <= 4096 }
 ensures  { argc <= 4096 }
-ensures  { max_argc >= argc }
 effects { pure }
 
 // ============================================================================
 // Summary: What Assura proves at compile time
 //
-// Refinement types with bounds checking prevent integer overflow by
-// requiring that all arithmetic results stay within specified bounds.
-// The compiler proves these properties statically via Z3.
+// The ensures above are consequences of the stated bounds. They are not
+// a proof that sudo, or every size calculation, is free of overflow.
 //
 // Verified properties:
 //   1. SafeSizeAccumulation: Running total never overflows

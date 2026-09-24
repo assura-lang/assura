@@ -1610,18 +1610,33 @@ produce counterexamples.
 **Rules for verifiable demo contracts:**
 
 1. **Ensures must reference only input variables.** Write ensures
-   clauses that are tautologies derivable from the requires clauses.
+   clauses that are consequences of the requires clauses.
    Z3 proves these by showing the negation is unsatisfiable.
+   An ensures that restates a requires (including `a <= b` written as
+   `b >= a`) verifies and establishes nothing. The checker marks that
+   `verified (vacuous: restates a requires)`. Do not label it
+   `PROVEN BY Z3`. `SafeMultiplication` in
+   `demos/integer-overflow.assura` used to copy
+   `element_count * element_size <= max_total` from requires into
+   ensures. The ensures now concludes `element_count <= max_total`,
+   which is not one of the assumptions.
+   On `Nat`, `a + b <= 18446744073709551615` is also vacuous: `+`
+   wraps at 2^64, so the comparison is true for every input. Write
+   no-wrap as `a + b >= a`.
 
    ```assura
-   # GOOD: ensures references only inputs (x, max)
-   requires { x >= 0 }
-   requires { x < max }
-   ensures  { max > x }
+   # GOOD: ensures is a consequence, not a copy of a requires
+   requires { x + 1 <= max }
+   requires { x + 1 >= x }
+   ensures  { x < max }
 
    # BAD: ensures references unconstrained output (result)
    requires { x >= 0 }
    ensures  { result >= 0 }
+
+   # BAD: ensures restates a requires (also `max > x` when requires is `x < max`)
+   requires { x <= max }
+   ensures  { x <= max }
    ```
 
 2. **Prefer `feature_max` for named compile-time bounds.** SMT binds
@@ -1680,7 +1695,7 @@ result/kind/name fields:
 
 ```rust
 pub enum VerificationResult {
-    Verified { clause_desc: String },
+    Verified { clause_desc: String, unsat_core: Option<Vec<String>>, vacuous_reason: Option<String> },
     Counterexample { clause_desc: String, model: String, counter_model: Option<CounterexampleModel> },
     Timeout { clause_desc: String },
     Unknown { clause_desc: String, reason: String },

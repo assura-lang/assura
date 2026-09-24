@@ -72,6 +72,11 @@ fn verify_contract_cvc5_shellout_inner(
             };
             results.push(check_clause_cvc5_shellout(&input, session));
         }
+        crate::policy::vacuity::stamp_vacuity(
+            &verifiable,
+            &session.prepared.requires_exprs,
+            &mut results,
+        );
         return results;
     }
 
@@ -182,6 +187,11 @@ fn verify_contract_cvc5_shellout_incremental(
 
     resolved.sort_by_key(|(index, _)| *index);
     results.extend(resolved.into_iter().map(|(_, result)| result));
+    crate::policy::vacuity::stamp_vacuity(
+        &prepared.verifiable,
+        &prepared.requires_exprs,
+        &mut results,
+    );
     results
 }
 

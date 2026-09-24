@@ -111,6 +111,7 @@ fn verify_clauses_with_types(
     if verifiable.is_empty() {
         return;
     }
+    let vacuity_from = results.len();
 
     // ---------------------------------------------------------------
     // Incremental solving: create ONE solver, assert shared requires
@@ -372,6 +373,11 @@ fn verify_clauses_with_types(
             solver.pop(1); // Restore solver state
         }
     }
+    crate::policy::vacuity::stamp_vacuity(
+        verifiable,
+        &prep.requires_exprs,
+        &mut results[vacuity_from..],
+    );
 }
 
 // -----------------------------------------------------------------------

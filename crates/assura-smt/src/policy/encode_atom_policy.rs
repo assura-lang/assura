@@ -582,6 +582,12 @@ pub(crate) fn is_requires_track_noise(name: &str, value: &str) -> bool {
 ///
 /// Structured `variables` are filtered at extraction. The raw `model` string
 /// is a separate field and still contained the tracking literals.
+///
+/// Only the single-line `name -> value` shape is stripped. A multi-line
+/// `name -> { ... }` block is left alone. Tracking literals are Boolean
+/// constants, so they use the single-line form. A Bool input that is
+/// actually named `req_0` is still removed, because the filter cannot
+/// tell it from a tracking literal.
 pub(crate) fn strip_requires_track_model_lines(model: &str) -> String {
     let mut kept = Vec::new();
     for line in model.lines() {

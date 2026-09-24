@@ -230,8 +230,6 @@ fn check_alphabet_bounds(size: Nat, max_len: Nat)
 requires { size <= MAX_ALPHABET_SIZE }
 requires { max_len <= MAX_CODE_LENGTH }
 ensures  { size + max_len <= MAX_ALPHABET_SIZE + MAX_CODE_LENGTH }
-ensures  { size <= MAX_ALPHABET_SIZE }
-ensures  { max_len <= MAX_CODE_LENGTH }
 effects: pure
 
 // Table allocation safety: primary table fits within a conservative bound

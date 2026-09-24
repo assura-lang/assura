@@ -325,10 +325,9 @@ fn run_liveness_reduction(
 
 fn bmc_result_to_verification_result(result: BmcResult) -> VerificationResult {
     match result {
-        BmcResult::Safe { property, bound } => VerificationResult::Verified {
-            clause_desc: format!("{property} (BMC safe up to {bound})"),
-            unsat_core: None,
-        },
+        BmcResult::Safe { property, bound } => {
+            VerificationResult::verified(format!("{property} (BMC safe up to {bound})"))
+        }
         BmcResult::Counterexample {
             property,
             step,
@@ -363,10 +362,9 @@ fn bmc_result_to_verification_result(result: BmcResult) -> VerificationResult {
 
 fn layer2_result_to_verification_result(r: Layer2Result) -> VerificationResult {
     match r {
-        Layer2Result::Verified { invariant, .. } => VerificationResult::Verified {
-            clause_desc: format!("layer2:{invariant}"),
-            unsat_core: None,
-        },
+        Layer2Result::Verified { invariant, .. } => {
+            VerificationResult::verified(format!("layer2:{invariant}"))
+        }
         Layer2Result::Counterexample { invariant, model } => {
             let model_str = model
                 .iter()

@@ -14,8 +14,8 @@
 // not exceed the record's actual length before copying.
 //
 // This contract shows how Assura proves bounds safety at compile time.
-// Z3 verifies every ensures clause below, proving that with proper
-// preconditions the Heartbleed over-read is impossible.
+// Z3 checks that the ensures follow from the preconditions. That is
+// not a claim that every TLS heartbeat bug is impossible.
 //
 // TLS Heartbeat record layout (RFC 6520):
 //   1 byte   type (request=1, response=2)
@@ -78,9 +78,6 @@ contract HeartbeatSafeResponse {
     // PROVEN BY Z3: the total of payload + padding fits
     ensures { payload_length + padding_length <= record_length - 3 }
 
-    // PROVEN BY Z3: payload is bounded by the RFC maximum
-    ensures { payload_length <= 16384 }
-
     effects { pure }
 }
 
@@ -111,11 +108,8 @@ contract SafeMemcpy {
     requires { copy_length <= src_length }
     requires { src_offset + copy_length <= src_length }
 
-    // PROVEN BY Z3: the copy end does not exceed the buffer
-    ensures { src_offset + copy_length <= src_length }
-
-    // PROVEN BY Z3: the copy length is bounded by buffer size
-    ensures { copy_length <= src_length }
+    // Follows from src_offset < src_length. Not a copy of a requires.
+    ensures { src_offset <= src_length }
 
     effects { pure }
 }

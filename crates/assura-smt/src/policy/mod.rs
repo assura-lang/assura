@@ -30,5 +30,6 @@ pub mod prelude_policy;
 pub mod solver_outcome_policy;
 pub mod trigger_seed_policy;
 pub mod unmodelable;
+pub mod vacuity;
 pub mod verify_context;
 pub mod verify_labels;

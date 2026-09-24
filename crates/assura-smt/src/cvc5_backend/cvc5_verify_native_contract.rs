@@ -42,6 +42,11 @@ pub(crate) fn verify_contract_cvc5_native(
             };
             results.push(check_clause_cvc5_native(&input, session));
         }
+        crate::policy::vacuity::stamp_vacuity(
+            &verifiable,
+            &session.prepared.requires_exprs,
+            &mut results,
+        );
         return results;
     }
 
@@ -206,5 +211,10 @@ fn verify_contract_cvc5_native_incremental(
         enc_state.axioms.truncate(axiom_base);
     }
 
+    crate::policy::vacuity::stamp_vacuity(
+        &prepared.verifiable,
+        &prepared.requires_exprs,
+        &mut results,
+    );
     results
 }

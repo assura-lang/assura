@@ -848,10 +848,7 @@ fn counterexample_fails_verification_succeeded() {
 
 #[test]
 fn verified_passes_both_success_checks() {
-    let v = assura_smt::VerificationResult::Verified {
-        clause_desc: "T: requires".into(),
-        unsat_core: None,
-    };
+    let v = assura_smt::VerificationResult::verified("T: requires");
     assert!(verification_succeeded(&[v.clone()]));
     assert!(verification_strict_succeeded(&[v]));
 }
@@ -1368,10 +1365,7 @@ fn ir_verify_result_mixed_variants() {
     use assura_smt::VerificationResult;
 
     let results = vec![
-        VerificationResult::Verified {
-            clause_desc: "A: ensures".into(),
-            unsat_core: None,
-        },
+        VerificationResult::verified("A: ensures"),
         VerificationResult::Counterexample {
             clause_desc: "B: ensures".into(),
             model: "x = 0".into(),
@@ -1414,10 +1408,7 @@ fn ir_verify_result_known_limitation_is_not_failure() {
     use assura_smt::VerificationResult;
 
     let results = vec![
-        VerificationResult::Verified {
-            clause_desc: "A: ensures".into(),
-            unsat_core: None,
-        },
+        VerificationResult::verified("A: ensures"),
         VerificationResult::unknown_not_encoded("B: invariant", "collection quantifiers"),
     ];
 
@@ -1436,14 +1427,8 @@ fn ir_verify_result_all_verified() {
     use assura_smt::VerificationResult;
 
     let results = vec![
-        VerificationResult::Verified {
-            clause_desc: "A: ensures".into(),
-            unsat_core: None,
-        },
-        VerificationResult::Verified {
-            clause_desc: "B: requires".into(),
-            unsat_core: None,
-        },
+        VerificationResult::verified("A: ensures"),
+        VerificationResult::verified("B: requires"),
     ];
 
     let ir_result = IrVerifyResult::from_results(results);

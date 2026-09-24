@@ -893,6 +893,7 @@ mod tests {
             VerificationResult::Verified {
                 clause_desc,
                 unsat_core: None,
+                vacuous_reason: None,
             } if clause_desc == "SafeDiv::ensures"
         ));
     }
