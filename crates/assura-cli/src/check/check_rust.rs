@@ -200,7 +200,11 @@ pub(crate) fn run_check_rust(
                 // 2. Else simple Rust body → temp `{Name}.ir` next to a temp
                 //    contract (co-publish safe: uses disk load, no new APIs)
                 // Without either, ensures must not claim verified.
-                let has_ensures = !item.contract.ensures.is_empty();
+                let has_ensures = item
+                    .contract
+                    .ensures
+                    .iter()
+                    .any(|c| c.kind == assura_rust_analyzer::InlineClauseKind::Ensures);
                 let colocated = assura_smt::LoadedVerifyExtras::load(file_path.as_path(), typed);
                 let mut has_body_ir = colocated.loaded_names().iter().any(|n| n == &item_name);
 
@@ -361,14 +365,13 @@ pub(crate) fn run_check_rust(
                     .requires
                     .iter()
                     .map(|c| clause_to_json(c, "requires"))
-                    .chain(item.contract.ensures.iter().map(|c| {
-                        let kind = match c.kind {
-                            assura_rust_analyzer::InlineClauseKind::EnsuresOk => "ensures_ok",
-                            assura_rust_analyzer::InlineClauseKind::EnsuresErr => "ensures_err",
-                            _ => "ensures",
-                        };
-                        clause_to_json(c, kind)
-                    }))
+                    .chain(
+                        item.contract
+                            .ensures
+                            .iter()
+                            .filter(|c| c.kind == assura_rust_analyzer::InlineClauseKind::Ensures)
+                            .map(|c| clause_to_json(c, "ensures")),
+                    )
                     .chain(
                         item.contract
                             .invariants
