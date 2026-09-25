@@ -474,7 +474,64 @@ fn header_comment_then_minified_contract_is_expanded() {
     );
     assert_eq!(
         out,
-        "// CVE\ncontract C {\n    requires {\n        x>0\n    }\n}\n"
+        "// CVE\ncontract C {\n    requires {\n        x > 0\n    }\n}\n"
+    );
+    assert_idempotent(src);
+}
+
+#[test]
+fn comparison_spacing_has_one_stable_form() {
+    let tight = "contract C {\n    input(x: Int)\n    requires { x>0 }\n    ensures { x > 0 }\n}\n";
+    let out = fmt(tight);
+    assert!(
+        out.contains("x > 0") && !out.contains("x>0"),
+        "comparison should be spaced: {out:?}"
+    );
+    assert_eq!(
+        out.matches("x > 0").count(),
+        2,
+        "both forms should match: {out:?}"
+    );
+    assert_idempotent(tight);
+
+    let generic = "contract C {\n    input(xs: List<Int>)\n    requires { xs.length() >= 0 }\n}\n";
+    let gout = fmt(generic);
+    assert!(
+        gout.contains("List<Int>"),
+        "generic angles must stay tight: {gout:?}"
+    );
+    assert!(!gout.contains("List <"), "generic was split: {gout:?}");
+    assert_idempotent(generic);
+}
+
+#[test]
+fn infix_space_survives_a_comment() {
+    let src = "fn Foo()->/*c*/Int\ncontract C {\n    requires { x>/*c*/0 }\n    ensures { x /*c*/ >0 }\n    requires { x> /*c*/0 }\n    requires { foo(s==\"a\") }\n}\n";
+    let out = fmt(src);
+    assert!(
+        out.contains("x > /*c*/ 0"),
+        "comment ate the operand space: {out:?}"
+    );
+    assert!(
+        out.contains("x /*c*/ > 0"),
+        "comment ate the operator space: {out:?}"
+    );
+    assert_eq!(
+        out.matches("x > /*c*/ 0").count(),
+        2,
+        "both tight and spaced comments should space the operand: {out:?}"
+    );
+    assert!(
+        fmt("contract C {\n    requires { x>\n/*c*/0 }\n}\n").contains("/*c*/ 0"),
+        "newline before a comment must not glue the operand"
+    );
+    assert!(
+        out.contains("foo(s == \"a\")") && !out.contains("\"a\" )"),
+        "string operand leaked a space before ')': {out:?}"
+    );
+    assert!(
+        out.contains("-> /*c*/ Int"),
+        "arrow comment stayed tight: {out:?}"
     );
     assert_idempotent(src);
 }
@@ -592,7 +649,7 @@ fn minified_comment_braces_not_expanded() {
     let out = fmt(src);
     assert_eq!(
         out,
-        "contract C {\n    requires {\n        x>0\n    }\n} // keep {x}\n"
+        "contract C {\n    requires {\n        x > 0\n    }\n} // keep {x}\n"
     );
     assert_idempotent(src);
 }
@@ -604,7 +661,7 @@ fn minified_quote_in_comment_does_not_hide_later_braces() {
     let out = fmt(src);
     assert_eq!(
         out,
-        "contract C {\n    requires {\n        x>0\n    } /* \" } */ ensures {\n        y>0\n    }\n}\n"
+        "contract C {\n    requires {\n        x > 0\n    } /* \" } */ ensures {\n        y > 0\n    }\n}\n"
     );
     assert_idempotent(src);
 }
