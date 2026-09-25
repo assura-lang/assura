@@ -639,7 +639,10 @@ pub(crate) fn check_clause_expr(
             ),
             span: body_span.clone(),
             secondary: None,
-            suggestion: Some("Write a boolean condition, e.g. `requires { x >= 0 }`.".into()),
+            suggestion: Some(format!(
+                "Write a boolean condition, e.g. `{} {{ x >= 0 }}`.",
+                clause_kind_label(kind),
+            )),
         });
         return;
     }
@@ -846,15 +849,27 @@ mod tests {
     fn check_clause_body_empty_is_a03006() {
         let body = Spanned::no_span(Expr::Raw(vec![]));
         let env = TypeEnv::new();
-        let mut errors = Vec::new();
-        check_clause_expr(&ClauseKind::Requires, &body, &env, &mut errors, &(0..1));
-        assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].code, "A03006");
-        assert!(
-            errors[0].message.contains("empty"),
-            "message should mention empty: {}",
-            errors[0].message
-        );
+        for kind in [
+            ClauseKind::Requires,
+            ClauseKind::Ensures,
+            ClauseKind::Invariant,
+        ] {
+            let mut errors = Vec::new();
+            check_clause_expr(&kind, &body, &env, &mut errors, &(0..1));
+            assert_eq!(errors.len(), 1, "{kind:?}");
+            assert_eq!(errors[0].code, "A03006");
+            let label = clause_kind_label(&kind);
+            assert!(
+                errors[0].message.contains("empty") && errors[0].message.contains(label),
+                "message should name the clause: {}",
+                errors[0].message
+            );
+            let suggestion = errors[0].suggestion.as_deref().unwrap_or("");
+            assert!(
+                suggestion.contains(&format!("`{label} {{ x >= 0 }}`")),
+                "suggestion should use {label}, got {suggestion}"
+            );
+        }
     }
 
     #[test]
