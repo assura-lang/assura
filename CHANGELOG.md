@@ -3,6 +3,46 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.0](https://github.com/assura-lang/assura/compare/v0.4.5...v0.5.0) (2026-09-25)
+
+
+### Features
+
+* **smt:** mark ensures that hold without user requires ([#1621](https://github.com/assura-lang/assura/issues/1621)) ([2a5e362](https://github.com/assura-lang/assura/commit/2a5e362e2efb9acdb9a311c6a6ffa1f0e79443bd))
+* **smt:** mark verified clauses that restate requires ([#1620](https://github.com/assura-lang/assura/issues/1620)) ([c785818](https://github.com/assura-lang/assura/commit/c785818c06d5474fbf50211c62c074709c11d22e))
+
+
+### Bug Fixes
+
+* **check-rust:** count only the clauses that were checked ([#1633](https://github.com/assura-lang/assura/issues/1633)) ([8f1c456](https://github.com/assura-lang/assura/commit/8f1c4564a8e565b30f0b07863ad8484b2834e627))
+* **check-rust:** do not prove ensures_ok as unconditional ensures ([#1630](https://github.com/assura-lang/assura/issues/1630)) ([482046f](https://github.com/assura-lang/assura/commit/482046fe43f1cb97420686c741af164df8001914))
+* **check-rust:** keep // inside string literals in doc clauses ([#1629](https://github.com/assura-lang/assura/issues/1629)) ([c161f6e](https://github.com/assura-lang/assura/commit/c161f6e1ac7a6dfddeaecdb3e82a0103de7580ac))
+* **check-rust:** keep clause text that follows a doc comment ([#1628](https://github.com/assura-lang/assura/issues/1628)) ([6ca1e97](https://github.com/assura-lang/assura/commit/6ca1e97535ce4a9b0f1b0eb993978bbe36aa2543))
+* **check-rust:** keep ensures_ok out of the checked-clause reports ([#1631](https://github.com/assura-lang/assura/issues/1631)) ([2b230a1](https://github.com/assura-lang/assura/commit/2b230a1743b06fec48565307fce74af4a756de79))
+* **cli:** do not call a bare function a successful proof ([#1639](https://github.com/assura-lang/assura/issues/1639)) ([cf68f72](https://github.com/assura-lang/assura/commit/cf68f72ef6b002f71e0ff419aa655751954c7983))
+* **cli:** do not verify a file that still has a syntax error ([#1637](https://github.com/assura-lang/assura/issues/1637)) ([dd3a02f](https://github.com/assura-lang/assura/commit/dd3a02fb39fdac39a0591fecaff7d2ead081685f))
+* **cli:** mark --layer 0 JSON success as not a proof ([#1641](https://github.com/assura-lang/assura/issues/1641)) ([087ea5f](https://github.com/assura-lang/assura/commit/087ea5f47e4409e2334b648cc3cd58070f041c7f))
+* **cli:** mark check --json vacuous when every clause is ([#1636](https://github.com/assura-lang/assura/issues/1636)) ([a55fca6](https://github.com/assura-lang/assura/commit/a55fca6457d85fccdad4b919909682b224582be8))
+* **cli:** point check-rust counterexamples at the Rust file ([#1643](https://github.com/assura-lang/assura/issues/1643)) ([d3239f8](https://github.com/assura-lang/assura/commit/d3239f85143fc5e0acc646f90da42c83e0921ff4))
+* **demos:** state the zip overflow check as remaining space ([#1617](https://github.com/assura-lang/assura/issues/1617)) ([3e83062](https://github.com/assura-lang/assura/commit/3e8306200383ac7df1ec753b36d810fb8823a77e))
+* **deps:** bump rustls past RUSTSEC-2026-0285 ([#1605](https://github.com/assura-lang/assura/issues/1605)) ([71005a8](https://github.com/assura-lang/assura/commit/71005a8fefcad47ceec719bca7b0821701257702))
+* **deps:** upgrade z3 to 0.21.1 for RUSTSEC-2026-0295 ([#1622](https://github.com/assura-lang/assura/issues/1622)) ([e71b25f](https://github.com/assura-lang/assura/commit/e71b25faefe0e486ae20d6eff8ad2496506cabce))
+* **diagnostics:** make the A05100 explain example a real contract ([#1638](https://github.com/assura-lang/assura/issues/1638)) ([f8c1870](https://github.com/assura-lang/assura/commit/f8c18706b2b0131143de48be8cca5316886b55b8))
+* **fmt:** canonicalize contract header spacing ([#1648](https://github.com/assura-lang/assura/issues/1648)) ([6a7584e](https://github.com/assura-lang/assura/commit/6a7584ead70f7552729bfd6002c8156aa5d34d21))
+* **fmt:** put one space after a type colon and around arrows ([#1653](https://github.com/assura-lang/assura/issues/1653)) ([0a65b30](https://github.com/assura-lang/assura/commit/0a65b302888f28d906d5d2b090c1f70370d9ad57))
+* **fmt:** space comparison operators without splitting generics ([#1655](https://github.com/assura-lang/assura/issues/1655)) ([bd80353](https://github.com/assura-lang/assura/commit/bd80353d4ce6817f2c0566a3f3756a2d21a5b86f))
+* **llm:** keep each cached LLM result on the request that produced it ([#1624](https://github.com/assura-lang/assura/issues/1624)) ([1145ef1](https://github.com/assura-lang/assura/commit/1145ef132d8650980b8eb146111f1145d692f86e))
+* **macros:** do not parse [@ensures](https://github.com/ensures)_ok as [@ensures](https://github.com/ensures) ([#1632](https://github.com/assura-lang/assura/issues/1632)) ([157bbb6](https://github.com/assura-lang/assura/commit/157bbb6bcb3ad88360b01ec4949293d4a8e6f607))
+* **resolve:** reject undefined names in clause bodies ([#1644](https://github.com/assura-lang/assura/issues/1644)) ([161df75](https://github.com/assura-lang/assura/commit/161df753d65aea979ed080b357d1200ed417601d))
+* **smt:** drop requires tracking literals from counterexample output ([#1613](https://github.com/assura-lang/assura/issues/1613)) ([1935304](https://github.com/assura-lang/assura/commit/1935304f7ec60a9e0f3eebf0f8ce41141cef0ae7))
+* **smt:** encode tuple projection with the tuple accessor ([#1650](https://github.com/assura-lang/assura/issues/1650)) ([7a1b581](https://github.com/assura-lang/assura/commit/7a1b5819d34976eed6518cb34e9ebb7c8c5a932b))
+* **smt:** frame old() when a contract has no modifies clause ([#1649](https://github.com/assura-lang/assura/issues/1649)) ([6cc711f](https://github.com/assura-lang/assura/commit/6cc711f7257c39e26910016f927f9362afcdcd8c))
+* **smt:** keep integer inputs named req_N in counterexamples ([#1615](https://github.com/assura-lang/assura/issues/1615)) ([8715414](https://github.com/assura-lang/assura/commit/8715414874f20c9e5e64e2223bb9a5e386ea8d12))
+* **smt:** show the contract result in counterexamples ([#1635](https://github.com/assura-lang/assura/issues/1635)) ([ec978f5](https://github.com/assura-lang/assura/commit/ec978f5e1194843dc0a8d9d997cf20a1713c8e7d))
+* **smt:** stop false vacuous labels on ensures ([#1627](https://github.com/assura-lang/assura/issues/1627)) ([5a5b6b4](https://github.com/assura-lang/assura/commit/5a5b6b46e204f415fbc04a9c2606ab2320a106d5))
+* **smt:** use Rust toward-zero integer division ([#1651](https://github.com/assura-lang/assura/issues/1651)) ([a1b2069](https://github.com/assura-lang/assura/commit/a1b2069c56d5c122d8ec55f32999ff6fb6de3d6e))
+* **types:** suggest the empty clause kind that failed ([#1642](https://github.com/assura-lang/assura/issues/1642)) ([669496b](https://github.com/assura-lang/assura/commit/669496b5f5594e01ef10b853cfa74731baa32632))
+
 ## [0.4.5](https://github.com/assura-lang/assura/compare/v0.4.4...v0.4.5) (2026-09-11)
 
 
