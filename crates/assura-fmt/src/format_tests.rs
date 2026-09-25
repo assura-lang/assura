@@ -480,6 +480,37 @@ fn header_comment_then_minified_contract_is_expanded() {
 }
 
 #[test]
+fn compacted_fn_signature_has_one_stable_form() {
+    let compact = "fn Foo(x:Int)->Int requires{x>0} ensures{result>0}\n";
+    let spaced = "fn Foo(x: Int) -> Int\nrequires { x > 0 }\nensures { result > 0 }\n";
+    let out = fmt(compact);
+    assert!(
+        out.contains("fn Foo(x: Int) -> Int"),
+        "signature should gain spaces: {out:?}"
+    );
+    assert!(!out.contains("x:Int"), "tight colon survived: {out:?}");
+    assert!(!out.contains("->Int"), "tight arrow survived: {out:?}");
+    assert!(
+        fmt(spaced).contains("fn Foo(x: Int) -> Int"),
+        "spaced signature changed: {}",
+        fmt(spaced)
+    );
+    assert_idempotent(compact);
+    assert_idempotent(spaced);
+}
+
+#[test]
+fn path_separator_stays_tight() {
+    let src = "use foo::bar::Baz\n";
+    let out = fmt(src);
+    assert!(
+        out.contains("foo::bar::Baz"),
+        "path separator gained a space: {out:?}"
+    );
+    assert_idempotent(src);
+}
+
+#[test]
 fn compacted_contract_header_has_one_stable_form() {
     let src = "contract   Bound{input(x:Int)\nrequires{x<10}\nensures{x<=10}}\n";
     let out = fmt(src);
