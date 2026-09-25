@@ -121,6 +121,7 @@ fn test_apply_existing_lemma_contributes_constraints() {
     // postcondition injected by the verification pipeline.
     let source = r#"
 contract UsesLemma {
+    input(x: Int)
     requires: x > 0
     ensures: x > 0
 }

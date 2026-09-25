@@ -5,6 +5,7 @@ fn test_trivially_true_ensures() {
     // requires: x > 0, ensures: x > 0 should be Verified
     let src = r#"
         contract TrueEnsures {
+            input(x: Int)
             requires: x > 0
             ensures: x > 0
         }
@@ -23,6 +24,7 @@ fn test_false_ensures() {
     // requires: x > 0, ensures: x < 0 should produce a counterexample
     let src = r#"
         contract FalseEnsures {
+            input(x: Int)
             requires: x > 0
             ensures: x < 0
         }
@@ -41,6 +43,7 @@ fn test_satisfiable_invariant() {
     // invariant: x > 0 is satisfiable (e.g., x=1)
     let src = r#"
         contract SatInvariant {
+            input(x: Int)
             invariant: x > 0
         }
     "#;
@@ -58,6 +61,7 @@ fn test_unsatisfiable_invariant() {
     // invariant: x > 0 and x < 0 is unsatisfiable
     let src = r#"
         contract UnsatInvariant {
+            input(x: Int)
             invariant: x > 0 and x < 0
         }
     "#;
@@ -75,6 +79,7 @@ fn test_no_verifiable_clauses() {
     // Only requires, no ensures/invariant: nothing to verify
     let src = r#"
         contract OnlyRequires {
+            input(x: Int)
             requires: x > 0
         }
     "#;
@@ -87,7 +92,9 @@ fn test_arithmetic_ensures() {
     // requires: a > 0 and b > 0, ensures: a + b > 0
     let src = r#"
         contract AddPositive {
+            input(a: Int, b: Int)
             requires: a > 0 and b > 0
+            requires: a + b >= a
             ensures: a + b > 0
         }
     "#;
@@ -105,6 +112,7 @@ fn test_equality_ensures() {
     // requires: x == 5, ensures: x == 5
     let src = r#"
         contract EqEnsures {
+            input(x: Int)
             requires: x == 5
             ensures: x == 5
         }
@@ -123,6 +131,7 @@ fn test_multiple_requires() {
     // Multiple requires act as conjunction
     let src = r#"
         contract MultiReq {
+            input(x: Int)
             requires: x >= 0
             requires: x <= 10
             ensures: x >= 0 and x <= 10

@@ -9,7 +9,11 @@ fn deep_field_chain_ensures_verifies() {
     // Deep field chain: state.head.extra.extra_max should be flattened
     // to a single Z3 variable, making the ensures verifiable.
     let src = r#"
+        type Extra { extra_max: Int }
+        type Head { extra: Extra }
+        type State { head: Head }
         contract DeepChain {
+            input(x: State)
             requires: x.head.extra.extra_max >= 0
             ensures: x.head.extra.extra_max >= 0
         }
