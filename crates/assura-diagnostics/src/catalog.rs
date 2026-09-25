@@ -525,10 +525,11 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
                           clause does not hold. The model shows concrete values for \
                           variables that violate the property.",
             example: r#"  contract AlwaysPositive {
-      requires: true
-      ensures: x > 0
+      input(x: Int)
+      requires { true }
+      ensures { x > 0 }
   }
-  // Counterexample: x = 0 or x = -1"#,
+  // Counterexample: x = 0"#,
             fix: "Either strengthen the requires clause to eliminate the counterexample \
                  inputs, or weaken the ensures clause to account for the case. The \
                  counterexample model shows exactly which inputs break the contract.",
@@ -540,8 +541,9 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
                           contract clause. This does not mean the contract is wrong; the \
                           solver just could not decide within the configured time limit.",
             example: r#"  contract ComplexArithmetic {
-      requires: a * b * c > 0   // may time out on non-linear
-      ensures: a * b * c < 1000
+      input(a: Int, b: Int, c: Int)
+      requires { a * b * c > 0 }
+      ensures { a * b * c < 1000 }
   }"#,
             fix: "Increase the solver timeout with `--timeout <seconds>`. If that does \
                  not help, try simplifying the contract: break complex conditions into \
