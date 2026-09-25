@@ -189,6 +189,8 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
         verify_options: compiler_config.verify.clone(),
         show_cores,
         strict,
+        report_file: None,
+        report_span: None,
     });
 
     let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;

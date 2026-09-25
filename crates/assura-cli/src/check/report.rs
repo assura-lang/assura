@@ -83,7 +83,11 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
         verify_options,
         show_cores,
         strict,
+        report_file,
+        report_span,
     } = ctx;
+    let shown_file = report_file.map(|(path, _)| path).unwrap_or(filename);
+    let shown_source = report_file.map(|(_, text)| text).unwrap_or(source);
     let layer = verify_options.layer;
     // Short-circuit: skip cache/thread-pool init when there are no
     // verifiable clauses (requires/ensures/invariant) in the source.
@@ -147,7 +151,9 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
             | assura_smt::VerificationResult::Unknown { clause_desc, .. }
             | assura_smt::VerificationResult::Verified { clause_desc, .. } => clause_desc,
         };
-        let span = lookup_clause_span(clause_desc, &decl_spans);
+        let span = report_span
+            .clone()
+            .unwrap_or_else(|| lookup_clause_span(clause_desc, &decl_spans));
 
         match vr {
             assura_smt::VerificationResult::Counterexample {
@@ -163,7 +169,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                         format!("verification failed for {clause_desc}: {summary}"),
                         span.clone(),
                     )
-                    .with_file(filename),
+                    .with_file(shown_file),
                 );
             }
             assura_smt::VerificationResult::Timeout { clause_desc } => {
@@ -176,7 +182,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                         ),
                         span.clone(),
                     )
-                    .with_file(filename),
+                    .with_file(shown_file),
                 );
             }
             assura_smt::VerificationResult::Unknown {
@@ -184,7 +190,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                 reason,
             } => {
                 let diag = unknown_limitation_diagnostic(
-                    filename,
+                    shown_file,
                     clause_desc,
                     reason,
                     span.clone(),
@@ -205,7 +211,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
         // JSON still reported them (dogfood: `contract Café`).
         if *has_errors || verbosity != Verbosity::Quiet {
             for d in diagnostics.iter() {
-                assura_diagnostics::render_diagnostic(d, filename, source);
+                assura_diagnostics::render_diagnostic(d, shown_file, shown_source);
             }
         }
 
@@ -281,16 +287,16 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                     has_clauses,
                     warning_count,
                 );
-                eprintln!("{filename}: {summary}");
+                eprintln!("{shown_file}: {summary}");
             } else if warning_count > 0 {
                 eprintln!(
-                    "{filename}: {error_count} error{}, {warning_count} warning{}",
+                    "{shown_file}: {error_count} error{}, {warning_count} warning{}",
                     if error_count == 1 { "" } else { "s" },
                     if warning_count == 1 { "" } else { "s" }
                 );
             } else {
                 eprintln!(
-                    "{filename}: {error_count} error{}",
+                    "{shown_file}: {error_count} error{}",
                     if error_count == 1 { "" } else { "s" }
                 );
             }
@@ -300,7 +306,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                 .filter(|d| d.severity == assura_diagnostics::Severity::Error)
                 .count();
             eprintln!(
-                "{filename}: {error_count} error{}",
+                "{shown_file}: {error_count} error{}",
                 if error_count == 1 { "" } else { "s" }
             );
         }

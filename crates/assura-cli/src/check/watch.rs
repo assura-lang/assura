@@ -67,6 +67,8 @@ pub(crate) fn check_file_once(
         verify_options,
         show_cores: false,
         strict: false,
+        report_file: None,
+        report_span: None,
     });
 
     has_errors

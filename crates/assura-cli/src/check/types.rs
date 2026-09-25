@@ -36,4 +36,10 @@ pub(crate) struct VerifyContext<'a> {
     pub(crate) verify_options: assura_config::VerifyOptions,
     pub(crate) show_cores: bool,
     pub(crate) strict: bool,
+    /// Show diagnostics against this file and source instead of `filename`.
+    /// SMT still loads the `.ir` sidecar from `filename` (temp body IR).
+    pub(crate) report_file: Option<(&'a str, &'a str)>,
+    /// Span in `report_file`'s source for solver failures. Generated-contract
+    /// spans do not line up with the Rust annotation.
+    pub(crate) report_span: Option<std::ops::Range<usize>>,
 }
