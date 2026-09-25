@@ -540,6 +540,13 @@ fn vacuous_status(
             true,
             Some("no contracts or functions to verify".to_string()),
         )
+    } else if layer == 0 {
+        // Structural-only mode never runs SMT. JSON must not look like a proof
+        // of `ensures { false }` (human mode already prints "Verification skipped").
+        (
+            true,
+            Some("verification skipped (--layer 0: structural checks only)".to_string()),
+        )
     } else if decls_without_results {
         if has_clause_kinds {
             (
