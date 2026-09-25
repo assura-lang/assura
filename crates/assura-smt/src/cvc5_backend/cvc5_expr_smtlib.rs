@@ -250,6 +250,11 @@ pub fn expr_to_smtlib(expr: &SpExpr) -> Option<String> {
                 let o = expr_to_smtlib(obj)?;
                 Some(shallow_field_smtlib(&f, &o))
             }
+            FieldAccessPlan::TupleProj { arity, index } => {
+                use crate::encode_tuple_policy::tuple_accessor_uf_name;
+                let o = expr_to_smtlib(obj)?;
+                Some(format!("({} {o})", tuple_accessor_uf_name(arity, index)))
+            }
         },
         Expr::Index { expr: coll, index } => {
             let c = expr_to_smtlib(coll)?;
