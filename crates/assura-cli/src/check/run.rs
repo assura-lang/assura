@@ -548,6 +548,34 @@ fn vacuous_status(
         } else {
             (true, Some("no verifiable clauses".to_string()))
         }
+    } else if !verification.is_empty()
+        && verification.iter().all(|r| {
+            // Read the JSON field. `cargo package` builds this crate
+            // against the published assura-smt, whose Verified variant
+            // does not yet name vacuous_reason.
+            let value = r.to_json_value();
+            value.get("status").and_then(|s| s.as_str()) == Some("verified")
+                && value
+                    .get("vacuous_reason")
+                    .and_then(|s| s.as_str())
+                    .is_some_and(|s| !s.is_empty())
+        })
+    {
+        let reasons: Vec<String> = verification
+            .iter()
+            .filter_map(|r| {
+                r.to_json_value()
+                    .get("vacuous_reason")
+                    .and_then(|s| s.as_str())
+                    .map(str::to_string)
+            })
+            .collect();
+        let reason = if reasons.iter().all(|r| r == &reasons[0]) {
+            reasons[0].clone()
+        } else {
+            "every checked clause is vacuous".to_string()
+        };
+        (true, Some(reason))
     } else {
         (false, None)
     }
