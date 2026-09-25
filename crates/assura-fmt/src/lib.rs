@@ -168,7 +168,8 @@ fn intervening_ws_has_newline(tokens: &[(SyntaxKind, String)], start: usize) -> 
 ///
 /// Indentation is tracked via brace depth (`{` increments, `}` decrements).
 /// Whitespace tokens containing newlines are replaced with normalized
-/// indentation; inline whitespace is passed through.
+/// indentation. Horizontal whitespace between two tokens is one space.
+/// A horizontal run at the start or end of the file is dropped.
 fn format_cst_tokens(root: &assura_parser::syntax_kind::SyntaxNode) -> String {
     let tokens = collect_leaf_tokens(root);
     let mut out = String::new();
@@ -177,6 +178,9 @@ fn format_cst_tokens(root: &assura_parser::syntax_kind::SyntaxNode) -> String {
     for (i, (kind, text)) in tokens.iter().enumerate() {
         match *kind {
             SyntaxKind::L_BRACE => {
+                if out.chars().next_back().is_some_and(|c| !c.is_whitespace()) {
+                    out.push(' ');
+                }
                 out.push('{');
                 brace_depth += 1;
             }
@@ -205,9 +209,15 @@ fn format_cst_tokens(root: &assura_parser::syntax_kind::SyntaxNode) -> String {
                     for _ in 0..indent {
                         out.push_str("    ");
                     }
-                } else {
-                    // Inline whitespace: preserve as-is
-                    out.push_str(text);
+                } else if !text.is_empty() {
+                    // One space between tokens. Skip a run at the start or
+                    // end of the file, and skip a run that follows a newline
+                    // indent (that indent is already the separator).
+                    let prev_is_token = out.chars().next_back().is_some_and(|c| !c.is_whitespace());
+                    let next_is_token = peek_non_ws(&tokens, i + 1).is_some();
+                    if prev_is_token && next_is_token {
+                        out.push(' ');
+                    }
                 }
             }
             _ => {
