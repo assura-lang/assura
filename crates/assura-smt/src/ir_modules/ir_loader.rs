@@ -346,7 +346,7 @@ fn load_ir_file(path: &Path) -> Option<IrSidecar> {
 mod tests {
     use super::*;
     use assura_ast::Spanned;
-    use assura_ast::{Clause, ClauseKind, ContractDecl, Decl, Expr, SourceFile};
+    use assura_ast::{Clause, ClauseKind, ContractDecl, Decl, Expr, Literal, SourceFile};
     use assura_types::{TypeEnv, TypedFile};
     use std::sync::Arc;
 
@@ -370,7 +370,7 @@ mod tests {
             name: name.into(),
             clauses: vec![Clause {
                 kind: ClauseKind::Requires,
-                body: Spanned::no_span(Expr::Ident("x".into())),
+                body: Spanned::no_span(Expr::Literal(Literal::Bool(true))),
                 effect_variables: vec![],
             }],
             fn_params: vec![],

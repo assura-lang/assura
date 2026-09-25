@@ -3,6 +3,7 @@
 // requires: x > 0, ensures: x > 0 -- trivially true under assumption
 
 contract PositiveStaysPositive {
+    input(x: Int)
     requires { x > 0 }
     ensures  { x > 0 }
 }

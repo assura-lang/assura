@@ -226,6 +226,7 @@ fn test_z3_bitvector_bitwise_ops() {
 fn test_z3_unsat_core_extraction() {
     let src = r#"
 contract UnsatCoreTest {
+    input(x: Int)
     requires: x > 50
     requires: x < 100
     ensures: x > 10
@@ -259,6 +260,7 @@ contract UnsatCoreTest {
 fn test_unsat_core_minimal() {
     let src = r#"
 contract MinimalCore {
+    input(x: Int)
     requires: x > 50
     requires: x > 10
     ensures: x > 0

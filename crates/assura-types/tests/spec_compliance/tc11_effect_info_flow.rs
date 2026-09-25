@@ -8,8 +8,8 @@ fn labeled_logging_contract() {
     must_compile(
         r#"
 contract LabeledLogging {
-    requires(user_id: String, user_data: String)
-    ensures(result: Bool)
+    input(user_id: String, user_data: String)
+    output(result: Bool)
     effects: logging
 }
 "#,
@@ -21,8 +21,8 @@ fn effect_label_check() {
     must_compile(
         r#"
 contract EffectLabelCheck {
-    requires(public_data: String, restricted_data: String)
-    ensures(result: String)
+    input(public_data: String, restricted_data: String)
+    output(result: String)
     effects: logging
 }
 "#,
@@ -35,8 +35,8 @@ fn reject_unknown_effect_name() {
     must_reject(
         r#"
 contract BadEffect {
-    requires(x: Int)
-    ensures(result: Int)
+    input(x: Int)
+    output(result: Int)
     effects: teleportation
 }
 "#,

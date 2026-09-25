@@ -1133,6 +1133,7 @@ fn unused_import_reported_as_warning() {
     let src = r#"
 import std.math;
 contract Foo {
+input(x: Int)
 requires { x > 0 }
 }
 "#;
@@ -1471,7 +1472,7 @@ contract Div {
 // -----------------------------------------------------------------------
 
 #[test]
-fn undefined_name_in_clause_body_warns() {
+fn undefined_name_in_clause_body_is_an_error() {
     // No imports, no module => strict mode. 'c' is undefined.
     let src = r#"
 contract Foo {
@@ -1480,15 +1481,11 @@ contract Foo {
 }
 "#;
     let file = parse_ok(src);
-    let resolved = resolve(&file).expect("resolve succeeds (warnings, not errors)");
-    let body_warnings: Vec<_> = resolved
-        .warnings
-        .iter()
-        .filter(|w| w.code == "A02001" && w.message.contains("undefined name"))
-        .collect();
+    let errs = resolve(&file).expect_err("undefined clause name is an error");
     assert!(
-        body_warnings.iter().any(|w| w.message.contains("`c`")),
-        "should warn about undefined `c`: {body_warnings:?}"
+        errs.iter()
+            .any(|e| e.code == "A02001" && e.message.contains("`c`")),
+        "should error on undefined `c`: {errs:?}"
     );
 }
 
@@ -1555,6 +1552,25 @@ contract ListCheck {
     assert!(
         body_warnings.is_empty(),
         "quantifier var should not trigger warnings: {body_warnings:?}"
+    );
+}
+
+#[test]
+fn unresolved_import_does_not_prove_bare_unknown_name() {
+    let src = r#"
+import missing.mod;
+
+contract Foo {
+  input(a: Int)
+  ensures { y == y }
+}
+"#;
+    let file = parse_ok(src);
+    let errs = resolve(&file).expect_err("bare unknown name is an error");
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A02001" && e.message.contains("`y`")),
+        "{errs:?}"
     );
 }
 
@@ -1938,6 +1954,151 @@ fn identity(n: Int) -> Int
         a02001_errors.is_empty(),
         "fn params should not produce A02001, got: {:?}",
         a02001_errors
+    );
+}
+
+/// Service `states:` names and `state` are in scope in operation clauses.
+#[test]
+fn service_state_names_resolve_in_operations() {
+    let src = r#"
+service Connection {
+    states: Disconnected -> Connected -> Authenticated
+
+    operation Connect {
+        requires: state == Disconnected
+        ensures: state == Connected
+    }
+}
+"#;
+    let file = assura_parser::parse_unwrap(src);
+    let resolved = resolve(&file).expect("typestate names should resolve");
+    let a02001: Vec<_> = resolved
+        .warnings
+        .iter()
+        .filter(|e| e.code == "A02001")
+        .collect();
+    assert!(
+        a02001.is_empty(),
+        "state names must not produce A02001, got: {a02001:?}"
+    );
+}
+
+#[test]
+fn builtin_ends_with_is_not_an_undefined_name() {
+    let src = r#"
+contract EmptySuffix {
+  input(s: String, aff: String)
+  requires { len(aff) == 0 }
+  ensures { ends_with(s, aff) }
+}
+"#;
+    let file = assura_parser::parse_unwrap(src);
+    let resolved = resolve(&file).expect("ends_with is a built-in");
+    let a02001: Vec<_> = resolved
+        .warnings
+        .iter()
+        .filter(|e| e.code == "A02001")
+        .collect();
+    assert!(a02001.is_empty(), "{a02001:?}");
+}
+
+#[test]
+fn builtin_contains_key_is_not_an_undefined_name() {
+    let src = r#"
+contract MapHas {
+  input(m: List<Int>, k: Int)
+  requires { contains_key(m, k) }
+  ensures { size(m) >= 1 }
+}
+"#;
+    let file = assura_parser::parse_unwrap(src);
+    let resolved = resolve(&file).expect("contains_key is a built-in");
+    let a02001: Vec<_> = resolved
+        .warnings
+        .iter()
+        .filter(|e| e.code == "A02001")
+        .collect();
+    assert!(a02001.is_empty(), "{a02001:?}");
+}
+
+#[test]
+fn builtin_clear_is_not_an_undefined_name() {
+    let src = r#"
+contract ClearLen {
+  input(xs: List<Int>)
+  ensures { len(clear(xs)) == 0 }
+}
+"#;
+    let file = assura_parser::parse_unwrap(src);
+    let resolved = resolve(&file).expect("clear is a built-in");
+    let a02001: Vec<_> = resolved
+        .warnings
+        .iter()
+        .filter(|e| e.code == "A02001")
+        .collect();
+    assert!(a02001.is_empty(), "{a02001:?}");
+}
+
+#[test]
+fn service_raw_forall_does_not_flag_binder_or_field() {
+    let src = r#"
+service OrderService {
+    states: Pending -> Confirmed
+    invariant { forall o in orders: o.amount > 0 }
+}
+"#;
+    let file = assura_parser::parse_unwrap(src);
+    let errs = resolve(&file).expect_err("orders is not declared");
+    let names: Vec<_> = errs
+        .iter()
+        .filter(|e| e.code == "A02001")
+        .map(|e| e.message.clone())
+        .collect();
+    assert!(names.iter().any(|m| m.contains("`orders`")), "{names:?}");
+    assert!(
+        names
+            .iter()
+            .all(|m| !m.contains("`o`") && !m.contains("`amount`")),
+        "{names:?}"
+    );
+}
+
+#[test]
+fn service_typo_state_has_a_span() {
+    let src = r#"
+service Connection {
+    states: Disconnected -> Connected
+    operation Connect {
+        ensures: state == Conected
+    }
+}
+"#;
+    let file = assura_parser::parse_unwrap(src);
+    let errs = resolve(&file).expect_err("typo state name is an error");
+    let typo = errs
+        .iter()
+        .find(|e| e.message.contains("`Conected`"))
+        .expect("missing Conected error");
+    assert!(
+        typo.span.end > typo.span.start,
+        "undefined state name must point at the clause, got {:?}",
+        typo.span
+    );
+}
+
+#[test]
+fn test_feature_flag_visible_in_clauses() {
+    let src = "feature ecdsa = enabled\ncontract NeedsEcdsa {\n  requires { ecdsa }\n}\n";
+    let file = assura_parser::parse_unwrap(src);
+    let resolved = resolve(&file).expect("feature flag name should resolve");
+    let a02001: Vec<_> = resolved
+        .warnings
+        .iter()
+        .filter(|e| e.code == "A02001")
+        .collect();
+    assert!(
+        a02001.is_empty(),
+        "feature ecdsa must not produce A02001, got: {a02001:?}"
     );
 }
 

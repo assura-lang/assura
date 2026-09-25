@@ -69,13 +69,18 @@ const BUILTIN_VALUE_NAMES: &[&str] = &[
     "divmod",
     "pow",
     "contains",
+    "contains_key",
     "keys",
     "values",
     "get",
     "put",
     "set",
     "push",
+    "push_back",
+    "push_front",
     "pop",
+    "pop_back",
+    "pop_front",
     "head",
     "tail",
     "first",
@@ -88,9 +93,23 @@ const BUILTIN_VALUE_NAMES: &[&str] = &[
     "any",
     "all",
     "concat",
+    "append",
+    "reverse",
+    "clear",
+    "take",
+    "drop",
+    "slice",
+    "insert",
+    "remove",
+    "remove_at",
+    "char_at",
     "split",
     "trim",
+    "replace",
+    "substr",
     "substring",
+    "starts_with",
+    "ends_with",
     "index_of",
     "capacity",
     "length",
@@ -497,6 +516,30 @@ pub fn resolve_with_modules(
                 // Create a child scope for the service's items.
                 if inserted {
                     let svc_scope = table.push_scope(&s.name, Some(module));
+                    // `states: Disconnected -> Connected` is used as
+                    // `state == Disconnected` in operation clauses.
+                    for item in &s.items {
+                        if let ServiceItem::States(names) = item {
+                            try_insert(
+                                &mut table,
+                                &mut errors,
+                                svc_scope,
+                                "state",
+                                SymbolKind::Field,
+                                decl.span.clone(),
+                            );
+                            for name in names {
+                                try_insert(
+                                    &mut table,
+                                    &mut errors,
+                                    svc_scope,
+                                    name,
+                                    SymbolKind::Field,
+                                    decl.span.clone(),
+                                );
+                            }
+                        }
+                    }
                     for item in &s.items {
                         match item {
                             ServiceItem::TypeDef(t) => {
@@ -648,7 +691,7 @@ pub fn resolve_with_modules(
                 // co-exist with crates.io `assura-resolve` 0.1.0 during
                 // `cargo package` verify of dependents. A dedicated
                 // SymbolKind::FeatureMax can land in a co-published release.
-                if *kind == BlockKind::FeatureMax && !name.is_empty() {
+                if matches!(*kind, BlockKind::FeatureMax | BlockKind::Feature) && !name.is_empty() {
                     try_insert(
                         &mut table,
                         &mut errors,
@@ -707,9 +750,11 @@ pub fn resolve_with_modules(
     check_unused_imports(&resolved_imports, &referenced_names, &mut warnings);
 
     // --- Expression-level name resolution in clause bodies ---
-    // These produce warnings, not hard errors, since we may not know about
-    // all names in scope (external modules, built-in functions, etc.).
-    resolve_clause_body_names(source, &table, &resolved_imports, module, &mut warnings);
+    // Lenient files (imports / modules) skip unknown names inside
+    // resolve_clause_body_names. In a single file, `ensures { y == y }`
+    // with no `y` is not a proof. Those A02001s are errors so check
+    // does not exit 0.
+    resolve_clause_body_names(source, &table, &resolved_imports, module, &mut errors);
 
     // Remove this module from the visited set now that resolution is done.
     visited.remove(&module_name);

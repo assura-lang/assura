@@ -8,8 +8,8 @@ fn sized_io_read() {
     must_compile(
         r#"
 contract ReadExact {
-    requires(n: Nat)
-    ensures(result: Nat)
+    input(n: Nat)
+    output(result: Nat)
     ensures(result == n)
     effects: io
 }
@@ -22,9 +22,9 @@ fn abstract_index_from_io() {
     must_compile(
         r#"
 contract AbstractIndex {
-    requires(stream_id: Int, count: Nat)
+    input(stream_id: Int, count: Nat)
     requires(count > 0)
-    ensures(bytes_read: Nat)
+    output(bytes_read: Nat)
     ensures(bytes_read == count)
     effects: io
 }

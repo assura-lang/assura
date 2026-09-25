@@ -28,7 +28,14 @@ pub(crate) fn resolve_clause_body_names(
     module_scope: usize,
     errors: &mut Vec<ResolutionError>,
 ) {
-    let lenient = should_be_lenient(source, imports);
+    // Project and module files may name feature flags and helpers that are
+    // not in this symbol table (`requires: ecdsa` in demos). A file whose
+    // only import failed to resolve does not get that pass for bare names:
+    // `import missing.mod; ensures { y == y }` must not verify.
+    let lenient = NameLenient {
+        bare: source.project.is_some() || source.module.is_some(),
+        calls: should_be_lenient(source, imports),
+    };
 
     use assura_parser::ast::{
         BindDecl, BlockKind, Clause, ContractDecl, DeclVisitor, ExternDecl, FnDef, ServiceDecl,
@@ -36,7 +43,7 @@ pub(crate) fn resolve_clause_body_names(
 
     struct ClauseBodyNames<'a> {
         table: &'a SymbolTable,
-        imports_lenient: bool,
+        imports_lenient: NameLenient,
         module_scope: usize,
         errors: &'a mut Vec<ResolutionError>,
         decl_span: assura_parser::ast::Span,
@@ -99,7 +106,7 @@ pub(crate) fn resolve_clause_body_names(
                                     &clause.body,
                                     self.table,
                                     op_scope,
-                                    &Span::default(),
+                                    &clause.body.span,
                                     self.imports_lenient,
                                     &mut Vec::new(),
                                     self.errors,
@@ -112,18 +119,28 @@ pub(crate) fn resolve_clause_body_names(
                             expr,
                             self.table,
                             svc_scope,
-                            &Span::default(),
+                            &expr.span,
                             self.imports_lenient,
                             &mut Vec::new(),
                             self.errors,
                         );
                     }
-                    ServiceItem::Other { body, .. } => {
+                    ServiceItem::Other { kind, body } => {
+                        // `fn review(...)` inside a service is a nested
+                        // signature, not a value expression. Checking its
+                        // tokens flags the function name and parameters.
+                        if kind == "fn"
+                            || kind == "function"
+                            || kind == "effects"
+                            || kind == "effect"
+                        {
+                            continue;
+                        }
                         check_expr_idents(
                             body,
                             self.table,
                             svc_scope,
-                            &Span::default(),
+                            &body.span,
                             self.imports_lenient,
                             &mut Vec::new(),
                             self.errors,
@@ -184,6 +201,14 @@ pub(crate) fn is_body_clause(kind: &ClauseKind) -> bool {
     )
 }
 
+#[derive(Clone, Copy)]
+struct NameLenient {
+    /// Skip unknown bare names. True for project/module files.
+    bare: bool,
+    /// Skip unknown call targets. True when an import may define them.
+    calls: bool,
+}
+
 /// Recursively check `Expr::Ident` references in an expression tree.
 ///
 /// The `locals` parameter tracks locally-bound names (quantifier variables,
@@ -193,7 +218,7 @@ fn check_expr_idents(
     table: &SymbolTable,
     scope_id: usize,
     span: &Span,
-    lenient: bool,
+    lenient: NameLenient,
     locals: &mut Vec<String>,
     errors: &mut Vec<ResolutionError>,
 ) {
@@ -215,8 +240,7 @@ fn check_expr_idents(
             if name.chars().next().is_some_and(|c| c.is_ascii_digit()) {
                 return;
             }
-            // In lenient mode, skip all unknown names
-            if lenient {
+            if lenient.bare {
                 return;
             }
             let suggestion = find_similar_name(name, table, scope_id);
@@ -239,7 +263,9 @@ fn check_expr_idents(
             }
         }
         Expr::Call { func, args } => {
-            check_expr_idents(func, table, scope_id, span, lenient, locals, errors);
+            if !(lenient.calls && matches!(func.node, Expr::Ident(_))) {
+                check_expr_idents(func, table, scope_id, span, lenient, locals, errors);
+            }
             for arg in args {
                 check_expr_idents(arg, table, scope_id, span, lenient, locals, errors);
             }
@@ -304,7 +330,7 @@ fn check_expr_idents(
             if table.lookup(lemma_name, scope_id).is_none()
                 && !locals.contains(lemma_name)
                 && !BUILTIN_VALUE_NAMES.contains(&lemma_name.as_str())
-                && !lenient
+                && !lenient.calls
             {
                 let suggestion = find_similar_name(lemma_name, table, scope_id);
                 errors.push(ResolutionError {
@@ -328,18 +354,39 @@ fn check_expr_idents(
             }
         }
         Expr::Raw(tokens) => {
-            // For raw tokens, check identifiers that look like value references
-            for tok in tokens {
-                if tok
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_alphabetic() || c == '_')
-                    && table.lookup(tok, scope_id).is_none()
+            // Service invariants often stay raw tokens. `forall o in orders`
+            // binds `o`, and `o.amount` is a field, not a value named amount.
+            let mut bound_here = Vec::new();
+            let mut skip_field = false;
+            for (i, tok) in tokens.iter().enumerate() {
+                if tok == "forall" || tok == "exists" {
+                    if let Some(name) = tokens.get(i + 1) {
+                        if is_raw_value_ident(name) {
+                            locals.push(name.clone());
+                            bound_here.push(name.clone());
+                        }
+                    }
+                    continue;
+                }
+                if tok == "." {
+                    skip_field = true;
+                    continue;
+                }
+                if !is_raw_value_ident(tok) {
+                    skip_field = false;
+                    continue;
+                }
+                if skip_field || bound_here.iter().any(|n| n == tok) {
+                    skip_field = false;
+                    continue;
+                }
+                skip_field = false;
+                if table.lookup(tok, scope_id).is_none()
                     && !locals.contains(tok)
                     && !BUILTIN_VALUE_NAMES.contains(&tok.as_str())
                     && !TYPE_SYNTAX_TOKENS.contains(&tok.as_str())
                     && !is_type_name_candidate(tok)
-                    && !lenient
+                    && !lenient.bare
                 {
                     let suggestion = find_similar_name(tok, table, scope_id);
                     errors.push(ResolutionError {
@@ -351,9 +398,18 @@ fn check_expr_idents(
                     });
                 }
             }
+            for _ in &bound_here {
+                locals.pop();
+            }
         }
         Expr::Literal(_) => {}
     }
+}
+
+fn is_raw_value_ident(tok: &str) -> bool {
+    tok.chars()
+        .next()
+        .is_some_and(|c| c.is_alphabetic() || c == '_')
 }
 
 /// Collect names bound by a pattern (for match arm local scope).

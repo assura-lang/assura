@@ -8,8 +8,8 @@ fn transaction_with_effects() {
     must_compile(
         r#"
 contract Transaction {
-    requires(conn_id: Int)
-    ensures(result: Bool)
+    input(conn_id: Int)
+    output(result: Bool)
     effects: database
 }
 "#,
@@ -35,8 +35,8 @@ fn reject_unknown_effect() {
     must_reject(
         r#"
 contract BadEffect {
-    requires(x: Int)
-    ensures(result: Int)
+    input(x: Int)
+    output(result: Int)
     effects: teleportation
 }
 "#,

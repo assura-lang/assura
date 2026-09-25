@@ -36,6 +36,7 @@ fn test_safe_division_requires_verified() {
     // the implication holds trivially.
     let src = r#"
         contract DivNonZero {
+            input(b: Int)
             requires: b != 0
             ensures: b != 0
         }
@@ -54,7 +55,9 @@ fn test_increment_preserves_bound() {
     // If x > 5, then x + 1 > 5 (trivially true in integer arithmetic)
     let src = r#"
         contract IncrBound {
+            input(x: Int)
             requires: x > 5
+            requires: x + 1 > x
             ensures: x + 1 > 5
         }
     "#;
@@ -72,8 +75,10 @@ fn test_sum_nonnegative() {
     // a >= 0 and b >= 0 implies a + b >= 0
     let src = r#"
         contract SumNonNeg {
+            input(a: Int, b: Int)
             requires: a >= 0
             requires: b >= 0
+            requires: a + b >= a
             ensures: a + b >= 0
         }
     "#;
@@ -91,6 +96,7 @@ fn test_counterexample_no_requires() {
     // No requires, ensures x > 0: should produce counterexample (x=0)
     let src = r#"
         contract NoGuard {
+            input(x: Int)
             ensures: x > 0
         }
     "#;
@@ -112,7 +118,9 @@ fn test_negation_ensures() {
     // requires: x < 0, ensures: -x > 0
     let src = r#"
         contract NegPositive {
+            input(x: Int)
             requires: x < 0
+            requires: x > -9223372036854775808
             ensures: 0 - x > 0
         }
     "#;
@@ -130,6 +138,7 @@ fn test_invariant_always_true() {
     // invariant: x * x >= 0 -- always true for integers
     let src = r#"
         contract SquareNonNeg {
+            input(x: Int)
             invariant: x * x >= 0
         }
     "#;

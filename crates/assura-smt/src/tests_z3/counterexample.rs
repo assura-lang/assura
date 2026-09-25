@@ -178,6 +178,7 @@ fn test_safe_buffer_read_contract_verified() {
     // data_len == len, this verifies.
     let src = r#"
         contract SafeBufferRead {
+            input(offset: Int, len: Int, buf_len: Int, data_len: Int)
             requires { offset + len <= buf_len }
             ensures { data_len == len }
         }
@@ -204,6 +205,7 @@ fn test_buffer_bounds_contract_ensures_via_requires() {
     // The ensures is a subset of the requires -> Verified
     let src = r#"
         contract BoundsChecked {
+            input(offset: Int, len: Int, cap: Int)
             requires { offset + len <= cap and offset >= 0 and len >= 0 }
             ensures { offset + len <= cap }
         }
@@ -223,6 +225,7 @@ fn test_unsafe_buffer_read_contract_counterexample() {
     // Without bounds check, this should produce counterexample.
     let src = r#"
         contract UnsafeRead {
+            input(offset: Int, len: Int, buf_len: Int)
             ensures { offset + len <= buf_len }
         }
     "#;
@@ -242,6 +245,7 @@ fn test_nested_region_bounds() {
     // The ensures is a subset of the requires -> Verified
     let src = r#"
         contract NestedBounds {
+            input(a: Int, b: Int, cap: Int)
             requires { a >= 0 and b >= a and b <= cap }
             ensures { a >= 0 and b <= cap }
         }

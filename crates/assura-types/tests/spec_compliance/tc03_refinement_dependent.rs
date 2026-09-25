@@ -8,9 +8,9 @@ fn split_at_refined_index() {
     must_compile(
         r#"
 contract SplitAt {
-    requires(n: Nat, i: Nat)
+    input(n: Nat, i: Nat)
     requires(i <= n)
-    ensures(result: Nat)
+    output(result: Nat)
     ensures(result == n)
 }
 "#,
@@ -22,9 +22,9 @@ fn index_arithmetic_with_bounds() {
     must_compile(
         r#"
 contract IndexArithmetic {
-    requires(total: Nat, offset: Nat)
+    input(total: Nat, offset: Nat)
     requires(offset < total)
-    ensures(remaining: Nat)
+    output(remaining: Nat)
     ensures(remaining == total - offset)
 }
 "#,
@@ -36,10 +36,10 @@ fn refined_nat_operations() {
     must_compile(
         r#"
 contract RefinedNat {
-    requires(a: Nat, b: Nat)
+    input(a: Nat, b: Nat)
     requires(a > 0)
     requires(b > 0)
-    ensures(result: Nat)
+    output(result: Nat)
     ensures(result == a * b)
 }
 "#,

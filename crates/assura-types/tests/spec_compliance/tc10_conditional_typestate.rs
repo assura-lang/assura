@@ -26,9 +26,9 @@ fn branch_divergence_contract() {
     must_compile(
         r#"
 contract BranchDivergence {
-    requires(condition: Bool, value: Int)
+    input(condition: Bool, value: Int)
     requires(value > 0)
-    ensures(result: Int)
+    output(result: Int)
 }
 "#,
     );
@@ -48,9 +48,11 @@ service MultiEffectService {
     fn audit(action: String) -> Bool
         effects: logging
 
-    fn transfer(from: Int, to: Int, amount: Int) -> Bool
+    operation transfer {
+        input(from: Int, to: Int, amount: Int)
         requires { amount > 0 }
         effects: database
+    }
 }
 "#,
     );

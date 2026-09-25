@@ -8,15 +8,21 @@ fn service_with_guarded_transitions() {
     must_compile(
         r#"
 service LoanService {
-    fn review(loan_id: Int) -> Int
+    operation review {
+        input(loan_id: Int)
         effects: database
+    }
 
-    fn approve(loan_id: Int, amount: Int) -> Int
+    operation approve {
+        input(loan_id: Int, amount: Int)
         requires { amount > 0 }
         effects: database
+    }
 
-    fn deny(loan_id: Int) -> Int
+    operation deny {
+        input(loan_id: Int)
         effects: database
+    }
 }
 "#,
     );
@@ -27,10 +33,10 @@ fn guarded_transition_refinement() {
     must_compile(
         r#"
 contract GuardedTransition {
-    requires(credit_score: Int, amount: Int)
+    input(credit_score: Int, amount: Int)
     requires(credit_score >= 650)
     requires(amount > 0)
-    ensures(result: Bool)
+    output(result: Bool)
     ensures(result == true)
 }
 "#,
@@ -43,8 +49,8 @@ fn reject_non_bool_invariant() {
     must_reject(
         r#"
 contract BadInvariant {
-    requires(x: Int)
-    ensures(result: Int)
+    input(x: Int)
+    output(result: Int)
     invariant(x + 1)
 }
 "#,

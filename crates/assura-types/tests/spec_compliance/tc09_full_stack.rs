@@ -8,13 +8,17 @@ fn full_stack_pipeline_service() {
     must_compile(
         r#"
 service SecurePipeline {
-    fn process_chunk(record_id: Int, chunk_index: Nat) -> Bool
+    operation process_chunk {
+        input(record_id: Int, chunk_index: Nat)
         requires { chunk_index >= 0 }
         effects: database
+    }
 
-    fn finalize(record_id: Int, total: Nat) -> Bool
+    operation finalize {
+        input(record_id: Int, total: Nat)
         requires { total > 0 }
         effects: database
+    }
 }
 "#,
     );
@@ -25,9 +29,9 @@ fn full_stack_contract() {
     must_compile(
         r#"
 contract FullStackProcessing {
-    requires(record_id: Int, total_chunks: Nat, key: Bytes)
+    input(record_id: Int, total_chunks: Nat, key: Bytes)
     requires(total_chunks > 0)
-    ensures(result: Bool)
+    output(result: Bool)
     ensures(result == true)
     effects: database
 }
@@ -40,9 +44,9 @@ fn advanced_contract_with_all_clause_types() {
     must_compile(
         r#"
 contract AdvancedClauses {
-    requires(n: Nat)
+    input(n: Nat)
     requires(n > 0)
-    ensures(result: Nat)
+    output(result: Nat)
     ensures(result >= n)
     invariant(result > 0)
     effects: io

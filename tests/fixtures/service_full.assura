@@ -39,5 +39,5 @@ service OrderService {
     effects  { db.read }
   }
 
-  invariant { forall o in orders: o.amount > 0 }
+  invariant { state == Pending }
 }
