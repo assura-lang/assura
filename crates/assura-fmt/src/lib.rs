@@ -118,6 +118,53 @@ pub fn format_source_file(_file: &assura_parser::ast::SourceFile) -> String {
 // CST-based formatting engine
 // ---------------------------------------------------------------------------
 
+struct FmtTok {
+    kind: SyntaxKind,
+    text: String,
+    /// Operator token that is a direct child of `BIN_EXPR`.
+    /// Generic `<` / `>` are not.
+    infix: bool,
+}
+
+fn is_infix_op(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::EQ
+            | SyntaxKind::NEQ
+            | SyntaxKind::L_ANGLE
+            | SyntaxKind::R_ANGLE
+            | SyntaxKind::LTE
+            | SyntaxKind::GTE
+            | SyntaxKind::PLUS
+            | SyntaxKind::MINUS
+            | SyntaxKind::STAR
+            | SyntaxKind::SLASH
+            | SyntaxKind::PERCENT
+            | SyntaxKind::AND_AND
+            | SyntaxKind::OR_OR
+            | SyntaxKind::AND_KW
+            | SyntaxKind::OR_KW
+            | SyntaxKind::IN_KW
+            | SyntaxKind::IS_KW
+            | SyntaxKind::DOT_DOT
+            | SyntaxKind::CONCAT
+    )
+}
+
+fn collect_fmt_tokens(node: &assura_parser::syntax_kind::SyntaxNode, out: &mut Vec<FmtTok>) {
+    let bin = node.kind() == SyntaxKind::BIN_EXPR;
+    for child in node.children_with_tokens() {
+        if let Some(tok) = child.as_token() {
+            let kind = tok.kind();
+            let text = tok.text().to_string();
+            let infix = bin && (is_infix_op(kind) || (kind == SyntaxKind::IDENT && text == "mod"));
+            out.push(FmtTok { kind, text, infix });
+        } else if let Some(n) = child.as_node() {
+            collect_fmt_tokens(n, out);
+        }
+    }
+}
+
 /// Collect all leaf tokens from the CST in document order.
 ///
 /// Use `as_token` / `as_node` (not `rowan::NodeOrToken` match arms) so this
@@ -148,6 +195,13 @@ fn peek_non_ws(tokens: &[(SyntaxKind, String)], start: usize) -> Option<SyntaxKi
         .iter()
         .find(|(k, _)| *k != SyntaxKind::WHITESPACE)
         .map(|(k, _)| *k)
+}
+
+fn peek_fmt_non_ws(tokens: &[FmtTok], start: usize) -> Option<SyntaxKind> {
+    tokens[start..]
+        .iter()
+        .find(|t| t.kind != SyntaxKind::WHITESPACE)
+        .map(|t| t.kind)
 }
 
 /// True when whitespace between `start` and the next non-ws token already
@@ -191,21 +245,47 @@ fn needs_space_before(kind: SyntaxKind, out: &str) -> bool {
 /// indentation. Horizontal whitespace between two tokens is one space.
 /// A horizontal run at the start or end of the file is dropped.
 fn format_cst_tokens(root: &assura_parser::syntax_kind::SyntaxNode) -> String {
-    let tokens = collect_leaf_tokens(root);
+    let mut tokens = Vec::new();
+    collect_fmt_tokens(root, &mut tokens);
     let mut out = String::new();
     let mut brace_depth: i32 = 0;
+    let mut space_after_infix = false;
 
-    for (i, (kind, text)) in tokens.iter().enumerate() {
-        match *kind {
+    for (i, tok) in tokens.iter().enumerate() {
+        let kind = tok.kind;
+        let text = tok.text.as_str();
+        match kind {
+            SyntaxKind::COMMENT => {
+                // Trivia does not consume the space owed to the next operand.
+                let owed = space_after_infix
+                    && out.chars().next_back().is_some_and(|c| !c.is_whitespace());
+                if owed || needs_space_before(kind, &out) {
+                    out.push(' ');
+                }
+                out.push_str(text);
+            }
+            SyntaxKind::STRING_LIT => {
+                if space_after_infix && out.chars().next_back().is_some_and(|c| !c.is_whitespace())
+                {
+                    out.push(' ');
+                }
+                space_after_infix = false;
+                if needs_space_before(kind, &out) {
+                    out.push(' ');
+                }
+                out.push_str(text);
+            }
             SyntaxKind::L_BRACE => {
                 if out.chars().next_back().is_some_and(|c| !c.is_whitespace()) {
                     out.push(' ');
                 }
                 out.push('{');
                 brace_depth += 1;
+                space_after_infix = false;
             }
             SyntaxKind::R_BRACE => {
                 brace_depth = (brace_depth - 1).max(0);
+                space_after_infix = false;
                 out.push('}');
             }
             SyntaxKind::WHITESPACE => {
@@ -216,7 +296,7 @@ fn format_cst_tokens(root: &assura_parser::syntax_kind::SyntaxNode) -> String {
                     // Peek ahead: if the next non-whitespace token is `}`,
                     // dedent by one level for the closing brace line.
                     let next_is_rbrace =
-                        peek_non_ws(&tokens, i + 1).is_some_and(|k| k == SyntaxKind::R_BRACE);
+                        peek_fmt_non_ws(&tokens, i + 1).is_some_and(|k| k == SyntaxKind::R_BRACE);
                     let indent = if next_is_rbrace {
                         (brace_depth - 1).max(0) as usize
                     } else {
@@ -234,17 +314,32 @@ fn format_cst_tokens(root: &assura_parser::syntax_kind::SyntaxNode) -> String {
                     // end of the file, and skip a run that follows a newline
                     // indent (that indent is already the separator).
                     let prev_is_token = out.chars().next_back().is_some_and(|c| !c.is_whitespace());
-                    let next_is_token = peek_non_ws(&tokens, i + 1).is_some();
+                    let next_is_token = peek_fmt_non_ws(&tokens, i + 1).is_some();
                     if prev_is_token && next_is_token {
                         out.push(' ');
                     }
                 }
             }
-            _ => {
-                if needs_space_before(*kind, &out) {
+            _ if tok.infix => {
+                if out.chars().next_back().is_some_and(|c| !c.is_whitespace()) {
                     out.push(' ');
                 }
                 out.push_str(text);
+                space_after_infix = true;
+            }
+            _ => {
+                if space_after_infix && out.chars().next_back().is_some_and(|c| !c.is_whitespace())
+                {
+                    out.push(' ');
+                }
+                space_after_infix = false;
+                if needs_space_before(kind, &out) {
+                    out.push(' ');
+                }
+                out.push_str(text);
+                if matches!(kind, SyntaxKind::ARROW | SyntaxKind::FAT_ARROW) {
+                    space_after_infix = true;
+                }
             }
         }
     }
