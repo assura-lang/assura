@@ -222,7 +222,7 @@ pub(crate) fn run_check_rust(
                         super::rust_body_ir::function_params_return(&item.kind)
                     && let Some(rust_src) = rust_text.as_deref()
                     && let Some(body) = super::rust_body_ir::extract_body_return_at(
-                        &rust_src, &item_name, item.line,
+                        rust_src, &item_name, item.line,
                     )
                     && let Some(ir_text) =
                         super::rust_body_ir::try_ir_from_rust_body(&item_name, params, ret, &body)
