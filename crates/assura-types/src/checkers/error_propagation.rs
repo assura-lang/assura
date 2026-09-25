@@ -199,15 +199,12 @@ impl FrameChecker {
         candidates: &[String],
     ) -> Vec<String> {
         let old_refs = collect_old_references(ensures_body);
-        let ident_refs = collect_ident_references(ensures_body);
 
-        // Collect all referenced variables (both in old() and directly),
-        // plus any explicit candidates (params/inputs).
+        // Frame parameters and old() targets only. Every ident in the
+        // body includes quantifier binders, and asserting `i == i__old`
+        // for a binder is a free variable in CVC5.
         let mut all_refs: std::collections::HashSet<String> = std::collections::HashSet::new();
         for r in &old_refs {
-            all_refs.insert(r.clone());
-        }
-        for r in &ident_refs {
             all_refs.insert(r.clone());
         }
         for c in candidates {

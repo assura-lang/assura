@@ -1113,6 +1113,21 @@ fn frame_checker_empty_frames_old_names() {
 }
 
 #[test]
+fn frame_checker_does_not_frame_quantifier_binder() {
+    let checker = FrameChecker::empty();
+    let ensures_body = Spanned::no_span(AstExpr::Forall {
+        var: "i".into(),
+        domain: Box::new(Spanned::no_span(AstExpr::Ident("ints".into()))),
+        body: Box::new(Spanned::no_span(AstExpr::Ident("i".into()))),
+    });
+    let frame_vars = checker.frame_axiom_vars(&ensures_body);
+    assert!(
+        !frame_vars.iter().any(|n| n == "i"),
+        "binder i must not be framed, got {frame_vars:?}"
+    );
+}
+
+#[test]
 fn frame_checker_has_modifies() {
     let body = Spanned::no_span(AstExpr::Ident("x".into()));
     let checker = FrameChecker::new(&[&body]);
