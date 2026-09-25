@@ -29,10 +29,10 @@ fn bounded_retry_contract() {
     must_compile(
         r#"
 contract BoundedRetry {
-    requires(retries: Nat, max_retries: Nat)
+    input(retries: Nat, max_retries: Nat)
     requires(retries < max_retries)
     requires(max_retries == 3)
-    ensures(result: Nat)
+    output(result: Nat)
     ensures(result == retries + 1)
 }
 "#,

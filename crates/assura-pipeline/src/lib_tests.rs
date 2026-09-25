@@ -108,7 +108,7 @@ fn compile_empty_source() {
 fn compile_records_timing() {
     let config = CompilerConfig::default();
     let output = compile(
-        "contract T { requires(x: Int) ensures(result: Int) }",
+        "contract T { input(x: Int) output(result: Int) }",
         "test.assura",
         &config,
     );

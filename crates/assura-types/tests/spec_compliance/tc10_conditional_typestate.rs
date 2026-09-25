@@ -26,9 +26,9 @@ fn branch_divergence_contract() {
     must_compile(
         r#"
 contract BranchDivergence {
-    requires(condition: Bool, value: Int)
+    input(condition: Bool, value: Int)
     requires(value > 0)
-    ensures(result: Int)
+    output(result: Int)
 }
 "#,
     );

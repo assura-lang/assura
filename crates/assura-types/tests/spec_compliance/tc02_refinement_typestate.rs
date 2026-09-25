@@ -27,10 +27,10 @@ fn guarded_transition_refinement() {
     must_compile(
         r#"
 contract GuardedTransition {
-    requires(credit_score: Int, amount: Int)
+    input(credit_score: Int, amount: Int)
     requires(credit_score >= 650)
     requires(amount > 0)
-    ensures(result: Bool)
+    output(result: Bool)
     ensures(result == true)
 }
 "#,
@@ -43,8 +43,8 @@ fn reject_non_bool_invariant() {
     must_reject(
         r#"
 contract BadInvariant {
-    requires(x: Int)
-    ensures(result: Int)
+    input(x: Int)
+    output(result: Int)
     invariant(x + 1)
 }
 "#,

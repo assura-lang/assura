@@ -840,9 +840,9 @@ mod tests {
         // "memory" is not a valid effect name; should trigger A07003
         let src = r#"
             contract Multi {
-                requires(x: Int)
+                input(x: Int)
                 effects(memory)
-                ensures(result: Int)
+                output(result: Int)
             }
         "#;
         let result = type_check(resolve_ok(src));
@@ -857,8 +857,8 @@ mod tests {
     fn pipeline_valid_contract_succeeds() {
         let src = r#"
             contract Add {
-                requires(a: Int, b: Int)
-                ensures(result: Int)
+                input(a: Int, b: Int)
+                output(result: Int)
             }
         "#;
         let file = assura_parser::parse_unwrap(src);
@@ -874,9 +874,9 @@ mod tests {
     fn pipeline_with_strict_effects_config() {
         let src = r#"
             contract Effectful {
-                requires(x: Int)
+                input(x: Int)
                 effects(io)
-                ensures(result: Int)
+                output(result: Int)
             }
         "#;
         let strict_config = assura_config::TypeCheckConfig {
@@ -895,9 +895,9 @@ mod tests {
     fn pipeline_denied_effect_io_a07003() {
         let src = r#"
             contract Effectful {
-                requires(x: Int)
+                input(x: Int)
                 effects(io)
-                ensures(result: Int)
+                output(result: Int)
             }
         "#;
         let config = assura_config::TypeCheckConfig {
@@ -916,9 +916,9 @@ mod tests {
     fn pipeline_allowlist_io_accepts_effects_io() {
         let src = r#"
             contract Effectful {
-                requires(x: Int)
+                input(x: Int)
                 effects(io)
-                ensures(result: Int)
+                output(result: Int)
             }
         "#;
         let config = assura_config::TypeCheckConfig {

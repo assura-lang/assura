@@ -33,7 +33,7 @@ fn codegen_with_config_ok(source: &str, config: super::BackendConfig) -> super::
 
 #[test]
 fn cranelift_generates_cargo_config() {
-    let source = "contract Add { requires(a: Int, b: Int) ensures(result: Int) }";
+    let source = "contract Add { input(a: Int, b: Int) output(result: Int) }";
     let project = codegen_with_config_ok(
         source,
         super::BackendConfig {
@@ -57,7 +57,7 @@ fn cranelift_generates_cargo_config() {
 
 #[test]
 fn cranelift_output_differs_from_rustc() {
-    let source = "contract Add { requires(a: Int, b: Int) ensures(result: Int) }";
+    let source = "contract Add { input(a: Int, b: Int) output(result: Int) }";
     let rustc_project = codegen_ok(source);
     let cranelift_project = codegen_with_config_ok(
         source,
@@ -77,7 +77,7 @@ fn cranelift_output_differs_from_rustc() {
 
 #[test]
 fn rustc_has_no_cargo_config() {
-    let source = "contract Add { requires(a: Int, b: Int) ensures(result: Int) }";
+    let source = "contract Add { input(a: Int, b: Int) output(result: Int) }";
     let project = codegen_ok(source);
     assert!(
         !project
@@ -91,7 +91,7 @@ fn rustc_has_no_cargo_config() {
 #[test]
 fn cranelift_adds_repr_c_to_structs() {
     let source = "type Point { x: Int, y: Int }
-contract UsePoint { requires(p: Point) ensures(result: Int) }";
+contract UsePoint { input(p: Point) output(result: Int) }";
     let project = codegen_with_config_ok(
         source,
         super::BackendConfig {
@@ -124,7 +124,7 @@ contract UsePoint { requires(p: Point) ensures(result: Int) }";
 
 #[test]
 fn cranelift_adds_no_mangle_extern_c() {
-    let source = "contract Add { requires(a: Int, b: Int) ensures(result: Int) }";
+    let source = "contract Add { input(a: Int, b: Int) output(result: Int) }";
     let project = codegen_with_config_ok(
         source,
         super::BackendConfig {
@@ -155,7 +155,7 @@ fn cranelift_adds_no_mangle_extern_c() {
 #[test]
 fn cranelift_skips_proptest() {
     // Must use input() clause to trigger proptest generation
-    let source = "contract Add { input(a: Int, b: Int) requires(a > 0) ensures(result == a + b) ensures(result: Int) }";
+    let source = "contract Add { input(a: Int, b: Int) requires(a > 0) ensures(result == a + b) output(result: Int) }";
     let rustc_project = codegen_ok(source);
     let rustc_lib = &rustc_project.files[0].1;
     let cranelift_project = codegen_with_config_ok(
@@ -3489,7 +3489,7 @@ service DataStore {
 
 #[test]
 fn runtime_checks_via_codegen_with_config() {
-    let source = "contract SafeDiv {\n  requires(a: Int, b: Int)\n  requires { b != 0 }\n  ensures(result: Int)\n  ensures { true }\n}";
+    let source = "contract SafeDiv {\n  input(a: Int, b: Int)\n  requires { b != 0 }\n  output(result: Int)\n  ensures { true }\n}";
     let project = codegen_with_config_ok(
         source,
         super::BackendConfig {
@@ -3511,8 +3511,8 @@ fn runtime_checks_via_codegen_with_config() {
 #[test]
 fn multi_file_ir_bodies_propagate_to_per_contract_files() {
     let source = "\
-contract Alpha {\n  requires(x: Int)\n  requires { x > 0 }\n  ensures(result: Int)\n  ensures { true }\n}
-contract Beta {\n  requires(y: Int)\n  requires { y >= 0 }\n  ensures(result: Int)\n  ensures { true }\n}";
+contract Alpha {\n  input(x: Int)\n  requires { x > 0 }\n  output(result: Int)\n  ensures { true }\n}
+contract Beta {\n  input(y: Int)\n  requires { y >= 0 }\n  output(result: Int)\n  ensures { true }\n}";
     let mut ir_bodies = std::collections::HashMap::new();
     ir_bodies.insert("Alpha".to_string(), "x + 1".to_string());
     ir_bodies.insert("Beta".to_string(), "y * 2".to_string());

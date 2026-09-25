@@ -10,9 +10,9 @@ fn ghost_use_compiles() {
     must_compile(
         r#"
 contract RefinementLinearGhost {
-    requires(x: Int, y: Int)
+    input(x: Int, y: Int)
     requires(y < x)
-    ensures(result: Int)
+    output(result: Int)
     ensures(result == x + y)
 }
 "#,
@@ -25,10 +25,10 @@ fn double_refinement_use() {
     must_compile(
         r#"
 contract RefinementLinearDoubleUse {
-    requires(x: Int, y: Int)
+    input(x: Int, y: Int)
     requires(y < x)
     requires(x > 0)
-    ensures(result: Int)
+    output(result: Int)
 }
 "#,
     );
@@ -40,9 +40,9 @@ fn refinement_with_linear_grade() {
     must_compile(
         r#"
 contract LinearGrade {
-    requires(buf: Bytes, len: Nat)
+    input(buf: Bytes, len: Nat)
     requires(len > 0)
-    ensures(result: Bytes)
+    output(result: Bytes)
 }
 "#,
     );
