@@ -164,6 +164,26 @@ fn intervening_ws_has_newline(tokens: &[(SyntaxKind, String)], start: usize) -> 
     false
 }
 
+/// Space that must exist even when the source omitted it.
+///
+/// `x:Int` and `x: Int` were both stable. `::` stays tight. `->` and `=>`
+/// get a space on each side.
+fn needs_space_before(kind: SyntaxKind, out: &str) -> bool {
+    if out.is_empty() {
+        return false;
+    }
+    // A single `:` starts a type. `::` is a path separator and stays tight.
+    if out.ends_with(':') && !out.ends_with("::") && kind != SyntaxKind::COLON {
+        return true;
+    }
+    if matches!(kind, SyntaxKind::ARROW | SyntaxKind::FAT_ARROW)
+        && out.chars().next_back().is_some_and(|c| !c.is_whitespace())
+    {
+        return true;
+    }
+    (out.ends_with("->") || out.ends_with("=>")) && kind != SyntaxKind::WHITESPACE
+}
+
 /// Walk CST tokens and emit formatted output.
 ///
 /// Indentation is tracked via brace depth (`{` increments, `}` decrements).
@@ -221,6 +241,9 @@ fn format_cst_tokens(root: &assura_parser::syntax_kind::SyntaxNode) -> String {
                 }
             }
             _ => {
+                if needs_space_before(*kind, &out) {
+                    out.push(' ');
+                }
                 out.push_str(text);
             }
         }
