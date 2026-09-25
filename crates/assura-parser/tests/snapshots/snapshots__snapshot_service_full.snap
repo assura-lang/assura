@@ -1,6 +1,5 @@
 ---
 source: crates/assura-parser/tests/snapshots.rs
-assertion_line: 54
 expression: ast
 ---
 SourceFile {
@@ -333,25 +332,18 @@ SourceFile {
                             Spanned {
                                 node: Raw(
                                     [
-                                        "forall",
-                                        "o",
-                                        "in",
-                                        "orders",
-                                        ":",
-                                        "o",
-                                        ".",
-                                        "amount",
-                                        ">",
-                                        "0",
+                                        "state",
+                                        "==",
+                                        "Pending",
                                     ],
                                 ),
-                                span: 734..784,
+                                span: 734..768,
                             },
                         ),
                     ],
                 },
             ),
-            span: 0..786,
+            span: 0..770,
         },
     ],
 }
