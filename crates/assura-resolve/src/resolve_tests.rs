@@ -1983,6 +1983,29 @@ service Connection {
 }
 
 #[test]
+fn service_typo_state_has_a_span() {
+    let src = r#"
+service Connection {
+    states: Disconnected -> Connected
+    operation Connect {
+        ensures: state == Conected
+    }
+}
+"#;
+    let file = assura_parser::parse_unwrap(src);
+    let errs = resolve(&file).expect_err("typo state name is an error");
+    let typo = errs
+        .iter()
+        .find(|e| e.message.contains("`Conected`"))
+        .expect("missing Conected error");
+    assert!(
+        typo.span.end > typo.span.start,
+        "undefined state name must point at the clause, got {:?}",
+        typo.span
+    );
+}
+
+#[test]
 fn test_feature_flag_visible_in_clauses() {
     let src = "feature ecdsa = enabled\ncontract NeedsEcdsa {\n  requires { ecdsa }\n}\n";
     let file = assura_parser::parse_unwrap(src);
