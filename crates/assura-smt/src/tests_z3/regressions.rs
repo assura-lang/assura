@@ -280,9 +280,10 @@ contract SubstrLen {
 fn test_push_increments_length() {
     let src = r#"
 contract PushLen {
-  input(xs: List<Int>, x: Int)
+  input(xs: List<Int>, x: Int, n: Int)
   requires { len(xs) == n }
   requires { n >= 0 }
+  requires { n + 1 > n }
   ensures { len(push(xs, x)) == n + 1 }
 }
     "#;
@@ -299,7 +300,7 @@ contract PushLen {
 fn test_reverse_preserves_length() {
     let src = r#"
 contract ReverseLen {
-  input(xs: List<Int>)
+  input(xs: List<Int>, n: Int)
   requires { len(xs) == n }
   ensures { len(reverse(xs)) == n }
 }
@@ -491,7 +492,7 @@ contract GetSetRow {
 fn test_set_preserves_length() {
     let src = r#"
 contract SetLen {
-  input(arr: List<Int>, i: Int, v: Int)
+  input(arr: List<Int>, i: Int, v: Int, n: Int)
   requires { len(arr) == n }
   requires { n >= 0 }
   requires { i >= 0 }
