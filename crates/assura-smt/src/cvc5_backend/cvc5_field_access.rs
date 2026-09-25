@@ -76,13 +76,10 @@ where
                 state.use_string_theory,
             ))
         }
-        FieldAccessPlan::TupleProj { arity, index } => {
-            use crate::encode_tuple_policy::tuple_accessor_uf_name;
-            let obj_val = encode(obj, vars, state)?;
-            let acc_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-            let acc_func = tm.mk_const(acc_sort, &tuple_accessor_uf_name(arity, index));
-            Some(tm.mk_term(cvc5::Kind::ApplyUf, &[acc_func, obj_val]))
-        }
+        FieldAccessPlan::TupleProj { index, .. } => match &obj.node {
+            Expr::Tuple(elems) => encode(&elems[index], vars, state),
+            _ => None,
+        },
     }
 }
 
