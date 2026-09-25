@@ -648,7 +648,7 @@ pub fn resolve_with_modules(
                 // co-exist with crates.io `assura-resolve` 0.1.0 during
                 // `cargo package` verify of dependents. A dedicated
                 // SymbolKind::FeatureMax can land in a co-published release.
-                if *kind == BlockKind::FeatureMax && !name.is_empty() {
+                if matches!(*kind, BlockKind::FeatureMax | BlockKind::Feature) && !name.is_empty() {
                     try_insert(
                         &mut table,
                         &mut errors,

@@ -1956,6 +1956,23 @@ fn identity(n: Int) -> Int
     );
 }
 
+/// `feature NAME = enabled` is a value in clause bodies.
+#[test]
+fn test_feature_flag_visible_in_clauses() {
+    let src = "feature ecdsa = enabled\ncontract NeedsEcdsa {\n  requires { ecdsa }\n}\n";
+    let file = assura_parser::parse_unwrap(src);
+    let resolved = resolve(&file).expect("feature flag name should resolve");
+    let a02001: Vec<_> = resolved
+        .warnings
+        .iter()
+        .filter(|e| e.code == "A02001")
+        .collect();
+    assert!(
+        a02001.is_empty(),
+        "feature ecdsa must not produce A02001, got: {a02001:?}"
+    );
+}
+
 /// feature_max constants must resolve in clause bodies (no false A02001).
 /// SMT already binds their values; resolve must register the name.
 #[test]
