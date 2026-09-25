@@ -407,8 +407,7 @@ pub(crate) fn run_check_rust(
             } else if verbosity != Verbosity::Quiet {
                 println!(
                     "  {item_kind_str} `{item_name}` (line {}): {} clause(s) [{item_status}]",
-                    item.line,
-                    item.contract.clause_count()
+                    item.line, n_clauses
                 );
             }
         }
@@ -1214,7 +1213,6 @@ fn synthesize_inline_contract(
                     "  requires {{ {} >= {} }}\n  requires {{ {} <= {} }}\n",
                     p.name, lo, p.name, hi
                 ));
-                total_clauses += 2;
             }
         }
     }
