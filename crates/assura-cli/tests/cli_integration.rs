@@ -3509,7 +3509,10 @@ fn check_rust_file_with_no_clauses_is_vacuous() {
         panic!("check --json bare function must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
     });
     assert_eq!(v["success"], true, "{v}");
-    assert_eq!(v["vacuous"], true, "a function with no clauses is not a proof: {v}");
+    assert_eq!(
+        v["vacuous"], true,
+        "a function with no clauses is not a proof: {v}"
+    );
     let reason = v["vacuous_reason"].as_str().unwrap_or("");
     assert!(
         reason.contains("no verifiable clauses"),
