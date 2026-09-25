@@ -3487,6 +3487,47 @@ fn check_unclosed_contract_does_not_verify() {
 }
 
 #[test]
+fn check_undefined_clause_name_is_not_verified() {
+    let tmp = unique_temp("assura_check_undefined_name");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let path = tmp.join("missing.assura");
+    std::fs::write(
+        &path,
+        "contract Missing {\n  input(x: Int)\n  ensures { y == y }\n}\n",
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check", "--json", path.to_str().unwrap()])
+        .output()
+        .expect("failed to run assura check");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "undefined y must not pass: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check --json must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["success"], false, "{v}");
+    assert_eq!(v["vacuous"], false, "{v}");
+    let diags = v["diagnostics"].as_array().expect("diagnostics");
+    assert!(
+        diags
+            .iter()
+            .any(|d| d["code"] == "A02001" && d["severity"] == "error"),
+        "{v}"
+    );
+    assert!(
+        v["verification"].as_array().is_some_and(|a| a.is_empty()),
+        "must not verify a clause that names an undefined variable: {v}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn check_rust_file_with_no_clauses_is_vacuous() {
     let tmp = unique_temp("assura_check_rust_fn");
     let _ = std::fs::remove_dir_all(&tmp);

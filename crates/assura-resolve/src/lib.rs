@@ -707,9 +707,11 @@ pub fn resolve_with_modules(
     check_unused_imports(&resolved_imports, &referenced_names, &mut warnings);
 
     // --- Expression-level name resolution in clause bodies ---
-    // These produce warnings, not hard errors, since we may not know about
-    // all names in scope (external modules, built-in functions, etc.).
-    resolve_clause_body_names(source, &table, &resolved_imports, module, &mut warnings);
+    // Lenient files (imports / modules) skip unknown names inside
+    // resolve_clause_body_names. In a single file, `ensures { y == y }`
+    // with no `y` is not a proof. Those A02001s are errors so check
+    // does not exit 0.
+    resolve_clause_body_names(source, &table, &resolved_imports, module, &mut errors);
 
     // Remove this module from the visited set now that resolution is done.
     visited.remove(&module_name);

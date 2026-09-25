@@ -1471,7 +1471,7 @@ contract Div {
 // -----------------------------------------------------------------------
 
 #[test]
-fn undefined_name_in_clause_body_warns() {
+fn undefined_name_in_clause_body_is_an_error() {
     // No imports, no module => strict mode. 'c' is undefined.
     let src = r#"
 contract Foo {
@@ -1480,15 +1480,11 @@ contract Foo {
 }
 "#;
     let file = parse_ok(src);
-    let resolved = resolve(&file).expect("resolve succeeds (warnings, not errors)");
-    let body_warnings: Vec<_> = resolved
-        .warnings
-        .iter()
-        .filter(|w| w.code == "A02001" && w.message.contains("undefined name"))
-        .collect();
+    let errs = resolve(&file).expect_err("undefined clause name is an error");
     assert!(
-        body_warnings.iter().any(|w| w.message.contains("`c`")),
-        "should warn about undefined `c`: {body_warnings:?}"
+        errs.iter()
+            .any(|e| e.code == "A02001" && e.message.contains("`c`")),
+        "should error on undefined `c`: {errs:?}"
     );
 }
 
