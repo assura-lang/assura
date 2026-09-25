@@ -776,6 +776,7 @@ fn contract_modifies_generates_doc_comment() {
     let project = codegen_ok(
         r#"
 contract Mutator {
+    input(buffer: Bytes)
     modifies { buffer }
     requires { true }
 }
@@ -832,6 +833,7 @@ service Storage {
     states: Empty -> Full
 
     operation Store {
+        input(buffer: Bytes)
         modifies { buffer }
         requires { true }
     }
