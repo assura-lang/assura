@@ -14,9 +14,11 @@ service MedicalRecords {
     fn approve(record_id: Int) -> Int
         effects: database
 
-    fn publish(record_id: Int) -> Int
+    operation publish {
+        input(record_id: Int)
         requires { record_id > 0 }
         effects: database
+    }
 }
 "#,
     );

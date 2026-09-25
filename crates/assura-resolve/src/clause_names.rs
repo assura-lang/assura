@@ -125,7 +125,17 @@ pub(crate) fn resolve_clause_body_names(
                             self.errors,
                         );
                     }
-                    ServiceItem::Other { body, .. } => {
+                    ServiceItem::Other { kind, body } => {
+                        // `fn review(...)` inside a service is a nested
+                        // signature, not a value expression. Checking its
+                        // tokens flags the function name and parameters.
+                        if kind == "fn"
+                            || kind == "function"
+                            || kind == "effects"
+                            || kind == "effect"
+                        {
+                            continue;
+                        }
                         check_expr_idents(
                             body,
                             self.table,

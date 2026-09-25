@@ -509,7 +509,8 @@ fn domain_circular_buffer_pipeline_rejects_empty_read() {
 #[test]
 fn domain_callback_reentrancy_pipeline_rejects_reentrant_call() {
     // non_reentrant triggers run_callback_reentrancy_checks; self-ref -> A24001
-    let src = r#"contract Guard { input(handler: Int) non_reentrant handler requires { handler > 0 } }"#;
+    let src =
+        r#"contract Guard { input(handler: Int) non_reentrant handler requires { handler > 0 } }"#;
     let resolved = resolve_ok(src);
     let errs = type_check(resolved).unwrap_err();
     assert!(
@@ -569,7 +570,8 @@ fn domain_string_encoding_pipeline_rejects_raw_bytes_as_string() {
 #[test]
 fn domain_checksum_pipeline_rejects_use_before_verify() {
     // checksum triggers run_checksum_checks; use before verify -> A29001
-    let src = r#"contract Integrity { input(payload: Int) checksum payload requires { payload > 0 } }"#;
+    let src =
+        r#"contract Integrity { input(payload: Int) checksum payload requires { payload > 0 } }"#;
     let resolved = resolve_ok(src);
     let errs = type_check(resolved).unwrap_err();
     assert!(
@@ -675,7 +677,8 @@ fn domain_rollback_pipeline_rejects_duplicate_savepoint() {
 #[test]
 fn domain_monotonic_state_pipeline_rejects_undeclared_access() {
     // monotonic triggers run_monotonic_state_checks; non-monotonic ident in ensures -> A37003
-    let src = r#"contract Counter { input(other_var: Int) monotonic seq_num ensures { other_var > 0 } }"#;
+    let src =
+        r#"contract Counter { input(other_var: Int) monotonic seq_num ensures { other_var > 0 } }"#;
     let resolved = resolve_ok(src);
     let errs = type_check(resolved).unwrap_err();
     assert!(

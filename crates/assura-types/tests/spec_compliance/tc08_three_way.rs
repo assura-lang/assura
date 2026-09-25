@@ -8,17 +8,23 @@ fn payment_processor_service() {
     must_compile(
         r#"
 service PaymentProcessor {
-    fn charge(payment_id: Int, amount: Int) -> Bool
+    operation charge {
+        input(payment_id: Int, amount: Int)
         requires { amount > 0 }
         effects: database
+    }
 
-    fn retry(payment_id: Int, retries: Int) -> Bool
+    operation retry {
+        input(payment_id: Int, retries: Int)
         requires { retries < 3 }
         effects: database
+    }
 
-    fn refund(payment_id: Int, amount: Int) -> Bool
+    operation refund {
+        input(payment_id: Int, amount: Int)
         requires { amount > 0 }
         effects: database
+    }
 }
 "#,
     );

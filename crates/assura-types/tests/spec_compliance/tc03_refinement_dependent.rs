@@ -24,7 +24,7 @@ fn index_arithmetic_with_bounds() {
 contract IndexArithmetic {
     input(total: Nat, offset: Nat)
     requires(offset < total)
-    ensures(remaining: Nat)
+    output(remaining: Nat)
     ensures(remaining == total - offset)
 }
 "#,

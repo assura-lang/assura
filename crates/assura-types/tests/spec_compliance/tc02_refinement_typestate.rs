@@ -8,15 +8,21 @@ fn service_with_guarded_transitions() {
     must_compile(
         r#"
 service LoanService {
-    fn review(loan_id: Int) -> Int
+    operation review {
+        input(loan_id: Int)
         effects: database
+    }
 
-    fn approve(loan_id: Int, amount: Int) -> Int
+    operation approve {
+        input(loan_id: Int, amount: Int)
         requires { amount > 0 }
         effects: database
+    }
 
-    fn deny(loan_id: Int) -> Int
+    operation deny {
+        input(loan_id: Int)
         effects: database
+    }
 }
 "#,
     );

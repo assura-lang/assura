@@ -24,7 +24,7 @@ fn abstract_index_from_io() {
 contract AbstractIndex {
     input(stream_id: Int, count: Nat)
     requires(count > 0)
-    ensures(bytes_read: Nat)
+    output(bytes_read: Nat)
     ensures(bytes_read == count)
     effects: io
 }

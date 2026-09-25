@@ -8,13 +8,17 @@ fn full_stack_pipeline_service() {
     must_compile(
         r#"
 service SecurePipeline {
-    fn process_chunk(record_id: Int, chunk_index: Nat) -> Bool
+    operation process_chunk {
+        input(record_id: Int, chunk_index: Nat)
         requires { chunk_index >= 0 }
         effects: database
+    }
 
-    fn finalize(record_id: Int, total: Nat) -> Bool
+    operation finalize {
+        input(record_id: Int, total: Nat)
         requires { total > 0 }
         effects: database
+    }
 }
 "#,
     );

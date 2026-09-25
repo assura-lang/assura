@@ -48,9 +48,11 @@ service MultiEffectService {
     fn audit(action: String) -> Bool
         effects: logging
 
-    fn transfer(from: Int, to: Int, amount: Int) -> Bool
+    operation transfer {
+        input(from: Int, to: Int, amount: Int)
         requires { amount > 0 }
         effects: database
+    }
 }
 "#,
     );

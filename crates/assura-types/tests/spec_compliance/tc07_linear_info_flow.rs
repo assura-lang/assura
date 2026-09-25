@@ -22,7 +22,7 @@ fn key_consumption() {
         r#"
 contract KeyConsumption {
     input(key: Bytes, data: Bytes)
-    ensures(signature: Bytes)
+    output(signature: Bytes)
 }
 "#,
     );
