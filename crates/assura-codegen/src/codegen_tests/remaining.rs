@@ -430,6 +430,7 @@ contract Sortable {
 contract MySorter {
   implements: Sortable
   method: compare
+  input(x: Int)
   requires { x > 0 }
 }
 "#;
