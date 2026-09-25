@@ -272,14 +272,12 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                 // anything. Surface that so users/agents do not treat
                 // "check passed" as proof of coverage (PM lesson, MPI).
                 let no_decls = file.as_ref().is_some_and(|f| f.decls.is_empty());
-                let contracts_without_results = layer >= 1
+                let decls_without_results = layer >= 1
                     && verification_results.is_empty()
-                    && file.as_ref().is_some_and(|f| {
-                        !assura_smt::display::collect_contract_names(f).is_empty()
-                    });
+                    && file.as_ref().is_some_and(|f| !f.decls.is_empty());
                 let summary = success_summary_message(
                     no_decls,
-                    contracts_without_results,
+                    decls_without_results,
                     has_clauses,
                     warning_count,
                 );

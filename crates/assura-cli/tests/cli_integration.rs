@@ -3487,6 +3487,52 @@ fn check_unclosed_contract_does_not_verify() {
 }
 
 #[test]
+fn check_rust_file_with_no_clauses_is_vacuous() {
+    let tmp = unique_temp("assura_check_rust_fn");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let path = tmp.join("lib.rs");
+    std::fs::write(&path, "fn f() {}\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check", "--json", path.to_str().unwrap()])
+        .output()
+        .expect("failed to run assura check on a bare function");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "bare function should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check --json bare function must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["success"], true, "{v}");
+    assert_eq!(v["vacuous"], true, "a function with no clauses is not a proof: {v}");
+    let reason = v["vacuous_reason"].as_str().unwrap_or("");
+    assert!(
+        reason.contains("no verifiable clauses"),
+        "reason should say nothing was proved: {v}"
+    );
+
+    let human = Command::new(assura_bin())
+        .args(["check", path.to_str().unwrap()])
+        .output()
+        .expect("failed to run human check");
+    let human_text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&human.stdout),
+        String::from_utf8_lossy(&human.stderr)
+    );
+    assert!(
+        human_text.contains("no verifiable clauses"),
+        "human check must not say the Rust file was proved: {human_text}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn check_timeout_flag_is_accepted() {
     let out = Command::new(assura_bin())
         .args([
