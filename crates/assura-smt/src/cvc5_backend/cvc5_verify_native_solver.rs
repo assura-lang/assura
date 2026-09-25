@@ -210,14 +210,16 @@ pub(crate) fn assert_cvc5_frame_axioms<'a>(
     for var_name in frame_vars {
         let current_key = sanitize_smt_name(var_name);
         let old_key = crate::encode_atom_policy::old_snapshot_name(var_name);
-        let current = var_map
-            .get(&current_key)
-            .cloned()
-            .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &current_key));
+        // A missing current is not an Int we can invent. An old snapshot
+        // must use the current term's sort; an Int stand-in corrupts CVC5
+        // when the parameter is a bitvector or real.
+        let Some(current) = var_map.get(&current_key).cloned() else {
+            continue;
+        };
         let old_var = var_map
             .get(&old_key)
             .cloned()
-            .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &old_key));
+            .unwrap_or_else(|| tm.mk_const(current.sort(), &old_key));
         solver.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[current, old_var]));
     }
 }
