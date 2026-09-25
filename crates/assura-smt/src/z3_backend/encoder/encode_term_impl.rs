@@ -685,6 +685,22 @@ impl EncodeTerm for Encoder {
                 })
             }
             crate::encode_old_policy::OldAccessPlan::MethodCall { receiver, method } => {
+                if method == crate::encode_atom_policy::LENGTH_METHOD_NAME {
+                    if let assura_ast::Expr::Ident(name) = &receiver.node {
+                        let old_name = crate::encode_atom_policy::old_snapshot_name(name);
+                        return Some(Z3Value::Int(self.canonical_length(&old_name)));
+                    }
+                    let coll_expr = receiver.node.clone();
+                    let old_inner = assura_ast::Spanned::no_span(assura_ast::Expr::Old(receiver));
+                    let old_recv = encode_sub(self, &old_inner)?;
+                    let old_int = old_recv.as_int(&mut self.fresh_counter);
+                    let len = self.collection_len_of(
+                        &coll_expr,
+                        &old_int,
+                        crate::encode_atom_policy::LEN_UF_NAME,
+                    );
+                    return Some(Z3Value::Int(len));
+                }
                 let old_inner = assura_ast::Spanned::no_span(assura_ast::Expr::Old(receiver));
                 let old_recv = encode_sub(self, &old_inner)?;
                 let old_int = old_recv.as_int(&mut self.fresh_counter);
