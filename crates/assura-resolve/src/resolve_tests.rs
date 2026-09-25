@@ -1133,6 +1133,7 @@ fn unused_import_reported_as_warning() {
     let src = r#"
 import std.math;
 contract Foo {
+input(x: Int)
 requires { x > 0 }
 }
 "#;
