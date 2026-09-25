@@ -294,3 +294,36 @@ fn test_old_compound_does_not_collapse_to_poststate() {
         results[0]
     );
 }
+
+#[test]
+fn test_old_length_equals_post_length_when_unmodified() {
+    // No modifies clause: old(s.length()) and s.length() are the same length.
+    // Encoding old via a fresh `length` UF makes this a counterexample.
+    let src = r#"
+        contract OldLenEq {
+            input(s: String)
+            ensures { old(s.length()) == s.length() }
+        }
+    "#;
+    let results = verify_source(src);
+    assert!(
+        matches!(results.first(), Some(VerificationResult::Verified { .. })),
+        "old(s.length()) == s.length() should verify when s is unmodified, got: {results:?}"
+    );
+}
+
+#[test]
+fn test_old_length_preserves_requires_bound() {
+    let src = r#"
+        contract OldLenBound {
+            input(s: String)
+            requires { s.length() > 0 }
+            ensures { old(s.length()) > 0 }
+        }
+    "#;
+    let results = verify_source(src);
+    assert!(
+        matches!(results.first(), Some(VerificationResult::Verified { .. })),
+        "requires s.length() > 0 should prove old(s.length()) > 0, got: {results:?}"
+    );
+}

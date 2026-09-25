@@ -24,6 +24,18 @@ where
             Some(shallow_field_smtlib(&field, &old_obj))
         }
         OldAccessPlan::MethodCall { receiver, method } => {
+            if method == crate::encode_atom_policy::LENGTH_METHOD_NAME {
+                if let Expr::Ident(name) = &receiver.node {
+                    let old_name = crate::encode_atom_policy::old_ident_name(name);
+                    return Some(crate::encode_atom_policy::canonical_length_name(&old_name));
+                }
+                let old_expr = Spanned::no_span(Expr::Old(receiver));
+                let old_recv = encode(&old_expr)?;
+                return Some(format!(
+                    "({} {old_recv})",
+                    crate::encode_atom_policy::LEN_UF_NAME
+                ));
+            }
             let old_expr = Spanned::no_span(Expr::Old(receiver));
             let old_recv = encode(&old_expr)?;
             Some(old_method_call_smtlib(&method, &old_recv))
@@ -101,6 +113,20 @@ where
             ))
         }
         OldAccessPlan::MethodCall { receiver, method } => {
+            if method == crate::encode_atom_policy::LENGTH_METHOD_NAME {
+                if let Expr::Ident(name) = &receiver.node {
+                    let old_name = crate::encode_atom_policy::old_ident_name(name);
+                    let old_ident = Spanned::no_span(Expr::Ident(old_name));
+                    return crate::cvc5_call_encode::encode_length_receiver_cvc5(
+                        tm, &old_ident, vars, state, encode,
+                    );
+                }
+                let old_expr = Spanned::no_span(Expr::Old(receiver));
+                let old_recv = encode(&old_expr, vars, state)?;
+                return Some(crate::cvc5_native_builtins::field_len_of_receiver_cvc5(
+                    tm, &old_recv, state,
+                ));
+            }
             let old_expr = Spanned::no_span(Expr::Old(receiver));
             let old_recv = encode(&old_expr, vars, state)?;
             let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
