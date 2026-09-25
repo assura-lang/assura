@@ -3416,6 +3416,46 @@ fn check_empty_file_json_has_top_level_vacuous() {
 }
 
 #[test]
+fn check_all_vacuous_clauses_set_top_level_vacuous() {
+    let tmp = unique_temp("assura_check_nat_wrap_vacuous");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let path = tmp.join("nat.assura");
+    std::fs::write(
+        &path,
+        "contract NatSum {\n  input(a: Nat, b: Nat)\n  ensures { a + b <= 18446744073709551615 }\n}\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check", "--json", path.to_str().unwrap()])
+        .output()
+        .expect("failed to run assura check --json on nat wrap");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "nat wrap check should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("check --json nat wrap must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["success"], true, "{v}");
+    assert_eq!(
+        v["vacuous"], true,
+        "top-level vacuous must match the clause: {v}"
+    );
+    assert_eq!(v["file_info"]["vacuous"], true, "{v}");
+    let reason = v["vacuous_reason"].as_str().unwrap_or("");
+    assert!(
+        reason.contains("wrap"),
+        "top-level vacuous_reason must name the Nat wrap: {v}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn check_timeout_flag_is_accepted() {
     let out = Command::new(assura_bin())
         .args([

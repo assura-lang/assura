@@ -548,6 +548,33 @@ fn vacuous_status(
         } else {
             (true, Some("no verifiable clauses".to_string()))
         }
+    } else if !verification.is_empty()
+        && verification.iter().all(|r| {
+            matches!(
+                r,
+                assura_smt::VerificationResult::Verified {
+                    vacuous_reason: Some(_),
+                    ..
+                }
+            )
+        })
+    {
+        let reasons: Vec<&str> = verification
+            .iter()
+            .filter_map(|r| match r {
+                assura_smt::VerificationResult::Verified {
+                    vacuous_reason: Some(reason),
+                    ..
+                } => Some(reason.as_str()),
+                _ => None,
+            })
+            .collect();
+        let reason = if reasons.iter().all(|r| *r == reasons[0]) {
+            reasons[0].to_string()
+        } else {
+            "every checked clause is vacuous".to_string()
+        };
+        (true, Some(reason))
     } else {
         (false, None)
     }
