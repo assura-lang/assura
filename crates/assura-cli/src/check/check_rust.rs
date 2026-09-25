@@ -215,10 +215,12 @@ pub(crate) fn run_check_rust(
                 let mut verify_typed = typed.clone();
                 let mut verify_file = file_ast.clone();
 
+                let rust_text = fs::read_to_string(file_path).ok();
+                let mut annotation_span = None;
                 if !has_body_ir
                     && let Some((params, ret)) =
                         super::rust_body_ir::function_params_return(&item.kind)
-                    && let Ok(rust_src) = fs::read_to_string(file_path)
+                    && let Some(rust_src) = rust_text.as_deref()
                     && let Some(body) = super::rust_body_ir::extract_body_return_at(
                         &rust_src, &item_name, item.line,
                     )
@@ -251,6 +253,7 @@ pub(crate) fn run_check_rust(
                                 verify_typed = t;
                                 verify_file = f;
                                 body_ir_tmpdir = Some(dir);
+                                annotation_span = ensures_annotation_span(rust_src, item);
                             }
                         }
                     }
@@ -267,6 +270,14 @@ pub(crate) fn run_check_rust(
                 };
                 let mut diags = Vec::new();
                 let mut has_err = false;
+                let rust_filename = file_path.display().to_string();
+                let report_file = if body_ir_tmpdir.is_some() {
+                    rust_text
+                        .as_deref()
+                        .map(|text| (rust_filename.as_str(), text))
+                } else {
+                    None
+                };
                 let vresults = verify_and_report(VerifyContext {
                     filename: &verify_filename,
                     source: &verify_source,
@@ -283,6 +294,8 @@ pub(crate) fn run_check_rust(
                     },
                     show_cores: false,
                     strict: false,
+                    report_file,
+                    report_span: annotation_span,
                 });
                 for r in &vresults {
                     match r {
@@ -1191,6 +1204,24 @@ fn modifies_clauses_json(item: &assura_rust_analyzer::AnnotatedItem) -> Vec<serd
 
 /// Build a synthetic Assura contract from inline Rust annotations.
 /// Returns `(source, clause_count)`.
+/// Byte range of the first plain `@ensures` line in the Rust source.
+fn ensures_annotation_span(
+    source: &str,
+    item: &assura_rust_analyzer::AnnotatedItem,
+) -> Option<std::ops::Range<usize>> {
+    let clause = item
+        .contract
+        .ensures
+        .iter()
+        .find(|c| c.kind == assura_rust_analyzer::InlineClauseKind::Ensures)?;
+    let start = clause.offset.min(source.len());
+    let end = source[start..]
+        .find('\n')
+        .map(|i| start + i)
+        .unwrap_or(source.len());
+    Some(start..end)
+}
+
 fn synthesize_inline_contract(
     item_name: &str,
     item: &assura_rust_analyzer::AnnotatedItem,

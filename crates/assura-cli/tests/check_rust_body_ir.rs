@@ -32,6 +32,36 @@ fn n(x: u8) -> u8 { !5u8 }
     assert_eq!(v["body_not_modeled"], 0, "{stdout}");
 }
 
+/// A body counterexample must cite the Rust file, not the deleted temp contract.
+#[test]
+fn check_rust_counterexample_points_at_rust_file() {
+    let tmp = unique_temp("assura_check_rust_diag_path");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let path = tmp.join("bad.rs");
+    std::fs::write(
+        &path,
+        "/// @requires x >= 0\n/// @ensures result == x + 1\nfn f(x: i32) -> i32 { x }\n",
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!out.status.success(), "{text}");
+    assert!(text.contains("bad.rs"), "{text}");
+    assert!(
+        !text.contains("assura-body-ir"),
+        "diagnostic must not name the deleted temp contract: {text}"
+    );
+    assert!(text.contains("result = 0"), "{text}");
+}
+
 /// Wrong const bitnot ensures must CE.
 #[test]
 fn check_rust_const_bitnot_wrong_ce() {
