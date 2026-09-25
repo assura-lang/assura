@@ -1956,7 +1956,32 @@ fn identity(n: Int) -> Int
     );
 }
 
-/// `feature NAME = enabled` is a value in clause bodies.
+/// Service `states:` names and `state` are in scope in operation clauses.
+#[test]
+fn service_state_names_resolve_in_operations() {
+    let src = r#"
+service Connection {
+    states: Disconnected -> Connected -> Authenticated
+
+    operation Connect {
+        requires: state == Disconnected
+        ensures: state == Connected
+    }
+}
+"#;
+    let file = assura_parser::parse_unwrap(src);
+    let resolved = resolve(&file).expect("typestate names should resolve");
+    let a02001: Vec<_> = resolved
+        .warnings
+        .iter()
+        .filter(|e| e.code == "A02001")
+        .collect();
+    assert!(
+        a02001.is_empty(),
+        "state names must not produce A02001, got: {a02001:?}"
+    );
+}
+
 #[test]
 fn test_feature_flag_visible_in_clauses() {
     let src = "feature ecdsa = enabled\ncontract NeedsEcdsa {\n  requires { ecdsa }\n}\n";

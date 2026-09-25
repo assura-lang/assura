@@ -497,6 +497,30 @@ pub fn resolve_with_modules(
                 // Create a child scope for the service's items.
                 if inserted {
                     let svc_scope = table.push_scope(&s.name, Some(module));
+                    // `states: Disconnected -> Connected` is used as
+                    // `state == Disconnected` in operation clauses.
+                    for item in &s.items {
+                        if let ServiceItem::States(names) = item {
+                            try_insert(
+                                &mut table,
+                                &mut errors,
+                                svc_scope,
+                                "state",
+                                SymbolKind::Field,
+                                decl.span.clone(),
+                            );
+                            for name in names {
+                                try_insert(
+                                    &mut table,
+                                    &mut errors,
+                                    svc_scope,
+                                    name,
+                                    SymbolKind::Field,
+                                    decl.span.clone(),
+                                );
+                            }
+                        }
+                    }
                     for item in &s.items {
                         match item {
                             ServiceItem::TypeDef(t) => {
