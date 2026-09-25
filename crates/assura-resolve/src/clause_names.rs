@@ -28,7 +28,14 @@ pub(crate) fn resolve_clause_body_names(
     module_scope: usize,
     errors: &mut Vec<ResolutionError>,
 ) {
-    let lenient = should_be_lenient(source, imports);
+    // Project and module files may name feature flags and helpers that are
+    // not in this symbol table (`requires: ecdsa` in demos). A file whose
+    // only import failed to resolve does not get that pass for bare names:
+    // `import missing.mod; ensures { y == y }` must not verify.
+    let lenient = NameLenient {
+        bare: source.project.is_some() || source.module.is_some(),
+        calls: should_be_lenient(source, imports),
+    };
 
     use assura_parser::ast::{
         BindDecl, BlockKind, Clause, ContractDecl, DeclVisitor, ExternDecl, FnDef, ServiceDecl,
@@ -36,7 +43,7 @@ pub(crate) fn resolve_clause_body_names(
 
     struct ClauseBodyNames<'a> {
         table: &'a SymbolTable,
-        imports_lenient: bool,
+        imports_lenient: NameLenient,
         module_scope: usize,
         errors: &'a mut Vec<ResolutionError>,
         decl_span: assura_parser::ast::Span,
@@ -184,6 +191,14 @@ pub(crate) fn is_body_clause(kind: &ClauseKind) -> bool {
     )
 }
 
+#[derive(Clone, Copy)]
+struct NameLenient {
+    /// Skip unknown bare names. True for project/module files.
+    bare: bool,
+    /// Skip unknown call targets. True when an import may define them.
+    calls: bool,
+}
+
 /// Recursively check `Expr::Ident` references in an expression tree.
 ///
 /// The `locals` parameter tracks locally-bound names (quantifier variables,
@@ -193,7 +208,7 @@ fn check_expr_idents(
     table: &SymbolTable,
     scope_id: usize,
     span: &Span,
-    lenient: bool,
+    lenient: NameLenient,
     locals: &mut Vec<String>,
     errors: &mut Vec<ResolutionError>,
 ) {
@@ -215,9 +230,9 @@ fn check_expr_idents(
             if name.chars().next().is_some_and(|c| c.is_ascii_digit()) {
                 return;
             }
-            // A missing import must not make `ensures { y == y }` look
-            // proved. Bare names stay strict. Call targets are skipped
-            // below so `import std.math; external_check(a)` still parses.
+            if lenient.bare {
+                return;
+            }
             let suggestion = find_similar_name(name, table, scope_id);
             errors.push(ResolutionError {
                 code: "A02001".into(),
@@ -238,7 +253,7 @@ fn check_expr_idents(
             }
         }
         Expr::Call { func, args } => {
-            if !lenient || !matches!(func.node, Expr::Ident(_)) {
+            if !(lenient.calls && matches!(func.node, Expr::Ident(_))) {
                 check_expr_idents(func, table, scope_id, span, lenient, locals, errors);
             }
             for arg in args {
@@ -305,7 +320,7 @@ fn check_expr_idents(
             if table.lookup(lemma_name, scope_id).is_none()
                 && !locals.contains(lemma_name)
                 && !BUILTIN_VALUE_NAMES.contains(&lemma_name.as_str())
-                && !lenient
+                && !lenient.calls
             {
                 let suggestion = find_similar_name(lemma_name, table, scope_id);
                 errors.push(ResolutionError {
@@ -340,7 +355,7 @@ fn check_expr_idents(
                     && !BUILTIN_VALUE_NAMES.contains(&tok.as_str())
                     && !TYPE_SYNTAX_TOKENS.contains(&tok.as_str())
                     && !is_type_name_candidate(tok)
-                    && !lenient
+                    && !lenient.bare
                 {
                     let suggestion = find_similar_name(tok, table, scope_id);
                     errors.push(ResolutionError {
