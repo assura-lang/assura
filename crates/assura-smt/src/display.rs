@@ -164,10 +164,21 @@ pub fn format_counterexample_lines(
         for (name, value) in &cm.variables {
             // CounterexampleModel variables already carry clean display names
             // (stripped by counterexample_display_name at extraction time).
+            let clean_value = clean_z3_value(value);
+            // `result` and `__result` both display as `result`. The later
+            // assignment is the contract binding (the earlier one is often
+            // the unconstrained `__result` slot, which prints as 0).
             if !seen.insert(name.clone()) {
+                let bucket = if name == "result" || name.starts_with("result") {
+                    &mut outputs
+                } else {
+                    &mut inputs
+                };
+                if let Some(existing) = bucket.iter_mut().find(|(n, _)| n == name) {
+                    existing.1 = clean_value;
+                }
                 continue;
             }
-            let clean_value = clean_z3_value(value);
             if name == "result" || name.starts_with("result") {
                 outputs.push((name.clone(), clean_value));
             } else {
@@ -369,6 +380,22 @@ pub fn dispatch_decrease_checks(typed: &TypedFile) -> Vec<VerificationResult> {
 mod tests {
     use super::*;
     use crate::CounterexampleModel;
+
+    #[test]
+    fn duplicate_result_keeps_the_later_binding() {
+        let model = CounterexampleModel {
+            variables: vec![
+                ("result".to_string(), "0".to_string()),
+                ("x".to_string(), "10".to_string()),
+                ("result".to_string(), "10".to_string()),
+            ],
+        };
+        let lines = format_counterexample_lines(&Some(model), "");
+        let text = lines.join("\n");
+        assert!(text.contains("x = 10"), "{text}");
+        assert!(text.contains("result = 10"), "{text}");
+        assert!(!text.contains("result = 0"), "{text}");
+    }
 
     #[test]
     fn truncate_display_name_short_unchanged() {
