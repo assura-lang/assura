@@ -3456,6 +3456,37 @@ fn check_all_vacuous_clauses_set_top_level_vacuous() {
 }
 
 #[test]
+fn check_unclosed_contract_does_not_verify() {
+    let tmp = unique_temp("assura_check_unclosed");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let path = tmp.join("bad.assura");
+    std::fs::write(&path, "contract Bad {\n  ensures { x > 0 }\n").unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check", path.to_str().unwrap()])
+        .output()
+        .expect("failed to run assura check on unclosed contract");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "unclosed contract should exit 1: {combined}"
+    );
+    assert!(
+        combined.contains("A01002"),
+        "expected a syntax error: {combined}"
+    );
+    assert!(
+        !combined.contains("A05100"),
+        "syntax errors must not also produce a counterexample: {combined}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn check_timeout_flag_is_accepted() {
     let out = Command::new(assura_bin())
         .args([
