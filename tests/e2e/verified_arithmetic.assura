@@ -3,6 +3,7 @@
 // If x > 5, then x + 1 > 5 is trivially true
 
 contract IncrementPositive {
+    input(x: Int)
     requires { x > 5 }
     requires { x + 1 > x }
     ensures  { x + 1 > 5 }
@@ -11,6 +12,7 @@ contract IncrementPositive {
 // If a >= 0 and b >= 0, then a + b >= 0
 
 contract SumNonNegative {
+    input(a: Int, b: Int)
     requires { a >= 0 }
     requires { b >= 0 }
     requires { a + b >= a }
