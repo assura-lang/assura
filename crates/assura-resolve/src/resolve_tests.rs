@@ -1984,6 +1984,25 @@ service Connection {
 }
 
 #[test]
+fn builtin_contains_key_is_not_an_undefined_name() {
+    let src = r#"
+contract MapHas {
+  input(m: List<Int>, k: Int)
+  requires { contains_key(m, k) }
+  ensures { size(m) >= 1 }
+}
+"#;
+    let file = assura_parser::parse_unwrap(src);
+    let resolved = resolve(&file).expect("contains_key is a built-in");
+    let a02001: Vec<_> = resolved
+        .warnings
+        .iter()
+        .filter(|e| e.code == "A02001")
+        .collect();
+    assert!(a02001.is_empty(), "{a02001:?}");
+}
+
+#[test]
 fn builtin_clear_is_not_an_undefined_name() {
     let src = r#"
 contract ClearLen {
