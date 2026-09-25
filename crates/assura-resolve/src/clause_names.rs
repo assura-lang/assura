@@ -344,13 +344,34 @@ fn check_expr_idents(
             }
         }
         Expr::Raw(tokens) => {
-            // For raw tokens, check identifiers that look like value references
-            for tok in tokens {
-                if tok
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_alphabetic() || c == '_')
-                    && table.lookup(tok, scope_id).is_none()
+            // Service invariants often stay raw tokens. `forall o in orders`
+            // binds `o`, and `o.amount` is a field, not a value named amount.
+            let mut bound_here = Vec::new();
+            let mut skip_field = false;
+            for (i, tok) in tokens.iter().enumerate() {
+                if tok == "forall" || tok == "exists" {
+                    if let Some(name) = tokens.get(i + 1) {
+                        if is_raw_value_ident(name) {
+                            locals.push(name.clone());
+                            bound_here.push(name.clone());
+                        }
+                    }
+                    continue;
+                }
+                if tok == "." {
+                    skip_field = true;
+                    continue;
+                }
+                if !is_raw_value_ident(tok) {
+                    skip_field = false;
+                    continue;
+                }
+                if skip_field || bound_here.iter().any(|n| n == tok) {
+                    skip_field = false;
+                    continue;
+                }
+                skip_field = false;
+                if table.lookup(tok, scope_id).is_none()
                     && !locals.contains(tok)
                     && !BUILTIN_VALUE_NAMES.contains(&tok.as_str())
                     && !TYPE_SYNTAX_TOKENS.contains(&tok.as_str())
@@ -367,9 +388,18 @@ fn check_expr_idents(
                     });
                 }
             }
+            for _ in &bound_here {
+                locals.pop();
+            }
         }
         Expr::Literal(_) => {}
     }
+}
+
+fn is_raw_value_ident(tok: &str) -> bool {
+    tok.chars()
+        .next()
+        .is_some_and(|c| c.is_alphabetic() || c == '_')
 }
 
 /// Collect names bound by a pattern (for match arm local scope).

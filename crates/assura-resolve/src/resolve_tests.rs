@@ -1983,6 +1983,30 @@ service Connection {
 }
 
 #[test]
+fn service_raw_forall_does_not_flag_binder_or_field() {
+    let src = r#"
+service OrderService {
+    states: Pending -> Confirmed
+    invariant { forall o in orders: o.amount > 0 }
+}
+"#;
+    let file = assura_parser::parse_unwrap(src);
+    let errs = resolve(&file).expect_err("orders is not declared");
+    let names: Vec<_> = errs
+        .iter()
+        .filter(|e| e.code == "A02001")
+        .map(|e| e.message.clone())
+        .collect();
+    assert!(names.iter().any(|m| m.contains("`orders`")), "{names:?}");
+    assert!(
+        names
+            .iter()
+            .all(|m| !m.contains("`o`") && !m.contains("`amount`")),
+        "{names:?}"
+    );
+}
+
+#[test]
 fn service_typo_state_has_a_span() {
     let src = r#"
 service Connection {
