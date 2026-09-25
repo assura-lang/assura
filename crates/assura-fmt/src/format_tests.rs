@@ -474,9 +474,58 @@ fn header_comment_then_minified_contract_is_expanded() {
     );
     assert_eq!(
         out,
-        "// CVE\ncontract C{\n    requires{\n        x>0\n    }\n}\n"
+        "// CVE\ncontract C {\n    requires {\n        x>0\n    }\n}\n"
     );
     assert_idempotent(src);
+}
+
+#[test]
+fn compacted_contract_header_has_one_stable_form() {
+    let src = "contract   Bound{input(x:Int)\nrequires{x<10}\nensures{x<=10}}\n";
+    let out = fmt(src);
+    assert!(
+        out.starts_with("contract Bound {"),
+        "header should be canonical: {out:?}"
+    );
+    assert!(
+        !out.contains("contract   "),
+        "triple space survived: {out:?}"
+    );
+    assert!(
+        !out.contains("Bound{"),
+        "missing space before brace: {out:?}"
+    );
+    assert_idempotent(src);
+}
+
+#[test]
+fn leading_and_trailing_horizontal_space_is_not_a_second_form() {
+    let leading = "   contract   Bound{input(x:Int)\nrequires{x<10}\nensures{x<=10}}\n";
+    let out = fmt(leading);
+    assert!(
+        out.starts_with("contract Bound {"),
+        "leading spaces must not survive: {out:?}"
+    );
+    for (i, line) in out.lines().enumerate() {
+        assert_eq!(line, line.trim_end(), "trailing whitespace on line {i}");
+    }
+    assert_idempotent(leading);
+
+    let trailing = "contract Bound{input(x:Int)\nrequires{x<10}\nensures{x<=10}}   ";
+    let out = fmt(trailing);
+    assert!(
+        out.starts_with("contract Bound {"),
+        "trailing spaces changed the header: {out:?}"
+    );
+    assert!(
+        !out.ends_with(" \n") && !out.ends_with(' '),
+        "trailing horizontal space survived: {out:?}"
+    );
+    assert_eq!(
+        fmt(&out),
+        out,
+        "trailing-space input is not stable: {out:?}"
+    );
 }
 
 #[test]
@@ -512,7 +561,7 @@ fn minified_comment_braces_not_expanded() {
     let out = fmt(src);
     assert_eq!(
         out,
-        "contract C{\n    requires{\n        x>0\n    }\n} // keep {x}\n"
+        "contract C {\n    requires {\n        x>0\n    }\n} // keep {x}\n"
     );
     assert_idempotent(src);
 }
@@ -524,7 +573,7 @@ fn minified_quote_in_comment_does_not_hide_later_braces() {
     let out = fmt(src);
     assert_eq!(
         out,
-        "contract C{\n    requires{\n        x>0\n    } /* \" } */ ensures{\n        y>0\n    }\n}\n"
+        "contract C {\n    requires {\n        x>0\n    } /* \" } */ ensures {\n        y>0\n    }\n}\n"
     );
     assert_idempotent(src);
 }
