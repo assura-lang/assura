@@ -485,7 +485,7 @@ fn domain_contract_library_direct_api() {
 #[test]
 fn domain_allocator_checker_pipeline_rejects_unpaired_alloc() {
     // allocator clause triggers run_allocator_checks; unpaired alloc -> A22001
-    let src = r#"contract AllocTest { alloc buf requires { buf > 0 } }"#;
+    let src = r#"contract AllocTest { input(buf: Int) alloc buf requires { buf > 0 } }"#;
     let resolved = resolve_ok(src);
     let errs = type_check(resolved).unwrap_err();
     assert!(
@@ -497,7 +497,7 @@ fn domain_allocator_checker_pipeline_rejects_unpaired_alloc() {
 #[test]
 fn domain_circular_buffer_pipeline_rejects_empty_read() {
     // circular_buffer triggers run_circular_buffer_checks; read from empty -> A23003
-    let src = r#"contract BufTest { circular_buffer buf requires { buf > 0 } }"#;
+    let src = r#"contract BufTest { input(buf: Int) circular_buffer buf requires { buf > 0 } }"#;
     let resolved = resolve_ok(src);
     let errs = type_check(resolved).unwrap_err();
     assert!(
@@ -509,7 +509,7 @@ fn domain_circular_buffer_pipeline_rejects_empty_read() {
 #[test]
 fn domain_callback_reentrancy_pipeline_rejects_reentrant_call() {
     // non_reentrant triggers run_callback_reentrancy_checks; self-ref -> A24001
-    let src = r#"contract Guard { non_reentrant handler requires { handler > 0 } }"#;
+    let src = r#"contract Guard { input(handler: Int) non_reentrant handler requires { handler > 0 } }"#;
     let resolved = resolve_ok(src);
     let errs = type_check(resolved).unwrap_err();
     assert!(
@@ -521,7 +521,7 @@ fn domain_callback_reentrancy_pipeline_rejects_reentrant_call() {
 #[test]
 fn domain_temporal_deadline_pipeline_rejects_unbounded_op() {
     // deadline triggers run_temporal_deadline_checks; unregistered op -> A25003
-    let src = r#"contract Timed { deadline respond requires { compute > 0 } }"#;
+    let src = r#"contract Timed { input(compute: Int) deadline respond requires { compute > 0 } }"#;
     let resolved = resolve_ok(src);
     let errs = type_check(resolved).unwrap_err();
     assert!(
@@ -557,7 +557,7 @@ fn domain_bit_level_pipeline_rejects_width_mismatch() {
 #[test]
 fn domain_string_encoding_pipeline_rejects_raw_bytes_as_string() {
     // encoding triggers run_string_encoding_checks; raw bytes in ensures -> A28001
-    let src = r#"contract Decode { encoding data ensures { data > 0 } }"#;
+    let src = r#"contract Decode { input(data: Int) encoding data ensures { data > 0 } }"#;
     let resolved = resolve_ok(src);
     let errs = type_check(resolved).unwrap_err();
     assert!(
@@ -569,7 +569,7 @@ fn domain_string_encoding_pipeline_rejects_raw_bytes_as_string() {
 #[test]
 fn domain_checksum_pipeline_rejects_use_before_verify() {
     // checksum triggers run_checksum_checks; use before verify -> A29001
-    let src = r#"contract Integrity { checksum payload requires { payload > 0 } }"#;
+    let src = r#"contract Integrity { input(payload: Int) checksum payload requires { payload > 0 } }"#;
     let resolved = resolve_ok(src);
     let errs = type_check(resolved).unwrap_err();
     assert!(
@@ -675,7 +675,7 @@ fn domain_rollback_pipeline_rejects_duplicate_savepoint() {
 #[test]
 fn domain_monotonic_state_pipeline_rejects_undeclared_access() {
     // monotonic triggers run_monotonic_state_checks; non-monotonic ident in ensures -> A37003
-    let src = r#"contract Counter { monotonic seq_num ensures { other_var > 0 } }"#;
+    let src = r#"contract Counter { input(other_var: Int) monotonic seq_num ensures { other_var > 0 } }"#;
     let resolved = resolve_ok(src);
     let errs = type_check(resolved).unwrap_err();
     assert!(
@@ -699,7 +699,7 @@ fn domain_storage_failure_pipeline_rejects_unhandled() {
 #[test]
 fn domain_numerical_precision_pipeline_rejects_cancellation() {
     // precision triggers run_numerical_precision_checks; cancellation -> A42003
-    let src = r#"contract Compute { precision x ensures { x > 0 } }"#;
+    let src = r#"contract Compute { input(x: Int) precision x ensures { x > 0 } }"#;
     let resolved = resolve_ok(src);
     let errs = type_check(resolved).unwrap_err();
     assert!(
@@ -751,7 +751,7 @@ fn domain_feature_flag_pipeline_rejects_unused() {
 #[test]
 fn domain_resource_limit_pipeline_rejects_unbounded() {
     // resource_limit + ensures with undeclared resource triggers A46002
-    let src = r#"contract Bounded { resource_limit mem ensures { other > 0 } }"#;
+    let src = r#"contract Bounded { input(other: Int) resource_limit mem ensures { other > 0 } }"#;
     let resolved = resolve_ok(src);
     let errs = type_check(resolved).unwrap_err();
     assert!(
@@ -827,7 +827,7 @@ fn domain_incremental_contract_pipeline_rejects_version_gap() {
 #[test]
 fn domain_scoped_invariant_pipeline_rejects_suspended_use() {
     // suspend_invariant triggers run_scoped_invariant_checks; use while suspended -> A52001
-    let src = r#"contract Maintenance { suspend_invariant sorted requires { sorted > 0 } }"#;
+    let src = r#"contract Maintenance { input(sorted: Int) suspend_invariant sorted requires { sorted > 0 } }"#;
     let resolved = resolve_ok(src);
     let errs = type_check(resolved).unwrap_err();
     assert!(
