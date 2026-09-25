@@ -104,6 +104,16 @@ pub(crate) fn encode_ast_binop_cvc5<'a>(
                     return Some(tm.mk_term(bv_kind, &[l, r]));
                 }
             }
+            if matches!(op, BinOp::Div | BinOp::Mod)
+                && l.sort().is_integer()
+                && r.sort().is_integer()
+            {
+                return Some(if *op == BinOp::Div {
+                    crate::cvc5_raw_ops::rust_trunc_div_cvc5(tm, l, r)
+                } else {
+                    crate::cvc5_raw_ops::rust_trunc_mod_cvc5(tm, l, r)
+                });
+            }
             let kind = crate::cvc5_raw_ops::standard_ast_binop_cvc5_kind(op)?;
             Some(tm.mk_term(kind, &[l, r]))
         }

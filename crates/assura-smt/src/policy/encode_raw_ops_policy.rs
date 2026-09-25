@@ -55,6 +55,21 @@ pub(crate) fn raw_op_is_comparison(op: RawBinOp) -> bool {
     )
 }
 
+/// Integer `/` matching Rust: truncate toward zero.
+///
+/// SMT-LIB `div` floors. When the signs differ and the remainder is
+/// nonzero, the toward-zero quotient is `div + 1`.
+pub(crate) fn rust_trunc_div_smtlib(lhs: &str, rhs: &str) -> String {
+    format!(
+        "(ite (or (= (mod {lhs} {rhs}) 0) (= (< {lhs} 0) (< {rhs} 0))) (div {lhs} {rhs}) (+ (div {lhs} {rhs}) 1))"
+    )
+}
+
+/// Integer `%` matching Rust: remainder takes the sign of the dividend.
+pub(crate) fn rust_trunc_mod_smtlib(lhs: &str, rhs: &str) -> String {
+    format!("(- {lhs} (* {rhs} {}))", rust_trunc_div_smtlib(lhs, rhs))
+}
+
 /// Format a binary operation as SMT-LIB2 prefix notation.
 pub(crate) fn format_raw_binop_smtlib(op: RawBinOp, lhs: &str, rhs: &str) -> String {
     match op {
@@ -62,8 +77,8 @@ pub(crate) fn format_raw_binop_smtlib(op: RawBinOp, lhs: &str, rhs: &str) -> Str
         RawBinOp::Add => format!("(+ {lhs} {rhs})"),
         RawBinOp::Sub => format!("(- {lhs} {rhs})"),
         RawBinOp::Mul => format!("(* {lhs} {rhs})"),
-        RawBinOp::Div => format!("(div {lhs} {rhs})"),
-        RawBinOp::Mod => format!("(mod {lhs} {rhs})"),
+        RawBinOp::Div => rust_trunc_div_smtlib(lhs, rhs),
+        RawBinOp::Mod => rust_trunc_mod_smtlib(lhs, rhs),
         RawBinOp::Eq => format!("(= {lhs} {rhs})"),
         RawBinOp::Lt => format!("(< {lhs} {rhs})"),
         RawBinOp::Gt => format!("(> {lhs} {rhs})"),

@@ -6,6 +6,7 @@ pub(crate) mod encoder;
 mod features;
 mod havoc_assume;
 pub(crate) mod solver;
+mod trunc_arith;
 pub(crate) mod verify;
 
 pub(crate) use features::{

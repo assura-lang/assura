@@ -148,7 +148,13 @@ fn test_smtlib_binop_div_is_integer() {
         lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
         rhs: Box::new(Spanned::no_span(Expr::Ident("y".into()))),
     });
-    assert_eq!(expr_to_smtlib(&expr), Some("(div x y)".into()));
+    assert_eq!(
+        expr_to_smtlib(&expr).as_deref(),
+        Some(crate::encode_raw_ops_policy::rust_trunc_div_smtlib(
+            "x", "y"
+        ))
+        .as_deref()
+    );
 }
 
 #[test]
@@ -531,10 +537,22 @@ fn test_smtlib_raw_neq() {
 fn test_smtlib_raw_mod_div() {
     // "a mod b" and "a div b"
     let expr_mod = Spanned::no_span(Expr::Raw(vec!["a".into(), "mod".into(), "b".into()]));
-    assert_eq!(expr_to_smtlib(&expr_mod), Some("(mod a b)".into()));
+    assert_eq!(
+        expr_to_smtlib(&expr_mod).as_deref(),
+        Some(crate::encode_raw_ops_policy::rust_trunc_mod_smtlib(
+            "a", "b"
+        ))
+        .as_deref()
+    );
 
     let expr_div = Spanned::no_span(Expr::Raw(vec!["a".into(), "div".into(), "b".into()]));
-    assert_eq!(expr_to_smtlib(&expr_div), Some("(div a b)".into()));
+    assert_eq!(
+        expr_to_smtlib(&expr_div).as_deref(),
+        Some(crate::encode_raw_ops_policy::rust_trunc_div_smtlib(
+            "a", "b"
+        ))
+        .as_deref()
+    );
 }
 
 #[test]

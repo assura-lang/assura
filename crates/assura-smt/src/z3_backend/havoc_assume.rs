@@ -46,8 +46,8 @@ impl IrTermBuilder for Z3IrBuilder<'_, '_> {
             IrArithOp::Add => ast::Int::add(&[&lhs, &rhs]),
             IrArithOp::Sub => ast::Int::sub(&[&lhs, &rhs]),
             IrArithOp::Mul => ast::Int::mul(&[&lhs, &rhs]),
-            IrArithOp::Div => lhs.div(&rhs),
-            IrArithOp::Mod => lhs.modulo(&rhs),
+            IrArithOp::Div => super::trunc_arith::rust_trunc_div(&lhs, &rhs),
+            IrArithOp::Mod => super::trunc_arith::rust_trunc_mod(&lhs, &rhs),
         }
     }
 
@@ -324,8 +324,8 @@ fn encode_ir_pred_arg(
                 IrArithOp::Add => ast::Int::add(&[&l, &r]),
                 IrArithOp::Sub => ast::Int::sub(&[&l, &r]),
                 IrArithOp::Mul => ast::Int::mul(&[&l, &r]),
-                IrArithOp::Div => l.div(&r),
-                IrArithOp::Mod => l.modulo(&r),
+                IrArithOp::Div => super::trunc_arith::rust_trunc_div(&l, &r),
+                IrArithOp::Mod => super::trunc_arith::rust_trunc_mod(&l, &r),
             }
         }
     }
