@@ -1555,6 +1555,25 @@ contract ListCheck {
 }
 
 #[test]
+fn unresolved_import_does_not_prove_bare_unknown_name() {
+    let src = r#"
+import missing.mod;
+
+contract Foo {
+  input(a: Int)
+  ensures { y == y }
+}
+"#;
+    let file = parse_ok(src);
+    let errs = resolve(&file).expect_err("bare unknown name is an error");
+    assert!(
+        errs.iter()
+            .any(|e| e.code == "A02001" && e.message.contains("`y`")),
+        "{errs:?}"
+    );
+}
+
+#[test]
 fn lenient_mode_skips_unknown_names() {
     // With imports, lenient mode skips unknown names
     let src = r#"

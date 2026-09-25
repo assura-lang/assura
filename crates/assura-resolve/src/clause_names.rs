@@ -215,10 +215,9 @@ fn check_expr_idents(
             if name.chars().next().is_some_and(|c| c.is_ascii_digit()) {
                 return;
             }
-            // In lenient mode, skip all unknown names
-            if lenient {
-                return;
-            }
+            // A missing import must not make `ensures { y == y }` look
+            // proved. Bare names stay strict. Call targets are skipped
+            // below so `import std.math; external_check(a)` still parses.
             let suggestion = find_similar_name(name, table, scope_id);
             errors.push(ResolutionError {
                 code: "A02001".into(),
@@ -239,7 +238,9 @@ fn check_expr_idents(
             }
         }
         Expr::Call { func, args } => {
-            check_expr_idents(func, table, scope_id, span, lenient, locals, errors);
+            if !lenient || !matches!(func.node, Expr::Ident(_)) {
+                check_expr_idents(func, table, scope_id, span, lenient, locals, errors);
+            }
             for arg in args {
                 check_expr_idents(arg, table, scope_id, span, lenient, locals, errors);
             }
