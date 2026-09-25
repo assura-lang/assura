@@ -91,7 +91,13 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
         .as_ref()
         .is_some_and(assura_smt::has_verifiable_clauses);
 
-    let verification_results = if layer >= 1 && has_clauses {
+    // A recovered parse can still type-check and reach SMT. A counterexample
+    // on that tree is not the contract the user wrote. Syntax errors stop
+    // verification; the parse and name diagnostics are still reported.
+    let syntax_error = diagnostics
+        .iter()
+        .any(|d| d.code.as_str().starts_with("A01"));
+    let verification_results = if layer >= 1 && has_clauses && !syntax_error {
         typed.as_ref().map_or_else(Vec::new, |typed| {
             // Human -v: list IR before verify so agents/users see bodies used.
             if verbosity == Verbosity::Verbose && output_mode == OutputMode::Human {
