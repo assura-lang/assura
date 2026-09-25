@@ -531,15 +531,14 @@ fn vacuous_status(
 ) -> (bool, Option<String>) {
     let no_decls = file.is_some_and(|f| f.decls.is_empty());
     let has_clause_kinds = file.is_some_and(assura_smt::has_verifiable_clauses);
-    let has_contracts =
-        file.is_some_and(|f| !assura_smt::display::collect_contract_names(f).is_empty());
-    let contracts_without_results = layer >= 1 && verification.is_empty() && has_contracts;
+    let decls_without_results =
+        layer >= 1 && verification.is_empty() && file.is_some_and(|f| !f.decls.is_empty());
     if no_decls {
         (
             true,
             Some("no contracts or functions to verify".to_string()),
         )
-    } else if contracts_without_results {
+    } else if decls_without_results {
         if has_clause_kinds {
             (
                 true,
