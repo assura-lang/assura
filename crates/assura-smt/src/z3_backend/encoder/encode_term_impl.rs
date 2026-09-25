@@ -246,13 +246,13 @@ impl EncodeTerm for Encoder {
                 } else {
                     let l = lhs.as_int(&mut self.fresh_counter);
                     let r = rhs.as_int(&mut self.fresh_counter);
-                    Z3Value::Int(l.div(&r))
+                    Z3Value::Int(crate::z3_backend::trunc_arith::rust_trunc_div(&l, &r))
                 }
             }
             BinOp::Mod => {
                 let l = lhs.as_int(&mut self.fresh_counter);
                 let r = rhs.as_int(&mut self.fresh_counter);
-                Z3Value::Int(l.rem(&r))
+                Z3Value::Int(crate::z3_backend::trunc_arith::rust_trunc_mod(&l, &r))
             }
             BinOp::Eq => match (&lhs, &rhs) {
                 (Z3Value::Int(l), Z3Value::Int(r)) => Z3Value::Bool(l.eq(r)),

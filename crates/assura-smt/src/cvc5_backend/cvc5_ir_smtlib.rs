@@ -49,9 +49,9 @@ fn mk_ir_arith_smtlib(op: IrArithOp, l: &str, r: &str) -> String {
     match op {
         IrArithOp::Add => format!("(+ {l} {r})"),
         IrArithOp::Sub => format!("(- {l} {r})"),
-        IrArithOp::Mod => format!("(mod {l} {r})"),
+        IrArithOp::Mod => crate::encode_raw_ops_policy::rust_trunc_mod_smtlib(l, r),
         IrArithOp::Mul => format!("(* {l} {r})"),
-        IrArithOp::Div => format!("(div {l} {r})"),
+        IrArithOp::Div => crate::encode_raw_ops_policy::rust_trunc_div_smtlib(l, r),
     }
 }
 

@@ -367,6 +367,15 @@ pub(crate) fn standard_ast_binop_smtlib_op(op: &BinOp) -> Option<&'static str> {
 
 /// Format a standard AST binop as SMT-LIB2 prefix form.
 pub(crate) fn format_standard_ast_binop_smtlib(op: &BinOp, l: &str, r: &str) -> Option<String> {
+    match op {
+        BinOp::Div => {
+            return Some(crate::encode_raw_ops_policy::rust_trunc_div_smtlib(l, r));
+        }
+        BinOp::Mod => {
+            return Some(crate::encode_raw_ops_policy::rust_trunc_mod_smtlib(l, r));
+        }
+        _ => {}
+    }
     let smt_op = standard_ast_binop_smtlib_op(op)?;
     Some(format!("({smt_op} {l} {r})"))
 }

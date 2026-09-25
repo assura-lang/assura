@@ -103,8 +103,8 @@ impl<'a, 'v, 's> IrTermBuilder for Cvc5IrBuilder<'a, 'v, 's, '_> {
             IrArithOp::Add => self.tm.mk_term(cvc5::Kind::Add, &[lhs, rhs]),
             IrArithOp::Sub => self.tm.mk_term(cvc5::Kind::Sub, &[lhs, rhs]),
             IrArithOp::Mul => self.tm.mk_term(cvc5::Kind::Mult, &[lhs, rhs]),
-            IrArithOp::Div => self.tm.mk_term(cvc5::Kind::IntsDivision, &[lhs, rhs]),
-            IrArithOp::Mod => self.tm.mk_term(cvc5::Kind::IntsModulus, &[lhs, rhs]),
+            IrArithOp::Div => crate::cvc5_raw_ops::rust_trunc_div_cvc5(self.tm, lhs, rhs),
+            IrArithOp::Mod => crate::cvc5_raw_ops::rust_trunc_mod_cvc5(self.tm, lhs, rhs),
         }
     }
 
@@ -333,8 +333,8 @@ fn encode_ir_pred_arg_cvc5<'a>(
                 IrArithOp::Add => tm.mk_term(cvc5::Kind::Add, &[l, r]),
                 IrArithOp::Sub => tm.mk_term(cvc5::Kind::Sub, &[l, r]),
                 IrArithOp::Mul => tm.mk_term(cvc5::Kind::Mult, &[l, r]),
-                IrArithOp::Div => tm.mk_term(cvc5::Kind::IntsDivision, &[l, r]),
-                IrArithOp::Mod => tm.mk_term(cvc5::Kind::IntsModulus, &[l, r]),
+                IrArithOp::Div => crate::cvc5_raw_ops::rust_trunc_div_cvc5(tm, l, r),
+                IrArithOp::Mod => crate::cvc5_raw_ops::rust_trunc_mod_cvc5(tm, l, r),
             }
         }
     }
