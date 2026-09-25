@@ -108,6 +108,8 @@ const BUILTIN_VALUE_NAMES: &[&str] = &[
     "replace",
     "substr",
     "substring",
+    "starts_with",
+    "ends_with",
     "index_of",
     "capacity",
     "length",

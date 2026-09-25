@@ -1984,6 +1984,25 @@ service Connection {
 }
 
 #[test]
+fn builtin_ends_with_is_not_an_undefined_name() {
+    let src = r#"
+contract EmptySuffix {
+  input(s: String, aff: String)
+  requires { len(aff) == 0 }
+  ensures { ends_with(s, aff) }
+}
+"#;
+    let file = assura_parser::parse_unwrap(src);
+    let resolved = resolve(&file).expect("ends_with is a built-in");
+    let a02001: Vec<_> = resolved
+        .warnings
+        .iter()
+        .filter(|e| e.code == "A02001")
+        .collect();
+    assert!(a02001.is_empty(), "{a02001:?}");
+}
+
+#[test]
 fn builtin_contains_key_is_not_an_undefined_name() {
     let src = r#"
 contract MapHas {
