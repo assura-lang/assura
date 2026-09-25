@@ -69,9 +69,8 @@ fn test_frame_axiom_with_requires() {
 }
 
 #[test]
-fn test_no_modifies_no_frame_axiom() {
-    // No modifies clause: y == old(y) should produce counterexample
-    // because no frame axiom is injected.
+fn test_no_modifies_frames_unmodified_input() {
+    // No modifies clause: every input is unmodified, so y == old(y).
     let src = r#"
         contract NoModifies {
             input(y: Int)
@@ -81,8 +80,8 @@ fn test_no_modifies_no_frame_axiom() {
     let results = verify_source(src);
     assert!(!results.is_empty());
     assert!(
-        matches!(&results[0], VerificationResult::Counterexample { .. }),
-        "without modifies clause, y == old(y) should be counterexample, got: {:?}",
+        matches!(&results[0], VerificationResult::Verified { .. }),
+        "without modifies, y == old(y) should verify, got: {:?}",
         results[0]
     );
 }

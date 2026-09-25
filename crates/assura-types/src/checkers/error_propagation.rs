@@ -119,8 +119,8 @@ impl FrameChecker {
 
     /// Create an empty frame checker (no modifies clause present).
     ///
-    /// When there is no modifies clause, the function may modify anything;
-    /// no frame axioms are injected.
+    /// When there is no modifies clause, inputs are unmodified: `old(x)`
+    /// is the same value `requires` constrained.
     pub fn empty() -> Self {
         Self {
             modified: std::collections::HashSet::new(),
@@ -129,8 +129,8 @@ impl FrameChecker {
 
     /// Returns true if this checker has a non-empty modifies set.
     ///
-    /// When false, no frame axioms should be injected (the function
-    /// did not declare what it modifies).
+    /// An empty set means every input is unmodified. Callers that inject
+    /// `x == old(x)` still do that; A14002 does not fire without a set.
     pub fn has_modifies(&self) -> bool {
         !self.modified.is_empty()
     }
@@ -198,10 +198,6 @@ impl FrameChecker {
         ensures_body: &SpExpr,
         candidates: &[String],
     ) -> Vec<String> {
-        if !self.has_modifies() {
-            return Vec::new();
-        }
-
         let old_refs = collect_old_references(ensures_body);
         let ident_refs = collect_ident_references(ensures_body);
 

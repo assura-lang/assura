@@ -222,6 +222,40 @@ fn test_old_unmodified_var_verified() {
 }
 
 #[test]
+fn test_old_without_modifies_matches_requires() {
+    let src = r#"
+        contract Keep {
+            input(x: Int)
+            requires { x > 0 }
+            ensures { old(x) > 0 }
+        }
+    "#;
+    let results = verify_source(src);
+    assert!(
+        matches!(results.first(), Some(VerificationResult::Verified { .. })),
+        "old(x) should be the pre-state requires constrained, got: {results:?}"
+    );
+}
+
+#[test]
+fn test_old_service_state_without_modifies_matches_requires() {
+    let src = r#"
+        service Connection {
+            states: Disconnected -> Connected
+            operation Connect {
+                requires: state == Disconnected
+                ensures: old(state) == Disconnected
+            }
+        }
+    "#;
+    let results = verify_source(src);
+    assert!(
+        matches!(results.first(), Some(VerificationResult::Verified { .. })),
+        "old(state) should be the pre-state requires constrained, got: {results:?}"
+    );
+}
+
+#[test]
 fn test_old_of_sum_with_literal() {
     // old(x + 1) must snapshot x, so it equals old(x) + 1 even when x is
     // in the modifies set (havoc'd post-state).

@@ -1095,8 +1095,8 @@ fn frame_checker_modified_var_no_axiom() {
 }
 
 #[test]
-fn frame_checker_empty_no_axioms() {
-    // No modifies clause -> no frame axioms
+fn frame_checker_empty_frames_old_names() {
+    // No modifies clause -> inputs are unmodified, so old(y) is framed.
     let checker = FrameChecker::empty();
     assert!(!checker.has_modifies());
 
@@ -1109,7 +1109,7 @@ fn frame_checker_empty_no_axioms() {
     });
 
     let frame_vars = checker.frame_axiom_vars(&ensures_body);
-    assert!(frame_vars.is_empty());
+    assert!(frame_vars.contains(&"y".to_string()));
 }
 
 #[test]

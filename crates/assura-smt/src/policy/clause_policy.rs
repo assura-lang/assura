@@ -158,12 +158,15 @@ pub(crate) fn clause_check_polarity(kind: &ClauseKind) -> Option<ClauseCheckPola
     }
 }
 
-/// Whether frame axioms apply for this clause (ensures + non-empty modifies set).
+/// Whether frame axioms apply for this clause.
+///
+/// Ensures always frames unmodified names. With no `modifies` clause every
+/// input is unmodified, so `old(x)` matches the value `requires` constrained.
 pub(crate) fn wants_frame_axioms(
     kind: &ClauseKind,
-    frame_checker: &assura_types::FrameChecker,
+    _frame_checker: &assura_types::FrameChecker,
 ) -> bool {
-    *kind == ClauseKind::Ensures && frame_checker.has_modifies()
+    *kind == ClauseKind::Ensures
 }
 
 /// Frame axiom variable names for an ensures clause (or empty if not applicable).
