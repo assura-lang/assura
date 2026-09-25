@@ -189,6 +189,8 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
         verify_options: compiler_config.verify.clone(),
         show_cores,
         strict,
+        report_file: None,
+        report_span: None,
     });
 
     let verify_ms = verify_start.elapsed().as_secs_f64() * 1000.0;
@@ -537,6 +539,13 @@ fn vacuous_status(
         (
             true,
             Some("no contracts or functions to verify".to_string()),
+        )
+    } else if layer == 0 {
+        // Structural-only mode never runs SMT. JSON must not look like a proof
+        // of `ensures { false }` (human mode already prints "Verification skipped").
+        (
+            true,
+            Some("verification skipped (--layer 0: structural checks only)".to_string()),
         )
     } else if decls_without_results {
         if has_clause_kinds {
