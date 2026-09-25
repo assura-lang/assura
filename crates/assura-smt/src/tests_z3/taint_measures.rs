@@ -398,6 +398,7 @@ fn string_literal_has_known_length() {
     // should verify because len("hello") == 5 >= 0
     let source = r#"
 contract StringLen {
+  input(s: String)
   requires { s.len >= 0 }
   ensures { s.len >= 0 }
 }
@@ -418,6 +419,7 @@ fn concat_length_is_sum_verified() {
     // axiom should make len(a ++ b) == len(a) + len(b)
     let source = r#"
 contract ConcatLen {
+  input(a: String, b: String)
   requires { a.len >= 0 && b.len >= 0 }
   ensures { (a ++ b).len == a.len + b.len }
 }
@@ -436,6 +438,7 @@ fn concat_length_nonneg() {
     // len(a ++ b) >= 0 should always hold
     let source = r#"
 contract ConcatNonNeg {
+  input(a: String, b: String)
   requires { a.len >= 0 && b.len >= 0 }
   ensures { (a ++ b).len >= 0 }
 }
@@ -454,6 +457,7 @@ fn string_method_contains_returns_bool() {
     // contains() should return a boolean value usable in logic
     let source = r#"
 contract StrContains {
+  input(s: String)
   requires { s.contains("x") }
   ensures { s.contains("x") }
 }
@@ -473,6 +477,7 @@ fn string_starts_with_returns_bool() {
     // starts_with() returns Bool
     let source = r#"
 contract StrStartsWith {
+  input(s: String)
   requires { s.starts_with("pre") }
   ensures { s.starts_with("pre") }
 }
@@ -491,6 +496,7 @@ fn string_is_empty_returns_bool() {
     // is_empty() returns Bool
     let source = r#"
 contract StrIsEmpty {
+  input(s: String)
   requires { !s.is_empty }
   ensures { !s.is_empty }
 }
@@ -513,6 +519,7 @@ fn chained_comparison_lower_upper_bound() {
     // 0 <= x < n with x = 3, n = 10 should verify
     let source = r#"
 contract ChainedBounds {
+  input(x: Int)
   requires { x > 0 && x < 10 }
   ensures { 0 <= x && x < 10 }
 }
@@ -531,6 +538,7 @@ fn chained_comparison_three_way() {
     // a <= b <= c when a < b < c
     let source = r#"
 contract ThreeWayChain {
+  input(a: Int, b: Int, c: Int)
   requires { a < b && b < c }
   ensures { a < c }
 }
@@ -549,6 +557,7 @@ fn chained_comparison_false_case() {
     // 0 < x > 10 does not imply x > 20
     let source = r#"
 contract ChainedFalse {
+  input(x: Int)
   requires { x > 0 && x > 10 }
   ensures { x > 20 }
 }
@@ -567,6 +576,7 @@ fn array_set_get_store_axiom() {
     // get(set(a, i, v), i) == v should verify
     let source = r#"
 contract ArrayStore {
+  input(a: List<Int>, i: Int, v: Int, a2: List<Int>)
   requires { set(a, i, v) == a2 }
   ensures { a2[i] == v }
 }
@@ -585,6 +595,7 @@ fn array_set_preserves_length() {
     // len(set(a, i, v)) == len(a) should verify
     let source = r#"
 contract ArraySetLen {
+  input(a: List<Int>, n: Int, v: Int, a2: List<Int>)
   requires { len(a) == n && set(a, 0, v) == a2 }
   ensures { len(a2) == n }
 }
@@ -603,6 +614,7 @@ fn map_put_get_read_over_write() {
     // get(put(m, k, v), k) == v should verify
     let source = r#"
 contract MapReadWrite {
+  input(m: List<Int>, k: Int, v: Int, m2: List<Int>)
   requires { put(m, k, v) == m2 }
   ensures { get(m2, k) == v }
 }
@@ -621,6 +633,7 @@ fn map_put_size_nonneg() {
     // size of map after put is non-negative
     let source = r#"
 contract MapSizeNonneg {
+  input(m: List<Int>, k: Int, v: Int, m2: List<Int>)
   requires { put(m, k, v) == m2 }
   ensures { size(m2) >= 0 }
 }
@@ -640,6 +653,7 @@ fn decreases_clause_produces_result() {
     // (the well-foundedness check: measure >= 0).
     let source = r#"
 contract DecreasesTest {
+  input(n: Int)
   requires { n > 0 }
   decreases { n }
 }

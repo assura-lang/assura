@@ -355,6 +355,7 @@ fn z3_incremental_push_pop_multi_clause() {
     // and produce correct results for all 3 clauses.
     let source = r#"
 contract MultiClause {
+  input(x: Int)
   requires { x > 0 }
   ensures { x > 0 }
   ensures { x >= 1 }
@@ -389,6 +390,7 @@ fn z3_incremental_correctness_verified_and_counterexample() {
     // must not let clause-specific assertions leak between checks.
     let source = r#"
 contract IncrementalCorrectness {
+  input(x: Int)
   requires { x > 0 }
   ensures { x > 0 }
   ensures { x > 5 }
@@ -413,6 +415,7 @@ fn z3_incremental_single_clause_still_works() {
     // Single clause contract should still work (push/pop with one clause)
     let source = r#"
 contract SingleClause {
+  input(y: Int)
   requires { y >= 0 }
   ensures { y >= 0 }
 }
@@ -433,6 +436,7 @@ fn z3_incremental_no_cross_contamination() {
     // If push/pop is broken, the negation of x > 10 would persist.
     let source = r#"
 contract NoCrossContamination {
+  input(x: Int)
   requires { x > 0 }
   ensures { x > 10 }
   ensures { x > 0 }

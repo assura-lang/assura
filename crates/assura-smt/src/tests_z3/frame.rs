@@ -11,6 +11,7 @@ fn test_frame_axiom_unmodified_var_verified() {
     // This should VERIFY because the axiom makes it trivially true.
     let src = r#"
         contract FrameUnmodified {
+            input(x: Int, y: Int)
             modifies { x }
             ensures { y == old(y) }
         }
@@ -32,6 +33,7 @@ fn test_frame_no_axiom_for_modified_var() {
     // a COUNTEREXAMPLE because x is unconstrained.
     let src = r#"
         contract FrameModified {
+            input(x: Int)
             modifies { x }
             ensures { x == old(x) }
         }
@@ -51,6 +53,7 @@ fn test_frame_axiom_with_requires() {
     // Frame axiom for y, requires assumed for x.
     let src = r#"
         contract FrameWithReq {
+            input(x: Int, y: Int)
             modifies { x }
             requires { x > 0 }
             ensures { y == old(y) }
@@ -71,6 +74,7 @@ fn test_no_modifies_no_frame_axiom() {
     // because no frame axiom is injected.
     let src = r#"
         contract NoModifies {
+            input(y: Int)
             ensures { y == old(y) }
         }
     "#;
