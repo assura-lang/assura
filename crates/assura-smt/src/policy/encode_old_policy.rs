@@ -66,6 +66,7 @@ pub(crate) fn plan_old_access(inner: &SpExpr) -> OldAccessPlan {
                 obj: obj.clone(),
                 field: f,
             },
+            FieldAccessPlan::TupleProj { .. } => OldAccessPlan::Other,
         },
         Expr::MethodCall {
             receiver, method, ..
@@ -145,7 +146,11 @@ fn rewrite_under_old(expr: &SpExpr, bound: &[String]) -> SpExpr {
             }
         }
         Expr::Field(base, field) => {
-            if expr_mentions_bound(base, bound) {
+            let tuple_proj = matches!(
+                plan_field_access(base, field),
+                FieldAccessPlan::TupleProj { .. }
+            );
+            if tuple_proj || expr_mentions_bound(base, bound) {
                 Expr::Field(Box::new(rewrite_under_old(base, bound)), field.clone())
             } else {
                 Expr::Old(Box::new(expr.clone()))
@@ -687,6 +692,26 @@ mod tests {
             &rewritten.node,
             Expr::Old(inner) if matches!(&inner.node, Expr::Ident(n) if n == "x")
         ));
+    }
+
+    #[test]
+    fn rewrite_tuple_projection_snapshots_elements() {
+        let proj = Spanned::no_span(Expr::Field(
+            Box::new(Spanned::no_span(Expr::Tuple(vec![
+                Spanned::no_span(Expr::Ident("x".into())),
+                Spanned::no_span(Expr::Ident("y".into())),
+            ]))),
+            "0".into(),
+        ));
+        let rewritten = rewrite_expr_under_old(&proj);
+        let Expr::Field(base, field) = &rewritten.node else {
+            panic!("projection must stay a field, got {rewritten:?}");
+        };
+        assert_eq!(field, "0");
+        let Expr::Tuple(items) = &base.node else {
+            panic!("receiver must be the rewritten tuple, got {base:?}");
+        };
+        assert!(matches!(&items[0].node, Expr::Old(_)));
     }
 
     #[test]

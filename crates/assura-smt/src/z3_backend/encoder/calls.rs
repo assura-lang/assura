@@ -719,6 +719,16 @@ impl Encoder {
                 };
             }
             crate::encode_field_policy::FieldAccessPlan::ShallowUf { .. } => {}
+            crate::encode_field_policy::FieldAccessPlan::TupleProj { arity, index } => {
+                use crate::encode_tuple_policy::tuple_accessor_uf_name;
+                let tuple_val = self.encode_expr(obj).as_int(&mut self.fresh_counter);
+                let accessor = self.make_func(&tuple_accessor_uf_name(arity, index), 1);
+                let accessed = accessor
+                    .apply(&[&tuple_val as &dyn z3::ast::Ast])
+                    .as_int()
+                    .unwrap_or_else(|| Encoder::fresh_int(self));
+                return Z3Value::Int(accessed);
+            }
         }
 
         // Native string theory: .length() on a non-ident Str value uses Z3's str.len

@@ -76,6 +76,10 @@ where
                 state.use_string_theory,
             ))
         }
+        FieldAccessPlan::TupleProj { index, .. } => match &obj.node {
+            Expr::Tuple(elems) => encode(&elems[index], vars, state),
+            _ => None,
+        },
     }
 }
 

@@ -36,3 +36,4 @@ mod regressions;
 mod taint_measures;
 mod theory_verifiers;
 mod trunc_div;
+mod tuple_proj;

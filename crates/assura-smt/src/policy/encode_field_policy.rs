@@ -29,6 +29,8 @@ pub(crate) enum FieldAccessPlan {
     Flatten(String),
     /// Shallow access via UF `__field_{field}(obj)`.
     ShallowUf { field: String },
+    /// Tuple projection `tuple.index` via `__tuple_{arity}_{index}`.
+    TupleProj { arity: usize, index: usize },
 }
 
 /// If `obj.field` is an ident + `len`/`length` length field, return the ident name.
@@ -59,6 +61,16 @@ pub(crate) fn plan_field_access(obj: &SpExpr, field: &str) -> FieldAccessPlan {
         return FieldAccessPlan::CanonicalLength {
             obj_name: name.to_string(),
         };
+    }
+    if let Expr::Tuple(elems) = &obj.node {
+        if let Ok(index) = field.parse::<usize>() {
+            if index < elems.len() {
+                return FieldAccessPlan::TupleProj {
+                    arity: elems.len(),
+                    index,
+                };
+            }
+        }
     }
     let full_expr = Spanned::no_span(Expr::Field(Box::new(obj.clone()), field.to_string()));
     if has_deep_field_chain_sp(&full_expr) || is_self_rooted_sp(&full_expr) {
@@ -132,6 +144,21 @@ pub(crate) fn classify_field_value_kind(field: &str) -> FieldValueKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tuple_projection_uses_tuple_accessor() {
+        let x = Spanned::no_span(Expr::Ident("x".into()));
+        let y = Spanned::no_span(Expr::Ident("y".into()));
+        let tuple = Spanned::no_span(Expr::Tuple(vec![x, y]));
+        assert_eq!(
+            plan_field_access(&tuple, "0"),
+            FieldAccessPlan::TupleProj { arity: 2, index: 0 }
+        );
+        assert_eq!(
+            plan_field_access(&tuple, "1"),
+            FieldAccessPlan::TupleProj { arity: 2, index: 1 }
+        );
+    }
 
     #[test]
     fn shallow_field_for_simple_access() {
