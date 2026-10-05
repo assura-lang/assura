@@ -84,14 +84,12 @@ fn expand_minified_braces(root: &assura_parser::syntax_kind::SyntaxNode) -> Stri
                 if let Some((_, next_text)) = tokens[i + 1..]
                     .iter()
                     .find(|(k, _)| *k != SyntaxKind::WHITESPACE)
+                    && next_text.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                    && !intervening_ws_has_newline(&tokens, i + 1)
                 {
-                    if next_text.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-                        && !intervening_ws_has_newline(&tokens, i + 1)
-                    {
-                        out.push('\n');
-                        for _ in 0..depth {
-                            out.push_str("    ");
-                        }
+                    out.push('\n');
+                    for _ in 0..depth {
+                        out.push_str("    ");
                     }
                 }
             }

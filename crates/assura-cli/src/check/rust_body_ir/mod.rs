@@ -1574,12 +1574,16 @@ fn match_identity_guards_to_if(m: &syn::ExprMatch) -> Option<syn::Expr> {
                 }
                 nest = Some(format!("( {} )", expr_source(&body)));
             }
-            // syn 3: `n if cond => body` is Pat::Guard wrapping Pat::Ident
-            syn::Pat::Guard(g)
-                if let syn::Pat::Ident(id) = g.pat.as_ref()
-                    && id.by_ref.is_none()
-                    && id.mutability.is_none() =>
-            {
+            // syn 3: `n if cond => body` is Pat::Guard wrapping Pat::Ident.
+            // Match if-let guards are newer than Rust 1.88, so this stays a
+            // nested pattern.
+            syn::Pat::Guard(g) => {
+                let syn::Pat::Ident(id) = g.pat.as_ref() else {
+                    return None;
+                };
+                if id.by_ref.is_some() || id.mutability.is_some() {
+                    return None;
+                }
                 let bind = id.ident.to_string();
                 let guard_sub = substitute_ident_expr((*g.guard).clone(), &bind, &m.expr);
                 let body_sub = substitute_ident_expr(body, &bind, &m.expr);

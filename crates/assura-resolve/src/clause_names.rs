@@ -360,11 +360,11 @@ fn check_expr_idents(
             let mut skip_field = false;
             for (i, tok) in tokens.iter().enumerate() {
                 if tok == "forall" || tok == "exists" {
-                    if let Some(name) = tokens.get(i + 1) {
-                        if is_raw_value_ident(name) {
-                            locals.push(name.clone());
-                            bound_here.push(name.clone());
-                        }
+                    if let Some(name) = tokens.get(i + 1)
+                        && is_raw_value_ident(name)
+                    {
+                        locals.push(name.clone());
+                        bound_here.push(name.clone());
                     }
                     continue;
                 }
