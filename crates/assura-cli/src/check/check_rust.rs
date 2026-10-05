@@ -2,7 +2,7 @@
 
 use super::super::*;
 
-// `assura check-rust <path> [--json] [--layer 0|1]`
+// `assura check-rust <path> [--json] [--layer 0..=3]`
 // ---------------------------------------------------------------------------
 
 /// LLM-related options for `check-rust`.

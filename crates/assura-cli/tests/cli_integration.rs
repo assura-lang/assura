@@ -2668,6 +2668,10 @@ fn init_creates_project_structure() {
         toml_content.contains("[package]"),
         "assura.toml should contain [package]: {toml_content}"
     );
+    assert!(
+        toml_content.contains("2=quantified/termination") && toml_content.contains("3=BMC"),
+        "assura.toml layer comment should name layers 0 through 3: {toml_content}"
+    );
 
     let lib_content = std::fs::read_to_string(project.join("contracts/lib.assura")).unwrap();
     assert!(

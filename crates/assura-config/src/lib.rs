@@ -432,7 +432,7 @@ impl Default for TypeCheckConfig {
 /// `.parallel()` / `.with_decrease_checks()` ad hoc at each call site.
 #[derive(Debug, Clone)]
 pub struct VerifyOptions {
-    /// Verification layer (0 = structural only, 1 = SMT).
+    /// Verification layer (0=structural, 1=SMT, 2=quantified/termination, 3=BMC).
     pub layer: u8,
     /// SMT solver timeout in milliseconds.
     pub timeout_ms: u64,

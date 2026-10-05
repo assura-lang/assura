@@ -5,7 +5,7 @@ use super::report::{collect_ir_surface_listing, verify_and_report};
 use super::types::{CheckOptions, VerifyContext};
 
 // ---------------------------------------------------------------------------
-// `assura check <file> [--json|--human] [--layer 0|1]`
+// `assura check <file> [--json|--human] [--layer 0..=3]`
 // ---------------------------------------------------------------------------
 
 pub(crate) fn run_check(opts: CheckOptions<'_>) {
