@@ -375,6 +375,16 @@ impl Parser {
         });
     }
 
+    /// Emit an error at the current token with a specific catalog code.
+    pub(crate) fn error_at_current_code(&mut self, code: &'static str, message: String) {
+        let span = self.current_span();
+        self.errors.push(ParseError {
+            code,
+            span: span.start..span.end,
+            message,
+        });
+    }
+
     /// Consume the parser, returning events, tokens, and collected errors.
     pub(crate) fn finish(self) -> (Vec<Event>, Vec<LexedToken>, Vec<ParseError>) {
         (self.events, self.tokens, self.errors)
