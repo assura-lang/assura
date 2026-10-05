@@ -367,9 +367,14 @@ impl Parser {
 
     /// Emit an error at the current token's location.
     pub(crate) fn error_at_current(&mut self, message: String) {
+        self.error_at_current_code("A01002", message);
+    }
+
+    /// Emit an error at the current token with a specific catalog code.
+    pub(crate) fn error_at_current_code(&mut self, code: &'static str, message: String) {
         let span = self.current_span();
         self.errors.push(ParseError {
-            code: "A01002",
+            code,
             span: span.start..span.end,
             message,
         });

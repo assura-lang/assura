@@ -11,9 +11,9 @@ fn misspelled_requires_names_the_keyword() {
     let src = "contract T {\n  input(x: Int)\n  requirs { x >= 0 }\n  ensures { x >= 0 }\n}\n";
     let (_ast, errors) = parse(src);
     assert!(
-        errors
-            .iter()
-            .any(|e| e.message.contains("requirs") && e.message.contains("requires")),
+        errors.iter().any(|e| {
+            e.code == "A01001" && e.message.contains("requirs") && e.message.contains("requires")
+        }),
         "expected a typo diagnostic, got {errors:?}"
     );
 }

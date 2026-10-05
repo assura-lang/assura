@@ -139,7 +139,10 @@ fn contract_decl(p: &mut Parser) {
             if p.at(SyntaxKind::IDENT) {
                 let got = p.current_text().to_string();
                 if let Some(meant) = clauses::clause_keyword_typo(&got) {
-                    p.error_at_current(format!("unknown clause `{got}`, did you mean `{meant}`?"));
+                    p.error_at_current_code(
+                        "A01001",
+                        format!("unknown clause `{got}`, did you mean `{meant}`?"),
+                    );
                 }
             }
             generic_block(p);
