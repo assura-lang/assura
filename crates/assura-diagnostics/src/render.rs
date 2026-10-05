@@ -22,7 +22,14 @@ pub fn render_diagnostic(diag: &Diagnostic, filename: &str, source: &str) {
         Severity::Warning => Color::Yellow,
         Severity::Info => Color::Blue,
     };
+    let use_color = diagnostics_use_color(
+        std::env::var_os("NO_COLOR").is_some(),
+        std::io::IsTerminal::is_terminal(&std::io::stderr()),
+    );
+    // Ariadne copies label color when the label is added. The config has
+    // to be set first, or a later with_color(false) leaves the ANSI codes.
     let mut builder = Report::build(kind, (filename, diag.primary.clone()))
+        .with_config(ariadne::Config::default().with_color(use_color))
         .with_message(format!("[{}] {}", diag.code, diag.message))
         .with_label(
             Label::new((filename, diag.primary.clone()))
@@ -54,12 +61,7 @@ pub fn render_diagnostic(diag: &Diagnostic, filename: &str, source: &str) {
             diag.code
         ));
     }
-    let use_color = diagnostics_use_color(
-        std::env::var_os("NO_COLOR").is_some(),
-        std::io::IsTerminal::is_terminal(&std::io::stderr()),
-    );
     builder
-        .with_config(ariadne::Config::default().with_color(use_color))
         .finish()
         .eprint((filename, Source::from(source)))
         .ok();
