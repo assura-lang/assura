@@ -158,7 +158,13 @@ impl<'a> Verifier<'a> {
                     &default_cache
                 }
             };
-            verify_parallel_with_solver(self.typed, cache, self.options.solver, Some(&extras))
+            verify_parallel_with_solver(
+                self.typed,
+                cache,
+                self.options.solver,
+                Some(&extras),
+                self.options.timeout_ms,
+            )
         } else {
             verify_with_options_impl(self.typed, &self.options, Some(&extras))
         };
@@ -399,6 +405,7 @@ pub(crate) fn verify_parallel_with_solver(
     cache: &VerificationCache,
     solver: SolverChoice,
     extras: Option<&VerifyFileExtras<'_>>,
+    timeout_ms: u64,
 ) -> Vec<VerificationResult> {
     use rayon::prelude::*;
 
@@ -457,7 +464,8 @@ pub(crate) fn verify_parallel_with_solver(
                         callee_specs: Some(&callee_specs),
                         lemma_defs: Some(&lemma_defs),
                     };
-                    let mut results = verify_contract_with_types_and_solver(&ctx, solver);
+                    let mut results =
+                        verify_contract_with_types_and_solver(&ctx, solver, timeout_ms);
                     results.extend(skip_results);
                     // No cache.put: same clauses will always retake the skip
                     // path (unconstrained result with no IR), so cached results
@@ -486,7 +494,7 @@ pub(crate) fn verify_parallel_with_solver(
                 callee_specs: Some(&callee_specs),
                 lemma_defs: Some(&lemma_defs),
             };
-            let results = verify_contract_with_types_and_solver(&ctx, solver);
+            let results = verify_contract_with_types_and_solver(&ctx, solver, timeout_ms);
             cache.put(name, clauses, ir_fp, &results);
             results
         })
@@ -570,22 +578,28 @@ pub fn verify_contract_with_solver(
 fn verify_contract_with_types_and_solver(
     ctx: &ContractVerifyContext<'_>,
     solver: SolverChoice,
+    timeout_ms: u64,
 ) -> Vec<VerificationResult> {
     match solver {
         SolverChoice::Z3 => {
             #[cfg(feature = "z3-verify")]
             {
-                crate::z3_backend::verify_contract_impl_with_types_and_ir(ctx)
+                crate::z3_backend::verify_contract_impl_with_types_and_ir_timeout(ctx, timeout_ms)
             }
             #[cfg(not(feature = "z3-verify"))]
             {
-                let _ = (ctx.constants, ctx.ir_body());
+                let _ = (ctx.constants, ctx.ir_body(), timeout_ms);
                 verify_contract_with_solver(ctx.contract_name, ctx.clauses, solver)
             }
         }
         SolverChoice::Cvc5 => {
             let mut cache = SessionCache::new();
-            crate::cvc5_backend::verify_contract_cvc5_with_lemmas(ctx, ctx.lemma_defs, &mut cache)
+            crate::cvc5_backend::verify_contract_cvc5_with_lemmas_timeout(
+                ctx,
+                ctx.lemma_defs,
+                &mut cache,
+                timeout_ms,
+            )
         }
         SolverChoice::Portfolio => {
             // Parallel path must merge Z3 + CVC5 (same as non-parallel
@@ -593,22 +607,26 @@ fn verify_contract_with_types_and_solver(
             // dropped Z3 Verified when cvc5 was missing from PATH.
             #[cfg(feature = "z3-verify")]
             {
-                let z3 = crate::z3_backend::verify_contract_impl_with_types_and_ir(ctx);
+                let z3 = crate::z3_backend::verify_contract_impl_with_types_and_ir_timeout(
+                    ctx, timeout_ms,
+                );
                 let mut cache = SessionCache::new();
-                let cvc5 = crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
+                let cvc5 = crate::cvc5_backend::verify_contract_cvc5_with_lemmas_timeout(
                     ctx,
                     ctx.lemma_defs,
                     &mut cache,
+                    timeout_ms,
                 );
                 merge_portfolio_results(z3, cvc5)
             }
             #[cfg(not(feature = "z3-verify"))]
             {
                 let mut cache = SessionCache::new();
-                crate::cvc5_backend::verify_contract_cvc5_with_lemmas(
+                crate::cvc5_backend::verify_contract_cvc5_with_lemmas_timeout(
                     ctx,
                     ctx.lemma_defs,
                     &mut cache,
+                    timeout_ms,
                 )
             }
         }
@@ -1407,6 +1425,34 @@ mod tests {
         assert!(
             unknowns.is_empty(),
             "should not skip when IR loading was not attempted"
+        );
+    }
+}
+
+#[cfg(all(test, feature = "z3-verify"))]
+mod parallel_timeout_tests {
+    use super::verify_parallel_with_solver;
+    use crate::SolverChoice;
+    use crate::cache::VerificationCache;
+
+    #[test]
+    fn parallel_verify_passes_timeout_above_the_floor() {
+        let typed = crate::test_util::typecheck_ok(
+            r#"
+            contract Bound {
+                input(x: Int)
+                requires { x >= 0 }
+                ensures { x + 1 > x }
+            }
+            "#,
+        );
+        let cache = VerificationCache::disabled();
+        let seen = crate::z3_backend::solver::record_clause_timeouts(|| {
+            let _ = verify_parallel_with_solver(&typed, &cache, SolverChoice::Z3, None, 45_001);
+        });
+        assert!(
+            seen.contains(&45_001),
+            "parallel verify should pass 45001ms to Z3, saw {seen:?}"
         );
     }
 }

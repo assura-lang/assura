@@ -123,7 +123,7 @@ fn verify_contract_no_verifiable_clauses() {
 #[cfg(feature = "z3-verify")]
 #[test]
 fn nat_wrapping_add_is_counterexample() {
-    use crate::z3_backend::verify_contract_impl_with_types_and_ir;
+    use crate::z3_backend::verify::verify_contract_impl_with_types_and_ir;
     use assura_ast::{Param, TypeExpr};
 
     let clauses = vec![Clause {
@@ -172,7 +172,7 @@ fn nat_wrapping_add_is_counterexample() {
 #[cfg(feature = "z3-verify")]
 #[test]
 fn int_wrapping_add_is_counterexample() {
-    use crate::z3_backend::verify_contract_impl_with_types_and_ir;
+    use crate::z3_backend::verify::verify_contract_impl_with_types_and_ir;
     use assura_ast::{Param, TypeExpr};
 
     let clauses = vec![Clause {
@@ -220,7 +220,7 @@ fn int_wrapping_add_is_counterexample() {
 #[cfg(feature = "z3-verify")]
 #[test]
 fn nat_wrapping_add_verifies_with_no_wrap_requires() {
-    use crate::z3_backend::verify_contract_impl_with_types_and_ir;
+    use crate::z3_backend::verify::verify_contract_impl_with_types_and_ir;
     use assura_ast::{Param, TypeExpr};
 
     let add_ge_a = Expr::BinOp {
@@ -276,7 +276,7 @@ fn nat_wrapping_add_verifies_with_no_wrap_requires() {
 #[cfg(feature = "z3-verify")]
 #[test]
 fn nat_plus_zero_is_identity() {
-    use crate::z3_backend::verify_contract_impl_with_types_and_ir;
+    use crate::z3_backend::verify::verify_contract_impl_with_types_and_ir;
     use assura_ast::{Param, TypeExpr};
 
     let clauses = vec![Clause {
@@ -317,7 +317,7 @@ fn nat_plus_zero_is_identity() {
 #[cfg(feature = "z3-verify")]
 #[test]
 fn nat_nested_wrapping_add_is_counterexample() {
-    use crate::z3_backend::verify_contract_impl_with_types_and_ir;
+    use crate::z3_backend::verify::verify_contract_impl_with_types_and_ir;
     use assura_ast::{Param, TypeExpr};
 
     let add = |l: Expr, r: Expr| Expr::BinOp {

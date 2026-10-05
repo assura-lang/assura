@@ -523,6 +523,16 @@ pub(crate) fn verify_contract_impl_with_types(
 pub(crate) fn verify_contract_impl_with_types_and_ir(
     ctx: &crate::verify_context::ContractVerifyContext<'_>,
 ) -> Vec<VerificationResult> {
+    verify_contract_impl_with_types_and_ir_timeout(
+        ctx,
+        crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_MS as u64,
+    )
+}
+
+pub(crate) fn verify_contract_impl_with_types_and_ir_timeout(
+    ctx: &crate::verify_context::ContractVerifyContext<'_>,
+    timeout_ms: u64,
+) -> Vec<VerificationResult> {
     let mut results = Vec::new();
     let mut cache = SessionCache::new();
     // File-level verify (serial + parallel) puts sibling lemmas on `ctx`.
@@ -542,6 +552,7 @@ pub(crate) fn verify_contract_impl_with_types_and_ir(
         callee_specs: ctx.callee_specs,
         ..Default::default()
     };
+    let clause_timeout = crate::encode_timeout_policy::clause_timeout_ms(timeout_ms);
     verify_clauses_with_types(
         ctx.contract_name,
         ctx.clauses,
@@ -549,7 +560,7 @@ pub(crate) fn verify_contract_impl_with_types_and_ir(
         &mut cache,
         &mut results,
         &types,
-        crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_MS,
+        clause_timeout,
     );
     results
 }

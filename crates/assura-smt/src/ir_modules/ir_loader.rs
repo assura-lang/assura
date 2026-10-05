@@ -573,7 +573,13 @@ module copy {
         assert!(!loaded.is_empty(), "expected CopyBytes.ir to load");
         let extras = loaded.extras().expect("extras should be present");
         let cache = VerificationCache::new(&dir);
-        let results = verify_parallel_with_solver(&typed, &cache, SolverChoice::Z3, Some(&extras));
+        let results = verify_parallel_with_solver(
+            &typed,
+            &cache,
+            SolverChoice::Z3,
+            Some(&extras),
+            crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_MS as u64,
+        );
 
         let ensures = results.iter().find(|r| {
             matches!(

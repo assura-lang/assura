@@ -57,7 +57,7 @@ fn test_result_length_verifies() {
 #[test]
 fn test_z3_ir_body_constrains_result() {
     use crate::ir::{IrFunction, parse_ir_module};
-    use crate::z3_backend::verify_contract_impl_with_types_and_ir;
+    use crate::z3_backend::verify::verify_contract_impl_with_types_and_ir;
     use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, Param, Spanned};
 
     let ir_source = r#"
