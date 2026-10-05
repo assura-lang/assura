@@ -457,7 +457,9 @@ pub(crate) fn run_codec_checks(typed: &TypedFile) -> Vec<VerificationResult> {
 
 /// Run all five advanced verification passes (solver-agnostic).
 ///
-/// Called by both the Z3 and CVC5 file-level verification paths.
+/// Called by the Z3 file path, the CVC5 file path, and the parallel
+/// join in `Verifier::verify`. Do not call it again from inside
+/// per-contract jobs.
 pub(crate) fn run_advanced_passes(typed: &TypedFile, timeout_ms: u64) -> Vec<VerificationResult> {
     let mut results = Vec::new();
     results.extend(run_weak_memory_checks(typed));

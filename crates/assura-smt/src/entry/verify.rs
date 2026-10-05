@@ -158,13 +158,21 @@ impl<'a> Verifier<'a> {
                     &default_cache
                 }
             };
-            verify_parallel_with_solver(
+            let mut parallel_results = verify_parallel_with_solver(
                 self.typed,
                 cache,
                 self.options.solver,
                 Some(&extras),
                 self.options.timeout_ms,
-            )
+            );
+            // Serial Z3 and CVC5 append these inside their file verify.
+            // The parallel join returns first, so a default check would
+            // skip weak-memory, prophecy, liveness, layer 2, and codec.
+            parallel_results.extend(crate::entry::run_advanced_passes(
+                self.typed,
+                self.options.timeout_ms,
+            ));
+            parallel_results
         } else {
             verify_with_options_impl(self.typed, &self.options, Some(&extras))
         };

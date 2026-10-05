@@ -340,6 +340,27 @@ contract UsesLemma {
     );
 }
 
+/// Default CLI verify is parallel. Advanced passes must still run after
+/// the per-contract join. A bare prophecy type-checks, and the SMT pass
+/// reports that it was never resolved.
+#[test]
+fn parallel_verify_runs_advanced_passes() {
+    let typed = crate::test_util::typecheck_ok("prophecy future_result: Int\n");
+    let results = Verifier::new(&typed)
+        .apply_options(assura_config::VerifyOptions {
+            parallel: true,
+            ..assura_config::VerifyOptions::for_tests()
+        })
+        .verify();
+    assert!(
+        results.iter().any(|r| matches!(
+            r,
+            VerificationResult::Unknown { clause_desc, .. } if clause_desc.contains("A05025")
+        )),
+        "parallel verify must report unresolved prophecy, got {results:?}"
+    );
+}
+
 /// Single-contract API has no TypedFile; apply with no lemma map must still run.
 #[test]
 fn verify_contract_apply_without_typedfile_lemmas() {
