@@ -357,8 +357,11 @@ fn recovery_extra_closing_brace() {
 
 #[test]
 fn recovery_nested_unclosed_braces() {
-    let (_, errors) = parse_str("contract Foo { requires { x > 0 } ensures { y ==");
-    let _ = !errors.is_empty(); // recovery exercised; parser may not error on this truncated in current recovery
+    let (ast, errors) = parse_str("contract Foo { requires { x > 0 } ensures { y ==");
+    assert!(
+        !errors.is_empty(),
+        "truncated ensures should be a parse error, ast={ast:?}"
+    );
 }
 
 #[test]
@@ -434,14 +437,20 @@ fn recovery_only_comments() {
 
 #[test]
 fn recovery_truncated_type_def() {
-    let (_, errors) = parse_str("type Foo = {");
-    let _ = !errors.is_empty(); // recovery exercised (may not error in current parser recovery)
+    let (ast, errors) = parse_str("type Foo = {");
+    assert!(
+        !errors.is_empty(),
+        "truncated type def should be a parse error, ast={ast:?}"
+    );
 }
 
 #[test]
 fn recovery_truncated_enum_def() {
-    let (_, errors) = parse_str("enum Color { Red, Green,");
-    let _ = !errors.is_empty(); // recovery exercised (may not error in current parser recovery)
+    let (ast, errors) = parse_str("enum Color { Red, Green,");
+    assert!(
+        !errors.is_empty(),
+        "truncated enum def should be a parse error, ast={ast:?}"
+    );
 }
 
 #[test]
