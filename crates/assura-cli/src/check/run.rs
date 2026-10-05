@@ -27,15 +27,15 @@ pub(crate) fn run_check(opts: CheckOptions<'_>) {
     let project = load_project_config(Path::new(filename));
     let config_layer = project.as_ref().map(|(c, _)| c.verify.layer);
 
-    // Verification layer: CLI flag > config file > default (1)
-    // 255 is the sentinel for "not specified on CLI"
-    if cli_layer != 255 && cli_layer > 3 {
-        eprintln!(
-            "Error: invalid --layer {cli_layer} (expected 0=structural, 1=SMT, 2=quantified/termination, 3=BMC)"
-        );
-        process::exit(2);
-    }
-    let layer: u8 = if cli_layer != 255 {
+    // CLI flag > config file > default 1. Omitted is None, so 255 is a
+    // real value and fails the 0..=3 check like any other out-of-range layer.
+    let layer: u8 = if let Some(cli_layer) = cli_layer {
+        if cli_layer > 3 {
+            eprintln!(
+                "Error: invalid --layer {cli_layer} (expected 0=structural, 1=SMT, 2=quantified/termination, 3=BMC)"
+            );
+            process::exit(2);
+        }
         cli_layer
     } else {
         config_layer.unwrap_or(1)
