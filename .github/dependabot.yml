@@ -31,10 +31,6 @@ updates:
       # Allow 0.4.x patches through. Closed #1533.
       - dependency-name: cvc5
         versions: [">=0.5"]
-      # 3.3.0 vendors protoc 36.2; 3.2.0 vendors 31.1. A minor bump
-      # can change tonic output for proto/assura.proto. See #1661.
-      - dependency-name: protoc-bin-vendored
-        versions: [">=3.3"]
     groups:
       # tonic, prost, and tonic-build must be upgraded together;
       # individual PRs always fail because of version coupling.
