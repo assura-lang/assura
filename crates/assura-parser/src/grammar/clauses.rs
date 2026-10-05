@@ -281,6 +281,46 @@ fn is_domain_keyword_clause(p: &mut Parser) -> bool {
     is_domain_keyword_clause_kind(p.current())
 }
 
+/// Clause keywords users spell by hand. A one-character misspelling of
+/// one of these is a typo, not a generic block name. Short starters such
+/// as `pop` are omitted so real block names stay valid.
+const TYPO_CLAUSE_KEYWORDS: &[&str] =
+    &["requires", "ensures", "invariant", "decreases", "modifies"];
+
+/// If `text` is one insert, delete, or substitution away from a clause
+/// keyword, return that keyword.
+pub(crate) fn clause_keyword_typo(text: &str) -> Option<&'static str> {
+    TYPO_CLAUSE_KEYWORDS
+        .iter()
+        .copied()
+        .find(|kw| edit_distance_one(text, kw))
+}
+
+fn edit_distance_one(a: &str, b: &str) -> bool {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (n, m) = (a.len(), b.len());
+    if a == b || n.abs_diff(m) > 1 {
+        return false;
+    }
+    if n == m {
+        return a.iter().zip(&b).filter(|(x, y)| x != y).count() == 1;
+    }
+    let (longer, shorter) = if n > m { (&a, &b) } else { (&b, &a) };
+    let mut i = 0;
+    let mut skipped = false;
+    for &c in longer {
+        if i < shorter.len() && shorter[i] == c {
+            i += 1;
+        } else if !skipped {
+            skipped = true;
+        } else {
+            return false;
+        }
+    }
+    skipped && i == shorter.len()
+}
+
 fn is_ident_clause_start(p: &mut Parser) -> bool {
     if p.current() != SyntaxKind::IDENT {
         return false;

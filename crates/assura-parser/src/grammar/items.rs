@@ -133,7 +133,15 @@ fn contract_decl(p: &mut Parser) {
         {
             fn_def(p);
         } else if p.at_keyword_or_ident() {
-            // Generic blocks inside contracts (feature, incremental, etc.)
+            // Generic blocks inside contracts (feature, incremental, etc.).
+            // A one-character misspelling of requires/ensures/... is still
+            // consumed as a block, and the diagnostic names the keyword.
+            if p.at(SyntaxKind::IDENT) {
+                let got = p.current_text().to_string();
+                if let Some(meant) = clauses::clause_keyword_typo(&got) {
+                    p.error_at_current(format!("unknown clause `{got}`, did you mean `{meant}`?"));
+                }
+            }
             generic_block(p);
         } else {
             p.err_and_sync(

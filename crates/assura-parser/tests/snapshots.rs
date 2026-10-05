@@ -6,6 +6,28 @@
 
 use assura_parser::parse;
 
+#[test]
+fn misspelled_requires_names_the_keyword() {
+    let src = "contract T {\n  input(x: Int)\n  requirs { x >= 0 }\n  ensures { x >= 0 }\n}\n";
+    let (_ast, errors) = parse(src);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.message.contains("requirs") && e.message.contains("requires")),
+        "expected a typo diagnostic, got {errors:?}"
+    );
+}
+
+#[test]
+fn incremental_block_is_not_a_clause_typo() {
+    let src = "contract T {\n  incremental Foo {\n    yields: Int\n    completes: Int\n  }\n  requires { true }\n}\n";
+    let (_ast, errors) = parse(src);
+    assert!(
+        errors.is_empty(),
+        "incremental block should parse, got {errors:?}"
+    );
+}
+
 fn parse_file(path: &str) -> assura_parser::ast::SourceFile {
     let source =
         std::fs::read_to_string(path).unwrap_or_else(|e| panic!("failed to read {path}: {e}"));
