@@ -402,9 +402,9 @@ jobs:
 
   # ── Documented minimum Rust (Cargo.toml rust-version) ───────────────────
   # Stable jobs float. This job catches APIs that current stable accepts
-  # and Rust 1.87 rejects.
+  # and Rust 1.88 rejects.
   msrv:
-    name: MSRV 1.87.0
+    name: MSRV 1.88.0
     needs: changes
     if: ${{ (needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')) }}
     runs-on: ubuntu-latest
@@ -423,9 +423,9 @@ jobs:
       - uses: ./.github/actions/setup-rust-ci
         with:
           shared-key: ci-msrv
-          toolchain: 1.87.0
+          toolchain: 1.88.0
 
-      - name: Check on Rust 1.87.0
+      - name: Check on Rust 1.88.0
         run: cargo check --locked
 
   # ── CVC5 native integration tests (parallel with test) ──────────────────

@@ -57,7 +57,7 @@ assura mcp                      # run the MCP server for agent hosts
 
 ## Requirements
 
-A [Rust toolchain](https://rustup.rs/) (edition 2024 / rustc 1.87+). Z3 ships
+A [Rust toolchain](https://rustup.rs/) (edition 2024 / rustc 1.88+). Z3 ships
 prebuilt via the `z3` crate. No manual Z3 install for a normal build.
 
 ## Documentation

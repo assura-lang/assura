@@ -196,7 +196,7 @@ dedicated features.
 cargo install assura --locked
 ```
 
-Requires a [Rust toolchain](https://rustup.rs/) (1.87+). Prebuilt installers
+Requires a [Rust toolchain](https://rustup.rs/) (1.88+). Prebuilt installers
 are also on [GitHub Releases](https://github.com/assura-lang/assura/releases).
 Details: [CRATES-IO.md](CRATES-IO.md).
 

@@ -26,7 +26,7 @@ assura check-rust demos/check-rust/ok
 
 ## 1. Install
 
-**Preferred (crates.io):** requires Rust 1.87+ (edition 2024). Z3 is
+**Preferred (crates.io):** requires Rust 1.88+ (edition 2024). Z3 is
 pulled in automatically for verification builds.
 
 ```bash
@@ -69,7 +69,7 @@ If you only want to see a check result before installing:
    cargo run -- check demos/heartbleed.assura        # clean proof
    ```
    The same `cargo run --` form works on any machine that already has
-   Rust 1.87+ and a built workspace. `libz3-dev` (or the `z3` crate's
+   Rust 1.88+ and a built workspace. `libz3-dev` (or the `z3` crate's
    prebuilt download) is required to compile.
 2. **Watch the demo GIF** (no install):  
    https://github.com/assura-lang/assura/blob/main/assets/demo/assura-check.gif
