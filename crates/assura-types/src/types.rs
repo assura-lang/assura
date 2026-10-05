@@ -176,7 +176,7 @@ impl Type {
 
 /// Maps names to their types. This is the typing context built during
 /// type checking.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TypeEnv {
     /// Scope stack: the last element is the innermost (current) scope.
     /// There is always at least one scope (the global scope).
@@ -190,6 +190,14 @@ pub struct TypeEnv {
 #[derive(Debug, Clone, Default)]
 struct Scope {
     bindings: HashMap<String, Type>,
+}
+
+impl Default for TypeEnv {
+    fn default() -> Self {
+        // Derived Default would leave `scopes` empty. `depth` then
+        // underflows and `insert` panics. The global scope is the invariant.
+        Self::new()
+    }
 }
 
 impl TypeEnv {
@@ -468,6 +476,15 @@ impl std::fmt::Display for Type {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_type_env_has_global_scope() {
+        let mut env = TypeEnv::default();
+        assert_eq!(env.depth(), 0);
+        assert!(env.is_empty());
+        assert!(env.insert("x".to_string(), Type::Int).is_none());
+        assert_eq!(env.lookup("x"), Some(&Type::Int));
+    }
 
     // ---- is_indeterminate ----
 
