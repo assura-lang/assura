@@ -2351,6 +2351,57 @@ fn f(x: i64) -> i64 {
 }
 
 #[test]
+fn while_condition_that_updates_the_result_stays_bnm() {
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let mut x = x;
+    while { x += 1; x < 3 } {}
+    x
+}
+"#;
+    assert!(
+        extract_body_return(src, "f").is_none(),
+        "a condition that writes the result must not be skipped"
+    );
+}
+
+#[test]
+fn let_init_call_inside_loop_stays_bnm() {
+    let src = r#"
+fn f(y: i64) -> i64 {
+    let mut y = y;
+    while y > 0 {
+        let _ = bump(&mut y);
+    }
+    y
+}
+"#;
+    assert!(
+        extract_body_return(src, "f").is_none(),
+        "a call hidden in a let init must not be skipped"
+    );
+}
+
+#[test]
+fn loop_that_does_not_feed_the_result_still_folds() {
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    while y > 0 {
+        y -= 1;
+    }
+    x
+}
+"#;
+    let body = extract_body_return(src, "f").expect("dead loop must not drop the result");
+    assert!(
+        !body.contains("while"),
+        "loop should be skipped when its locals are unused; body={body}"
+    );
+    assert!(body.contains('x'), "result should still be x; body={body}");
+}
+
+#[test]
 fn mid_block_unknown_call_still_bnm() {
     // Unknown calls stay residual (no @stub / assume encode).
     let src = r#"
