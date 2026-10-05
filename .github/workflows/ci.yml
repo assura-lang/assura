@@ -72,6 +72,7 @@ jobs:
               - 'scripts/**'
               - 'AGENTS.md'
               - '.github/workflows/ci.yml'
+              - '.github/actions/setup-rust-ci/**'
             codegen:
               - 'crates/assura-parser/**'
               - 'crates/assura-resolve/**'
@@ -399,6 +400,34 @@ jobs:
       - name: Build without Z3 (graceful fallback)
         run: cargo check -p assura-smt --no-default-features --locked
 
+  # ── Documented minimum Rust (Cargo.toml rust-version) ───────────────────
+  # Stable jobs float. This job catches APIs that current stable accepts
+  # and Rust 1.87 rejects.
+  msrv:
+    name: MSRV 1.87.0
+    needs: changes
+    if: ${{ (needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_TARGET_DIR: target/ci-msrv
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-rust-ci
+        with:
+          shared-key: ci-msrv
+          toolchain: 1.87.0
+
+      - name: Check on Rust 1.87.0
+        run: cargo check --locked
+
   # ── CVC5 native integration tests (parallel with test) ──────────────────
   cvc5:
     name: CVC5 native tests
@@ -555,7 +584,7 @@ jobs:
   # ── Gate job (single required status check for branch protection) ────
   ci:
     if: always()
-    needs: [changes, lint-fast, clippy, test, benchmark, codegen-validation, no-z3, cvc5, tree-sitter, vscode-extension, workflow-sanity, cargo-package]
+    needs: [changes, lint-fast, clippy, test, benchmark, codegen-validation, no-z3, msrv, cvc5, tree-sitter, vscode-extension, workflow-sanity, cargo-package]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
