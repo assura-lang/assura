@@ -601,10 +601,10 @@ pub(crate) fn strip_requires_track_model_lines(model: &str) -> String {
     let mut kept = Vec::new();
     for line in model.lines() {
         let trimmed = line.trim();
-        if let Some((name, rest)) = trimmed.split_once("->") {
-            if is_requires_track_noise(name.trim(), rest.trim()) {
-                continue;
-            }
+        if let Some((name, rest)) = trimmed.split_once("->")
+            && is_requires_track_noise(name.trim(), rest.trim())
+        {
+            continue;
         }
         kept.push(line);
     }

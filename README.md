@@ -89,7 +89,7 @@ cargo run -- check demos/heartbleed.assura        # a clean proof
 cargo install assura --locked
 ```
 
-Needs a [Rust toolchain](https://rustup.rs/) (edition 2024 / rustc 1.87+). Z3
+Needs a [Rust toolchain](https://rustup.rs/) (edition 2024 / rustc 1.88+). Z3
 comes prebuilt via the `z3` crate. No manual Z3 install for a normal build.
 See [Getting started](docs/GETTING-STARTED.md) for Homebrew, the LSP, and
 the unpublished VS Code extension.

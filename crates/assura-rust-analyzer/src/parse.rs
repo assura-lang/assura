@@ -486,10 +486,10 @@ fn scan_dir_recursive(
     results: &mut Vec<(PathBuf, Vec<AnnotatedItem>)>,
     visited: &mut HashSet<PathBuf>,
 ) -> Result<(), RustAnalyzerError> {
-    if let Ok(canon) = dir.canonicalize() {
-        if !visited.insert(canon) {
-            return Ok(());
-        }
+    if let Ok(canon) = dir.canonicalize()
+        && !visited.insert(canon)
+    {
+        return Ok(());
     }
     let entries = std::fs::read_dir(dir)?;
     for entry in entries {

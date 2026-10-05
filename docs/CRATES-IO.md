@@ -22,9 +22,10 @@ Versions share `[workspace.package] version`. After a release, co-publish
 uploads any package whose version is not yet on crates.io (idempotent skips
 for already-published members).
 
-Published crates inherit `rust-version = "1.87.0"` (edition 2024). That is
+Published crates inherit `rust-version = "1.88.0"` (edition 2024). That is
 the MSRV shown on crates.io and the rustc `cargo` rejects below that.
-(Edition 2024 is 1.85; 1.87 is required for APIs such as `is_multiple_of`.)
+Edition 2024 is 1.85. Current dependencies such as rmcp, tonic, time,
+zip, and darling declare rust-version 1.88.
 
 ## What ships on crates.io
 

@@ -10,7 +10,7 @@
 cargo install assura --locked
 ```
 
-Requires a [Rust toolchain](https://rustup.rs/) (edition 2024 / rustc 1.87+).
+Requires a [Rust toolchain](https://rustup.rs/) (edition 2024 / rustc 1.88+).
 Also available as prebuilt binaries from
 [GitHub Releases](https://github.com/assura-lang/assura/releases) (cargo-dist).
 
@@ -55,7 +55,7 @@ assura doctor
 
 ### Rust toolchain version
 
-Assura requires Rust edition 2024 (rustc 1.87+). Check with:
+Assura requires Rust edition 2024 (rustc 1.88+). Check with:
 
 ```bash
 rustc --version

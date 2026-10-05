@@ -11,6 +11,9 @@ inputs:
   toolchain-components:
     description: Extra rustup components (e.g. "clippy, rustfmt")
     default: ''
+  toolchain:
+    description: Rust toolchain name (stable, or a pinned release such as 1.87.0)
+    default: stable
 
 runs:
   using: composite
@@ -18,6 +21,7 @@ runs:
     - name: Setup Rust toolchain
       uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
       with:
+        toolchain: ${{ inputs.toolchain }}
         components: ${{ inputs.toolchain-components }}
 
     - name: Cache dependencies

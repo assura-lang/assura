@@ -62,15 +62,14 @@ pub(crate) fn plan_field_access(obj: &SpExpr, field: &str) -> FieldAccessPlan {
             obj_name: name.to_string(),
         };
     }
-    if let Expr::Tuple(elems) = &obj.node {
-        if let Ok(index) = field.parse::<usize>() {
-            if index < elems.len() {
-                return FieldAccessPlan::TupleProj {
-                    arity: elems.len(),
-                    index,
-                };
-            }
-        }
+    if let Expr::Tuple(elems) = &obj.node
+        && let Ok(index) = field.parse::<usize>()
+        && index < elems.len()
+    {
+        return FieldAccessPlan::TupleProj {
+            arity: elems.len(),
+            index,
+        };
     }
     let full_expr = Spanned::no_span(Expr::Field(Box::new(obj.clone()), field.to_string()));
     if has_deep_field_chain_sp(&full_expr) || is_self_rooted_sp(&full_expr) {
