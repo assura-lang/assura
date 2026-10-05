@@ -187,9 +187,12 @@ fn clear_fold_residual() {
 /// - `let mut y = x; if c { y += 1; } y` / if-else / match arm mutation (CFG join)
 /// - Final stmt: path / return / expression referencing prior binds
 ///
-/// Not supported (returns None → body_not_modeled): any while/for/loop,
-/// multi-LHS patterns, type ascriptions on lets, bare mid-block expressions
-/// that are not assignments / if / match.
+/// Not supported (returns None → body_not_modeled): a while/for/loop that
+/// writes a local read later, or whose header, body, or `let` init is a
+/// call or an unclassified form. A fully classified loop whose assigned
+/// locals are unread afterward is skipped. Also unsupported: multi-LHS
+/// patterns, type ascriptions on lets, and bare mid-block expressions
+/// that are not assignments / if / match. Calls stay residual.
 fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<syn::Expr> {
     clear_fold_residual();
     if stmts.len() < 2 {
@@ -199,14 +202,17 @@ fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<syn::Expr> {
     // name → current expression (already substituted for earlier names)
     let mut env: Vec<(String, syn::Expr)> = Vec::new();
     let mut assigned = std::collections::HashSet::new();
-    for stmt in prefix {
-        apply_stmt_to_env(stmt, &mut env, &mut assigned)?;
-    }
     let mut final_expr: syn::Expr = match last {
         syn::Stmt::Expr(syn::Expr::Return(ret), _) => (*ret.expr.as_ref()?.as_ref()).clone(),
         syn::Stmt::Expr(e, _) => e.clone(),
         _ => return None,
     };
+    for (i, stmt) in prefix.iter().enumerate() {
+        if loop_stmt_does_not_affect_result(stmt, &prefix[i + 1..], &final_expr) {
+            continue;
+        }
+        apply_stmt_to_env(stmt, &mut env, &mut assigned)?;
+    }
     for (name, init) in env.into_iter().rev() {
         final_expr = substitute_ident_expr(final_expr, &name, &init);
     }
@@ -260,6 +266,246 @@ fn apply_stmt_to_env(
             set_fold_residual("unsupported statement form in body SSA");
             None
         }
+    }
+}
+
+/// A `while` / `for` / `loop` whose body only assigns locals that the rest
+/// of the function never reads does not change the result. Skip it.
+/// A loop that feeds a later read, or a body we cannot classify, stays
+/// fail-closed (`body_not_modeled`). Calls stay fail-closed too.
+fn loop_stmt_does_not_affect_result(
+    stmt: &syn::Stmt,
+    later: &[syn::Stmt],
+    final_expr: &syn::Expr,
+) -> bool {
+    let Some(loop_expr) = stmt_loop_expr(stmt) else {
+        return false;
+    };
+    let Some(assigned) = pure_loop_assigns(loop_expr) else {
+        return false;
+    };
+    let mut used = std::collections::HashSet::new();
+    for stmt in later {
+        if !collect_reads_stmt(stmt, &mut used) {
+            return false;
+        }
+    }
+    if !collect_reads_expr(final_expr, &mut used) {
+        return false;
+    }
+    assigned.is_disjoint(&used)
+}
+
+fn stmt_loop_expr(stmt: &syn::Stmt) -> Option<&syn::Expr> {
+    match stmt {
+        syn::Stmt::Expr(
+            e @ (syn::Expr::While(_) | syn::Expr::ForLoop(_) | syn::Expr::Loop(_)),
+            _,
+        ) => Some(e),
+        _ => None,
+    }
+}
+
+/// `Some` when the loop body is only assignments and nested pure expressions.
+/// `None` when a call or an unknown form is present (do not skip).
+fn pure_loop_assigns(expr: &syn::Expr) -> Option<std::collections::HashSet<String>> {
+    let mut assigned = std::collections::HashSet::new();
+    if !collect_pure_assigns(expr, &mut assigned) {
+        return None;
+    }
+    Some(assigned)
+}
+
+fn collect_pure_assigns(expr: &syn::Expr, out: &mut std::collections::HashSet<String>) -> bool {
+    match expr {
+        syn::Expr::While(w) => {
+            collect_pure_assigns_expr(&w.cond, out)
+                && w.body
+                    .stmts
+                    .iter()
+                    .all(|s| collect_pure_assigns_stmt(s, out))
+        }
+        syn::Expr::ForLoop(f) => {
+            pat_binds_simple(&f.pat, out)
+                && collect_pure_assigns_expr(&f.expr, out)
+                && f.body
+                    .stmts
+                    .iter()
+                    .all(|s| collect_pure_assigns_stmt(s, out))
+        }
+        syn::Expr::Loop(l) => l
+            .body
+            .stmts
+            .iter()
+            .all(|s| collect_pure_assigns_stmt(s, out)),
+        _ => false,
+    }
+}
+
+fn pat_binds_simple(pat: &syn::Pat, out: &mut std::collections::HashSet<String>) -> bool {
+    match pat {
+        syn::Pat::Ident(id) if id.by_ref.is_none() && id.subpat.is_none() => {
+            out.insert(id.ident.to_string());
+            true
+        }
+        syn::Pat::Wild(_) => true,
+        _ => false,
+    }
+}
+
+fn collect_pure_assigns_stmt(
+    stmt: &syn::Stmt,
+    out: &mut std::collections::HashSet<String>,
+) -> bool {
+    match stmt {
+        syn::Stmt::Local(local) => match &local.init {
+            Some(init) => {
+                collect_pure_assigns_expr(&init.expr, out)
+                    && match &init.diverge {
+                        Some((_, else_expr)) => collect_pure_assigns_expr(else_expr, out),
+                        None => true,
+                    }
+            }
+            None => true,
+        },
+        syn::Stmt::Expr(e, _) => collect_pure_assigns_expr(e, out),
+        _ => false,
+    }
+}
+
+fn collect_pure_assigns_expr(
+    expr: &syn::Expr,
+    out: &mut std::collections::HashSet<String>,
+) -> bool {
+    match expr {
+        syn::Expr::Assign(a) => {
+            assign_lhs_name(&a.left, out) && collect_pure_assigns_expr(&a.right, out)
+        }
+        syn::Expr::Binary(b) if assign_op_to_bin_op(b.op).is_some() => {
+            assign_lhs_name(&b.left, out) && collect_pure_assigns_expr(&b.right, out)
+        }
+        syn::Expr::Call(_)
+        | syn::Expr::MethodCall(_)
+        | syn::Expr::Macro(_)
+        | syn::Expr::While(_)
+        | syn::Expr::ForLoop(_)
+        | syn::Expr::Loop(_)
+        | syn::Expr::Try(_)
+        | syn::Expr::Await(_)
+        | syn::Expr::Yield(_)
+        | syn::Expr::Closure(_) => false,
+        syn::Expr::Block(b) => b
+            .block
+            .stmts
+            .iter()
+            .all(|s| collect_pure_assigns_stmt(s, out)),
+        syn::Expr::If(i) => {
+            collect_pure_assigns_expr(&i.cond, out)
+                && i.then_branch
+                    .stmts
+                    .iter()
+                    .all(|s| collect_pure_assigns_stmt(s, out))
+                && match &i.else_branch {
+                    Some((_, e)) => collect_pure_assigns_expr(e, out),
+                    None => true,
+                }
+        }
+        syn::Expr::Paren(p) => collect_pure_assigns_expr(&p.expr, out),
+        syn::Expr::Reference(r) => collect_pure_assigns_expr(&r.expr, out),
+        syn::Expr::Group(g) => collect_pure_assigns_expr(&g.expr, out),
+        syn::Expr::Unary(u) => collect_pure_assigns_expr(&u.expr, out),
+        syn::Expr::Binary(b) => {
+            collect_pure_assigns_expr(&b.left, out) && collect_pure_assigns_expr(&b.right, out)
+        }
+        syn::Expr::Path(_) | syn::Expr::Lit(_) => true,
+        syn::Expr::Field(f) => collect_pure_assigns_expr(&f.base, out),
+        syn::Expr::Index(i) => {
+            collect_pure_assigns_expr(&i.expr, out) && collect_pure_assigns_expr(&i.index, out)
+        }
+        syn::Expr::Cast(c) => collect_pure_assigns_expr(&c.expr, out),
+        _ => false,
+    }
+}
+
+fn assign_lhs_name(expr: &syn::Expr, out: &mut std::collections::HashSet<String>) -> bool {
+    match expr {
+        syn::Expr::Path(p) if p.path.segments.len() == 1 => {
+            out.insert(p.path.segments[0].ident.to_string());
+            true
+        }
+        syn::Expr::Paren(p) => assign_lhs_name(&p.expr, out),
+        _ => false,
+    }
+}
+
+fn collect_reads_stmt(stmt: &syn::Stmt, out: &mut std::collections::HashSet<String>) -> bool {
+    match stmt {
+        syn::Stmt::Local(local) => match &local.init {
+            Some(init) => collect_reads_expr(&init.expr, out),
+            None => true,
+        },
+        syn::Stmt::Expr(e, _) => collect_reads_expr(e, out),
+        _ => false,
+    }
+}
+
+fn collect_reads_expr(expr: &syn::Expr, out: &mut std::collections::HashSet<String>) -> bool {
+    match expr {
+        syn::Expr::Path(p) => {
+            if let Some(id) = p.path.get_ident() {
+                out.insert(id.to_string());
+            }
+            true
+        }
+        syn::Expr::Lit(_) => true,
+        syn::Expr::Assign(a) => {
+            collect_reads_expr(&a.left, out) && collect_reads_expr(&a.right, out)
+        }
+        syn::Expr::Binary(b) => {
+            collect_reads_expr(&b.left, out) && collect_reads_expr(&b.right, out)
+        }
+        syn::Expr::Unary(u) => collect_reads_expr(&u.expr, out),
+        syn::Expr::Paren(p) => collect_reads_expr(&p.expr, out),
+        syn::Expr::Reference(r) => collect_reads_expr(&r.expr, out),
+        syn::Expr::Group(g) => collect_reads_expr(&g.expr, out),
+        syn::Expr::Block(b) => b.block.stmts.iter().all(|s| collect_reads_stmt(s, out)),
+        syn::Expr::If(i) => {
+            collect_reads_expr(&i.cond, out)
+                && i.then_branch
+                    .stmts
+                    .iter()
+                    .all(|s| collect_reads_stmt(s, out))
+                && match &i.else_branch {
+                    Some((_, e)) => collect_reads_expr(e, out),
+                    None => true,
+                }
+        }
+        syn::Expr::Call(c) => {
+            collect_reads_expr(&c.func, out) && c.args.iter().all(|a| collect_reads_expr(a, out))
+        }
+        syn::Expr::MethodCall(m) => {
+            collect_reads_expr(&m.receiver, out)
+                && m.args.iter().all(|a| collect_reads_expr(a, out))
+        }
+        syn::Expr::Field(f) => collect_reads_expr(&f.base, out),
+        syn::Expr::Index(i) => {
+            collect_reads_expr(&i.expr, out) && collect_reads_expr(&i.index, out)
+        }
+        syn::Expr::Cast(c) => collect_reads_expr(&c.expr, out),
+        syn::Expr::Return(r) => match &r.expr {
+            Some(e) => collect_reads_expr(e, out),
+            None => true,
+        },
+        syn::Expr::While(w) => {
+            collect_reads_expr(&w.cond, out)
+                && w.body.stmts.iter().all(|s| collect_reads_stmt(s, out))
+        }
+        syn::Expr::ForLoop(f) => {
+            collect_reads_expr(&f.expr, out)
+                && f.body.stmts.iter().all(|s| collect_reads_stmt(s, out))
+        }
+        syn::Expr::Loop(l) => l.body.stmts.iter().all(|s| collect_reads_stmt(s, out)),
+        _ => false,
     }
 }
 

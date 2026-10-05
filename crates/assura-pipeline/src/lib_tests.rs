@@ -1100,6 +1100,47 @@ fn zlib_incremental_block_has_no_a05102_for_incremental_contract() {
     );
 }
 
+fn flagship_proves_something(rel: &str) {
+    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest.parent().and_then(|p| p.parent()).expect("root");
+    let src = std::fs::read_to_string(root.join(rel)).expect("read demo");
+    let output = compile_full(&src, rel, &test_config());
+    assert!(
+        !output.has_errors,
+        "{rel} diagnostics: {:?}",
+        output.diagnostics
+    );
+    let proved = output.verification.iter().any(|r| {
+        matches!(
+            r,
+            assura_smt::VerificationResult::Verified {
+                vacuous_reason: None,
+                ..
+            }
+        )
+    });
+    assert!(
+        proved,
+        "{rel} needs a non-vacuous Verified clause, got {:?}",
+        output.verification
+    );
+}
+
+#[test]
+fn libwebp_huffman_has_nonvacuous_verified() {
+    flagship_proves_something("demos/libwebp-huffman.assura");
+}
+
+#[test]
+fn heartbleed_has_nonvacuous_verified() {
+    flagship_proves_something("demos/heartbleed.assura");
+}
+
+#[test]
+fn mbedtls_x509_has_nonvacuous_verified() {
+    flagship_proves_something("demos/mbedtls-x509.assura");
+}
+
 #[test]
 fn minimal_incremental_step_ensures_verified() {
     // #833 documented subset: step/resume boolean ensures under requires.

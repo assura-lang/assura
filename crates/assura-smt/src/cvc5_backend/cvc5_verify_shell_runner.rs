@@ -54,6 +54,45 @@ pub(crate) fn run_cvc5_binary_queries(
     parse_cvc5_stdout_all(&stdout)
 }
 
+/// Stop reading solver stdout past this size. A partial `get-model` is
+/// discarded rather than parsed as a counterexample.
+pub(crate) const CVC5_STDOUT_CAP: usize = 4 * 1024 * 1024;
+
+/// Read `reader` until EOF and discard every byte. Unlike [`read_capped`],
+/// this does not stop early: a capped drain would fill the pipe and stall
+/// the child before the parent can kill it.
+pub(crate) fn discard_until_eof(mut reader: impl std::io::Read) -> usize {
+    let mut total = 0usize;
+    let mut chunk = [0u8; 8192];
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) | Err(_) => return total,
+            Ok(n) => total = total.saturating_add(n),
+        }
+    }
+}
+
+/// Read `reader` until EOF. If another byte would pass `limit`, return an
+/// error and do not yield a truncated buffer.
+pub(crate) fn read_capped(mut reader: impl std::io::Read, limit: usize) -> Result<Vec<u8>, String> {
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        let n = reader
+            .read(&mut chunk)
+            .map_err(|e| format!("cvc5 stdout read failed: {e}"))?;
+        if n == 0 {
+            return Ok(buf);
+        }
+        if buf.len().saturating_add(n) > limit {
+            return Err(format!(
+                "cvc5 stdout exceeded {limit} bytes; output discarded so a partial model is not parsed"
+            ));
+        }
+        buf.extend_from_slice(&chunk[..n]);
+    }
+}
+
 fn execute_cvc5(script: &str, tlimit_ms: u32) -> Result<String, String> {
     use std::io::Write;
     use std::process::{Command, Stdio};
@@ -80,11 +119,25 @@ fn execute_cvc5(script: &str, tlimit_ms: u32) -> Result<String, String> {
             .map_err(|e| format!("Failed to write SMT script to CVC5 stdin: {e}"))?;
     }
 
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("cvc5 execution failed: {e}"))?;
-
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "cvc5 stdout pipe missing".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "cvc5 stderr pipe missing".to_string())?;
+    // Drain stderr to EOF. Stopping at the stdout cap would leave the
+    // pipe full and stall cvc5 inside write, before kill() runs.
+    let stderr_thread = std::thread::spawn(move || discard_until_eof(stderr));
+    let stdout_result = read_capped(stdout, CVC5_STDOUT_CAP);
+    if stdout_result.is_err() {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+    let _ = stderr_thread.join();
+    let bytes = stdout_result?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn is_query_line(line: &str) -> bool {
@@ -153,6 +206,26 @@ mod tests {
     use super::*;
     use crate::VerificationResult;
     use assura_ast::ClauseKind;
+
+    #[test]
+    fn discard_until_eof_reads_past_the_stdout_cap() {
+        let data = vec![7u8; CVC5_STDOUT_CAP + 32];
+        let n = discard_until_eof(std::io::Cursor::new(data.clone()));
+        assert_eq!(n, data.len());
+        assert!(read_capped(std::io::Cursor::new(data), CVC5_STDOUT_CAP).is_err());
+    }
+
+    #[test]
+    fn read_capped_rejects_output_past_the_limit() {
+        let data = b"sat\n(partial model that must not be parsed)";
+        let err = read_capped(&data[..], 4).expect_err("over the cap");
+        assert!(
+            err.contains("exceeded 4 bytes"),
+            "partial stdout must not become a model: {err}"
+        );
+        let exact = read_capped(&data[..4], 4).expect("exact cap is complete");
+        assert_eq!(exact, b"sat\n");
+    }
 
     #[test]
     fn shell_query_helper_maps_unsat_to_verified_ensures() {
