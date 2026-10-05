@@ -1,5 +1,13 @@
 use super::{Diagnostic, Severity};
 
+/// Whether human diagnostics should emit ANSI color.
+///
+/// `NO_COLOR` (set to any value, including empty) disables color.
+/// A non-terminal stderr also disables color, so pipes and CI logs stay plain.
+pub(crate) fn diagnostics_use_color(no_color_set: bool, stderr_is_terminal: bool) -> bool {
+    !no_color_set && stderr_is_terminal
+}
+
 /// Render a single `Diagnostic` to stderr using ariadne.
 pub fn render_diagnostic(diag: &Diagnostic, filename: &str, source: &str) {
     use ariadne::{Color, Label, Report, ReportKind, Source};
@@ -46,10 +54,28 @@ pub fn render_diagnostic(diag: &Diagnostic, filename: &str, source: &str) {
             diag.code
         ));
     }
+    let use_color = diagnostics_use_color(
+        std::env::var_os("NO_COLOR").is_some(),
+        std::io::IsTerminal::is_terminal(&std::io::stderr()),
+    );
     builder
+        .with_config(ariadne::Config::default().with_color(use_color))
         .finish()
         .eprint((filename, Source::from(source)))
         .ok();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::diagnostics_use_color;
+
+    #[test]
+    fn no_color_or_non_tty_disables_color() {
+        assert!(!diagnostics_use_color(true, true));
+        assert!(!diagnostics_use_color(true, false));
+        assert!(!diagnostics_use_color(false, false));
+        assert!(diagnostics_use_color(false, true));
+    }
 }
 
 /// Render a list of diagnostics to stderr using ariadne.
