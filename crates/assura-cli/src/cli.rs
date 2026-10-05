@@ -68,8 +68,8 @@ enum Commands {
         file: String,
 
         /// Verification layer (0=structural, 1=SMT, 2=quantified/termination, 3=BMC)
-        #[arg(long, default_value_t = 255)]
-        layer: u8,
+        #[arg(long)]
+        layer: Option<u8>,
 
         /// SMT solver backend
         #[arg(long, value_parser = parse_solver)]

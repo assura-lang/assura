@@ -10,8 +10,43 @@ use z3::{Model, Params, SatResult, Solver, ast};
 /// `push`/`pop` switches Z3 to `solver2`. On Z3 5.1 the `timeout` parameter
 /// does not apply to that stage. `solver2_timeout` is the matching limit.
 pub(crate) fn set_solver_timeout(params: &mut Params, timeout_ms: u32) {
+    #[cfg(test)]
+    if RECORD_CLAUSE_TIMEOUT.load(std::sync::atomic::Ordering::SeqCst) {
+        RECORDED_CLAUSE_TIMEOUTS
+            .lock()
+            .expect("recorded clause timeouts")
+            .push(timeout_ms);
+    }
     params.set_u32("timeout", timeout_ms);
     params.set_u32("solver2_timeout", timeout_ms);
+}
+
+#[cfg(test)]
+static RECORD_CLAUSE_TIMEOUT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(test)]
+static RECORDED_CLAUSE_TIMEOUTS: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+
+/// Record `set_solver_timeout` values while `record` runs.
+///
+/// Parallel verify applies the timeout on a rayon worker, so a
+/// thread-local on the test thread would stay empty.
+#[cfg(test)]
+pub(crate) fn record_clause_timeouts(record: impl FnOnce()) -> Vec<u32> {
+    {
+        let mut slot = RECORDED_CLAUSE_TIMEOUTS
+            .lock()
+            .expect("recorded clause timeouts");
+        slot.clear();
+    }
+    RECORD_CLAUSE_TIMEOUT.store(true, std::sync::atomic::Ordering::SeqCst);
+    record();
+    RECORD_CLAUSE_TIMEOUT.store(false, std::sync::atomic::Ordering::SeqCst);
+    RECORDED_CLAUSE_TIMEOUTS
+        .lock()
+        .expect("recorded clause timeouts")
+        .clone()
 }
 
 // -----------------------------------------------------------------------

@@ -7,7 +7,8 @@ pub(crate) struct CheckOptions<'a> {
     pub(crate) filename: &'a str,
     pub(crate) output_mode: OutputMode,
     pub(crate) verbosity: Verbosity,
-    pub(crate) layer: u8,
+    /// `None` means the flag was omitted. A passed value is never a sentinel.
+    pub(crate) layer: Option<u8>,
     pub(crate) solver: Option<assura_smt::SolverChoice>,
     pub(crate) watch: bool,
     pub(crate) stats: bool,

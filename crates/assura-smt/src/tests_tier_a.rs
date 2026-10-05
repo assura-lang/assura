@@ -13,7 +13,7 @@ use super::*;
 #[test]
 fn tier_a1_ir_arith_body_verifies_result_eq_param_plus_one() {
     use crate::ir::{IrFunction, parse_ir_module};
-    use crate::z3_backend::verify_contract_impl_with_types_and_ir;
+    use crate::z3_backend::verify::verify_contract_impl_with_types_and_ir;
     use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, Param, Spanned};
 
     // IR: $result = $0 + 1  (identity-plus-one on first param `x`)
@@ -76,7 +76,7 @@ module inc {
 #[test]
 fn tier_a1_ir_identity_body_counterexample_on_wrong_ensures() {
     use crate::ir::{IrFunction, parse_ir_module};
-    use crate::z3_backend::verify_contract_impl_with_types_and_ir;
+    use crate::z3_backend::verify::verify_contract_impl_with_types_and_ir;
     use assura_ast::{BinOp, Clause, ClauseKind, Expr, Literal, Param, Spanned};
 
     // IR copies x to result, but ensures claims result == x + 1 (false).

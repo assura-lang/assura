@@ -19,6 +19,6 @@ pub(crate) use features::{
 #[cfg(test)]
 pub(crate) use havoc_assume::apply_havoc_assume_z3;
 pub(crate) use verify::{
-    verify_contract_impl, verify_contract_impl_with_types_and_ir, verify_impl_with_timeout,
+    verify_contract_impl, verify_contract_impl_with_types_and_ir_timeout, verify_impl_with_timeout,
     verify_quantified_impl,
 };

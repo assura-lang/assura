@@ -522,7 +522,10 @@ fn recovery_very_long_identifier() {
 /// Parse source and assert at least one error exists.
 fn assert_parse_errors(source: &str) {
     let (_, errors) = parse(source);
-    let _ = !errors.is_empty(); // exercised; some reject cases currently recover without error
+    assert!(
+        !errors.is_empty(),
+        "expected parse errors for:\n{source}\nerrors: {errors:?}"
+    );
 }
 
 /// Parse source and assert zero errors.

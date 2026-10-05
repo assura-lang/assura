@@ -2668,6 +2668,10 @@ fn init_creates_project_structure() {
         toml_content.contains("[package]"),
         "assura.toml should contain [package]: {toml_content}"
     );
+    assert!(
+        toml_content.contains("2=quantified/termination") && toml_content.contains("3=BMC"),
+        "assura.toml layer comment should name layers 0 through 3: {toml_content}"
+    );
 
     let lib_content = std::fs::read_to_string(project.join("contracts/lib.assura")).unwrap();
     assert!(
@@ -2778,6 +2782,72 @@ fn check_rejects_invalid_layer() {
     assert!(
         stderr.contains("invalid --layer") || stderr.contains("expected 0"),
         "stderr should explain layer range: {stderr}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// 255 is outside 0..=3. Help must not print it as the default, and
+/// passing it must exit 2. Omitting the flag still checks.
+#[test]
+fn check_rejects_layer_255_and_help_omits_sentinel() {
+    let help = Command::new(assura_bin())
+        .args(["check", "--help"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check --help");
+    let help_out = String::from_utf8_lossy(&help.stdout);
+    assert!(
+        help.status.success(),
+        "check --help failed: {help_out} {}",
+        String::from_utf8_lossy(&help.stderr)
+    );
+    assert!(
+        help_out.contains("--layer"),
+        "check --help must document --layer:\n{help_out}"
+    );
+    assert!(
+        !help_out.contains("[default: 255]"),
+        "check --help must not advertise 255 as the --layer default:\n{help_out}"
+    );
+
+    let tmp = unique_temp("assura_layer_255");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("ok.assura");
+    std::fs::write(
+        &src,
+        "contract T { input(x: Int) requires { x >= 0 } ensures { x >= 0 } }\n",
+    )
+    .unwrap();
+
+    let omitted = Command::new(assura_bin())
+        .args(["check", src.to_str().unwrap()])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check with layer omitted");
+    assert!(
+        omitted.status.success(),
+        "omitted --layer should still check: {}",
+        String::from_utf8_lossy(&omitted.stderr)
+    );
+
+    let out = Command::new(assura_bin())
+        .args(["check", src.to_str().unwrap(), "--layer", "255"])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check --layer 255");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "layer 255 should exit 2: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("invalid --layer"),
+        "stderr should reject layer 255: {stderr}"
     );
 
     let _ = std::fs::remove_dir_all(&tmp);

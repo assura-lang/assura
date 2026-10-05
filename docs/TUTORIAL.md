@@ -83,7 +83,7 @@ output = "generated"
 
 [verify]
 smt-solver = "z3"       # "z3", "cvc5", or "portfolio"
-layer = 1               # 0 = structural only, 1 = SMT
+layer = 1               # 0=structural, 1=SMT, 2=quantified/termination, 3=BMC
 timeout = 1000          # SMT timeout in ms
 
 # [dependencies]         # Optional: import contracts from other projects

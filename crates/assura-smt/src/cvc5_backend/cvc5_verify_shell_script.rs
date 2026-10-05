@@ -68,10 +68,23 @@ pub(crate) fn append_cvc5_shellout_lemma_assumptions(
 }
 
 pub(crate) fn append_cvc5_shellout_clause_check(script: &mut String, kind: ClauseKind, smt: &str) {
-    if crate::clause_policy::cvc5_assert_negates_body(&kind) {
-        script.push_str(&format!("(assert (not {smt}))\n"));
-    } else {
-        script.push_str(&format!("(assert {smt})\n"));
+    use crate::clause_policy::ClauseCheckPolarity;
+
+    // Same table as Z3 and CVC5 native (`clause_check_polarity`).
+    // `decreases` is not `(not <measure>)`; that term has the wrong sort.
+    match crate::clause_policy::clause_check_polarity(&kind) {
+        Some(ClauseCheckPolarity::ValidityNegateBody) => {
+            script.push_str(&format!("(assert (not {smt}))\n"));
+        }
+        Some(
+            ClauseCheckPolarity::SatisfiabilityAssertBody | ClauseCheckPolarity::ValidityAssertBody,
+        ) => {
+            script.push_str(&format!("(assert {smt})\n"));
+        }
+        Some(ClauseCheckPolarity::DecreasesNonNeg) => {
+            script.push_str(&format!("(assert (not (>= {smt} 0)))\n"));
+        }
+        None => {}
     }
 }
 
@@ -108,5 +121,33 @@ pub(crate) fn append_cvc5_shellout_constraints(
                 script.push_str(&format!("(assert (<= {name} {value}))\n"));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::append_cvc5_shellout_clause_check;
+    use assura_ast::ClauseKind;
+
+    fn script_for(kind: ClauseKind) -> String {
+        let mut script = String::new();
+        append_cvc5_shellout_clause_check(&mut script, kind, "m");
+        script
+    }
+
+    #[test]
+    fn decreases_asserts_measure_nonnegative() {
+        assert_eq!(
+            script_for(ClauseKind::Decreases),
+            "(assert (not (>= m 0)))\n"
+        );
+    }
+
+    #[test]
+    fn ensures_negates_and_invariant_asserts() {
+        assert_eq!(script_for(ClauseKind::Ensures), "(assert (not m))\n");
+        assert_eq!(script_for(ClauseKind::Rule), "(assert (not m))\n");
+        assert_eq!(script_for(ClauseKind::Invariant), "(assert m)\n");
+        assert_eq!(script_for(ClauseKind::MustNot), "(assert m)\n");
     }
 }

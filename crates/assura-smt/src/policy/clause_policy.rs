@@ -182,15 +182,6 @@ pub(crate) fn frame_axiom_vars_for_clause(
     frame_checker.frame_axiom_vars_with_candidates(body, param_names)
 }
 
-/// Whether CVC5/SMT-LIB assert path should negate the body (coarse; Decreases handled
-/// in Z3 with measure extraction; CVC5 currently folds Decreases into negate-body).
-///
-/// CVC5 native/shell use a simplified polarity: Invariant|MustNot assert body,
-/// everything else negate. Z3 handles Decreases separately via measure terms.
-pub(crate) fn cvc5_assert_negates_body(kind: &ClauseKind) -> bool {
-    !matches!(kind, ClauseKind::Invariant | ClauseKind::MustNot)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,15 +239,6 @@ mod tests {
     }
 
     #[test]
-    fn cvc5_coarse_polarity_matches_native_shell_match() {
-        assert!(!cvc5_assert_negates_body(&ClauseKind::Invariant));
-        assert!(!cvc5_assert_negates_body(&ClauseKind::MustNot));
-        assert!(cvc5_assert_negates_body(&ClauseKind::Ensures));
-        assert!(cvc5_assert_negates_body(&ClauseKind::Rule));
-        assert!(cvc5_assert_negates_body(&ClauseKind::Decreases));
-    }
-
-    #[test]
     fn prepare_partitions_requires_ensures_verifiable() {
         let clauses = vec![
             clause(ClauseKind::Requires, Expr::Literal(Literal::Bool(true))),
@@ -288,38 +270,5 @@ mod tests {
         assert!(prep.verifiable.is_empty());
         // Feature may return Unknown/Verified depending on feature; must not panic.
         let _ = features.len();
-    }
-
-    /// Z3 uses full polarity; CVC5 coarse path must agree on which kinds assert body vs negate.
-    #[test]
-    fn z3_and_cvc5_polarity_align_on_assert_vs_negate() {
-        let kinds = [
-            ClauseKind::Ensures,
-            ClauseKind::Invariant,
-            ClauseKind::Rule,
-            ClauseKind::MustNot,
-            ClauseKind::Decreases,
-        ];
-        for kind in &kinds {
-            let z3 = clause_check_polarity(kind);
-            let cvc5_negates = cvc5_assert_negates_body(kind);
-            match z3 {
-                Some(ClauseCheckPolarity::ValidityNegateBody)
-                | Some(ClauseCheckPolarity::DecreasesNonNeg) => {
-                    assert!(
-                        cvc5_negates,
-                        "{kind:?}: Z3 validity/decreases expects CVC5 negate body"
-                    );
-                }
-                Some(ClauseCheckPolarity::SatisfiabilityAssertBody)
-                | Some(ClauseCheckPolarity::ValidityAssertBody) => {
-                    assert!(
-                        !cvc5_negates,
-                        "{kind:?}: Z3 assert-body expects CVC5 assert body"
-                    );
-                }
-                None => {}
-            }
-        }
     }
 }
