@@ -24,6 +24,10 @@ jobs:
     env:
       CARGO_TARGET_DIR: target/fuzz-ci
       CARGO_INCREMENTAL: '0'
+      # cargo-binstall ships the musl cargo-fuzz binary. Its default triple
+      # is x86_64-unknown-linux-musl, and address sanitizer cannot link a
+      # static musl libc. https://github.com/rust-fuzz/cargo-fuzz/issues/398
+      FUZZ_CARGO_TARGET: x86_64-unknown-linux-gnu
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -61,10 +65,10 @@ jobs:
         env:
           RUSTUP_TOOLCHAIN: nightly-2026-08-15
         run: |
-          cargo +nightly-2026-08-15 fuzz build || (
+          cargo +nightly-2026-08-15 fuzz build --target "$FUZZ_CARGO_TARGET" || (
             echo "::warning::retrying fuzz build"
             sleep 5
-            cargo +nightly-2026-08-15 fuzz build
+            cargo +nightly-2026-08-15 fuzz build --target "$FUZZ_CARGO_TARGET"
           )
 
       - name: Fuzz lexer
@@ -72,7 +76,7 @@ jobs:
           FUZZ_DURATION: ${{ inputs.duration || '60' }}
           RUSTUP_TOOLCHAIN: nightly-2026-08-15
         run: |
-          cargo +nightly-2026-08-15 fuzz run fuzz_lex -- \
+          cargo +nightly-2026-08-15 fuzz run --target "$FUZZ_CARGO_TARGET" fuzz_lex -- \
             -max_total_time="${FUZZ_DURATION}" \
             -max_len=4096
 
@@ -81,7 +85,7 @@ jobs:
           FUZZ_DURATION: ${{ inputs.duration || '60' }}
           RUSTUP_TOOLCHAIN: nightly-2026-08-15
         run: |
-          cargo +nightly-2026-08-15 fuzz run fuzz_parse -- \
+          cargo +nightly-2026-08-15 fuzz run --target "$FUZZ_CARGO_TARGET" fuzz_parse -- \
             -max_total_time="${FUZZ_DURATION}" \
             -max_len=4096
 
@@ -90,7 +94,7 @@ jobs:
           FUZZ_DURATION: ${{ inputs.duration || '60' }}
           RUSTUP_TOOLCHAIN: nightly-2026-08-15
         run: |
-          cargo +nightly-2026-08-15 fuzz run fuzz_typecheck -- \
+          cargo +nightly-2026-08-15 fuzz run --target "$FUZZ_CARGO_TARGET" fuzz_typecheck -- \
             -max_total_time="${FUZZ_DURATION}" \
             -max_len=4096
 
