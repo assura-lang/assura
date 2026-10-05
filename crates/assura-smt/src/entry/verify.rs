@@ -168,7 +168,7 @@ impl<'a> Verifier<'a> {
             // Serial Z3 and CVC5 append these inside their file verify.
             // The parallel join returns first, so a default check would
             // skip weak-memory, prophecy, liveness, layer 2, and codec.
-            parallel_results.extend(crate::entry::run_advanced_passes(
+            parallel_results.extend(super::advanced_passes::run_advanced_passes(
                 self.typed,
                 self.options.timeout_ms,
             ));
