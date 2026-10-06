@@ -68,6 +68,7 @@ use quote::ToTokens;
 // - tests: unit coverage for try_ir_from_rust_body
 // - this file: extract/body fold, multi-block if/match, encode_syn_expr dispatch
 mod bitops;
+mod spec_assume;
 mod width;
 use bitops::*;
 use width::*;
@@ -89,25 +90,36 @@ pub(crate) fn extract_body_return(source: &str, fn_name: &str) -> Option<String>
 /// is used. Ambiguous or unmatched line returns `None`.
 pub(crate) fn extract_body_return_at(source: &str, fn_name: &str, line: usize) -> Option<String> {
     clear_fold_residual();
+    reset_fold_model();
     let file = syn::parse_file(source).ok()?;
-    let mut hits: Vec<(usize, usize, Option<String>)> = Vec::new();
-    collect_named_fn_bodies(&file.items, fn_name, &mut hits);
-    match hits.len() {
+    FOLD_SELF.with(|current| *current.borrow_mut() = fn_name.to_string());
+    let mut hits: Vec<FnBodyHit> = Vec::new();
+    collect_named_fn_blocks(&file.items, fn_name, &mut hits);
+    let selected = match hits.len() {
         0 => None,
-        1 => hits.pop().and_then(|(_, _, body)| body),
+        1 => hits.pop(),
         _ => {
-            let mut matching: Vec<Option<String>> = hits
+            let mut matching: Vec<FnBodyHit> = hits
                 .into_iter()
-                .filter(|(start, end, _)| fn_span_matches_line(*start, *end, line))
-                .map(|(_, _, body)| body)
+                .filter(|hit| fn_span_matches_line(hit.start, hit.end, line))
                 .collect();
             if matching.len() == 1 {
-                matching.pop().flatten()
+                matching.pop()
             } else {
                 None
             }
         }
+    };
+    let body = selected.and_then(|hit| {
+        FOLD_CALLEES.with(|callees| *callees.borrow_mut() = hit.callees);
+        body_return_from_block(&hit.block)
+    });
+    FOLD_CALLEES.with(|callees| callees.borrow_mut().clear());
+    FOLD_SELF.with(|current| current.borrow_mut().clear());
+    if body.is_none() {
+        reset_fold_model();
     }
+    body
 }
 
 fn fn_span_matches_line(start: usize, end: usize, line: usize) -> bool {
@@ -119,32 +131,43 @@ fn fn_span_matches_line(start: usize, end: usize, line: usize) -> bool {
     start == line || (start <= line && line <= end)
 }
 
-fn collect_named_fn_bodies(
-    items: &[syn::Item],
-    fn_name: &str,
-    out: &mut Vec<(usize, usize, Option<String>)>,
-) {
+struct FnBodyHit {
+    start: usize,
+    end: usize,
+    block: syn::Block,
+    /// Free-function `@ensures` in the module that contains this function.
+    callees: HashMap<String, spec_assume::CalleeSpec>,
+}
+
+fn collect_named_fn_blocks(items: &[syn::Item], fn_name: &str, out: &mut Vec<FnBodyHit>) {
+    let callees = spec_assume::sibling_free_fn_specs(items);
     for item in items {
         match item {
             syn::Item::Fn(func) if func.sig.ident == fn_name => {
-                let start = func.sig.fn_token.span.start().line;
-                let end = func.span().end().line;
-                out.push((start, end, body_return_from_block(&func.block)));
+                out.push(FnBodyHit {
+                    start: func.sig.fn_token.span.start().line,
+                    end: func.span().end().line,
+                    block: func.block.as_ref().clone(),
+                    callees: callees.clone(),
+                });
             }
             syn::Item::Impl(imp) => {
                 for impl_item in &imp.items {
                     if let syn::ImplItem::Fn(method) = impl_item
                         && method.sig.ident == fn_name
                     {
-                        let start = method.sig.fn_token.span.start().line;
-                        let end = method.span().end().line;
-                        out.push((start, end, body_return_from_block(&method.block)));
+                        out.push(FnBodyHit {
+                            start: method.sig.fn_token.span.start().line,
+                            end: method.span().end().line,
+                            block: method.block.clone(),
+                            callees: callees.clone(),
+                        });
                     }
                 }
             }
             syn::Item::Mod(module) => {
                 if let Some((_, inner)) = &module.content {
-                    collect_named_fn_bodies(inner, fn_name, out);
+                    collect_named_fn_blocks(inner, fn_name, out);
                 }
             }
             _ => {}
@@ -154,15 +177,88 @@ fn collect_named_fn_bodies(
 
 fn body_return_from_block(block: &syn::Block) -> Option<String> {
     match block.stmts.as_slice() {
-        [syn::Stmt::Expr(syn::Expr::Return(ret), _)] => ret.expr.as_ref().map(|e| expr_source(e)),
-        [syn::Stmt::Expr(expr, _)] => Some(expr_source(expr)),
-        stmts => fold_simple_lets(stmts).map(|e| expr_source(&e)),
+        [syn::Stmt::Expr(syn::Expr::Return(ret), _)] => {
+            let body = ret.expr.as_ref().map(|e| expr_source(e))?;
+            publish_plain_body(&body);
+            Some(body)
+        }
+        [syn::Stmt::Expr(expr, _)] => {
+            let body = expr_source(expr);
+            publish_plain_body(&body);
+            Some(body)
+        }
+        stmts => {
+            let expr = fold_simple_lets(stmts)?;
+            let body = expr_source(&expr);
+            publish_fold_body(&body);
+            Some(body)
+        }
     }
 }
 
 // Last residual reason when fold fails on a known construct (line-specific BNM).
 thread_local! {
     static FOLD_RESIDUAL: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// Same-file free functions that have plain `@ensures`, for the fold in progress.
+    static FOLD_CALLEES: RefCell<HashMap<String, spec_assume::CalleeSpec>> =
+        RefCell::new(HashMap::new());
+    /// Function currently being folded. Its own ensures are not assumed (no self-proof).
+    static FOLD_SELF: RefCell<String> = const { RefCell::new(String::new()) };
+    /// Havoc names and assumption expressions produced by the last successful fold.
+    static FOLD_MODEL: RefCell<FoldModel> = const { RefCell::new(FoldModel::empty()) };
+}
+
+#[derive(Clone, Debug)]
+struct FoldModel {
+    /// `expr_source` of the folded body. `try_ir_from_rust_body` applies the
+    /// model only when it encodes this exact string.
+    body_key: String,
+    havocs: Vec<String>,
+    assumes: Vec<String>,
+    next_havoc: u32,
+}
+
+impl FoldModel {
+    const fn empty() -> Self {
+        Self {
+            body_key: String::new(),
+            havocs: Vec::new(),
+            assumes: Vec::new(),
+            next_havoc: 0,
+        }
+    }
+}
+
+fn reset_fold_model() {
+    FOLD_MODEL.with(|model| *model.borrow_mut() = FoldModel::empty());
+}
+
+fn publish_plain_body(body: &str) {
+    FOLD_MODEL.with(|model| {
+        *model.borrow_mut() = FoldModel {
+            body_key: body.to_string(),
+            ..FoldModel::empty()
+        };
+    });
+}
+
+fn publish_fold_body(body: &str) {
+    FOLD_MODEL.with(|model| model.borrow_mut().body_key = body.to_string());
+}
+
+fn take_model_for_body(body: &str) -> (Vec<String>, Vec<String>) {
+    FOLD_MODEL.with(|slot| {
+        let mut model = slot.borrow_mut();
+        if model.body_key == body && !body.is_empty() {
+            model.body_key.clear();
+            (
+                std::mem::take(&mut model.havocs),
+                std::mem::take(&mut model.assumes),
+            )
+        } else {
+            (Vec::new(), Vec::new())
+        }
+    })
 }
 
 /// Reason for the most recent body fold failure (if any). Cleared on success.
@@ -188,13 +284,28 @@ fn clear_fold_residual() {
 /// - Final stmt: path / return / expression referencing prior binds
 ///
 /// Not supported (returns None → body_not_modeled): a while/for/loop that
-/// writes a local read later, or whose header, body, or `let` init is a
-/// call or an unclassified form. A fully classified loop whose assigned
-/// locals are unread afterward is skipped. Also unsupported: multi-LHS
-/// patterns, type ascriptions on lets, and bare mid-block expressions
-/// that are not assignments / if / match. Calls stay residual.
+/// writes a local read later and has no `@loop_invariant` / `#[loop_invariant]`
+/// / `#[invariant]`, or whose header, body, or `let` init is a call or an
+/// unclassified form. A fully classified loop whose assigned locals are
+/// unread afterward is skipped. An annotated classified loop havocs those
+/// locals and assumes the invariant (not proved inductive). A call to a
+/// same-file fn with plain `@ensures` havocs the result and assumes that
+/// postcondition; `&mut` arguments and unannotated calls stay residual.
+/// Also unsupported: multi-LHS patterns, type ascriptions on lets, and bare
+/// mid-block expressions that are not assignments / if / match.
 fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<syn::Expr> {
     clear_fold_residual();
+    reset_fold_model();
+    match fold_simple_lets_inner(stmts) {
+        Some(expr) => Some(expr),
+        None => {
+            reset_fold_model();
+            None
+        }
+    }
+}
+
+fn fold_simple_lets_inner(stmts: &[syn::Stmt]) -> Option<syn::Expr> {
     if stmts.len() < 2 {
         return None;
     }
@@ -211,7 +322,13 @@ fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<syn::Expr> {
         if loop_stmt_does_not_affect_result(stmt, &prefix[i + 1..], &final_expr) {
             continue;
         }
-        apply_stmt_to_env(stmt, &mut env, &mut assigned)?;
+        match apply_spec_stmt(stmt, &mut env) {
+            SpecApply::Handled => continue,
+            SpecApply::Reject => return None,
+            SpecApply::FallThrough => {
+                apply_stmt_to_env(stmt, &mut env, &mut assigned)?;
+            }
+        }
     }
     for (name, init) in env.into_iter().rev() {
         final_expr = substitute_ident_expr(final_expr, &name, &init);
@@ -224,6 +341,335 @@ fn fold_simple_lets(stmts: &[syn::Stmt]) -> Option<syn::Expr> {
 
 type SsaEnv = Vec<(String, syn::Expr)>;
 type AssignedSet = std::collections::HashSet<String>;
+
+enum SpecApply {
+    /// Loop invariant or callee ensures was turned into a havoc + assumption.
+    Handled,
+    /// The statement is a loop or call we refuse to approximate.
+    Reject,
+    /// Not an annotated loop or annotated call.
+    FallThrough,
+}
+
+/// Honor `@loop_invariant` / `#[loop_invariant]` / `#[invariant]` and
+/// same-file plain `@ensures` on a direct call. Anything else falls through.
+fn apply_spec_stmt(stmt: &syn::Stmt, env: &mut SsaEnv) -> SpecApply {
+    if let Some(loop_expr) = stmt_loop_expr(stmt) {
+        let invariants = spec_assume::clause_bodies(
+            spec_assume::loop_attrs(loop_expr),
+            &["loop_invariant", "invariant"],
+        );
+        if invariants.is_empty() {
+            return SpecApply::FallThrough;
+        }
+        let Some(assigned) = pure_loop_assigns(loop_expr) else {
+            set_fold_residual(format!(
+                "loop control flow not modeled (line ~{}): rewrite without loop or supply co-located .ir",
+                expr_approx_line(loop_expr)
+            ));
+            return SpecApply::Reject;
+        };
+        return if assume_loop_invariant(env, &assigned, &invariants) {
+            SpecApply::Handled
+        } else {
+            set_fold_residual(format!(
+                "loop invariant not encoded (line ~{})",
+                expr_approx_line(loop_expr)
+            ));
+            SpecApply::Reject
+        };
+    }
+    match stmt {
+        syn::Stmt::Expr(expr, _) => {
+            if let Some(call) = spec_assume::simple_call(expr) {
+                return assume_annotated_call(call, None, env, expr);
+            }
+        }
+        syn::Stmt::Local(local) => {
+            if let Some(init) = &local.init
+                && init.diverge.is_none()
+                && let Some(call) = spec_assume::simple_call(&init.expr)
+                && let Some(name) = local_pat_name(&local.pat)
+            {
+                return assume_annotated_call(call, Some(name), env, &init.expr);
+            }
+        }
+        _ => {}
+    }
+    SpecApply::FallThrough
+}
+
+fn local_pat_name(pat: &syn::Pat) -> Option<String> {
+    match pat {
+        syn::Pat::Ident(id) if id.by_ref.is_none() && id.subpat.is_none() => {
+            Some(id.ident.to_string())
+        }
+        _ => None,
+    }
+}
+
+fn assume_loop_invariant(env: &mut SsaEnv, assigned: &AssignedSet, invariants: &[String]) -> bool {
+    let mut names: Vec<String> = assigned.iter().cloned().collect();
+    names.sort();
+    let mut replacements: Vec<(String, String, syn::Expr)> = Vec::new();
+    for name in &names {
+        let Some(havoc_name) = fresh_havoc_name() else {
+            return false;
+        };
+        let Some(havoc_expr) = spec_assume::ident_expr(&havoc_name) else {
+            return false;
+        };
+        replacements.push((name.clone(), havoc_name, havoc_expr));
+    }
+    for invariant in invariants {
+        let Ok(mut pred) = syn::parse_str::<syn::Expr>(invariant) else {
+            return false;
+        };
+        for (name, _, havoc_expr) in &replacements {
+            pred = substitute_ident_expr(pred, name, havoc_expr);
+        }
+        for (name, value) in env.iter().rev() {
+            if assigned.contains(name) {
+                continue;
+            }
+            pred = substitute_ident_expr(pred, name, value);
+        }
+        let havoc_names: Vec<String> = replacements
+            .iter()
+            .map(|(_, havoc_name, _)| havoc_name.clone())
+            .collect();
+        record_safe_conjuncts(pred, &havoc_names);
+    }
+    for (name, _, havoc_expr) in replacements {
+        bind_env(env, name, havoc_expr);
+    }
+    true
+}
+
+fn assume_annotated_call(
+    call: &syn::ExprCall,
+    bind_name: Option<String>,
+    env: &mut SsaEnv,
+    span_expr: &syn::Expr,
+) -> SpecApply {
+    let Some(fn_name) = spec_assume::call_fn_name(&call.func) else {
+        return SpecApply::FallThrough;
+    };
+    let self_name = FOLD_SELF.with(|current| current.borrow().clone());
+    if fn_name == self_name {
+        return SpecApply::FallThrough;
+    }
+    let Some(spec) = FOLD_CALLEES.with(|callees| callees.borrow().get(&fn_name).cloned()) else {
+        return SpecApply::FallThrough;
+    };
+    if call.args.len() != spec.params.len() || call.args.iter().any(spec_assume::expr_has_mut_ref) {
+        set_fold_residual(format!(
+            "annotated call not modeled (line ~{}): arity mismatch or mutable argument",
+            expr_approx_line(span_expr)
+        ));
+        return SpecApply::Reject;
+    }
+    let mut args: Vec<syn::Expr> = call.args.iter().cloned().collect();
+    for arg in &mut args {
+        for (name, value) in env.iter().rev() {
+            *arg = substitute_ident_expr(arg.clone(), name, value);
+        }
+    }
+    let Some(havoc_name) = fresh_havoc_name() else {
+        return SpecApply::Reject;
+    };
+    let Some(havoc_expr) = spec_assume::ident_expr(&havoc_name) else {
+        return SpecApply::Reject;
+    };
+    for ensures in &spec.ensures {
+        let Ok(mut pred) = syn::parse_str::<syn::Expr>(ensures) else {
+            set_fold_residual(format!(
+                "callee ensures not encoded (line ~{})",
+                expr_approx_line(span_expr)
+            ));
+            return SpecApply::Reject;
+        };
+        pred = substitute_ident_expr(pred, "result", &havoc_expr);
+        // Temps, then one simultaneous replacement, so a later formal cannot
+        // rewrite an earlier actual (`callee(b, 0)` must keep `b`).
+        let mut temps = Vec::new();
+        for (index, (param, arg)) in spec.params.iter().zip(args.iter()).enumerate() {
+            if param == "result" {
+                continue;
+            }
+            let temp = format!("__assura_formal_{index}");
+            let Some(temp_expr) = spec_assume::ident_expr(&temp) else {
+                return SpecApply::Reject;
+            };
+            pred = substitute_ident_expr(pred, param, &temp_expr);
+            temps.push((temp, arg.clone()));
+        }
+        pred = substitute_paths_once(pred, &temps);
+        record_safe_conjuncts(pred, std::slice::from_ref(&havoc_name));
+    }
+    if let Some(name) = bind_name {
+        bind_env(env, name, havoc_expr);
+    }
+    SpecApply::Handled
+}
+
+fn fresh_havoc_name() -> Option<String> {
+    FOLD_MODEL.with(|slot| {
+        let mut model = slot.borrow_mut();
+        let name = format!("__assura_havoc_{}", model.next_havoc);
+        model.next_havoc = model.next_havoc.saturating_add(1);
+        model.havocs.push(name.clone());
+        Some(name)
+    })
+}
+
+fn record_assume(pred: String) {
+    FOLD_MODEL.with(|slot| slot.borrow_mut().assumes.push(pred));
+}
+
+/// Keep comparison atoms that mention a havoc. Split `&&` so an input-only
+/// conjunct is not assumed along with a real loop or result fact. Other
+/// boolean structure (`||`, nested `!`) is dropped: it can force a fact
+/// about an input while still mentioning a havoc.
+fn record_safe_conjuncts(pred: syn::Expr, havoc_names: &[String]) {
+    for conjunct in split_and(pred) {
+        if comparison_mentions_havoc(&conjunct, havoc_names) {
+            record_assume(expr_source(&conjunct));
+        }
+    }
+}
+
+fn split_and(expr: syn::Expr) -> Vec<syn::Expr> {
+    match peel_expr_owned(expr) {
+        syn::Expr::Binary(binary) if matches!(binary.op, syn::BinOp::And(_)) => {
+            let mut parts = split_and(*binary.left);
+            parts.extend(split_and(*binary.right));
+            parts
+        }
+        other => vec![other],
+    }
+}
+
+fn peel_expr_owned(expr: syn::Expr) -> syn::Expr {
+    match expr {
+        syn::Expr::Paren(inner) => peel_expr_owned(*inner.expr),
+        syn::Expr::Group(inner) => peel_expr_owned(*inner.expr),
+        other => other,
+    }
+}
+
+fn comparison_mentions_havoc(expr: &syn::Expr, havoc_names: &[String]) -> bool {
+    let peeled = match expr {
+        syn::Expr::Paren(inner) => inner.expr.as_ref(),
+        syn::Expr::Group(inner) => inner.expr.as_ref(),
+        other => other,
+    };
+    let comparison = match peeled {
+        syn::Expr::Binary(binary) if is_cmp_binop(&binary.op) => peeled,
+        syn::Expr::Unary(unary)
+            if matches!(unary.op, syn::UnOp::Not(_))
+                && matches!(
+                    unary.expr.as_ref(),
+                    syn::Expr::Binary(binary) if is_cmp_binop(&binary.op)
+                ) =>
+        {
+            peeled
+        }
+        _ => return false,
+    };
+    havoc_names
+        .iter()
+        .any(|name| spec_assume::expr_mentions_ident(comparison, name))
+}
+
+fn is_cmp_binop(op: &syn::BinOp) -> bool {
+    matches!(
+        op,
+        syn::BinOp::Eq(_)
+            | syn::BinOp::Ne(_)
+            | syn::BinOp::Lt(_)
+            | syn::BinOp::Le(_)
+            | syn::BinOp::Gt(_)
+            | syn::BinOp::Ge(_)
+    )
+}
+
+/// Replace path idents in one walk. Replacements are not walked, so a name
+/// inside an earlier actual is not captured by a later key.
+fn substitute_paths_once(expr: syn::Expr, map: &[(String, syn::Expr)]) -> syn::Expr {
+    if let syn::Expr::Path(ref path) = expr
+        && path.qself.is_none()
+        && path.path.segments.len() == 1
+    {
+        let name = path.path.segments[0].ident.to_string();
+        if let Some((_, replacement)) = map.iter().find(|(key, _)| key == &name) {
+            return replacement.clone();
+        }
+    }
+    match expr {
+        syn::Expr::Paren(mut inner) => {
+            *inner.expr = substitute_paths_once(*inner.expr, map);
+            syn::Expr::Paren(inner)
+        }
+        syn::Expr::Group(mut inner) => {
+            *inner.expr = substitute_paths_once(*inner.expr, map);
+            syn::Expr::Group(inner)
+        }
+        syn::Expr::Unary(mut unary) => {
+            *unary.expr = substitute_paths_once(*unary.expr, map);
+            syn::Expr::Unary(unary)
+        }
+        syn::Expr::Reference(mut reference) => {
+            *reference.expr = substitute_paths_once(*reference.expr, map);
+            syn::Expr::Reference(reference)
+        }
+        syn::Expr::Cast(mut cast) => {
+            *cast.expr = substitute_paths_once(*cast.expr, map);
+            syn::Expr::Cast(cast)
+        }
+        syn::Expr::Field(mut field) => {
+            *field.base = substitute_paths_once(*field.base, map);
+            syn::Expr::Field(field)
+        }
+        syn::Expr::Binary(mut binary) => {
+            *binary.left = substitute_paths_once(*binary.left, map);
+            *binary.right = substitute_paths_once(*binary.right, map);
+            syn::Expr::Binary(binary)
+        }
+        syn::Expr::Index(mut index) => {
+            *index.expr = substitute_paths_once(*index.expr, map);
+            *index.index = substitute_paths_once(*index.index, map);
+            syn::Expr::Index(index)
+        }
+        syn::Expr::Call(mut call) => {
+            *call.func = substitute_paths_once(*call.func, map);
+            call.args = call
+                .args
+                .into_iter()
+                .map(|arg| substitute_paths_once(arg, map))
+                .collect();
+            syn::Expr::Call(call)
+        }
+        syn::Expr::MethodCall(mut call) => {
+            *call.receiver = substitute_paths_once(*call.receiver, map);
+            call.args = call
+                .args
+                .into_iter()
+                .map(|arg| substitute_paths_once(arg, map))
+                .collect();
+            syn::Expr::MethodCall(call)
+        }
+        other => other,
+    }
+}
+
+fn bind_env(env: &mut SsaEnv, name: String, expr: syn::Expr) {
+    if let Some((_, slot)) = env.iter_mut().find(|(existing, _)| existing == &name) {
+        *slot = expr;
+    } else {
+        env.push((name, expr));
+    }
+}
 
 /// Apply one statement to the SSA env (local bind, assign, or if/match join).
 ///
@@ -326,12 +772,30 @@ fn collect_pure_assigns(expr: &syn::Expr, out: &mut std::collections::HashSet<St
                     .all(|s| collect_pure_assigns_stmt(s, out))
         }
         syn::Expr::ForLoop(f) => {
-            pat_binds_simple(&f.pat, out)
-                && collect_pure_assigns_expr(&f.expr, out)
-                && f.body
-                    .stmts
-                    .iter()
-                    .all(|s| collect_pure_assigns_stmt(s, out))
+            // The pattern is loop-scoped. It must not havoc an outer local
+            // of the same name, and assignments to it are not outer writes.
+            let mut shadowed = std::collections::HashSet::new();
+            if !pat_binds_simple(&f.pat, &mut shadowed) {
+                return false;
+            }
+            if !collect_pure_assigns_expr(&f.expr, out) {
+                return false;
+            }
+            let mut body_assigned = std::collections::HashSet::new();
+            if !f
+                .body
+                .stmts
+                .iter()
+                .all(|stmt| collect_pure_assigns_stmt(stmt, &mut body_assigned))
+            {
+                return false;
+            }
+            for name in body_assigned {
+                if !shadowed.contains(&name) {
+                    out.insert(name);
+                }
+            }
+            true
         }
         syn::Expr::Loop(l) => l
             .body
@@ -423,6 +887,16 @@ fn collect_pure_assigns_expr(
             collect_pure_assigns_expr(&i.expr, out) && collect_pure_assigns_expr(&i.index, out)
         }
         syn::Expr::Cast(c) => collect_pure_assigns_expr(&c.expr, out),
+        syn::Expr::Range(range) => {
+            range
+                .start
+                .as_ref()
+                .is_none_or(|start| collect_pure_assigns_expr(start, out))
+                && range
+                    .end
+                    .as_ref()
+                    .is_none_or(|end| collect_pure_assigns_expr(end, out))
+        }
         _ => false,
     }
 }
@@ -1481,6 +1955,8 @@ pub(crate) fn try_ir_from_rust_body(
     return_ty: Option<&str>,
     body_return: &str,
 ) -> Option<String> {
+    // Consume fold assumptions only when this string is the body just folded.
+    let (havocs, assumes) = take_model_for_body(body_return);
     let ret_assura = return_ty
         .map(assura_codegen::type_map::rust_type_to_assura)
         .unwrap_or_else(|| "Int".to_string());
@@ -1498,14 +1974,22 @@ pub(crate) fn try_ir_from_rust_body(
     }
     PARAM_BOUNDS.with(|c| *c.borrow_mut() = pbounds);
 
-    let param_names: Vec<&str> = params
+    let mut encode_names: Vec<String> = params
         .iter()
         .filter(|p| p.name != "self")
-        .map(|p| p.name.as_str())
+        .map(|p| p.name.clone())
         .collect();
-    if param_names.is_empty() {
+    if encode_names.is_empty() {
         return None;
     }
+    let user_param_count = encode_names.len();
+    encode_names.extend(havocs.iter().cloned());
+    let param_names: Vec<&str> = encode_names.iter().map(String::as_str).collect();
+    let post = if assumes.is_empty() {
+        None
+    } else {
+        Some(spec_assume::lower_assumes(&assumes, &param_names)?)
+    };
 
     for p in params.iter().filter(|p| p.name != "self") {
         let ty = assura_codegen::type_map::rust_type_to_assura(&p.ty);
@@ -1557,11 +2041,21 @@ pub(crate) fn try_ir_from_rust_body(
         let ty = assura_codegen::type_map::rust_type_to_assura(&p.ty);
         sig_parts.push(format!("${i}: {ty}"));
     }
+    for offset in 0..havocs.len() {
+        sig_parts.push(format!("${}: Int", user_param_count + offset));
+    }
     let sig = sig_parts.join(", ");
 
     // If / match (including nested): multi-block IR (Clamp.ir style).
     if matches!(expr, syn::Expr::If(_) | syn::Expr::Match(_)) {
-        return try_ir_from_if_tree(item_name, &sig, &ret_assura, &param_names, &expr);
+        return try_ir_from_if_tree(
+            item_name,
+            &sig,
+            &ret_assura,
+            &param_names,
+            &expr,
+            post.as_deref(),
+        );
     }
 
     let mut lines = Vec::new();
@@ -1573,6 +2067,9 @@ pub(crate) fn try_ir_from_rust_body(
     let mut ir = String::new();
     ir.push_str(&format!("module {item_name} {{\n"));
     ir.push_str(&format!("  fn #0 : ({sig}) -> {ret_assura} ! pure\n"));
+    if let Some(post) = &post {
+        ir.push_str(&format!("  post: {post}\n"));
+    }
     ir.push_str("  {\n");
     for line in lines {
         ir.push_str("    ");
@@ -1591,6 +2088,7 @@ fn try_ir_from_if_tree(
     ret_assura: &str,
     param_names: &[&str],
     root: &syn::Expr,
+    post: Option<&str>,
 ) -> Option<String> {
     let mut blocks: Vec<(usize, Vec<String>)> = Vec::new();
     let mut next_block = 0usize;
@@ -1616,7 +2114,13 @@ fn try_ir_from_if_tree(
         } else {
             format!("() -> {ret_assura}")
         };
-        ir.push_str(&format!("  fn #{id} : {fn_sig} ! pure\n  {{\n"));
+        ir.push_str(&format!("  fn #{id} : {fn_sig} ! pure\n"));
+        if *id == 0
+            && let Some(post) = post
+        {
+            ir.push_str(&format!("  post: {post}\n"));
+        }
+        ir.push_str("  {\n");
         for line in lines {
             ir.push_str("    ");
             ir.push_str(line);

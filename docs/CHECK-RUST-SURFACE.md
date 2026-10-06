@@ -69,7 +69,9 @@ counterexample. Width limits are typically **through 64 bits** unless noted.
 
 | Area | Examples |
 |------|----------|
-| Control | `if` / `else`, `match` |
+| Control | `if` / `else`, `match`. `while` / `for` / `loop` only with `/// @loop_invariant`, `#[loop_invariant(...)]`, or `#[invariant(...)]` on that loop |
+| Loop invariant | Assigned locals become fresh inputs. Each `&&` piece that is a comparison mentioning one of those locals is assumed. Pieces that only constrain inputs, and other boolean shapes, are not. The assumption is not checked on entry and the body is not checked for preserving it. A wrong comparison can still make a later `@ensures` verify |
+| Calls | `let y = callee(args);` or a bare `callee(args);` when `callee` is a free function in the same module with plain `/// @ensures` / `#[ensures(...)]`. The result is a fresh input and the ensures comparisons that mention it are assumed (callee parameters are replaced together by the arguments). Nested modules, impl methods, `&mut` arguments (including inside a block or tuple), `ensures_ok` / `ensures_err`, and a direct recursive call stay unmodeled |
 | Binding | Multi-`let`, pure `let mut`, linear reassignment (`y += 1`, `y = y + 1`), branch-local mutation join (`if`/`match` arms that reassign, then use the name after the branch), `let y = if/match …; y + n` |
 | Composition | if/match over binary ops (both sides), method-on-if receivers, cast-of-if |
 | References | Peel outer `&` / `*` layers |
@@ -114,9 +116,9 @@ reports `body_not_modeled` and exits **1**. They are not silent Verified.
 
 | Shape | Why / what to do |
 |-------|------------------|
-| Any `while` / `for` / `loop` (not only assignments inside). `@loop_invariant` is not encoded | `body_not_modeled` with reason prefix `loop control flow not modeled`. Rewrite without loops or supply co-located `{Name}.ir`. (If/match mutation joins are modeled.) |
+| `while` / `for` / `loop` with no `@loop_invariant` / `#[loop_invariant]` / `#[invariant]`, or a loop whose header or body is not only assignments (a call, `break`, nested loop) | `body_not_modeled` with reason prefix `loop control flow not modeled`. Add the annotation, rewrite without the loop, or supply co-located `{Name}.ir`. |
 | Bare `checked_*` / `overflowing_*` as the **return type** (full `Option` / `(T, bool)`) | Peel: `.unwrap_or` / `.unwrap_or_default` / `.is_some()` / `.is_none()` / `.0` / `.1`. Full Option/tuple values are not IR result types. |
-| Mid-block unknown calls (no `@stub` / assume) | `body_not_modeled` with reason prefix `mid-block expression not modeled as assignment/if/match`. |
+| Mid-block calls with no plain `@ensures` on the callee, or calls that pass `&mut` | `body_not_modeled`. A bare unknown call uses reason prefix `mid-block expression not modeled as assignment/if/match`. |
 
 Tracking work to shrink first-contact residuals: see epic
 [check-rust competitiveness](https://github.com/assura-lang/assura/issues/1456)

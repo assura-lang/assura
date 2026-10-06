@@ -767,10 +767,41 @@ pub(crate) fn parse_cmp_op(s: &str) -> Result<IrCmpOp, String> {
     }
 }
 
+fn peel_wrapping_parens(s: &str) -> Option<&str> {
+    let s = s.trim();
+    if s.len() < 2 || !s.starts_with('(') || !s.ends_with(')') {
+        return None;
+    }
+    let mut depth = 0i32;
+    for (index, ch) in s.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 && index + 1 != s.len() {
+                    return None;
+                }
+                if depth < 0 {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+    if depth == 0 {
+        Some(s[1..s.len() - 1].trim())
+    } else {
+        None
+    }
+}
+
 pub(crate) fn parse_ir_pred_str(s: &str) -> Option<IrPred> {
     let s = s.trim();
     if s.is_empty() {
         return None;
+    }
+    if let Some(inner) = peel_wrapping_parens(s) {
+        return parse_ir_pred_str(inner);
     }
     if s == "true" {
         return Some(IrPred::True);
@@ -798,6 +829,24 @@ pub(crate) fn parse_ir_pred_str(s: &str) -> Option<IrPred> {
         && let Some(inner) = parse_ir_pred_str(rest)
     {
         return Some(IrPred::Not(Box::new(inner)));
+    }
+    // and <pred> <pred> / or <pred> <pred>
+    if let Some((is_and, rest)) = s
+        .strip_prefix("and ")
+        .map(|rest| (true, rest))
+        .or_else(|| s.strip_prefix("or ").map(|rest| (false, rest)))
+    {
+        let tokens = tokenize_pred(rest);
+        if tokens.len() == 2
+            && let Some(lhs) = parse_ir_pred_str(&tokens[0])
+            && let Some(rhs) = parse_ir_pred_str(&tokens[1])
+        {
+            return Some(if is_and {
+                IrPred::And(Box::new(lhs), Box::new(rhs))
+            } else {
+                IrPred::Or(Box::new(lhs), Box::new(rhs))
+            });
+        }
     }
     None
 }

@@ -13427,3 +13427,167 @@ fn bad(x: i64) -> i64 { x }
     let status = v["results"][0]["status"].as_str().unwrap_or("");
     assert_eq!(status, "error", "expected error status from CE: {v}");
 }
+
+/// `@loop_invariant` is assumed after havoc, so `result >= 0` verifies.
+#[test]
+fn check_rust_loop_invariant_assumed() {
+    let tmp = unique_temp("assura_check_rust_loop_inv");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    /// @loop_invariant y >= 0
+    while y > 0 {
+        y -= 1;
+    }
+    y
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// The same loop must not keep the pre-loop value of `y`.
+#[test]
+fn check_rust_loop_invariant_does_not_keep_prestate() {
+    let tmp = unique_temp("assura_check_rust_loop_inv_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result == x
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    /// @loop_invariant y >= 0
+    while y > 0 {
+        y -= 1;
+    }
+    y
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !out.status.success(),
+        "havoc must not prove result == x: {stdout}"
+    );
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}
+
+/// No invariant: the loop still drops the body.
+#[test]
+fn check_rust_unannotated_loop_stays_bnm() {
+    let tmp = unique_temp("assura_check_rust_loop_bnm");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result >= 0
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    while y > 0 {
+        y -= 1;
+    }
+    y
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert!(
+        v["body_not_modeled"].as_u64().unwrap_or(0) >= 1,
+        "unannotated loop must stay fail-closed: {v}"
+    );
+}
+
+/// A callee `@ensures` is assumed for the call result.
+#[test]
+fn check_rust_callee_ensures_assumed() {
+    let tmp = unique_temp("assura_check_rust_callee_ens");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("ok.rs"),
+        r#"
+/// @ensures result >= 0
+fn callee(n: i64) -> i64 {
+    if n < 0 { -n } else { n }
+}
+
+/// @ensures result >= 0
+fn caller(x: i64) -> i64 {
+    let y = callee(x);
+    y
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("ok.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "{stdout}");
+}
+
+/// Assuming the callee postcondition must not prove the call is the identity.
+#[test]
+fn check_rust_callee_ensures_does_not_prove_identity() {
+    let tmp = unique_temp("assura_check_rust_callee_ens_ce");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("bad.rs"),
+        r#"
+/// @ensures result >= 0
+fn callee(n: i64) -> i64 {
+    if n < 0 { -n } else { n }
+}
+
+/// @ensures result == x
+fn caller(x: i64) -> i64 {
+    let y = callee(x);
+    y
+}
+"#,
+    )
+    .unwrap();
+    let out = Command::new(assura_bin())
+        .args(["check-rust", "--json", tmp.join("bad.rs").to_str().unwrap()])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "{stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["body_not_modeled"], 0, "caller must encode: {stdout}");
+    assert!(v["errors"].as_u64().unwrap_or(0) >= 1, "{v}");
+}

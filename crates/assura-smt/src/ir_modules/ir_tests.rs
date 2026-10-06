@@ -123,6 +123,24 @@ $result = load $0 : Int
 }
 
 #[test]
+fn test_parse_ir_post_and_or() {
+    let src = "\
+module check {
+  fn #0 : ($0: Int, $1: Int) -> Int ! pure
+  post: and (cmp ge $1 (const 0)) (cmp lt $1 $0)
+  {
+$result = load $1 : Int
+  }
+}";
+    let m = parse_ir_module(src).unwrap();
+    assert!(
+        matches!(m.functions[0].post, Some(crate::ir::IrPred::And(_, _))),
+        "{:?}",
+        m.functions[0].post
+    );
+}
+
+#[test]
 fn test_parse_ir_module_error_no_header() {
     let result = parse_ir_module("not a module");
     assert!(result.is_err());
