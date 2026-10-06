@@ -3,6 +3,22 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.0](https://github.com/assura-lang/assura/compare/v0.5.0...v0.6.0) (2026-10-06)
+
+
+### Features
+
+* **check-rust:** assume loop invariants and callee ensures ([#1679](https://github.com/assura-lang/assura/issues/1679)) ([dbe5491](https://github.com/assura-lang/assura/commit/dbe5491fae5f6b2ebd82aaa94b044e68528c086a)), closes [#1663](https://github.com/assura-lang/assura/issues/1663)
+
+
+### Bug Fixes
+
+* cap CVC5 output, gate flagship proofs, and bump protoc ([#1678](https://github.com/assura-lang/assura/issues/1678)) ([2ca3d1f](https://github.com/assura-lang/assura/commit/2ca3d1fd9f9f692ef90ef5860c67e0fa736de385))
+* **diagnostics:** honor NO_COLOR and non-tty stderr ([#1674](https://github.com/assura-lang/assura/issues/1674)) ([be2fc35](https://github.com/assura-lang/assura/commit/be2fc3538d71b7de203e3370f5a75907cf2ec414))
+* honor check layers, parallel timeouts, and CVC5 decrease checks ([#1666](https://github.com/assura-lang/assura/issues/1666)) ([8d7a722](https://github.com/assura-lang/assura/commit/8d7a722b6c7f74b96ef354f4c117c4c2b3237122))
+* **parser:** diagnose a one-character clause keyword typo ([#1677](https://github.com/assura-lang/assura/issues/1677)) ([9d4891a](https://github.com/assura-lang/assura/commit/9d4891abbbeaffe24185552244d03c400c1f8b26))
+* **smt:** run advanced passes on the parallel verify path ([#1671](https://github.com/assura-lang/assura/issues/1671)) ([ae3868e](https://github.com/assura-lang/assura/commit/ae3868eab648ea4aaf15dd46d3856c112d6252f4))
+
 ## [0.5.0](https://github.com/assura-lang/assura/compare/v0.4.5...v0.5.0) (2026-09-25)
 
 
