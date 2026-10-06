@@ -2422,6 +2422,335 @@ fn f(x: i64) -> i64 {
 }
 
 #[test]
+fn annotated_loop_invariant_havocs_and_assumes() {
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    /// @loop_invariant y >= 0
+    while y > 0 {
+        y -= 1;
+    }
+    y
+}
+"#;
+    let body = extract_body_return(src, "f").expect("annotated loop should fold");
+    assert!(
+        body.contains("__assura_havoc_"),
+        "assigned local must be havoc'd; body={body}"
+    );
+    assert!(!body.contains("while"), "loop must not remain; body={body}");
+    let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
+    assert!(
+        ir.contains("post: cmp ge $1 (const 0)"),
+        "invariant must be an IR post axiom; ir={ir}"
+    );
+    assert!(
+        ir.contains("$result = load $1"),
+        "result must be the havoc slot, not the pre-loop value; ir={ir}"
+    );
+    let module = assura_smt::parse_ir_module(&ir).expect("post must parse");
+    assert!(module.functions[0].post.is_some(), "{ir}");
+}
+
+#[test]
+fn attribute_loop_invariant_matches_doc_form() {
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    #[loop_invariant(y >= 0)]
+    while y > 0 {
+        y -= 1;
+    }
+    y
+}
+"#;
+    let body = extract_body_return(src, "f").expect("attribute invariant should fold");
+    let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
+    assert!(ir.contains("post: cmp ge $1 (const 0)"), "{ir}");
+}
+
+#[test]
+fn loop_invariant_that_ignores_assigned_locals_is_not_assumed() {
+    // `x >= 100` does not mention `y`. Assuming it would make `ensures result >= 100`
+    // true for a function that returns `x` after a loop that only writes `y`.
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    /// @loop_invariant x >= 100
+    while y > 0 {
+        y -= 1;
+    }
+    if y > 0 { x } else { x }
+}
+"#;
+    let body = extract_body_return(src, "f").expect("loop still folds");
+    let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
+    assert!(
+        !ir.contains("post:"),
+        "pre-state-only invariant must not become an axiom; ir={ir}"
+    );
+    assert!(
+        !ir.contains("100"),
+        "the dropped predicate must not appear in the IR; ir={ir}"
+    );
+}
+
+#[test]
+fn annotated_for_loop_assumes_invariant() {
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    #[invariant(y >= 0)]
+    for _i in 0..x {
+        y -= 1;
+    }
+    y
+}
+"#;
+    let body = extract_body_return(src, "f").expect("for loop should fold");
+    let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
+    assert!(ir.contains("post: cmp ge"), "{ir}");
+    assert!(ir.contains("$result = load $"), "{ir}");
+}
+
+#[test]
+fn annotated_loop_with_call_stays_bnm() {
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    /// @loop_invariant y >= 0
+    while y > 0 {
+        let _z = bump(&mut y);
+    }
+    y
+}
+"#;
+    assert!(
+        extract_body_return(src, "f").is_none(),
+        "a call inside an annotated loop is still unclassified"
+    );
+    let reason = super::take_fold_residual().expect("residual");
+    assert!(
+        reason.starts_with("loop control flow not modeled"),
+        "reason={reason}"
+    );
+}
+
+#[test]
+fn two_callee_ensures_are_conjoined() {
+    let src = r#"
+/// @ensures result >= 0
+/// @ensures result < 10
+fn callee(n: i64) -> i64 { n }
+
+fn caller(x: i64) -> i64 {
+    let y = callee(x);
+    y
+}
+"#;
+    let body = extract_body_return(src, "caller").expect("fold");
+    let ir = try_ir_from_rust_body("Caller", &px(), Some("i64"), &body).expect("encode");
+    let module = assura_smt::parse_ir_module(&ir).expect("parse");
+    assert!(
+        matches!(
+            module.functions[0].post,
+            Some(assura_smt::IrPred::And(_, _))
+        ),
+        "{ir}"
+    );
+}
+
+#[test]
+fn callee_ensures_is_assumed_for_the_result() {
+    let src = r#"
+/// @ensures result >= 0
+fn callee(n: i64) -> i64 {
+    if n < 0 { -n } else { n }
+}
+
+fn caller(x: i64) -> i64 {
+    let y = callee(x);
+    y
+}
+"#;
+    let body = extract_body_return(src, "caller").expect("annotated callee should fold");
+    assert!(
+        body.contains("__assura_havoc_"),
+        "call result must be havoc'd; body={body}"
+    );
+    let ir = try_ir_from_rust_body("Caller", &px(), Some("i64"), &body).expect("encode");
+    assert!(
+        ir.contains("post: cmp ge $1 (const 0)"),
+        "callee ensures must be assumed; ir={ir}"
+    );
+    let module = assura_smt::parse_ir_module(&ir).expect("post must parse");
+    assert!(module.functions[0].post.is_some(), "{ir}");
+}
+
+#[test]
+fn callee_without_ensures_stays_unencoded() {
+    let src = r#"
+fn callee(n: i64) -> i64 { n }
+
+fn caller(x: i64) -> i64 {
+    let y = callee(x);
+    y
+}
+"#;
+    let body = extract_body_return(src, "caller").expect("let of a call still folds to the call");
+    assert!(
+        try_ir_from_rust_body("Caller", &px(), Some("i64"), &body).is_none(),
+        "no ensures means the call is not an assumption; body={body}"
+    );
+}
+
+#[test]
+fn mutable_callee_argument_stays_bnm() {
+    let src = r#"
+/// @ensures result >= 0
+fn bump(y: &mut i64) -> i64 { 0 }
+
+fn caller(x: i64) -> i64 {
+    let mut y = x;
+    let z = bump(&mut y);
+    z
+}
+"#;
+    assert!(
+        extract_body_return(src, "caller").is_none(),
+        "a mutable argument can change locals this pass does not havoc"
+    );
+}
+
+#[test]
+fn callee_formals_are_substituted_together() {
+    let src = r#"
+/// @ensures result >= a
+fn callee(a: i64, b: i64) -> i64 { a }
+
+fn caller(b: i64) -> i64 {
+    let y = callee(b, 0);
+    y
+}
+"#;
+    let body = extract_body_return(src, "caller").expect("fold");
+    let params = vec![ParamInfo {
+        name: "b".into(),
+        ty: "i64".into(),
+    }];
+    let ir = try_ir_from_rust_body("Caller", &params, Some("i64"), &body).expect("encode");
+    assert!(
+        ir.contains("cmp ge $1 $0"),
+        "actual `b` must stay the bound; ir={ir}"
+    );
+    assert!(
+        !ir.contains("cmp ge $1 (const 0)"),
+        "later formal `b` must not rewrite the actual; ir={ir}"
+    );
+}
+
+#[test]
+fn conjunction_drops_input_only_conjunct() {
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let mut y = x;
+    /// @loop_invariant y >= 0 && x >= 100
+    while y > 0 {
+        y -= 1;
+    }
+    y
+}
+"#;
+    let body = extract_body_return(src, "f").expect("fold");
+    let ir = try_ir_from_rust_body("F", &px(), Some("i64"), &body).expect("encode");
+    assert!(ir.contains("cmp ge $1 (const 0)"), "{ir}");
+    assert!(
+        !ir.contains("100"),
+        "input-only conjunct must not be assumed; ir={ir}"
+    );
+}
+
+#[test]
+fn nested_mut_ref_stays_bnm() {
+    let src = r#"
+/// @ensures result >= 0
+fn bump(y: &mut i64) -> i64 { 0 }
+
+fn caller(x: i64) -> i64 {
+    let mut y = x;
+    let z = bump({ &mut y });
+    z
+}
+"#;
+    assert!(
+        extract_body_return(src, "caller").is_none(),
+        "a mutable borrow inside a block is still a mutable argument"
+    );
+}
+
+#[test]
+fn other_module_ensures_is_not_this_callee() {
+    let src = r#"
+mod helper {
+    /// @ensures result >= 0
+    fn id(n: i64) -> i64 { 0 }
+}
+
+fn id(n: i64) -> i64 { n }
+
+fn caller(x: i64) -> i64 {
+    let y = id(x);
+    y
+}
+"#;
+    let body = extract_body_return(src, "caller").expect("call still folds to the call");
+    assert!(
+        try_ir_from_rust_body("Caller", &px(), Some("i64"), &body).is_none(),
+        "helper::id's ensures must not apply to the free id; body={body}"
+    );
+}
+
+#[test]
+fn for_index_does_not_havoc_outer_binding() {
+    let src = r#"
+fn f(x: i64) -> i64 {
+    let i = x;
+    let mut y = 0;
+    #[invariant(y >= 0)]
+    for i in 0..1 {
+        y += 1;
+    }
+    i
+}
+"#;
+    let body = extract_body_return(src, "f").expect("outer i is unchanged");
+    assert!(
+        !body.contains("__assura_havoc"),
+        "the for binder must not replace outer i; body={body}"
+    );
+    assert!(
+        body.contains('x'),
+        "outer i is still the pre-loop value; body={body}"
+    );
+}
+
+#[test]
+fn direct_recursion_does_not_assume_own_ensures() {
+    let src = r#"
+/// @ensures result >= 0
+fn f(x: i64) -> i64 {
+    let y = f(x);
+    y
+}
+"#;
+    let body = extract_body_return(src, "f").expect("self call still folds to the call");
+    assert!(
+        try_ir_from_rust_body("F", &px(), Some("i64"), &body).is_none(),
+        "assuming f's own ensures would prove them from nothing; body={body}"
+    );
+}
+
+#[test]
 fn checked_neg_unwrap_or_encodes() {
     let ir = try_ir_from_rust_body("N", &px(), Some("i64"), "x.checked_neg().unwrap_or(0)")
         .expect("checked_neg");
