@@ -149,8 +149,7 @@ pub fn with_smtlib_side_effects<R>(f: impl FnOnce() -> R) -> (R, SmtlibSideEffec
 /// Bool methods such as `is_ok` are emitted as `({name} ...)`. CVC5 rejects
 /// that unless the function is declared. Z3 creates the same UF implicitly.
 pub(crate) fn declare_smtlib_bool_uf(name: &str, arity: usize) {
-    let args = std::iter::repeat("Int")
-        .take(arity)
+    let args = std::iter::repeat_n("Int", arity)
         .collect::<Vec<_>>()
         .join(" ");
     let decl = format!("(declare-fun {name} ({args}) Bool)");
