@@ -38,9 +38,10 @@ cargo +nightly run -- src/lib.rs --edition 2021
 # As RUSTC_WRAPPER: analyze an entire crate
 RUSTC_WRAPPER=target/debug/assura-driver cargo +nightly check
 
-# Pipe output to the LLM pipeline
-cargo +nightly run -- src/lib.rs --edition 2021 2>/dev/null | \
-  assura check-rust --driver-input /dev/stdin src/
+# The driver prints JSON on stdout. assura check-rust does not read that
+# JSON. There is no --driver-input flag. Check the Rust sources directly.
+cargo +nightly run -- src/lib.rs --edition 2021
+assura check-rust src/
 ```
 
 ## Output
