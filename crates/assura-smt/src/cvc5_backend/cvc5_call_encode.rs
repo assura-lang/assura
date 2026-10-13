@@ -120,6 +120,9 @@ where
         }
         return Some(s);
     }
+    if crate::encode_method_policy::is_bool_returning_uf(method) {
+        crate::cvc5_expr_smtlib::declare_smtlib_bool_uf(method, all_args.len());
+    }
     let kind = classify_encode_call(method, all_args.len());
     debug_assert!(
         matches!(
@@ -347,6 +350,24 @@ mod tests {
         assert_eq!(
             encode_method_call_smtlib(&receiver, "concat", &args, encode_lit),
             Some("(__concat a b)".into())
+        );
+    }
+
+    #[test]
+    fn method_is_ok_declares_a_bool_uf() {
+        use crate::cvc5_expr_smtlib::with_smtlib_side_effects;
+        let receiver = ident("r");
+        let (smt, effects) = with_smtlib_side_effects(|| {
+            encode_method_call_smtlib(&receiver, "is_ok", &[], encode_lit)
+        });
+        assert_eq!(smt, Some("(is_ok r)".into()));
+        assert!(
+            effects
+                .declarations
+                .iter()
+                .any(|d| d == "(declare-fun is_ok (Int) Bool)"),
+            "{:?}",
+            effects.declarations
         );
     }
 

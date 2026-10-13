@@ -144,6 +144,25 @@ pub fn with_smtlib_side_effects<R>(f: impl FnOnce() -> R) -> (R, SmtlibSideEffec
     })
 }
 
+/// Declare `name` as a Bool uninterpreted function of `arity` Int arguments.
+///
+/// Bool methods such as `is_ok` are emitted as `({name} ...)`. CVC5 rejects
+/// that unless the function is declared. Z3 creates the same UF implicitly.
+pub(crate) fn declare_smtlib_bool_uf(name: &str, arity: usize) {
+    let args = std::iter::repeat("Int")
+        .take(arity)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let decl = format!("(declare-fun {name} ({args}) Bool)");
+    SMTLIB_CTX.with(|cell| {
+        if let Some(ctx) = cell.borrow_mut().as_mut()
+            && !ctx.declarations.iter().any(|existing| existing == &decl)
+        {
+            ctx.declarations.push(decl);
+        }
+    });
+}
+
 /// Push a declaration into the active side-effect context (no-op if none).
 fn push_decl(decl: String) {
     SMTLIB_CTX.with(|cell| {
