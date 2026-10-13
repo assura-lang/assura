@@ -282,15 +282,17 @@ mod tests {
 
     #[test]
     fn expect_type_errors_unknown_effect() {
-        // "memory" is not a valid effect; may produce A07003 depending on config.
+        // "memory" is not a valid effect name.
         let out = compile_result(
             "contract Multi {\n  effects(memory)\n  requires { true }\n}",
             "fx.assura",
         );
-        // Either errors or succeeds; only assert helper runs without panic when errors exist
-        if out.has_errors && has_error_code(&out, "A07003") {
-            expect_error_codes(&out, &["A07003"]);
-        }
+        assert!(
+            out.has_errors,
+            "unknown effect `memory` must be a compile error, got: {:?}",
+            format_diags(&out)
+        );
+        expect_error_codes(&out, &["A07003"]);
     }
 
     #[test]
@@ -326,7 +328,11 @@ mod tests {
             "x.assura",
         );
         assert!(!out.has_errors);
-        assert!(!out.verification.is_empty() || out.verification.is_empty());
+        assert!(
+            !out.verification.is_empty(),
+            "contract with ensures must produce a verification result, got: {:?}",
+            out.verification
+        );
     }
 
     #[test]
@@ -342,9 +348,12 @@ mod tests {
     #[test]
     fn expect_error_codes_finds_type_error() {
         let out = compile_result("contract X {\n  requires { 42 }\n}", "bad_req.assura");
-        if out.has_errors && has_error_code(&out, "A03006") {
-            expect_error_codes(&out, &["A03006"]);
-        }
+        assert!(
+            out.has_errors,
+            "non-bool requires must be a type error, got: {:?}",
+            format_diags(&out)
+        );
+        expect_error_codes(&out, &["A03006"]);
     }
 
     #[test]
