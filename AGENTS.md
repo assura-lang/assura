@@ -1163,15 +1163,16 @@ brew install cmake gmp
 # the Rust crate build.
 
 # For CI or manual prebuilt setup:
-# macOS ARM64
-curl -sL "https://github.com/cvc5/cvc5/releases/download/cvc5-1.3.1/cvc5-macOS-arm64-static.zip" \
+# macOS ARM64. 1.3.4 is the newest prebuilt the cvc5 0.4 bindings
+# accept. It includes cvc5 #12282. Do not point these URLs at 1.4.x.
+curl -sL "https://github.com/cvc5/cvc5/releases/download/cvc5-1.3.4/cvc5-macOS-arm64-static.zip" \
   -o /tmp/cvc5.zip
 unzip -o /tmp/cvc5.zip -d /tmp/cvc5-install
 export CVC5_LIB_DIR=/tmp/cvc5-install/cvc5-macOS-arm64-static/lib
 export CVC5_INCLUDE_DIR=/tmp/cvc5-install/cvc5-macOS-arm64-static/include
 
 # Linux x86_64
-curl -sL "https://github.com/cvc5/cvc5/releases/download/cvc5-1.3.1/cvc5-Linux-x86_64-static.zip" \
+curl -sL "https://github.com/cvc5/cvc5/releases/download/cvc5-1.3.4/cvc5-Linux-x86_64-static.zip" \
   -o /tmp/cvc5.zip
 unzip -o /tmp/cvc5.zip -d /tmp/cvc5-install
 export CVC5_LIB_DIR=/tmp/cvc5-install/cvc5-Linux-x86_64-static/lib
