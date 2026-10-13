@@ -137,9 +137,24 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
 
     // Scan target Rust source for annotated items
     let target_path = Path::new(target);
-    let file_items = match load_crash_target(target_path) {
-        Ok(items) => items,
-        Err(message) => fail_suggest(output_mode, "target_scan_failed", message),
+    let file_items = if !target_path.is_dir() && !target_path.is_file() {
+        if output_mode == OutputMode::Json {
+            let report = serde_json::json!({
+                "ok": false,
+                "error": "target_not_found",
+                "path": target,
+                "message": format!("{target} is not a file or directory"),
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            eprintln!("Error: {target} is not a file or directory");
+        }
+        process::exit(1);
+    } else {
+        match load_crash_target(target_path) {
+            Ok(items) => items,
+            Err(message) => fail_suggest(output_mode, "target_scan_failed", message),
+        }
     };
 
     // Build contract database to find existing contracts
