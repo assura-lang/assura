@@ -183,6 +183,54 @@ pub(crate) fn link_canonical_lengths(script: &mut String) {
     }
 }
 
+/// Declare `x__old` snapshots the encoder mentions but the frame pass does not.
+///
+/// Frame axioms declare `x__old` only for unmodified inputs. `old(x)` under
+/// `modifies { x }` still names `x__old`. Z3 creates that constant on use.
+/// CVC5 reports `Symbol 'x__old' not declared`.
+pub(crate) fn declare_missing_old_snapshots(script: &mut String) {
+    let mut names = Vec::new();
+    let bytes = script.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index].is_ascii_alphabetic() || bytes[index] == b'_' {
+            let start = index;
+            index += 1;
+            while index < bytes.len()
+                && (bytes[index].is_ascii_alphanumeric() || bytes[index] == b'_')
+            {
+                index += 1;
+            }
+            let name = &script[start..index];
+            if name.ends_with("__old")
+                && name != "__old"
+                && !names.iter().any(|existing: &String| existing == name)
+            {
+                names.push(name.to_string());
+            }
+        } else {
+            index += 1;
+        }
+    }
+    let mut decls = String::new();
+    for name in names {
+        if script.contains(&format!("(declare-const {name} "))
+            || script.contains(&format!("(declare-fun {name} "))
+        {
+            continue;
+        }
+        decls.push_str(&format!("(declare-const {name} Int)\n"));
+    }
+    if decls.is_empty() {
+        return;
+    }
+    if let Some(idx) = script.find('\n') {
+        script.insert_str(idx + 1, &decls);
+    } else {
+        script.insert_str(0, &decls);
+    }
+}
+
 /// Declare `__str_*` constants and keep distinct literals unequal.
 pub(crate) fn declare_missing_string_literals(script: &mut String) {
     let mut names = Vec::new();
@@ -362,8 +410,8 @@ pub(crate) fn append_cvc5_shellout_constraints(
 mod tests {
     use super::{
         append_cvc5_shellout_clause_check, declare_missing_canonical_lengths,
-        declare_missing_string_literals, inject_side_effects, insert_cvc5_adt_prelude_if_used,
-        link_canonical_lengths,
+        declare_missing_old_snapshots, declare_missing_string_literals, inject_side_effects,
+        insert_cvc5_adt_prelude_if_used, link_canonical_lengths,
     };
     use crate::cvc5_expr_smtlib::SmtlibSideEffects;
     use assura_ast::ClauseKind;
@@ -479,6 +527,36 @@ mod tests {
             }
             crate::cvc5_verify_shell_runner::Cvc5Result::Error(reason) => {
                 panic!("framed old length cvc5 error: {reason}\n{script}")
+            }
+        }
+    }
+
+    #[test]
+    fn modified_old_ident_is_declared() {
+        let mut script = String::from(
+            "(set-logic ALL)\n(declare-const x Int)\n(assert (> x 0))\n(assert (not (> x__old 0)))\n(check-sat)\n",
+        );
+        declare_missing_old_snapshots(&mut script);
+        let decl = script.find("(declare-const x__old Int)").expect("snapshot");
+        let use_at = script.find("(assert (not (> x__old 0)))").expect("use");
+        assert!(decl < use_at, "{script}");
+        assert_eq!(script.matches("(declare-const x__old Int)").count(), 1);
+        let Ok(out) = std::process::Command::new("cvc5").arg("--version").output() else {
+            return;
+        };
+        if !out.status.success() {
+            return;
+        }
+        match crate::cvc5_verify_shell_runner::run_cvc5_binary(&script, 5_000) {
+            crate::cvc5_verify_shell_runner::Cvc5Result::Sat(_) => {}
+            crate::cvc5_verify_shell_runner::Cvc5Result::Unsat => {
+                panic!("unconstrained x__old must be a counterexample\n{script}")
+            }
+            crate::cvc5_verify_shell_runner::Cvc5Result::Timeout => {
+                panic!("old snapshot must not time out\n{script}")
+            }
+            crate::cvc5_verify_shell_runner::Cvc5Result::Error(reason) => {
+                panic!("old snapshot cvc5 error: {reason}\n{script}")
             }
         }
     }
