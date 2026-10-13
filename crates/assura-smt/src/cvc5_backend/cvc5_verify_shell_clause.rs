@@ -46,7 +46,6 @@ pub(crate) fn check_clause_cvc5_shellout(
 
     let mut script = String::new();
     script.push_str("(set-logic ALL)\n");
-    script.push_str("(set-option :produce-models true)\n");
 
     for var in &vars {
         script.push_str(&format!("(declare-const {var} Int)\n"));
