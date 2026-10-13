@@ -103,6 +103,7 @@ fn execute_cvc5(script: &str, tlimit_ms: u32) -> Result<String, String> {
     let mut cmd = Command::new("cvc5");
     cmd.arg("--lang")
         .arg("smt2")
+        .arg("--produce-models")
         .arg("--tlimit")
         .arg(tlimit)
         .stdin(Stdio::piped())
@@ -181,8 +182,14 @@ fn parse_cvc5_stdout_all(stdout: &str) -> Result<Vec<Cvc5Result>, String> {
                 }
                 results.push(Cvc5Result::Sat(model_lines.join("\n")));
             }
-            "timeout" | "resourceout" | "unknown" => {
+            "timeout" | "resourceout" => {
                 results.push(Cvc5Result::Timeout);
+                i += 1;
+            }
+            // `unknown` is not a time limit. Calling it a timeout tells the
+            // user to raise `--timeout` when the solver already finished.
+            "unknown" => {
+                results.push(Cvc5Result::Error("cvc5 returned unknown".into()));
                 i += 1;
             }
             _ => {
@@ -255,6 +262,51 @@ mod tests {
                 assert!(model.contains("x = 0"), "model should name x: {model}");
             }
             other => panic!("expected Counterexample, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_unknown_is_not_a_timeout() {
+        let parsed = parse_cvc5_stdout_first("unknown\n");
+        match parsed {
+            Cvc5Result::Error(reason) => {
+                assert!(reason.contains("unknown"), "{reason}");
+            }
+            Cvc5Result::Timeout => panic!("unknown must not be reported as a timeout"),
+            Cvc5Result::Unsat | Cvc5Result::Sat(_) => {
+                panic!("unknown must not be sat or unsat")
+            }
+        }
+    }
+
+    #[test]
+    fn cvc5_false_ensures_without_adt_prelude_is_sat() {
+        let Ok(out) = std::process::Command::new("cvc5").arg("--version").output() else {
+            return;
+        };
+        if !out.status.success() {
+            return;
+        }
+        let script = "\
+(set-logic ALL)
+(set-option :produce-models true)
+(declare-const n Int)
+(assert (and (>= n 0) (<= n 18446744073709551615)))
+(assert (<= n 10))
+(assert (not (> n 100)))
+(check-sat)
+(get-model)
+";
+        match run_cvc5_binary(script, 5_000) {
+            Cvc5Result::Sat(model) => {
+                assert!(
+                    model.contains('0'),
+                    "counterexample model should name a value: {model}"
+                );
+            }
+            Cvc5Result::Timeout => panic!("false ensures must not time out"),
+            Cvc5Result::Unsat => panic!("false ensures must not verify"),
+            Cvc5Result::Error(reason) => panic!("cvc5 error: {reason}"),
         }
     }
 
