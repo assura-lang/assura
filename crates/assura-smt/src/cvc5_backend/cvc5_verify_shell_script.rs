@@ -118,6 +118,43 @@ pub(crate) fn declare_missing_canonical_lengths(script: &mut String) {
     }
 }
 
+/// Declare `__str_*` constants and keep distinct literals unequal.
+pub(crate) fn declare_missing_string_literals(script: &mut String) {
+    let mut names = Vec::new();
+    let mut rest = script.as_str();
+    while let Some(idx) = rest.find("__str_") {
+        let tail = &rest[idx..];
+        let end = tail
+            .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .unwrap_or(tail.len());
+        let name = &tail[..end];
+        if name != "__str_" && !names.iter().any(|existing: &String| existing == name) {
+            names.push(name.to_string());
+        }
+        rest = &tail[end..];
+    }
+    let mut decls = String::new();
+    for name in &names {
+        if script.contains(&format!("(declare-const {name} ")) {
+            continue;
+        }
+        decls.push_str(&format!("(declare-const {name} Int)\n"));
+    }
+    for i in 0..names.len() {
+        for j in (i + 1)..names.len() {
+            decls.push_str(&format!("(assert (distinct {} {}))\n", names[i], names[j]));
+        }
+    }
+    if decls.is_empty() {
+        return;
+    }
+    if let Some(idx) = script.find('\n') {
+        script.insert_str(idx + 1, &decls);
+    } else {
+        script.insert_str(0, &decls);
+    }
+}
+
 pub(crate) fn append_cvc5_shellout_requires(script: &mut String, requires: &[&SpExpr]) {
     for req in requires {
         let (result, effects) =
@@ -129,9 +166,32 @@ pub(crate) fn append_cvc5_shellout_requires(script: &mut String, requires: &[&Sp
     }
 }
 
+/// True when `decl` is already visible at the end of `script`.
+///
+/// A `(push 1)` frame hides declarations from earlier frames that have
+/// been popped. The base script, before the first push, stays visible.
+fn declaration_is_in_scope(script: &str, decl: &str) -> bool {
+    const PUSH: &str = "(push 1)\n";
+    if let Some(frame) = script.rfind(PUSH) {
+        if script[frame..].contains(decl) {
+            return true;
+        }
+        if let Some(base_end) = script.find(PUSH) {
+            return script[..base_end].contains(decl);
+        }
+    }
+    script.contains(decl)
+}
+
 /// Inject accumulated declarations and axioms from tuple/list encoding.
-fn inject_side_effects(script: &mut String, effects: &crate::cvc5_expr_smtlib::SmtlibSideEffects) {
+pub(crate) fn inject_side_effects(
+    script: &mut String,
+    effects: &crate::cvc5_expr_smtlib::SmtlibSideEffects,
+) {
     for decl in &effects.declarations {
+        if declaration_is_in_scope(script, decl) {
+            continue;
+        }
         script.push_str(decl);
         script.push('\n');
     }
@@ -237,8 +297,9 @@ pub(crate) fn append_cvc5_shellout_constraints(
 mod tests {
     use super::{
         append_cvc5_shellout_clause_check, declare_missing_canonical_lengths,
-        insert_cvc5_adt_prelude_if_used,
+        declare_missing_string_literals, inject_side_effects, insert_cvc5_adt_prelude_if_used,
     };
+    use crate::cvc5_expr_smtlib::SmtlibSideEffects;
     use assura_ast::ClauseKind;
 
     fn script_for(kind: ClauseKind) -> String {
@@ -292,6 +353,50 @@ mod tests {
             .expect("use");
         assert!(decl_at < use_at, "{script}");
         assert!(script.contains("(assert (>= __canonical_len_s 0))"));
+    }
+
+    #[test]
+    fn bool_method_decl_is_not_repeated_in_one_scope() {
+        let decl = "(declare-fun starts_with (Int Int) Bool)";
+        let effects = SmtlibSideEffects {
+            declarations: vec![decl.to_string()],
+            assertions: vec!["(assert (starts_with s __str_a))".to_string()],
+            ..SmtlibSideEffects::default()
+        };
+        let mut script = format!("(set-logic ALL)\n{decl}\n");
+        inject_side_effects(&mut script, &effects);
+        assert_eq!(script.matches(decl).count(), 1, "{script}");
+        assert!(script.contains("(assert (starts_with s __str_a))"));
+    }
+
+    #[test]
+    fn popped_frame_does_not_hide_a_later_declaration() {
+        let decl = "(declare-fun starts_with (Int Int) Bool)";
+        let effects = SmtlibSideEffects {
+            declarations: vec![decl.to_string()],
+            ..SmtlibSideEffects::default()
+        };
+        let mut script = format!("(set-logic ALL)\n(push 1)\n{decl}\n(pop 1)\n(push 1)\n");
+        inject_side_effects(&mut script, &effects);
+        assert_eq!(script.matches(decl).count(), 2, "{script}");
+    }
+
+    #[test]
+    fn string_literals_are_declared_and_distinct() {
+        let mut script = String::from(
+            "(set-logic ALL)\n(assert (starts_with s __str_a))\n(assert (not (starts_with s __str_b)))\n",
+        );
+        declare_missing_string_literals(&mut script);
+        let decl_a = script.find("(declare-const __str_a Int)").expect("a");
+        let use_a = script
+            .find("(assert (starts_with s __str_a))")
+            .expect("use");
+        let distinct_at = script
+            .find("(assert (distinct __str_a __str_b))")
+            .expect("distinct");
+        assert!(decl_a < distinct_at, "{script}");
+        assert!(distinct_at < use_a, "{script}");
+        assert!(script.contains("(declare-const __str_b Int)"));
     }
 
     #[test]

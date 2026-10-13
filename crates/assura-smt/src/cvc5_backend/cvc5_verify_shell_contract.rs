@@ -266,14 +266,9 @@ fn build_incremental_shell_script(
         let (encoded, effects) =
             crate::cvc5_expr_smtlib::with_smtlib_side_effects(|| expr_to_smtlib(&clause.body));
         if let Some(smt) = encoded {
-            for decl in &effects.declarations {
-                script.push_str(decl);
-                script.push('\n');
-            }
-            for axiom in &effects.assertions {
-                script.push_str(axiom);
-                script.push('\n');
-            }
+            // The push frame can see requires declarations from the base
+            // script. Repeating them here is a cvc5 redefinition error.
+            crate::cvc5_verify_shell_script::inject_side_effects(&mut script, &effects);
             append_cvc5_shellout_clause_check(&mut script, clause.kind.clone(), &smt);
             script.push_str("(check-sat)\n");
             script.push_str("(get-model)\n");
@@ -283,6 +278,7 @@ fn build_incremental_shell_script(
 
     crate::cvc5_verify_shell_script::insert_cvc5_adt_prelude_if_used(&mut script);
     crate::cvc5_verify_shell_script::declare_missing_canonical_lengths(&mut script);
+    crate::cvc5_verify_shell_script::declare_missing_string_literals(&mut script);
     script
 }
 
