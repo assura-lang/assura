@@ -687,6 +687,20 @@ mod tests {
     }
 
     #[test]
+    fn deeply_nested_not_does_not_crash() {
+        // Unary `not` recurses through expr_bp. 200 prefixes must hit the
+        // same depth limit as nested parentheses, not abort the process.
+        let input = format!("contract T {{ requires {{ {}true }} }}", "not ".repeat(200),);
+        let (_file, errors) = crate::parse(&input);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("nesting depth limit")),
+            "expected nesting depth limit error, got: {errors:?}",
+        );
+    }
+
+    #[test]
     fn deeply_nested_parens_do_not_crash() {
         // 200 levels of nested parentheses should hit the depth limit
         // (128) and produce an error instead of a stack overflow.

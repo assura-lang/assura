@@ -73,6 +73,8 @@ jobs:
               - 'AGENTS.md'
               - '.github/workflows/ci.yml'
               - '.github/actions/setup-rust-ci/**'
+              # Fixture and e2e files are read by cargo test, not compiled as crates.
+              - 'tests/**'
             codegen:
               - 'crates/assura-parser/**'
               - 'crates/assura-resolve/**'

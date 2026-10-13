@@ -14,6 +14,37 @@ pub(crate) struct SuggestFromCrashOpts<'a> {
     pub verbosity: Verbosity,
 }
 
+fn fail_suggest(output_mode: OutputMode, error: &str, message: String) -> ! {
+    if output_mode == OutputMode::Json {
+        let report = serde_json::json!({
+            "ok": false,
+            "error": error,
+            "message": message,
+        });
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    } else {
+        eprintln!("Error: {message}");
+    }
+    process::exit(1);
+}
+
+/// Load annotated Rust items for `suggest-from-crash`.
+/// A missing path, a scan error, or a parse error is returned. Callers must
+/// not turn that into an empty success.
+pub(crate) fn load_crash_target(
+    path: &Path,
+) -> Result<Vec<(std::path::PathBuf, Vec<assura_rust_analyzer::AnnotatedItem>)>, String> {
+    if path.is_dir() {
+        assura_rust_analyzer::scan_directory(path).map_err(|e| e.to_string())
+    } else if path.is_file() {
+        assura_rust_analyzer::parse_rust_file(path)
+            .map(|items| vec![(path.to_path_buf(), items)])
+            .map_err(|e| e.to_string())
+    } else {
+        Err(format!("{} is not a file or directory", path.display()))
+    }
+}
+
 pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
     use assura_llm::fuzz::*;
     use assura_llm::{cache::LlmCache, types::LlmConfig};
@@ -106,13 +137,7 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
 
     // Scan target Rust source for annotated items
     let target_path = Path::new(target);
-    let file_items = if target_path.is_dir() {
-        assura_rust_analyzer::scan_directory(target_path).unwrap_or_default()
-    } else if target_path.is_file() {
-        assura_rust_analyzer::parse_rust_file(target_path)
-            .map(|items| vec![(target_path.to_path_buf(), items)])
-            .unwrap_or_default()
-    } else {
+    let file_items = if !target_path.is_dir() && !target_path.is_file() {
         if output_mode == OutputMode::Json {
             let report = serde_json::json!({
                 "ok": false,
@@ -125,6 +150,11 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
             eprintln!("Error: {target} is not a file or directory");
         }
         process::exit(1);
+    } else {
+        match load_crash_target(target_path) {
+            Ok(items) => items,
+            Err(message) => fail_suggest(output_mode, "target_scan_failed", message),
+        }
     };
 
     // Build contract database to find existing contracts
@@ -201,7 +231,14 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
 
     // Read the target file source for LLM context
     let target_source = if target_path.is_file() {
-        std::fs::read_to_string(target_path).unwrap_or_default()
+        match std::fs::read_to_string(target_path) {
+            Ok(text) => text,
+            Err(e) => fail_suggest(
+                output_mode,
+                "target_read_failed",
+                format!("reading {}: {e}", target_path.display()),
+            ),
+        }
     } else {
         // If it's a directory, use stack trace to find the specific file
         stack_trace
@@ -342,5 +379,30 @@ pub(crate) fn run_suggest_from_crash(opts: SuggestFromCrashOpts<'_>) {
         }
     } else if !llm_errors.is_empty() {
         process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::load_crash_target;
+
+    #[test]
+    fn load_crash_target_reports_unparseable_rust() {
+        let dir = std::env::temp_dir().join(format!(
+            "assura_suggest_scan_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("broken.rs"), "fn (\n").unwrap();
+        let err = load_crash_target(&dir).expect_err("scan errors must surface");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            err.contains("broken.rs"),
+            "parse error must name the failing file: {err}"
+        );
     }
 }
