@@ -72,10 +72,16 @@ jobs:
           submodules: recursive
           ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || steps.resolve-tag.outputs.tag || github.ref }}
       - name: Install dist
-        # we specify bash to get pipefail; it guards against the `curl` command
-        # failing. otherwise `sh` won't catch that `curl` returned non-0
+        # Version-pinned installer, then a sha256 check, then run.
+        # Do not pipe curl into sh. Scorecard flags that as downloadThenRun.
         shell: bash
-        run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.32.0/cargo-dist-installer.sh | sh"
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/axodotdev/cargo-dist/releases/download/v0.32.0/cargo-dist-installer.sh \
+            -o /tmp/cargo-dist-installer.sh
+          echo "b657cf8c04a8b7bc28f39d220f7e6dd11bbd2bdb072c552262bd9ccf597261b5  /tmp/cargo-dist-installer.sh" | sha256sum -c -
+          sh /tmp/cargo-dist-installer.sh
       - name: Cache dist
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
