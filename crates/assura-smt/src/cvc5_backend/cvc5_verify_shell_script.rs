@@ -9,6 +9,27 @@ use crate::cvc5_verify_shared::{Cvc5TypeConstraint, collect_cvc5_type_constraint
 use crate::encode_atom_policy::sanitize_smt_name;
 use crate::lemma_inject_policy::collect_apply_refs_from_expr;
 
+/// Quantified Option axioms make CVC5 answer `unknown` on otherwise
+/// quantifier-free sat queries. Insert them only when the script uses
+/// an `__adt_` symbol, and only once.
+pub(crate) fn insert_cvc5_adt_prelude_if_used(script: &mut String) {
+    if script.contains("; adt: Option") || !script.contains("__adt_") {
+        return;
+    }
+    let mut prelude = String::new();
+    for line in crate::cvc5_adt::cvc5_adt_prelude_lines() {
+        prelude.push_str(&line);
+        if !line.ends_with('\n') {
+            prelude.push('\n');
+        }
+    }
+    if let Some(idx) = script.find('\n') {
+        script.insert_str(idx + 1, &prelude);
+    } else {
+        script.insert_str(0, &prelude);
+    }
+}
+
 pub(crate) fn append_cvc5_shellout_requires(script: &mut String, requires: &[&SpExpr]) {
     for req in requires {
         let (result, effects) =
@@ -126,7 +147,7 @@ pub(crate) fn append_cvc5_shellout_constraints(
 
 #[cfg(test)]
 mod tests {
-    use super::append_cvc5_shellout_clause_check;
+    use super::{append_cvc5_shellout_clause_check, insert_cvc5_adt_prelude_if_used};
     use assura_ast::ClauseKind;
 
     fn script_for(kind: ClauseKind) -> String {
@@ -141,6 +162,23 @@ mod tests {
             script_for(ClauseKind::Decreases),
             "(assert (not (>= m 0)))\n"
         );
+    }
+
+    #[test]
+    fn adt_prelude_is_omitted_until_an_adt_symbol_appears() {
+        let mut script =
+            String::from("(set-logic ALL)\n(declare-const n Int)\n(assert (> n 100))\n");
+        insert_cvc5_adt_prelude_if_used(&mut script);
+        assert!(
+            !script.contains("forall"),
+            "quantified Option axioms must stay out of a quantifier-free query: {script}"
+        );
+        script.push_str("(assert (__adt_tag_Option n))\n");
+        insert_cvc5_adt_prelude_if_used(&mut script);
+        assert!(script.contains("forall"), "{script}");
+        let once = script.clone();
+        insert_cvc5_adt_prelude_if_used(&mut script);
+        assert_eq!(script, once, "prelude must not be inserted twice");
     }
 
     #[test]

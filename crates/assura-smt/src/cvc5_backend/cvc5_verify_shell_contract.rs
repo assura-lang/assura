@@ -3,7 +3,6 @@
 use assura_ast::{ClauseKind, SpExpr};
 
 use crate::VerificationResult;
-use crate::cvc5_adt::cvc5_adt_prelude_lines;
 use crate::cvc5_collect::collect_cvc5_var_names_from_clauses;
 use crate::cvc5_expr_smtlib::expr_to_smtlib;
 use crate::cvc5_havoc_assume_smtlib::append_havoc_assume_smtlib;
@@ -216,13 +215,6 @@ fn build_incremental_shell_script(
     script.push_str("(set-option :incremental true)\n");
     script.push_str("(set-option :produce-models true)\n");
 
-    for line in cvc5_adt_prelude_lines() {
-        script.push_str(&line);
-        if !line.ends_with('\n') {
-            script.push('\n');
-        }
-    }
-
     let mut vars = collect_cvc5_var_names_from_clauses(
         &input.prepared.requires_exprs,
         &input.prepared.verifiable,
@@ -290,6 +282,7 @@ fn build_incremental_shell_script(
         script.push_str("(pop 1)\n");
     }
 
+    crate::cvc5_verify_shell_script::insert_cvc5_adt_prelude_if_used(&mut script);
     script
 }
 

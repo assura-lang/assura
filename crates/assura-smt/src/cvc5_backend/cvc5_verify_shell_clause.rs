@@ -3,7 +3,6 @@
 use std::collections::HashSet;
 
 use crate::VerificationResult;
-use crate::cvc5_adt::cvc5_adt_prelude_lines;
 use crate::cvc5_collect::collect_vars;
 use crate::cvc5_expr_smtlib::expr_to_smtlib;
 use crate::cvc5_havoc_assume_smtlib::append_havoc_assume_smtlib;
@@ -47,13 +46,7 @@ pub(crate) fn check_clause_cvc5_shellout(
 
     let mut script = String::new();
     script.push_str("(set-logic ALL)\n");
-
-    for line in cvc5_adt_prelude_lines() {
-        script.push_str(&line);
-        if !line.ends_with('\n') {
-            script.push('\n');
-        }
-    }
+    script.push_str("(set-option :produce-models true)\n");
 
     for var in &vars {
         script.push_str(&format!("(declare-const {var} Int)\n"));
@@ -110,6 +103,7 @@ pub(crate) fn check_clause_cvc5_shellout(
     script.push_str("(check-sat)\n");
     script.push_str("(get-model)\n");
 
+    crate::cvc5_verify_shell_script::insert_cvc5_adt_prelude_if_used(&mut script);
     let result = cvc5_shell_query_to_verification_result(
         desc,
         kind.clone(),
