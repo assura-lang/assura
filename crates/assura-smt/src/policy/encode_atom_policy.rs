@@ -84,7 +84,10 @@ pub(crate) fn canonical_length_name(name: &str) -> String {
 
 /// String literal constant name (`__str_{sanitized content}`).
 pub(crate) fn string_literal_const_name(s: &str) -> String {
-    format!("__str_{}", sanitize_smt_name(s))
+    // Some literal payloads still include the surrounding quotes. A quote
+    // is not a symbol character, so cvc5 reads `__str_"a"` as `__str_`.
+    let inner = s.trim_matches('"');
+    format!("__str_{}", sanitize_smt_name(inner))
 }
 
 /// Lemma `apply` boolean constant name (`__apply_{lemma}`).
@@ -777,6 +780,7 @@ mod tests {
         assert_eq!(encode_int_literal_smtlib("7"), "7");
         assert_eq!(apply_lemma_const_name("pos"), "__apply_pos");
         assert_eq!(string_literal_const_name("hi.there"), "__str_hi_there");
+        assert_eq!(string_literal_const_name("\"a\""), "__str_a");
     }
 
     #[test]

@@ -88,21 +88,19 @@ pub(crate) fn check_clause_cvc5_shellout(
     let Some(smt) = encoded else {
         return crate::clause_gate_policy::clause_encode_failure(desc, "SMT-LIB2");
     };
-    // Inject tuple/list declarations and axioms before the clause check.
-    for decl in &effects.declarations {
-        script.push_str(decl);
-        script.push('\n');
-    }
-    for axiom in &effects.assertions {
-        script.push_str(axiom);
-        script.push('\n');
-    }
+    // Requires already emitted these declarations in the same scope.
+    // A second `(declare-fun starts_with ...)` makes cvc5 reject the script.
+    crate::cvc5_verify_shell_script::inject_side_effects(&mut script, &effects);
     append_cvc5_shellout_clause_check(&mut script, kind.clone(), &smt);
 
     script.push_str("(check-sat)\n");
     script.push_str("(get-model)\n");
 
     crate::cvc5_verify_shell_script::insert_cvc5_adt_prelude_if_used(&mut script);
+    crate::cvc5_verify_shell_script::declare_missing_canonical_lengths(&mut script);
+    crate::cvc5_verify_shell_script::declare_missing_old_snapshots(&mut script);
+    crate::cvc5_verify_shell_script::link_canonical_lengths(&mut script);
+    crate::cvc5_verify_shell_script::declare_missing_string_literals(&mut script);
     let result = cvc5_shell_query_to_verification_result(
         desc,
         kind.clone(),
