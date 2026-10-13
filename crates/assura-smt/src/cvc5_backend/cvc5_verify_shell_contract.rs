@@ -212,7 +212,9 @@ fn build_incremental_shell_script(
 ) -> String {
     let mut script = String::new();
     script.push_str("(set-logic ALL)\n");
-    script.push_str("(set-option :incremental true)\n");
+    // Incremental mode is `--incremental` on the cvc5 command line.
+    // `(set-option :incremental true)` after `(set-logic ALL)` and a
+    // declaration makes cvc5 reject the script before any `(check-sat)`.
 
     let mut vars = collect_cvc5_var_names_from_clauses(
         &input.prepared.requires_exprs,
@@ -281,6 +283,7 @@ fn build_incremental_shell_script(
     crate::cvc5_verify_shell_script::declare_missing_old_snapshots(&mut script);
     crate::cvc5_verify_shell_script::link_canonical_lengths(&mut script);
     crate::cvc5_verify_shell_script::declare_missing_string_literals(&mut script);
+    crate::cvc5_verify_shell_script::declare_missing_smt_symbols(&mut script);
     script
 }
 

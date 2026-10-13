@@ -231,6 +231,274 @@ pub(crate) fn declare_missing_old_snapshots(script: &mut String) {
     }
 }
 
+/// Declare symbols the shell encoder uses but never introduces.
+///
+/// Z3 creates constants and field functions on first use. CVC5 rejects
+/// `(= s s__old)` when frame logic names `s` without declaring it, and
+/// `(__field_order curve)` when the field function was never declared.
+pub(crate) fn declare_missing_smt_symbols(script: &mut String) {
+    let declared = declared_smt_names(script);
+    let Ok(exprs) = parse_smt_script(script) else {
+        return;
+    };
+    let mut needs: std::collections::BTreeMap<String, MissingSymbol> =
+        std::collections::BTreeMap::new();
+    for expr in &exprs {
+        note_missing_symbols(expr, false, &declared, &mut needs);
+    }
+    let mut decls = String::new();
+    for (name, sym) in needs {
+        if sym.conflict {
+            continue;
+        }
+        let already = script.contains(&format!("(declare-const {name} "))
+            || script.contains(&format!("(declare-fun {name} "));
+        if already {
+            continue;
+        }
+        let sort = if sym.is_bool { "Bool" } else { "Int" };
+        if let Some(arity) = sym.arity {
+            let args = std::iter::repeat_n("Int", arity)
+                .collect::<Vec<_>>()
+                .join(" ");
+            decls.push_str(&format!("(declare-fun {name} ({args}) {sort})\n"));
+        } else {
+            decls.push_str(&format!("(declare-const {name} {sort})\n"));
+        }
+    }
+    if decls.is_empty() {
+        return;
+    }
+    if let Some(idx) = script.find('\n') {
+        script.insert_str(idx + 1, &decls);
+    } else {
+        script.insert_str(0, &decls);
+    }
+}
+
+#[derive(Clone, Copy)]
+struct MissingSymbol {
+    arity: Option<usize>,
+    is_bool: bool,
+    conflict: bool,
+}
+
+fn note_missing_symbols(
+    expr: &SmtExpr,
+    bool_pos: bool,
+    declared: &std::collections::HashSet<String>,
+    needs: &mut std::collections::BTreeMap<String, MissingSymbol>,
+) {
+    let SmtExpr::List(items) = expr else {
+        if let SmtExpr::Atom(name) = expr {
+            note_missing_atom(name, bool_pos, None, declared, needs);
+        }
+        return;
+    };
+    let Some(SmtExpr::Atom(op)) = items.first() else {
+        for item in items {
+            note_missing_symbols(item, false, declared, needs);
+        }
+        return;
+    };
+    if matches!(
+        op.as_str(),
+        "declare-const"
+            | "declare-fun"
+            | "declare-sort"
+            | "set-logic"
+            | "set-option"
+            | "check-sat"
+            | "get-model"
+            | "push"
+            | "pop"
+            | "exit"
+    ) {
+        return;
+    }
+    let args = &items[1..];
+    if !is_smt_builtin(op) {
+        note_missing_atom(op, bool_pos, Some(args.len()), declared, needs);
+    }
+    for (index, arg) in args.iter().enumerate() {
+        let child_bool = match op.as_str() {
+            "assert" | "not" | "and" | "or" | "xor" | "=>" => true,
+            "ite" if index == 0 => true,
+            _ => false,
+        };
+        note_missing_symbols(arg, child_bool, declared, needs);
+    }
+}
+
+fn note_missing_atom(
+    name: &str,
+    is_bool: bool,
+    arity: Option<usize>,
+    declared: &std::collections::HashSet<String>,
+    needs: &mut std::collections::BTreeMap<String, MissingSymbol>,
+) {
+    if is_smt_builtin(name) || declared.contains(name) || is_smt_numeral(name) {
+        return;
+    }
+    let entry = needs.entry(name.to_string()).or_insert(MissingSymbol {
+        arity: None,
+        is_bool,
+        conflict: false,
+    });
+    if let Some(arity) = arity {
+        if entry.arity.is_some_and(|prev| prev != arity) {
+            entry.conflict = true;
+        }
+        entry.arity = Some(arity);
+    }
+    if entry.is_bool != is_bool {
+        entry.conflict = true;
+    }
+    entry.is_bool = is_bool;
+}
+
+fn is_smt_numeral(name: &str) -> bool {
+    let digits = name.strip_prefix('-').unwrap_or(name);
+    !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+}
+
+fn is_smt_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        "assert"
+            | "not"
+            | "and"
+            | "or"
+            | "xor"
+            | "=>"
+            | "="
+            | "distinct"
+            | "ite"
+            | "<"
+            | ">"
+            | "<="
+            | ">="
+            | "+"
+            | "-"
+            | "*"
+            | "/"
+            | "div"
+            | "mod"
+            | "true"
+            | "false"
+            | "forall"
+            | "exists"
+            | "let"
+            | "as"
+            | "Int"
+            | "Bool"
+            | "Real"
+    )
+}
+
+fn declared_smt_names(script: &str) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    for marker in ["(declare-const ", "(declare-fun "] {
+        let mut rest = script;
+        while let Some(idx) = rest.find(marker) {
+            let tail = &rest[idx + marker.len()..];
+            let end = tail
+                .find(|c: char| c.is_whitespace() || c == '(' || c == ')')
+                .unwrap_or(tail.len());
+            if end > 0 {
+                names.insert(tail[..end].to_string());
+            }
+            rest = &tail[end..];
+        }
+    }
+    names
+}
+
+#[derive(Debug)]
+enum SmtExpr {
+    Atom(String),
+    List(Vec<SmtExpr>),
+}
+
+fn parse_smt_script(script: &str) -> Result<Vec<SmtExpr>, ()> {
+    let tokens = tokenize_smt(script);
+    let mut pos = 0;
+    let mut exprs = Vec::new();
+    while pos < tokens.len() {
+        exprs.push(parse_smt_expr(&tokens, &mut pos)?);
+    }
+    Ok(exprs)
+}
+
+fn parse_smt_expr(tokens: &[SmtTok], pos: &mut usize) -> Result<SmtExpr, ()> {
+    let Some(tok) = tokens.get(*pos) else {
+        return Err(());
+    };
+    *pos += 1;
+    match tok {
+        SmtTok::Atom(text) => Ok(SmtExpr::Atom(text.clone())),
+        SmtTok::RParen => Err(()),
+        SmtTok::LParen => {
+            let mut items = Vec::new();
+            while !matches!(tokens.get(*pos), Some(SmtTok::RParen) | None) {
+                items.push(parse_smt_expr(tokens, pos)?);
+            }
+            if matches!(tokens.get(*pos), Some(SmtTok::RParen)) {
+                *pos += 1;
+                Ok(SmtExpr::List(items))
+            } else {
+                Err(())
+            }
+        }
+    }
+}
+
+enum SmtTok {
+    LParen,
+    RParen,
+    Atom(String),
+}
+
+fn tokenize_smt(script: &str) -> Vec<SmtTok> {
+    let mut tokens = Vec::new();
+    let mut chars = script.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            ';' => {
+                for next in chars.by_ref() {
+                    if next == '\n' {
+                        break;
+                    }
+                }
+            }
+            '(' => tokens.push(SmtTok::LParen),
+            ')' => tokens.push(SmtTok::RParen),
+            '"' => {
+                let mut text = String::from("\"");
+                for next in chars.by_ref() {
+                    text.push(next);
+                    if next == '"' {
+                        break;
+                    }
+                }
+                tokens.push(SmtTok::Atom(text));
+            }
+            ch if ch.is_whitespace() => {}
+            ch => {
+                let mut text = String::from(ch);
+                while let Some(next) = chars.peek() {
+                    if next.is_whitespace() || *next == '(' || *next == ')' || *next == ';' {
+                        break;
+                    }
+                    text.push(chars.next().unwrap_or_default());
+                }
+                tokens.push(SmtTok::Atom(text));
+            }
+        }
+    }
+    tokens
+}
+
 /// Declare `__str_*` constants and keep distinct literals unequal.
 pub(crate) fn declare_missing_string_literals(script: &mut String) {
     let mut names = Vec::new();
@@ -410,8 +678,9 @@ pub(crate) fn append_cvc5_shellout_constraints(
 mod tests {
     use super::{
         append_cvc5_shellout_clause_check, declare_missing_canonical_lengths,
-        declare_missing_old_snapshots, declare_missing_string_literals, inject_side_effects,
-        insert_cvc5_adt_prelude_if_used, link_canonical_lengths,
+        declare_missing_old_snapshots, declare_missing_smt_symbols,
+        declare_missing_string_literals, inject_side_effects, insert_cvc5_adt_prelude_if_used,
+        link_canonical_lengths,
     };
     use crate::cvc5_expr_smtlib::SmtlibSideEffects;
     use assura_ast::ClauseKind;
@@ -557,6 +826,46 @@ mod tests {
             }
             crate::cvc5_verify_shell_runner::Cvc5Result::Error(reason) => {
                 panic!("old snapshot cvc5 error: {reason}\n{script}")
+            }
+        }
+    }
+
+    #[test]
+    fn missing_frame_const_and_field_fun_are_declared() {
+        let mut script = String::from(
+            "(set-logic ALL)\n(declare-const curve Int)\n(assert (> (__field_order curve) 1))\n(declare-const s__old Int)\n(assert (= s s__old))\n(assert self__state)\n(check-sat)\n",
+        );
+        declare_missing_smt_symbols(&mut script);
+        assert!(
+            script.contains("(declare-fun __field_order (Int) Int)"),
+            "{script}"
+        );
+        assert!(script.contains("(declare-const s Int)"), "{script}");
+        assert!(
+            script.contains("(declare-const self__state Bool)"),
+            "{script}"
+        );
+        let order = script
+            .find("(declare-fun __field_order (Int) Int)")
+            .unwrap();
+        let use_order = script.find("(__field_order curve)").unwrap();
+        assert!(order < use_order, "{script}");
+        let Ok(out) = std::process::Command::new("cvc5").arg("--version").output() else {
+            return;
+        };
+        if !out.status.success() {
+            return;
+        }
+        match crate::cvc5_verify_shell_runner::run_cvc5_binary(&script, 5_000) {
+            crate::cvc5_verify_shell_runner::Cvc5Result::Sat(_) => {}
+            crate::cvc5_verify_shell_runner::Cvc5Result::Unsat => {
+                panic!("free bool must be sat\n{script}")
+            }
+            crate::cvc5_verify_shell_runner::Cvc5Result::Timeout => {
+                panic!("symbol declaration query timed out\n{script}")
+            }
+            crate::cvc5_verify_shell_runner::Cvc5Result::Error(reason) => {
+                panic!("symbol declaration cvc5 error: {reason}\n{script}")
             }
         }
     }
