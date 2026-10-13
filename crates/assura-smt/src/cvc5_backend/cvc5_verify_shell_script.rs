@@ -81,6 +81,43 @@ fn ground_option_axioms(names: &[String]) -> String {
     out
 }
 
+/// Declare `__canonical_len_*` constants the encoder mentions but does not declare.
+///
+/// Z3 creates these on use and asserts `length >= 0`. CVC5 rejects an
+/// undeclared symbol, so `s.length() >= 0` became a parse error.
+pub(crate) fn declare_missing_canonical_lengths(script: &mut String) {
+    let mut names = Vec::new();
+    let mut rest = script.as_str();
+    while let Some(idx) = rest.find("__canonical_len_") {
+        let tail = &rest[idx..];
+        let end = tail
+            .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .unwrap_or(tail.len());
+        let name = &tail[..end];
+        if !names.iter().any(|existing: &String| existing == name) {
+            names.push(name.to_string());
+        }
+        rest = &tail[end..];
+    }
+    let mut decls = String::new();
+    for name in names {
+        if script.contains(&format!("(declare-const {name} ")) {
+            continue;
+        }
+        decls.push_str(&format!(
+            "(declare-const {name} Int)\n(assert (>= {name} 0))\n"
+        ));
+    }
+    if decls.is_empty() {
+        return;
+    }
+    if let Some(idx) = script.find('\n') {
+        script.insert_str(idx + 1, &decls);
+    } else {
+        script.insert_str(0, &decls);
+    }
+}
+
 pub(crate) fn append_cvc5_shellout_requires(script: &mut String, requires: &[&SpExpr]) {
     for req in requires {
         let (result, effects) =
@@ -198,7 +235,10 @@ pub(crate) fn append_cvc5_shellout_constraints(
 
 #[cfg(test)]
 mod tests {
-    use super::{append_cvc5_shellout_clause_check, insert_cvc5_adt_prelude_if_used};
+    use super::{
+        append_cvc5_shellout_clause_check, declare_missing_canonical_lengths,
+        insert_cvc5_adt_prelude_if_used,
+    };
     use assura_ast::ClauseKind;
 
     fn script_for(kind: ClauseKind) -> String {
@@ -237,6 +277,21 @@ mod tests {
         let once = script.clone();
         insert_cvc5_adt_prelude_if_used(&mut script);
         assert_eq!(script, once, "prelude must not be inserted twice");
+    }
+
+    #[test]
+    fn canonical_length_is_declared_before_use() {
+        let mut script =
+            String::from("(set-logic ALL)\n(assert (>= __canonical_len_s 0))\n(check-sat)\n");
+        declare_missing_canonical_lengths(&mut script);
+        let decl_at = script
+            .find("(declare-const __canonical_len_s Int)")
+            .expect("length const");
+        let use_at = script
+            .find("(assert (>= __canonical_len_s 0))")
+            .expect("use");
+        assert!(decl_at < use_at, "{script}");
+        assert!(script.contains("(assert (>= __canonical_len_s 0))"));
     }
 
     #[test]

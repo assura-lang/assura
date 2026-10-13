@@ -104,6 +104,12 @@ where
     // Option testers. A bare `(is_some x)` is not declared in the shell
     // script, so cvc5 rejects the query. Some is tag 0 and None is tag 1,
     // matching `cvc5_adt_prelude_lines`.
+    if method == "is_empty"
+        && args.is_empty()
+        && let Expr::Ident(name) = &receiver.node
+    {
+        return Some(format!("(= {} 0)", canonical_length_name(name)));
+    }
     if args.is_empty() && (method == "is_some" || method == "is_none") {
         let tag = if method == "is_some" { 0 } else { 1 };
         return Some(crate::encode_adt_policy::adt_is_constructor_smtlib(
@@ -350,6 +356,15 @@ mod tests {
         assert_eq!(
             encode_method_call_smtlib(&receiver, "concat", &args, encode_lit),
             Some("(__concat a b)".into())
+        );
+    }
+
+    #[test]
+    fn method_is_empty_is_zero_length() {
+        let receiver = ident("s");
+        assert_eq!(
+            encode_method_call_smtlib(&receiver, "is_empty", &[], encode_lit),
+            Some("(= __canonical_len_s 0)".into())
         );
     }
 

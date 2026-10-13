@@ -103,6 +103,7 @@ pub(crate) fn check_clause_cvc5_shellout(
     script.push_str("(get-model)\n");
 
     crate::cvc5_verify_shell_script::insert_cvc5_adt_prelude_if_used(&mut script);
+    crate::cvc5_verify_shell_script::declare_missing_canonical_lengths(&mut script);
     let result = cvc5_shell_query_to_verification_result(
         desc,
         kind.clone(),

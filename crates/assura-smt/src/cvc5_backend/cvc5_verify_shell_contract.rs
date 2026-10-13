@@ -282,6 +282,7 @@ fn build_incremental_shell_script(
     }
 
     crate::cvc5_verify_shell_script::insert_cvc5_adt_prelude_if_used(&mut script);
+    crate::cvc5_verify_shell_script::declare_missing_canonical_lengths(&mut script);
     script
 }
 
