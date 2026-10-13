@@ -101,6 +101,15 @@ where
         return Some(canonical_length_name(name));
     }
     let r = encode(receiver)?;
+    // Option testers. A bare `(is_some x)` is not declared in the shell
+    // script, so cvc5 rejects the query. Some is tag 0 and None is tag 1,
+    // matching `cvc5_adt_prelude_lines`.
+    if args.is_empty() && (method == "is_some" || method == "is_none") {
+        let tag = if method == "is_some" { 0 } else { 1 };
+        return Some(crate::encode_adt_policy::adt_is_constructor_smtlib(
+            "Option", &r, tag,
+        ));
+    }
     let arg_strs: Option<Vec<String>> = args.iter().map(encode).collect();
     let arg_strs = arg_strs.unwrap_or_default();
     let mut all_args = vec![r];
@@ -340,6 +349,20 @@ mod tests {
             Some("(__concat a b)".into())
         );
     }
+
+    #[test]
+    fn method_is_some_uses_option_tag() {
+        let receiver = ident("x");
+        assert_eq!(
+            encode_method_call_smtlib(&receiver, "is_some", &[], encode_lit),
+            Some("(= (__adt_tag_Option x) 0)".into())
+        );
+        assert_eq!(
+            encode_method_call_smtlib(&receiver, "is_none", &[], encode_lit),
+            Some("(= (__adt_tag_Option x) 1)".into())
+        );
+    }
+
     #[test]
     fn encode_call_smtlib_expands_shell_callee_spec() {
         use crate::encode_callee_policy::{CalleeFunctionalSpec, with_shell_callee_specs};

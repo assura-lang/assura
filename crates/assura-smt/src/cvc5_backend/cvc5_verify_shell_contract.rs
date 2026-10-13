@@ -213,7 +213,6 @@ fn build_incremental_shell_script(
     let mut script = String::new();
     script.push_str("(set-logic ALL)\n");
     script.push_str("(set-option :incremental true)\n");
-    script.push_str("(set-option :produce-models true)\n");
 
     let mut vars = collect_cvc5_var_names_from_clauses(
         &input.prepared.requires_exprs,
