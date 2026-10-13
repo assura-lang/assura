@@ -118,6 +118,71 @@ pub(crate) fn declare_missing_canonical_lengths(script: &mut String) {
     }
 }
 
+/// Tie each `__canonical_len_*` constant to `len` and `__field_len` on its receiver.
+///
+/// Z3 does this inside `canonical_length`, so `s == s__old` implies
+/// `old(s.length())` equals `s.length()`. Bare constants let cvc5 pick a
+/// larger old length and report a false counterexample.
+pub(crate) fn link_canonical_lengths(script: &mut String) {
+    let mut names = Vec::new();
+    let mut rest = script.as_str();
+    while let Some(idx) = rest.find("__canonical_len_") {
+        let tail = &rest[idx..];
+        let end = tail
+            .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .unwrap_or(tail.len());
+        let name = &tail[..end];
+        if !names.iter().any(|existing: &String| existing == name) {
+            names.push(name.to_string());
+        }
+        rest = &tail[end..];
+    }
+    let mut links = String::new();
+    for name in &names {
+        let Some(obj) = name.strip_prefix("__canonical_len_") else {
+            continue;
+        };
+        if obj.is_empty() {
+            continue;
+        }
+        let declared = script.contains(&format!("(declare-const {obj} "))
+            || script.contains(&format!("(declare-fun {obj} "));
+        if !declared {
+            continue;
+        }
+        for uf in ["len", "__field_len"] {
+            let axiom = format!("(assert (= {name} ({uf} {obj})))");
+            if script.contains(&axiom) {
+                continue;
+            }
+            links.push_str(&axiom);
+            links.push('\n');
+        }
+    }
+    if links.is_empty() {
+        return;
+    }
+    let mut header = String::new();
+    for uf in ["len", "__field_len"] {
+        let decl = format!("(declare-fun {uf} (Int) Int)\n");
+        if !script.contains(&decl) {
+            header.push_str(&decl);
+        }
+    }
+    if !header.is_empty() {
+        if let Some(idx) = script.find('\n') {
+            script.insert_str(idx + 1, &header);
+        } else {
+            script.insert_str(0, &header);
+        }
+    }
+    if script.contains("(check-sat)\n") {
+        *script = script.replace("(check-sat)\n", &format!("{links}(check-sat)\n"));
+    } else {
+        script.push_str(&links);
+    }
+}
+
 /// Declare `__str_*` constants and keep distinct literals unequal.
 pub(crate) fn declare_missing_string_literals(script: &mut String) {
     let mut names = Vec::new();
@@ -298,6 +363,7 @@ mod tests {
     use super::{
         append_cvc5_shellout_clause_check, declare_missing_canonical_lengths,
         declare_missing_string_literals, inject_side_effects, insert_cvc5_adt_prelude_if_used,
+        link_canonical_lengths,
     };
     use crate::cvc5_expr_smtlib::SmtlibSideEffects;
     use assura_ast::ClauseKind;
@@ -379,6 +445,42 @@ mod tests {
         let mut script = format!("(set-logic ALL)\n(push 1)\n{decl}\n(pop 1)\n(push 1)\n");
         inject_side_effects(&mut script, &effects);
         assert_eq!(script.matches(decl).count(), 2, "{script}");
+    }
+
+    #[test]
+    fn old_length_is_tied_to_the_framed_receiver() {
+        let mut script = String::from(
+            "(set-logic ALL)\n(declare-const s Int)\n(declare-const s__old Int)\n(assert (= s s__old))\n(assert (<= __canonical_len_s 3))\n(assert (not (<= __canonical_len_s__old 3)))\n(check-sat)\n",
+        );
+        declare_missing_canonical_lengths(&mut script);
+        link_canonical_lengths(&mut script);
+        let link = script
+            .find("(assert (= __canonical_len_s__old (len s__old)))")
+            .expect("old length link");
+        let check = script.find("(check-sat)").expect("check");
+        let decl_s = script.find("(declare-const s__old Int)").expect("s__old");
+        assert!(decl_s < link, "{script}");
+        assert!(link < check, "{script}");
+        assert!(script.contains("(declare-fun len (Int) Int)"));
+        assert!(script.contains("(assert (= __canonical_len_s (len s)))"));
+        let Ok(out) = std::process::Command::new("cvc5").arg("--version").output() else {
+            return;
+        };
+        if !out.status.success() {
+            return;
+        }
+        match crate::cvc5_verify_shell_runner::run_cvc5_binary(&script, 5_000) {
+            crate::cvc5_verify_shell_runner::Cvc5Result::Unsat => {}
+            crate::cvc5_verify_shell_runner::Cvc5Result::Sat(model) => {
+                panic!("framed old length must verify, sat: {model}\n{script}")
+            }
+            crate::cvc5_verify_shell_runner::Cvc5Result::Timeout => {
+                panic!("framed old length must not time out\n{script}")
+            }
+            crate::cvc5_verify_shell_runner::Cvc5Result::Error(reason) => {
+                panic!("framed old length cvc5 error: {reason}\n{script}")
+            }
+        }
     }
 
     #[test]

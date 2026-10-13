@@ -98,6 +98,7 @@ pub(crate) fn check_clause_cvc5_shellout(
 
     crate::cvc5_verify_shell_script::insert_cvc5_adt_prelude_if_used(&mut script);
     crate::cvc5_verify_shell_script::declare_missing_canonical_lengths(&mut script);
+    crate::cvc5_verify_shell_script::link_canonical_lengths(&mut script);
     crate::cvc5_verify_shell_script::declare_missing_string_literals(&mut script);
     let result = cvc5_shell_query_to_verification_result(
         desc,
