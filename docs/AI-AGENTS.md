@@ -118,7 +118,7 @@ string:
 | `PROMPT_FAILED` | `assura_ir_prompt` failed after a jailed read (unknown pattern, missing decl) |
 
 ```json
-{"success": false, "error": "path not allowed", "error_kind": "PATH_NOT_ALLOWED"}
+{"success": false, "error": "path not allowed", "error_kind": "PATH_NOT_ALLOWED", "message": "file must be inside the server working directory and use a .assura, .rs, or .ir name"}
 ```
 
 The error string does not include the requested filesystem path. Inline

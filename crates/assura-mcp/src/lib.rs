@@ -247,6 +247,10 @@ fn resolve_source(inline: Option<String>, file: Option<String>) -> Result<String
 }
 
 const PATH_NOT_ALLOWED: &str = "path not allowed";
+/// Shown with `PATH_NOT_ALLOWED`. Must not include the requested path:
+/// missing files and escapes share one message so existence is not leaked.
+const PATH_NOT_ALLOWED_MESSAGE: &str =
+    "file must be inside the server working directory and use a .assura, .rs, or .ir name";
 
 /// True when `err` came from `resolve_source` / jail, not an IR compile failure.
 fn is_tool_path_error(err: &str) -> bool {
@@ -259,12 +263,15 @@ fn is_tool_path_error(err: &str) -> bool {
 /// JSON tools wrap jail/path errors so agents can branch on `success`
 /// instead of parsing a bare string.
 fn tool_error_json(err: String, error_kind: &str) -> String {
-    serde_json::json!({
+    let mut body = serde_json::json!({
         "success": false,
         "error": err,
         "error_kind": error_kind,
-    })
-    .to_string()
+    });
+    if error_kind == "PATH_NOT_ALLOWED" {
+        body["message"] = serde_json::Value::String(PATH_NOT_ALLOWED_MESSAGE.to_string());
+    }
+    body.to_string()
 }
 
 fn tool_path_error_json(err: String) -> String {
@@ -1314,6 +1321,7 @@ contract Bar {
         assert_eq!(v["success"], false, "{v}");
         assert_eq!(v["error"], "path not allowed", "{v}");
         assert_eq!(v["error_kind"], "PATH_NOT_ALLOWED", "{v}");
+        assert_eq!(v["message"], PATH_NOT_ALLOWED_MESSAGE, "{v}");
         assert!(
             !result.contains(probe),
             "jail error must not leak the filesystem path: {result}"
