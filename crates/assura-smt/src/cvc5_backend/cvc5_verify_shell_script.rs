@@ -9,15 +9,21 @@ use crate::cvc5_verify_shared::{Cvc5TypeConstraint, collect_cvc5_type_constraint
 use crate::encode_atom_policy::sanitize_smt_name;
 use crate::lemma_inject_policy::collect_apply_refs_from_expr;
 
-/// Quantified Option axioms make CVC5 answer `unknown` on otherwise
-/// quantifier-free sat queries. Insert them only when the script uses
-/// an `__adt_` symbol, and only once.
+/// Declare Option tag functions when the script uses `__adt_`.
+///
+/// The prelude's `forall` axioms make CVC5 answer `unknown` on sat
+/// queries (a false `ensures` that should be a counterexample). Ground
+/// the tag range and injectivity on the `declare-const` names instead.
 pub(crate) fn insert_cvc5_adt_prelude_if_used(script: &mut String) {
     if script.contains("; adt: Option") || !script.contains("__adt_") {
         return;
     }
+    let names = declared_const_names(script);
     let mut prelude = String::new();
     for line in crate::cvc5_adt::cvc5_adt_prelude_lines() {
+        if line.contains("forall") {
+            continue;
+        }
         prelude.push_str(&line);
         if !line.ends_with('\n') {
             prelude.push('\n');
@@ -28,6 +34,51 @@ pub(crate) fn insert_cvc5_adt_prelude_if_used(script: &mut String) {
     } else {
         script.insert_str(0, &prelude);
     }
+    let axioms = ground_option_axioms(&names);
+    if let Some(idx) = script.find("(check-sat)") {
+        script.insert_str(idx, &axioms);
+    } else {
+        script.push_str(&axioms);
+    }
+}
+
+fn declared_const_names(script: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for line in script.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("(declare-const ") else {
+            continue;
+        };
+        let Some(name) = rest.split_whitespace().next() else {
+            continue;
+        };
+        if name.starts_with("__adt_") {
+            continue;
+        }
+        names.push(name.to_string());
+    }
+    names
+}
+
+fn ground_option_axioms(names: &[String]) -> String {
+    let mut out = String::new();
+    for name in names {
+        out.push_str(&format!(
+            "(assert (or (= (__adt_tag_Option {name}) 0) (= (__adt_tag_Option {name}) 1)))\n"
+        ));
+    }
+    for i in 0..names.len() {
+        for j in (i + 1)..names.len() {
+            let (a, b) = (&names[i], &names[j]);
+            out.push_str(&format!(
+                "(assert (=> (and (= (__adt_tag_Option {a}) 0) (= (__adt_tag_Option {b}) 0) (= (__adt_Option_value {a}) (__adt_Option_value {b}))) (= {a} {b})))\n"
+            ));
+            out.push_str(&format!(
+                "(assert (=> (and (= (__adt_tag_Option {a}) 1) (= (__adt_tag_Option {b}) 1)) (= {a} {b})))\n"
+            ));
+        }
+    }
+    out
 }
 
 pub(crate) fn append_cvc5_shellout_requires(script: &mut String, requires: &[&SpExpr]) {
@@ -175,7 +226,14 @@ mod tests {
         );
         script.push_str("(assert (__adt_tag_Option n))\n");
         insert_cvc5_adt_prelude_if_used(&mut script);
-        assert!(script.contains("forall"), "{script}");
+        assert!(
+            !script.contains("forall"),
+            "Option axioms must be ground: {script}"
+        );
+        assert!(
+            script.contains("(assert (or (= (__adt_tag_Option n) 0) (= (__adt_tag_Option n) 1)))"),
+            "{script}"
+        );
         let once = script.clone();
         insert_cvc5_adt_prelude_if_used(&mut script);
         assert_eq!(script, once, "prelude must not be inserted twice");
