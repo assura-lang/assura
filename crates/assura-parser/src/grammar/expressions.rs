@@ -12,6 +12,20 @@ pub(crate) fn expr(p: &mut Parser) {
     expr_bp(p, 0);
 }
 
+/// Run `body` one nesting level deeper.
+///
+/// Returns false when the depth budget is already spent. `body` is not
+/// called, and `leave_nesting` is not required: `enter_nesting` does not
+/// decrement in that case.
+fn descend(p: &mut Parser, body: impl FnOnce(&mut Parser)) -> bool {
+    if !p.enter_nesting() {
+        return false;
+    }
+    body(p);
+    p.leave_nesting();
+    true
+}
+
 /// Parse an expression with a minimum binding power.
 fn expr_bp(p: &mut Parser, min_bp: u8) {
     let Some(mut lhs) = atom(p) else {
@@ -181,7 +195,13 @@ fn old_expr(p: &mut Parser) -> CompletedMarker {
     p.bump(); // old
     p.expect(SyntaxKind::L_PAREN);
     p.bump_trivia();
-    expr(p);
+    if !descend(p, |p| {
+        expr(p);
+    }) {
+        while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
+            p.bump();
+        }
+    }
     p.expect(SyntaxKind::R_PAREN);
     m.complete(p, SyntaxKind::OLD_EXPR)
 }
@@ -191,22 +211,26 @@ fn quantifier_expr(p: &mut Parser, kind: SyntaxKind) -> CompletedMarker {
     p.bump(); // forall | exists
     p.expect(SyntaxKind::IDENT);
     p.expect(SyntaxKind::IN_KW);
-    expr_bp(p, 0);
-    p.expect(SyntaxKind::COLON);
-    expr_bp(p, 0);
+    let _ = descend(p, |p| {
+        expr_bp(p, 0);
+        p.expect(SyntaxKind::COLON);
+        expr_bp(p, 0);
+    });
     m.complete(p, kind)
 }
 
 fn if_expr(p: &mut Parser) -> CompletedMarker {
     let m = p.open();
     p.bump(); // if
-    expr_bp(p, 0);
-    p.expect(SyntaxKind::THEN_KW);
-    expr_bp(p, 0);
-    if p.at(SyntaxKind::ELSE_KW) {
-        p.bump();
+    let _ = descend(p, |p| {
         expr_bp(p, 0);
-    }
+        p.expect(SyntaxKind::THEN_KW);
+        expr_bp(p, 0);
+        if p.at(SyntaxKind::ELSE_KW) {
+            p.bump();
+            expr_bp(p, 0);
+        }
+    });
     m.complete(p, SyntaxKind::IF_EXPR)
 }
 
@@ -215,7 +239,13 @@ fn ghost_expr(p: &mut Parser) -> CompletedMarker {
     p.bump(); // ghost
     p.expect(SyntaxKind::L_BRACE);
     p.bump_trivia();
-    expr(p);
+    if !descend(p, |p| {
+        expr(p);
+    }) {
+        while !p.eof() && !p.at(SyntaxKind::R_BRACE) {
+            p.bump();
+        }
+    }
     super::expect_closer(p, SyntaxKind::R_BRACE);
     m.complete(p, SyntaxKind::GHOST_EXPR)
 }
@@ -306,11 +336,18 @@ fn pattern(p: &mut Parser) {
             // Tuple pattern: (a, b, c) or single wildcard check
             let m = p.open();
             p.bump(); // (
-            while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
-                pattern(p);
-                if !p.at(SyntaxKind::R_PAREN) {
-                    p.eat(SyntaxKind::COMMA);
-                    p.bump_trivia();
+            if descend(p, |p| {
+                while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
+                    pattern(p);
+                    if !p.at(SyntaxKind::R_PAREN) {
+                        p.eat(SyntaxKind::COMMA);
+                        p.bump_trivia();
+                    }
+                }
+            }) {
+            } else {
+                while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
+                    p.bump();
                 }
             }
             p.expect(SyntaxKind::R_PAREN);
@@ -327,11 +364,18 @@ fn pattern(p: &mut Parser) {
                 let m = p.open();
                 p.bump(); // Name
                 p.bump(); // (
-                while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
-                    pattern(p);
-                    if !p.at(SyntaxKind::R_PAREN) {
-                        p.eat(SyntaxKind::COMMA);
-                        p.bump_trivia();
+                if descend(p, |p| {
+                    while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
+                        pattern(p);
+                        if !p.at(SyntaxKind::R_PAREN) {
+                            p.eat(SyntaxKind::COMMA);
+                            p.bump_trivia();
+                        }
+                    }
+                }) {
+                } else {
+                    while !p.eof() && !p.at(SyntaxKind::R_PAREN) {
+                        p.bump();
                     }
                 }
                 p.expect(SyntaxKind::R_PAREN);
@@ -424,8 +468,12 @@ fn list_expr(p: &mut Parser) -> CompletedMarker {
 fn unary_expr(p: &mut Parser) -> CompletedMarker {
     let m = p.open();
     p.bump(); // not, -, !
-    // Parse the operand at unary precedence (high)
-    expr_bp(p, UNARY_BP);
+    // Parse the operand at unary precedence (high).
+    // `not not not ...` recurses through expr_bp, so it shares the
+    // parenthesis depth budget.
+    let _ = descend(p, |p| {
+        expr_bp(p, UNARY_BP);
+    });
     m.complete(p, SyntaxKind::UNARY_EXPR)
 }
 
@@ -436,9 +484,11 @@ fn let_expr(p: &mut Parser) -> CompletedMarker {
     p.expect(SyntaxKind::EQUALS);
     // Value: parse at a precedence that stops before `in`
     // We use range precedence (above comparison) to avoid `in` ambiguity
-    expr_bp(p, RANGE_BP);
-    p.expect(SyntaxKind::IN_KW);
-    expr(p);
+    let _ = descend(p, |p| {
+        expr_bp(p, RANGE_BP);
+        p.expect(SyntaxKind::IN_KW);
+        expr(p);
+    });
     m.complete(p, SyntaxKind::LET_EXPR)
 }
 
