@@ -284,6 +284,7 @@ fn build_incremental_shell_script(
     crate::cvc5_verify_shell_script::link_canonical_lengths(&mut script);
     crate::cvc5_verify_shell_script::declare_missing_string_literals(&mut script);
     crate::cvc5_verify_shell_script::declare_missing_smt_symbols(&mut script);
+    crate::cvc5_verify_shell_script::hoist_push_declarations(&mut script);
     script
 }
 

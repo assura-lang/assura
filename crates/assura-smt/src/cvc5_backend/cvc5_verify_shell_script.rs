@@ -231,6 +231,39 @@ pub(crate) fn declare_missing_old_snapshots(script: &mut String) {
     }
 }
 
+/// Move `(declare-const)` / `(declare-fun)` lines out of `(push 1)` frames.
+///
+/// A declaration inside one push disappears at `(pop 1)`. The next clause
+/// still mentions that symbol (`__ir_slot_1`), and cvc5 stops the script.
+pub(crate) fn hoist_push_declarations(script: &mut String) {
+    let Some(push_at) = script.find("(push 1)\n") else {
+        return;
+    };
+    let base = script[..push_at].to_string();
+    let mut hoisted = String::new();
+    let mut rest = String::new();
+    for line in script[push_at..].lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("(declare-const ") || trimmed.starts_with("(declare-fun ") {
+            if !base.contains(trimmed) && !hoisted.contains(trimmed) {
+                hoisted.push_str(trimmed);
+                hoisted.push('\n');
+            }
+            continue;
+        }
+        rest.push_str(line);
+        rest.push('\n');
+    }
+    if hoisted.is_empty() {
+        return;
+    }
+    let mut out = String::with_capacity(base.len() + hoisted.len() + rest.len());
+    out.push_str(&base);
+    out.push_str(&hoisted);
+    out.push_str(&rest);
+    *script = out;
+}
+
 /// Declare symbols the shell encoder uses but never introduces.
 ///
 /// Z3 creates constants and field functions on first use. CVC5 rejects
@@ -679,8 +712,8 @@ mod tests {
     use super::{
         append_cvc5_shellout_clause_check, declare_missing_canonical_lengths,
         declare_missing_old_snapshots, declare_missing_smt_symbols,
-        declare_missing_string_literals, inject_side_effects, insert_cvc5_adt_prelude_if_used,
-        link_canonical_lengths,
+        declare_missing_string_literals, hoist_push_declarations, inject_side_effects,
+        insert_cvc5_adt_prelude_if_used, link_canonical_lengths,
     };
     use crate::cvc5_expr_smtlib::SmtlibSideEffects;
     use assura_ast::ClauseKind;
@@ -828,6 +861,20 @@ mod tests {
                 panic!("old snapshot cvc5 error: {reason}\n{script}")
             }
         }
+    }
+
+    #[test]
+    fn push_local_declarations_are_hoisted_to_the_base() {
+        let mut script = String::from(
+            "(set-logic ALL)\n(push 1)\n(declare-const __ir_slot_1 Int)\n(assert (= __ir_slot_1 1))\n(check-sat)\n(pop 1)\n(push 1)\n(assert (= __ir_slot_1 1))\n(check-sat)\n(pop 1)\n",
+        );
+        hoist_push_declarations(&mut script);
+        let decl = script
+            .find("(declare-const __ir_slot_1 Int)")
+            .expect("decl");
+        let push = script.find("(push 1)").expect("push");
+        assert!(decl < push, "{script}");
+        assert_eq!(script.matches("(declare-const __ir_slot_1 Int)").count(), 1);
     }
 
     #[test]

@@ -228,7 +228,10 @@ fn test_smtlib_unary_not() {
         op: UnaryOp::Not,
         expr: Box::new(Spanned::no_span(Expr::Ident("flag".into()))),
     });
-    assert_eq!(expr_to_smtlib(&expr), Some("(not flag)".into()));
+    assert_eq!(
+        expr_to_smtlib(&expr),
+        Some("(not (distinct flag 0))".into())
+    );
 }
 
 #[test]
@@ -503,7 +506,7 @@ fn test_smtlib_raw_comparison_chain() {
 fn test_smtlib_raw_unary_not() {
     // "! x" -> (not x)
     let expr = Spanned::no_span(Expr::Raw(vec!["!".into(), "x".into()]));
-    assert_eq!(expr_to_smtlib(&expr), Some("(not x)".into()));
+    assert_eq!(expr_to_smtlib(&expr), Some("(not (distinct x 0))".into()));
 }
 
 #[test]
@@ -523,7 +526,10 @@ fn test_smtlib_raw_logical_ops() {
         "||".into(),
         "c".into(),
     ]));
-    assert_eq!(expr_to_smtlib(&expr), Some("(or (and a b) c)".into()));
+    assert_eq!(
+        expr_to_smtlib(&expr),
+        Some("(or (and (distinct a 0) (distinct b 0)) (distinct c 0))".into())
+    );
 }
 
 #[test]
