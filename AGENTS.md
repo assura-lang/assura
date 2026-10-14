@@ -1205,11 +1205,13 @@ blocked on cvc5-sys build" is not equivalent to "CVC5 parity verified."
 **CI enforcement:** `.github/workflows/ci.yml` job `cvc5` runs native
 clippy + tests with prebuilt static libs (same URLs as below).
 
-**macOS ARM developers:** `cvc5-sys` source builds often fail on AppleClang
-(Poly-EP / `gmpxx.h` `-Werror`). Run prebuilt setup **before**
-manual commands (pre-commit scripts removed), not only after a failure:
+**macOS ARM developers:** With `CVC5_LIB_DIR` unset, `cvc5-sys` 0.6.1
+clones tag `cvc5-1.4.0` and builds it. That source build works on Apple
+Clang. `scripts/setup-cvc5.sh` is the faster prebuilt path that CI uses.
+Point it at solver 1.4.0, not 1.3.x.
 
 ```bash
+# Optional. Leave CVC5_LIB_DIR unset to build solver 1.4.0 from source.
 bash scripts/setup-cvc5.sh
 # paste the printed export CVC5_LIB_DIR / CVC5_INCLUDE_DIR lines
 cargo test -p assura-smt --features cvc5-verify -- cvc5_

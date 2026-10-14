@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Download prebuilt static CVC5 and print export commands for cvc5-sys.
-# Use when local `cargo test --features cvc5-verify` fails building from source.
+# Download the solver 1.4.0 static prebuilt and print export commands.
+# CI uses this. Leaving CVC5_LIB_DIR unset builds tag cvc5-1.4.0 from source.
 #
 #   bash scripts/setup-cvc5.sh
 #   bash scripts/setup-cvc5.sh --github-env   # KEY=VALUE lines for $GITHUB_ENV
