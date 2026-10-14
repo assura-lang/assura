@@ -14,14 +14,21 @@ use crate::cvc5_verify_shared::{
 use crate::encode_atom_policy::sanitize_smt_name;
 use crate::{CounterexampleModel, VerificationResult};
 
-pub(crate) fn build_cvc5_var_map<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn build_cvc5_var_map(
+    tm: &mut cvc5::TermManager,
     var_names: &HashSet<String>,
     constants: &[(String, i64)],
-) -> HashMap<String, cvc5::Term<'a>> {
+) -> HashMap<String, cvc5::Term> {
     let mut var_map = HashMap::new();
     for name in var_names {
-        var_map.insert(name.clone(), tm.mk_const(tm.integer_sort(), name));
+        var_map.insert(
+            name.clone(),
+            {
+                let __cvc3 = tm.integer_sort();
+                tm.mk_const(__cvc3, name)
+            }
+            .expect("cvc5"),
+        );
     }
     for (name, value) in constants {
         let key = sanitize_smt_name(name);
@@ -34,11 +41,11 @@ pub(crate) fn build_cvc5_var_map<'a>(
 ///
 /// Replaces `integer_sort()` entries in `var_map` with `mk_bv_sort(width)` entries
 /// and records signedness in `enc_state.bv_signed`.
-pub(crate) fn register_cvc5_fixed_width_params<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn register_cvc5_fixed_width_params(
+    tm: &mut cvc5::TermManager,
     params: &[assura_ast::Param],
-    var_map: &mut HashMap<String, cvc5::Term<'a>>,
-    enc_state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
+    var_map: &mut HashMap<String, cvc5::Term>,
+    enc_state: &mut crate::cvc5_encoder_state::Cvc5EncoderState,
 ) {
     for param in params {
         let pt = crate::prelude_policy::param_type_tokens(param);
@@ -51,11 +58,11 @@ pub(crate) fn register_cvc5_fixed_width_params<'a>(
 }
 
 /// Register `result` / `__result` when the contract return type is fixed-width (#851).
-pub(crate) fn register_cvc5_fixed_width_return<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn register_cvc5_fixed_width_return(
+    tm: &mut cvc5::TermManager,
     return_ty: &[String],
-    var_map: &mut HashMap<String, cvc5::Term<'a>>,
-    enc_state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
+    var_map: &mut HashMap<String, cvc5::Term>,
+    enc_state: &mut crate::cvc5_encoder_state::Cvc5EncoderState,
 ) {
     if let Some((width, signed)) = crate::prelude_policy::fixed_width_bits(return_ty) {
         for name in ["result", crate::encode_atom_policy::RESULT_VAR_NAME] {
@@ -66,10 +73,10 @@ pub(crate) fn register_cvc5_fixed_width_return<'a>(
     }
 }
 
-pub(crate) fn assert_cvc5_solver_prelude<'a>(
-    tm: &'a cvc5::TermManager,
-    solver: &mut cvc5::Solver<'a>,
-    var_map: &HashMap<String, cvc5::Term<'a>>,
+pub(crate) fn assert_cvc5_solver_prelude(
+    tm: &mut cvc5::TermManager,
+    solver: &mut cvc5::Solver,
+    var_map: &HashMap<String, cvc5::Term>,
     params: &[assura_ast::Param],
     return_ty: &[String],
     constants: &[(String, i64)],
@@ -83,26 +90,44 @@ pub(crate) fn assert_cvc5_solver_prelude<'a>(
         match constraint {
             Cvc5TypeConstraint::NatNonNegative(name) => {
                 if let Some(term) = var_map.get(&name) {
-                    solver
-                        .assert_formula(tm.mk_term(cvc5::Kind::Geq, &[term.clone(), zero.clone()]));
-                    let max = tm.mk_integer_from_str("18446744073709551615");
-                    solver.assert_formula(tm.mk_term(cvc5::Kind::Leq, &[term.clone(), max]));
+                    let ge = tm
+                        .mk_term(cvc5::Kind::Geq, &[term.clone(), zero.clone()])
+                        .expect("cvc5");
+                    solver.assert_formula(ge).expect("cvc5");
+                    let max = tm
+                        .mk_integer_from_str("18446744073709551615")
+                        .expect("cvc5");
+                    let le = tm
+                        .mk_term(cvc5::Kind::Leq, &[term.clone(), max])
+                        .expect("cvc5");
+                    solver.assert_formula(le).expect("cvc5");
                 }
             }
             Cvc5TypeConstraint::IntBounded(name) => {
                 if let Some(term) = var_map.get(&name) {
                     let lo = tm.mk_integer(i64::MIN);
                     let hi = tm.mk_integer(i64::MAX);
-                    solver.assert_formula(tm.mk_term(cvc5::Kind::Geq, &[term.clone(), lo]));
-                    solver.assert_formula(tm.mk_term(cvc5::Kind::Leq, &[term.clone(), hi]));
+                    let ge = tm
+                        .mk_term(cvc5::Kind::Geq, &[term.clone(), lo])
+                        .expect("cvc5");
+                    solver.assert_formula(ge).expect("cvc5");
+                    let le = tm
+                        .mk_term(cvc5::Kind::Leq, &[term.clone(), hi])
+                        .expect("cvc5");
+                    solver.assert_formula(le).expect("cvc5");
                 }
             }
             Cvc5TypeConstraint::BoolZeroOrOne(name) => {
                 if let Some(term) = var_map.get(&name) {
                     let one = tm.mk_integer(1);
-                    solver
-                        .assert_formula(tm.mk_term(cvc5::Kind::Geq, &[term.clone(), zero.clone()]));
-                    solver.assert_formula(tm.mk_term(cvc5::Kind::Leq, &[term.clone(), one]));
+                    let ge = tm
+                        .mk_term(cvc5::Kind::Geq, &[term.clone(), zero.clone()])
+                        .expect("cvc5");
+                    solver.assert_formula(ge).expect("cvc5");
+                    let le = tm
+                        .mk_term(cvc5::Kind::Leq, &[term.clone(), one])
+                        .expect("cvc5");
+                    solver.assert_formula(le).expect("cvc5");
                 }
             }
             Cvc5TypeConstraint::ConstantEq(..) => {
@@ -111,9 +136,11 @@ pub(crate) fn assert_cvc5_solver_prelude<'a>(
             }
             Cvc5TypeConstraint::NarrowingLe(name, value) => {
                 if let Some(var) = var_map.get(&name) {
-                    solver.assert_formula(
-                        tm.mk_term(cvc5::Kind::Leq, &[var.clone(), tm.mk_integer(value)]),
-                    );
+                    let bound = tm.mk_integer(value);
+                    let le = tm
+                        .mk_term(cvc5::Kind::Leq, &[var.clone(), bound])
+                        .expect("cvc5");
+                    solver.assert_formula(le).expect("cvc5");
                 }
             }
         }
@@ -140,23 +167,24 @@ impl Default for Cvc5SolverOpts {
     }
 }
 
-pub(crate) fn new_cvc5_solver<'a>(
-    tm: &'a cvc5::TermManager,
-    opts: Cvc5SolverOpts,
-) -> cvc5::Solver<'a> {
+pub(crate) fn new_cvc5_solver(tm: &mut cvc5::TermManager, opts: Cvc5SolverOpts) -> cvc5::Solver {
     let mut solver = cvc5::Solver::new(tm);
-    solver.set_logic("ALL");
-    solver.set_option("produce-models", "true");
+    solver.set_logic("ALL").expect("cvc5");
+    solver.set_option("produce-models", "true").expect("cvc5");
     // Re-resolve so short values still hit the shared floor (idempotent for
     // already-floored session budgets).
     let tlimit = crate::encode_timeout_policy::clause_timeout_tlimit(opts.tlimit_ms as u64);
-    solver.set_option("tlimit", &tlimit);
+    solver.set_option("tlimit", &tlimit).expect("cvc5");
     if opts.incremental {
-        solver.set_option("incremental", "true");
+        solver.set_option("incremental", "true").expect("cvc5");
     }
     if opts.unsat_core {
-        solver.set_option("produce-unsat-cores", "true");
-        solver.set_option("produce-unsat-assumptions", "true");
+        solver
+            .set_option("produce-unsat-cores", "true")
+            .expect("cvc5");
+        solver
+            .set_option("produce-unsat-assumptions", "true")
+            .expect("cvc5");
     }
     solver
 }
@@ -185,26 +213,26 @@ mod tests {
     }
 }
 
-pub(crate) fn assert_cvc5_axioms<'a>(solver: &mut cvc5::Solver<'a>, axioms: &[cvc5::Term<'a>]) {
+pub(crate) fn assert_cvc5_axioms(solver: &mut cvc5::Solver, axioms: &[cvc5::Term]) {
     for axiom in axioms {
-        solver.assert_formula(axiom.clone());
+        solver.assert_formula(axiom.clone()).expect("cvc5");
     }
 }
 
-pub(crate) fn assert_cvc5_axioms_since<'a>(
-    solver: &mut cvc5::Solver<'a>,
-    axioms: &[cvc5::Term<'a>],
+pub(crate) fn assert_cvc5_axioms_since(
+    solver: &mut cvc5::Solver,
+    axioms: &[cvc5::Term],
     start: usize,
 ) {
     for axiom in &axioms[start..] {
-        solver.assert_formula(axiom.clone());
+        solver.assert_formula(axiom.clone()).expect("cvc5");
     }
 }
 
-pub(crate) fn assert_cvc5_frame_axioms<'a>(
-    tm: &'a cvc5::TermManager,
-    solver: &mut cvc5::Solver<'a>,
-    var_map: &HashMap<String, cvc5::Term<'a>>,
+pub(crate) fn assert_cvc5_frame_axioms(
+    tm: &mut cvc5::TermManager,
+    solver: &mut cvc5::Solver,
+    var_map: &HashMap<String, cvc5::Term>,
     frame_vars: &[String],
 ) {
     for var_name in frame_vars {
@@ -219,56 +247,63 @@ pub(crate) fn assert_cvc5_frame_axioms<'a>(
         let old_var = var_map
             .get(&old_key)
             .cloned()
-            .unwrap_or_else(|| tm.mk_const(current.sort(), &old_key));
-        solver.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[current, old_var]));
+            .unwrap_or_else(|| tm.mk_const(current.sort(), &old_key).expect("cvc5"));
+        let eq = tm
+            .mk_term(cvc5::Kind::Equal, &[current, old_var])
+            .expect("cvc5");
+        solver.assert_formula(eq).expect("cvc5");
     }
 }
 
-pub(crate) fn assert_cvc5_clause_check<'a>(
-    tm: &'a cvc5::TermManager,
-    solver: &mut cvc5::Solver<'a>,
+pub(crate) fn assert_cvc5_clause_check(
+    tm: &mut cvc5::TermManager,
+    solver: &mut cvc5::Solver,
     kind: ClauseKind,
-    body_term: cvc5::Term<'a>,
+    body_term: cvc5::Term,
 ) {
     use crate::clause_policy::{ClauseCheckPolarity, clause_check_polarity};
 
     match clause_check_polarity(&kind) {
         Some(ClauseCheckPolarity::ValidityNegateBody) => {
-            let negated = tm.mk_term(cvc5::Kind::Not, &[body_term]);
-            solver.assert_formula(negated);
+            let negated = tm.mk_term(cvc5::Kind::Not, &[body_term]).expect("cvc5");
+            solver.assert_formula(negated).expect("cvc5");
         }
         Some(ClauseCheckPolarity::SatisfiabilityAssertBody)
         | Some(ClauseCheckPolarity::ValidityAssertBody) => {
-            solver.assert_formula(body_term);
+            solver.assert_formula(body_term).expect("cvc5");
         }
         Some(ClauseCheckPolarity::DecreasesNonNeg) => {
             // Parity with Z3: extract measure as integer, assert NOT(measure >= 0).
             // UNSAT means the measure is always non-negative (verified).
             let zero = tm.mk_integer(0);
             let measure_int = if body_term.sort().is_boolean() {
-                tm.mk_term(
-                    cvc5::Kind::Ite,
-                    &[body_term, tm.mk_integer(1), tm.mk_integer(0)],
-                )
+                {
+                    let __cvc1 = tm.mk_integer(1);
+                    let __cvc0 = tm.mk_integer(0);
+                    tm.mk_term(cvc5::Kind::Ite, &[body_term, __cvc1, __cvc0])
+                }
+                .expect("cvc5")
             } else {
                 body_term
             };
-            let non_neg = tm.mk_term(cvc5::Kind::Geq, &[measure_int, zero]);
-            let negated = tm.mk_term(cvc5::Kind::Not, &[non_neg]);
-            solver.assert_formula(negated);
+            let non_neg = tm
+                .mk_term(cvc5::Kind::Geq, &[measure_int, zero])
+                .expect("cvc5");
+            let negated = tm.mk_term(cvc5::Kind::Not, &[non_neg]).expect("cvc5");
+            solver.assert_formula(negated).expect("cvc5");
         }
         None => {}
     }
 }
 
-pub(crate) fn extract_cvc5_counterexample_model<'a>(
-    solver: &cvc5::Solver<'a>,
-    var_map: &HashMap<String, cvc5::Term<'a>>,
+pub(crate) fn extract_cvc5_counterexample_model(
+    solver: &cvc5::Solver,
+    var_map: &HashMap<String, cvc5::Term>,
 ) -> (String, Option<CounterexampleModel>) {
     let mut variables: Vec<(String, String)> = var_map
         .iter()
         .filter_map(|(name, term)| {
-            let val = solver.get_value(term.clone()).to_string();
+            let val = solver.get_value(term.clone()).expect("cvc5").to_string();
             if crate::encode_atom_policy::is_requires_track_noise(name, &val) {
                 return None;
             }
@@ -297,11 +332,11 @@ pub(crate) fn extract_cvc5_counterexample_model<'a>(
 ///
 /// Shared by the contract path (`finish_cvc5_clause_check`) and the standalone
 /// validity/satisfiability checks (`cvc5_verify_native_checks`).
-pub(crate) fn cvc5_clause_sat_outcome<'a>(
-    sat_result: &cvc5::Result,
-    solver: &cvc5::Solver<'a>,
-    var_map: &HashMap<String, cvc5::Term<'a>>,
-    tracked_assumptions: &[cvc5::Term<'a>],
+pub(crate) fn cvc5_clause_sat_outcome(
+    sat_result: &cvc5::SmtResult,
+    solver: &cvc5::Solver,
+    var_map: &HashMap<String, cvc5::Term>,
+    tracked_assumptions: &[cvc5::Term],
 ) -> Cvc5ClauseSatOutcome {
     if sat_result.is_unsat() {
         if tracked_assumptions.is_empty() {
@@ -328,29 +363,29 @@ pub(crate) fn cvc5_clause_sat_outcome<'a>(
     }
 }
 
-pub(crate) fn finish_cvc5_clause_check<'a>(
+pub(crate) fn finish_cvc5_clause_check(
     desc: &str,
     kind: ClauseKind,
-    solver: &mut cvc5::Solver<'a>,
-    var_map: &HashMap<String, cvc5::Term<'a>>,
-    tracked_labels: &[cvc5::Term<'a>],
+    solver: &mut cvc5::Solver,
+    var_map: &HashMap<String, cvc5::Term>,
+    tracked_labels: &[cvc5::Term],
 ) -> VerificationResult {
     let sat_result = if tracked_labels.is_empty() {
-        solver.check_sat()
+        solver.check_sat().expect("cvc5")
     } else {
-        solver.check_sat_assuming(tracked_labels)
+        solver.check_sat_assuming(tracked_labels).expect("cvc5")
     };
     let outcome = cvc5_clause_sat_outcome(&sat_result, solver, var_map, tracked_labels);
     cvc5_interpret_clause_check_result(desc, kind, outcome)
 }
 
-pub(crate) fn inject_cvc5_lemma_assumptions<'a>(
-    tm: &'a cvc5::TermManager,
-    solver: &mut cvc5::Solver<'a>,
-    body: &'a SpExpr,
+pub(crate) fn inject_cvc5_lemma_assumptions(
+    tm: &mut cvc5::TermManager,
+    solver: &mut cvc5::Solver,
+    body: &SpExpr,
     defs: &std::collections::HashMap<String, Vec<&SpExpr>>,
-    var_map: &mut HashMap<String, cvc5::Term<'a>>,
-    enc_state: &mut Cvc5EncoderState<'a>,
+    var_map: &mut HashMap<String, cvc5::Term>,
+    enc_state: &mut Cvc5EncoderState,
 ) {
     inject_cvc5_lemma_assumptions_for_bodies(
         tm,
@@ -363,19 +398,19 @@ pub(crate) fn inject_cvc5_lemma_assumptions<'a>(
 }
 
 pub(crate) fn inject_cvc5_lemma_assumptions_for_bodies<'a, I>(
-    tm: &'a cvc5::TermManager,
-    solver: &mut cvc5::Solver<'a>,
+    tm: &mut cvc5::TermManager,
+    solver: &mut cvc5::Solver,
     bodies: I,
     defs: &std::collections::HashMap<String, Vec<&SpExpr>>,
-    var_map: &mut HashMap<String, cvc5::Term<'a>>,
-    enc_state: &mut Cvc5EncoderState<'a>,
+    var_map: &mut HashMap<String, cvc5::Term>,
+    enc_state: &mut Cvc5EncoderState,
 ) where
     I: IntoIterator<Item = &'a SpExpr>,
 {
     let bodies_vec: Vec<&SpExpr> = bodies.into_iter().collect();
     for ens_body in crate::lemma_inject_policy::lemma_ensures_bodies_for_exprs(bodies_vec, defs) {
         if let Some(term) = encode_expr_cvc5(tm, ens_body, var_map, enc_state) {
-            solver.assert_formula(term);
+            solver.assert_formula(term).expect("cvc5");
         }
     }
 }
@@ -385,18 +420,20 @@ pub(crate) fn extract_cvc5_unsat_core_labels(
 ) -> Vec<String> {
     let mut labels: Vec<String> = solver
         .get_unsat_assumptions()
+        .expect("cvc5")
         .iter()
-        .map(|t| cvc5_term_label(t))
+        .map(cvc5_term_label)
         .collect();
     if labels.is_empty() {
         labels = solver
             .get_unsat_core()
+            .expect("cvc5")
             .iter()
-            .map(|t| cvc5_term_label(t))
+            .map(cvc5_term_label)
             .collect();
     }
     if labels.is_empty() && !tracked.is_empty() {
-        labels = tracked.iter().map(|t| cvc5_term_label(t)).collect();
+        labels = tracked.iter().map(cvc5_term_label).collect();
     }
     labels.sort();
     labels.dedup();
@@ -414,16 +451,16 @@ pub(crate) fn cvc5_term_label(term: &cvc5::Term) -> String {
     }
     s
 }
-pub(crate) fn assert_cvc5_requires<'a>(
-    tm: &'a cvc5::TermManager,
-    solver: &mut cvc5::Solver<'a>,
+pub(crate) fn assert_cvc5_requires(
+    tm: &mut cvc5::TermManager,
+    solver: &mut cvc5::Solver,
     requires: &[&SpExpr],
-    var_map: &mut HashMap<String, cvc5::Term<'a>>,
-    enc_state: &mut Cvc5EncoderState<'a>,
+    var_map: &mut HashMap<String, cvc5::Term>,
+    enc_state: &mut Cvc5EncoderState,
 ) {
     for req in requires {
         if let Some(term) = encode_expr_cvc5(tm, req, var_map, enc_state) {
-            solver.assert_formula(term);
+            solver.assert_formula(term).expect("cvc5");
         }
     }
 }
@@ -433,13 +470,13 @@ pub(crate) fn assert_cvc5_requires<'a>(
 /// Mirrors Z3's `assert_tracked` pattern: each requires is guarded by a fresh
 /// boolean constant (`req_0`, `req_1`, ...) via `Implies(label, body)`.
 /// Returns the tracking labels for later `check_sat_assuming`.
-pub(crate) fn assert_cvc5_requires_tracked<'a>(
-    tm: &'a cvc5::TermManager,
-    solver: &mut cvc5::Solver<'a>,
+pub(crate) fn assert_cvc5_requires_tracked(
+    tm: &mut cvc5::TermManager,
+    solver: &mut cvc5::Solver,
     requires: &[&SpExpr],
-    var_map: &mut HashMap<String, cvc5::Term<'a>>,
-    enc_state: &mut Cvc5EncoderState<'a>,
-) -> Vec<cvc5::Term<'a>> {
+    var_map: &mut HashMap<String, cvc5::Term>,
+    enc_state: &mut Cvc5EncoderState,
+) -> Vec<cvc5::Term> {
     let bool_sort = tm.boolean_sort();
     let mut tracked = Vec::with_capacity(requires.len());
     for (i, req) in requires.iter().enumerate() {
@@ -448,10 +485,12 @@ pub(crate) fn assert_cvc5_requires_tracked<'a>(
                 "{}{i}",
                 crate::encode_atom_policy::REQUIRES_TRACK_LABEL_PREFIX
             );
-            let track = tm.mk_const(bool_sort.clone(), &label);
+            let track = tm.mk_const(bool_sort.clone(), &label).expect("cvc5");
             tracked.push(track.clone());
-            let implication = tm.mk_term(cvc5::Kind::Implies, &[track, term]);
-            solver.assert_formula(implication);
+            let implication = tm
+                .mk_term(cvc5::Kind::Implies, &[track, term])
+                .expect("cvc5");
+            solver.assert_formula(implication).expect("cvc5");
         }
     }
     tracked

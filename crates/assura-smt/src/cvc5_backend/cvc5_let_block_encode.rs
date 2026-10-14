@@ -17,43 +17,45 @@ use crate::encode_atom_policy::sanitize_smt_name;
 pub(crate) use crate::encode_let_policy::{encode_block_smtlib, encode_let_smtlib};
 
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_let_cvc5<'a, F>(
-    _tm: &'a cvc5::TermManager,
+pub(crate) fn encode_let_cvc5<F>(
+    tm: &mut cvc5::TermManager,
     name: &str,
     value: &SpExpr,
     body: &SpExpr,
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
+    vars: &mut std::collections::HashMap<String, cvc5::Term>,
+    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState,
     mut encode: F,
-) -> Option<cvc5::Term<'a>>
+) -> Option<cvc5::Term>
 where
     F: FnMut(
+        &mut cvc5::TermManager,
         &SpExpr,
-        &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-        &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
-    ) -> Option<cvc5::Term<'a>>,
+        &mut std::collections::HashMap<String, cvc5::Term>,
+        &mut crate::cvc5_encoder_state::Cvc5EncoderState,
+    ) -> Option<cvc5::Term>,
 {
-    let v = encode(value, vars, state)?;
+    let v = encode(tm, value, vars, state)?;
     let mut local_vars = vars.clone();
     local_vars.insert(sanitize_smt_name(name), v);
-    encode(body, &mut local_vars, state)
+    encode(tm, body, &mut local_vars, state)
 }
 
 /// Encode all block expressions for side effects; return the last.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_block_cvc5<'a, F>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn encode_block_cvc5<F>(
+    tm: &mut cvc5::TermManager,
     body: &[SpExpr],
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
+    vars: &mut std::collections::HashMap<String, cvc5::Term>,
+    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState,
     mut encode: F,
-) -> Option<cvc5::Term<'a>>
+) -> Option<cvc5::Term>
 where
     F: FnMut(
+        &mut cvc5::TermManager,
         &SpExpr,
-        &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-        &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
-    ) -> Option<cvc5::Term<'a>>,
+        &mut std::collections::HashMap<String, cvc5::Term>,
+        &mut crate::cvc5_encoder_state::Cvc5EncoderState,
+    ) -> Option<cvc5::Term>,
 {
     use crate::encode_let_policy::{BlockReducePlan, classify_block};
     match classify_block(body) {
@@ -61,7 +63,7 @@ where
         BlockReducePlan::LastExpr => {
             let mut result = None;
             for e in body {
-                result = encode(e, vars, state);
+                result = encode(tm, e, vars, state);
             }
             result
         }

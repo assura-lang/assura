@@ -18,11 +18,11 @@ pub(crate) fn encode_raw_empty_smtlib() -> String {
 }
 
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_literal_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn encode_literal_cvc5(
+    tm: &mut cvc5::TermManager,
     lit: &Literal,
-    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
-) -> Option<cvc5::Term<'a>> {
+    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState,
+) -> Option<cvc5::Term> {
     match lit {
         Literal::Int(n) => {
             let val: i64 = n.parse().ok()?;
@@ -31,71 +31,98 @@ pub(crate) fn encode_literal_cvc5<'a>(
         Literal::Bool(b) => Some(tm.mk_boolean(*b)),
         Literal::Float(f_str) => {
             let (numer, denom) = crate::encode_atom_policy::float_to_rational_parts(f_str);
-            Some(tm.mk_real_from_rational(numer, denom))
+            Some(tm.mk_real_from_rational(numer, denom).expect("cvc5"))
         }
         Literal::Str(s) => Some(encode_string_literal_cvc5(tm, s, state)),
     }
 }
 
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_string_literal_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn encode_string_literal_cvc5(
+    tm: &mut cvc5::TermManager,
     s: &str,
-    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
-) -> cvc5::Term<'a> {
+    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState,
+) -> cvc5::Term {
     if state.use_string_theory {
         let str_val = tm.mk_string(s, false);
-        let len = tm.mk_term(cvc5::Kind::StringLength, std::slice::from_ref(&str_val));
+        let len = tm
+            .mk_term(cvc5::Kind::StringLength, std::slice::from_ref(&str_val))
+            .expect("cvc5");
         let expected_len = tm.mk_integer(s.len() as i64);
-        let len_eq = tm.mk_term(cvc5::Kind::Equal, &[len, expected_len]);
+        let len_eq = tm
+            .mk_term(cvc5::Kind::Equal, &[len, expected_len])
+            .expect("cvc5");
         state.axioms.push(len_eq);
         return str_val;
     }
 
     let const_name = crate::encode_atom_policy::string_literal_const_name(s);
-    let str_val = tm.mk_const(tm.integer_sort(), &const_name);
+    let str_val = {
+        let __cvc6 = tm.integer_sort();
+        tm.mk_const(__cvc6, &const_name)
+    }
+    .expect("cvc5");
     if !state.string_constants.contains(&const_name) {
         for prev in &state.string_constants {
-            let prev_val = tm.mk_const(tm.integer_sort(), prev);
-            let eq = tm.mk_term(cvc5::Kind::Equal, &[str_val.clone(), prev_val]);
-            let neq = tm.mk_term(cvc5::Kind::Not, &[eq]);
+            let prev_val = {
+                let __cvc5 = tm.integer_sort();
+                tm.mk_const(__cvc5, prev)
+            }
+            .expect("cvc5");
+            let eq = tm
+                .mk_term(cvc5::Kind::Equal, &[str_val.clone(), prev_val])
+                .expect("cvc5");
+            let neq = tm.mk_term(cvc5::Kind::Not, &[eq]).expect("cvc5");
             state.axioms.push(neq);
         }
         state.string_constants.push(const_name);
     }
     let len_name = crate::encode_atom_policy::FIELD_LEN_UF_NAME;
-    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-    let len_func = tm.mk_const(len_sort, len_name);
-    let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, str_val.clone()]);
+    let len_sort = {
+        let __cvc4 = tm.integer_sort();
+        let __cvc3 = tm.integer_sort();
+        tm.mk_fun_sort(&[__cvc4], __cvc3)
+    }
+    .expect("cvc5");
+    let len_func = tm.mk_const(len_sort, len_name).expect("cvc5");
+    let len_result = tm
+        .mk_term(cvc5::Kind::ApplyUf, &[len_func, str_val.clone()])
+        .expect("cvc5");
     let str_len = tm.mk_integer(s.len() as i64);
-    let len_eq = tm.mk_term(cvc5::Kind::Equal, &[len_result, str_len]);
+    let len_eq = tm
+        .mk_term(cvc5::Kind::Equal, &[len_result, str_len])
+        .expect("cvc5");
     state.axioms.push(len_eq);
     str_val
 }
 
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_ident_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn encode_ident_cvc5(
+    tm: &mut cvc5::TermManager,
     name: &str,
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-) -> cvc5::Term<'a> {
+    vars: &mut std::collections::HashMap<String, cvc5::Term>,
+) -> cvc5::Term {
     let key = encode_ident_smtlib(name);
-    vars.get(&key)
-        .cloned()
-        .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &key))
+    vars.get(&key).cloned().unwrap_or_else(|| {
+        {
+            let __cvc2 = tm.integer_sort();
+            tm.mk_const(__cvc2, &key)
+        }
+        .expect("cvc5")
+    })
 }
 
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_raw_empty_cvc5<'a>(tm: &'a cvc5::TermManager) -> cvc5::Term<'a> {
+pub(crate) fn encode_raw_empty_cvc5(tm: &mut cvc5::TermManager) -> cvc5::Term {
     tm.mk_boolean(true)
 }
 
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_raw_single_token_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn encode_raw_single_token_cvc5(
+    tm: &mut cvc5::TermManager,
     token: &str,
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-) -> Option<cvc5::Term<'a>> {
+    vars: &mut std::collections::HashMap<String, cvc5::Term>,
+) -> Option<cvc5::Term> {
     if token == "true" {
         return Some(tm.mk_boolean(true));
     }
@@ -106,34 +133,43 @@ pub(crate) fn encode_raw_single_token_cvc5<'a>(
         return Some(tm.mk_integer(n));
     }
     let key = crate::encode_atom_policy::sanitize_smt_name(token);
-    Some(
-        vars.get(&key)
-            .cloned()
-            .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &key)),
-    )
+    Some(vars.get(&key).cloned().unwrap_or_else(|| {
+        {
+            let __cvc1 = tm.integer_sort();
+            tm.mk_const(__cvc1, &key)
+        }
+        .expect("cvc5")
+    }))
 }
 
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_apply_cvc5<'a, F>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn encode_apply_cvc5<F>(
+    tm: &mut cvc5::TermManager,
     lemma_name: &str,
     args: &[SpExpr],
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
+    vars: &mut std::collections::HashMap<String, cvc5::Term>,
+    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState,
     mut encode: F,
-) -> Option<cvc5::Term<'a>>
+) -> Option<cvc5::Term>
 where
     F: FnMut(
+        &mut cvc5::TermManager,
         &SpExpr,
-        &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-        &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
-    ) -> Option<cvc5::Term<'a>>,
+        &mut std::collections::HashMap<String, cvc5::Term>,
+        &mut crate::cvc5_encoder_state::Cvc5EncoderState,
+    ) -> Option<cvc5::Term>,
 {
     for arg in args {
-        let _ = encode(arg, vars, state);
+        let _ = encode(tm, arg, vars, state);
     }
     let apply_name = crate::encode_atom_policy::apply_lemma_const_name(lemma_name);
-    Some(tm.mk_const(tm.boolean_sort(), &apply_name))
+    Some(
+        {
+            let __cvc0 = tm.boolean_sort();
+            tm.mk_const(__cvc0, &apply_name)
+        }
+        .expect("cvc5"),
+    )
 }
 
 #[cfg(test)]

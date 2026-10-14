@@ -45,9 +45,9 @@ pub(crate) fn check_clause_cvc5_native(
     let use_cores =
         crate::prelude_policy::track_requires_unsat_cores(prepared.requires_exprs.len());
     let result = {
-        let tm = cvc5::TermManager::new();
+        let mut tm = cvc5::TermManager::new();
         let mut solver = new_cvc5_solver(
-            &tm,
+            &mut tm,
             Cvc5SolverOpts {
                 unsat_core: use_cores,
                 tlimit_ms: session.timeout_ms,
@@ -56,9 +56,9 @@ pub(crate) fn check_clause_cvc5_native(
         );
 
         let var_names = collect_cvc5_var_names(&prepared.requires_exprs, ensures_body);
-        let mut var_map = build_cvc5_var_map(&tm, &var_names, contract.constants);
+        let mut var_map = build_cvc5_var_map(&mut tm, &var_names, contract.constants);
         assert_cvc5_solver_prelude(
-            &tm,
+            &mut tm,
             &mut solver,
             &var_map,
             contract.params,
@@ -75,17 +75,17 @@ pub(crate) fn check_clause_cvc5_native(
         if let Some(specs) = contract.callee_specs {
             enc_state.callee_specs.clone_from(specs);
         }
-        register_cvc5_fixed_width_params(&tm, contract.params, &mut var_map, &mut enc_state);
-        register_cvc5_fixed_width_return(&tm, contract.return_ty, &mut var_map, &mut enc_state);
+        register_cvc5_fixed_width_params(&mut tm, contract.params, &mut var_map, &mut enc_state);
+        register_cvc5_fixed_width_return(&mut tm, contract.return_ty, &mut var_map, &mut enc_state);
         seed_cvc5_trigger_manager_from_clauses(&mut enc_state, contract.clauses);
         {
             let havoc_input = session.havoc_assume_input();
-            apply_havoc_assume_cvc5(&tm, &havoc_input, &mut var_map, &mut enc_state);
+            apply_havoc_assume_cvc5(&mut tm, &havoc_input, &mut var_map, &mut enc_state);
         }
 
         let tracked_labels = if use_cores {
             assert_cvc5_requires_tracked(
-                &tm,
+                &mut tm,
                 &mut solver,
                 &prepared.requires_exprs,
                 &mut var_map,
@@ -93,7 +93,7 @@ pub(crate) fn check_clause_cvc5_native(
             )
         } else {
             assert_cvc5_requires(
-                &tm,
+                &mut tm,
                 &mut solver,
                 &prepared.requires_exprs,
                 &mut var_map,
@@ -104,7 +104,7 @@ pub(crate) fn check_clause_cvc5_native(
 
         if let Some(defs) = session.lemma_defs {
             inject_cvc5_lemma_assumptions(
-                &tm,
+                &mut tm,
                 &mut solver,
                 ensures_body,
                 defs,
@@ -113,7 +113,8 @@ pub(crate) fn check_clause_cvc5_native(
             );
         }
 
-        let body_term = match encode_expr_cvc5(&tm, ensures_body, &mut var_map, &mut enc_state) {
+        let body_term = match encode_expr_cvc5(&mut tm, ensures_body, &mut var_map, &mut enc_state)
+        {
             Some(t) => t,
             None => return cvc5_encode_failure(desc),
         };
@@ -127,10 +128,10 @@ pub(crate) fn check_clause_cvc5_native(
             &prepared.param_names,
         );
         if !frame_vars.is_empty() {
-            assert_cvc5_frame_axioms(&tm, &mut solver, &var_map, &frame_vars);
+            assert_cvc5_frame_axioms(&mut tm, &mut solver, &var_map, &frame_vars);
         }
 
-        assert_cvc5_clause_check(&tm, &mut solver, kind.clone(), body_term);
+        assert_cvc5_clause_check(&mut tm, &mut solver, kind.clone(), body_term);
 
         finish_cvc5_clause_check(desc, kind, &mut solver, &var_map, &tracked_labels)
     };

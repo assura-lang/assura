@@ -973,11 +973,11 @@ mod cvc5_parity_468 {
     fn cvc5_adt_native_define_and_construct() {
         // Define ADT and construct a value using the native CVC5 API
         use crate::cvc5_backend::cvc5_adt::define_adt_cvc5_native;
-        let tm = cvc5::TermManager::new();
-        let mut solver = cvc5::Solver::new(&tm);
-        solver.set_logic("ALL");
+        let mut tm = cvc5::TermManager::new();
+        let mut solver = cvc5::Solver::new(&mut tm);
+        solver.set_logic("ALL").expect("cvc5");
         let (adt_def, symbols) = define_adt_cvc5_native(
-            &tm,
+            &mut tm,
             &mut solver,
             "Option",
             &[("Some", &["value"]), ("None", &[])],
@@ -1007,14 +1007,18 @@ mod cvc5_parity_468 {
     fn cvc5_adt_native_accessor() {
         // Define Pair ADT and verify accessor retrieval
         use crate::cvc5_backend::cvc5_adt::{adt_accessor_cvc5_native, define_adt_cvc5_native};
-        let tm = cvc5::TermManager::new();
-        let mut solver = cvc5::Solver::new(&tm);
-        solver.set_logic("ALL");
+        let mut tm = cvc5::TermManager::new();
+        let mut solver = cvc5::Solver::new(&mut tm);
+        solver.set_logic("ALL").expect("cvc5");
         let (_adt_def, symbols) =
-            define_adt_cvc5_native(&tm, &mut solver, "Pair", &[("MkPair", &["fst", "snd"])]);
+            define_adt_cvc5_native(&mut tm, &mut solver, "Pair", &[("MkPair", &["fst", "snd"])]);
         // Access the "fst" accessor via the native API
-        let x = tm.mk_const(tm.integer_sort(), "x");
-        let fst_term = adt_accessor_cvc5_native(&tm, &symbols, "fst", &x);
+        let x = {
+            let __cvc1 = tm.integer_sort();
+            tm.mk_const(__cvc1, "x")
+        }
+        .expect("cvc5");
+        let fst_term = adt_accessor_cvc5_native(&mut tm, &symbols, "fst", &x);
         assert!(
             fst_term.sort().is_integer(),
             "accessor should return integer-sorted term"
@@ -1027,22 +1031,26 @@ mod cvc5_parity_468 {
         use crate::cvc5_backend::cvc5_adt::{
             adt_is_constructor_cvc5_native, define_adt_cvc5_native,
         };
-        let tm = cvc5::TermManager::new();
-        let mut solver = cvc5::Solver::new(&tm);
-        solver.set_logic("ALL");
+        let mut tm = cvc5::TermManager::new();
+        let mut solver = cvc5::Solver::new(&mut tm);
+        solver.set_logic("ALL").expect("cvc5");
         let (adt_def, symbols) = define_adt_cvc5_native(
-            &tm,
+            &mut tm,
             &mut solver,
             "Option",
             &[("Some", &["value"]), ("None", &[])],
         );
-        let x = tm.mk_const(tm.integer_sort(), "x");
+        let x = {
+            let __cvc0 = tm.integer_sort();
+            tm.mk_const(__cvc0, "x")
+        }
+        .expect("cvc5");
         let some_ctor = adt_def
             .constructors
             .iter()
             .find(|c| c.name == "Some")
             .unwrap();
-        let is_some = adt_is_constructor_cvc5_native(&tm, &symbols, some_ctor, &x);
+        let is_some = adt_is_constructor_cvc5_native(&mut tm, &symbols, some_ctor, &x);
         assert!(
             is_some.sort().is_boolean(),
             "is_constructor should produce a boolean term"

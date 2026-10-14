@@ -419,8 +419,12 @@ mod frame_tests {
 
     #[test]
     fn test_cvc5_quantifier_trigger_inference() {
-        let tm = cvc5::TermManager::new();
-        let bound = tm.mk_var(tm.integer_sort(), "i");
+        let mut tm = cvc5::TermManager::new();
+        let bound = {
+            let __cvc6 = tm.integer_sort();
+            tm.mk_var(__cvc6, "i")
+        }
+        .expect("cvc5");
 
         let body = Spanned::no_span(Expr::BinOp {
             op: BinOp::Gt,
@@ -431,7 +435,7 @@ mod frame_tests {
             rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
         });
 
-        let patterns = infer_quantifier_patterns_cvc5(&tm, &body, "i", &bound);
+        let patterns = infer_quantifier_patterns_cvc5(&mut tm, &body, "i", &bound);
         assert!(
             !patterns.is_empty(),
             "should infer trigger from f(i) call in quantifier body"
@@ -440,8 +444,12 @@ mod frame_tests {
 
     #[test]
     fn test_cvc5_trigger_no_call_no_pattern() {
-        let tm = cvc5::TermManager::new();
-        let bound = tm.mk_var(tm.integer_sort(), "i");
+        let mut tm = cvc5::TermManager::new();
+        let bound = {
+            let __cvc5 = tm.integer_sort();
+            tm.mk_var(__cvc5, "i")
+        }
+        .expect("cvc5");
 
         let body = Spanned::no_span(Expr::BinOp {
             op: BinOp::Gte,
@@ -449,7 +457,7 @@ mod frame_tests {
             rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
         });
 
-        let patterns = infer_quantifier_patterns_cvc5(&tm, &body, "i", &bound);
+        let patterns = infer_quantifier_patterns_cvc5(&mut tm, &body, "i", &bound);
         assert!(
             patterns.is_empty(),
             "no function calls means no triggers: got {:?}",
@@ -459,8 +467,12 @@ mod frame_tests {
 
     #[test]
     fn test_cvc5_trigger_nested_call() {
-        let tm = cvc5::TermManager::new();
-        let bound = tm.mk_var(tm.integer_sort(), "i");
+        let mut tm = cvc5::TermManager::new();
+        let bound = {
+            let __cvc4 = tm.integer_sort();
+            tm.mk_var(__cvc4, "i")
+        }
+        .expect("cvc5");
 
         let body = Spanned::no_span(Expr::BinOp {
             op: BinOp::Gt,
@@ -478,7 +490,7 @@ mod frame_tests {
             rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
         });
 
-        let patterns = infer_quantifier_patterns_cvc5(&tm, &body, "i", &bound);
+        let patterns = infer_quantifier_patterns_cvc5(&mut tm, &body, "i", &bound);
         assert!(
             patterns.len() >= 2,
             "should infer triggers from both g(i) and h(i): got {}",
@@ -488,15 +500,19 @@ mod frame_tests {
 
     #[test]
     fn test_cvc5_trigger_manager_integration() {
-        let tm = cvc5::TermManager::new();
-        let bound = tm.mk_var(tm.integer_sort(), "i");
+        let mut tm = cvc5::TermManager::new();
+        let bound = {
+            let __cvc3 = tm.integer_sort();
+            tm.mk_var(__cvc3, "i")
+        }
+        .expect("cvc5");
 
         let body = Spanned::no_span(Expr::Call {
             func: Box::new(Spanned::no_span(Expr::Ident("lookup".into()))),
             args: vec![Spanned::no_span(Expr::Ident("i".into()))],
         });
 
-        let patterns = infer_quantifier_patterns_cvc5(&tm, &body, "i", &bound);
+        let patterns = infer_quantifier_patterns_cvc5(&mut tm, &body, "i", &bound);
         assert!(
             !patterns.is_empty(),
             "should infer trigger from lookup(i) via direct scan fallback"
@@ -611,8 +627,12 @@ mod frame_tests {
 
     #[test]
     fn test_cvc5_multi_arg_trigger() {
-        let tm = cvc5::TermManager::new();
-        let bound = tm.mk_var(tm.integer_sort(), "i");
+        let mut tm = cvc5::TermManager::new();
+        let bound = {
+            let __cvc2 = tm.integer_sort();
+            tm.mk_var(__cvc2, "i")
+        }
+        .expect("cvc5");
 
         let body = Spanned::no_span(Expr::BinOp {
             op: BinOp::Gte,
@@ -626,7 +646,7 @@ mod frame_tests {
             rhs: Box::new(Spanned::no_span(Expr::Literal(Literal::Int("0".into())))),
         });
 
-        let patterns = infer_quantifier_patterns_cvc5(&tm, &body, "i", &bound);
+        let patterns = infer_quantifier_patterns_cvc5(&mut tm, &body, "i", &bound);
         assert!(
             !patterns.is_empty(),
             "should infer trigger from multi-arg lookup(table, i)"
@@ -742,14 +762,14 @@ mod frame_tests {
     fn test_cvc5_adt_constructor() {
         // Define Option = Some(value: Int) | None using CVC5 native API.
         // Verify that constructor tags are distinct and accessors work.
-        let tm = cvc5::TermManager::new();
-        let mut solver = cvc5::Solver::new(&tm);
-        solver.set_logic("ALL");
-        solver.set_option("produce-models", "true");
-        solver.set_option("tlimit", "2000");
+        let mut tm = cvc5::TermManager::new();
+        let mut solver = cvc5::Solver::new(&mut tm);
+        solver.set_logic("ALL").expect("cvc5");
+        solver.set_option("produce-models", "true").expect("cvc5");
+        solver.set_option("tlimit", "2000").expect("cvc5");
 
         let (adt_def, adt_symbols) = super::define_adt_cvc5_native(
-            &tm,
+            &mut tm,
             &mut solver,
             "Option",
             &[("Some", &["value"]), ("None", &[])],
@@ -772,7 +792,7 @@ mod frame_tests {
 
         let forty_two = tm.mk_integer(42);
         let some_val = super::adt_constructor_cvc5_native(
-            &tm,
+            &mut tm,
             &adt_symbols,
             some_ctor,
             &[forty_two.clone()],
@@ -780,7 +800,7 @@ mod frame_tests {
             &mut fresh,
         );
         let none_val = super::adt_constructor_cvc5_native(
-            &tm,
+            &mut tm,
             &adt_symbols,
             none_ctor,
             &[],
@@ -790,42 +810,54 @@ mod frame_tests {
 
         // Assert all axioms
         for axiom in &axioms {
-            solver.assert_formula(axiom.clone());
+            solver.assert_formula(axiom.clone()).expect("cvc5");
         }
 
         // Verify tags are distinct
         let is_some =
-            super::adt_is_constructor_cvc5_native(&tm, &adt_symbols, some_ctor, &some_val);
+            super::adt_is_constructor_cvc5_native(&mut tm, &adt_symbols, some_ctor, &some_val);
         let is_none =
-            super::adt_is_constructor_cvc5_native(&tm, &adt_symbols, none_ctor, &none_val);
-        solver.assert_formula(is_some);
-        solver.assert_formula(is_none);
+            super::adt_is_constructor_cvc5_native(&mut tm, &adt_symbols, none_ctor, &none_val);
+        solver.assert_formula(is_some).expect("cvc5");
+        solver.assert_formula(is_none).expect("cvc5");
 
         // Verify accessor: value(some_val) == 42
-        let accessed = super::adt_accessor_cvc5_native(&tm, &adt_symbols, "value", &some_val);
-        let eq_42 = tm.mk_term(cvc5::Kind::Equal, &[accessed, forty_two]);
-        let not_eq_42 = tm.mk_term(cvc5::Kind::Not, &[eq_42]);
-        solver.push(1);
-        solver.assert_formula(not_eq_42);
-        let result = solver.check_sat();
+        let accessed = super::adt_accessor_cvc5_native(&mut tm, &adt_symbols, "value", &some_val);
+        let eq_42 = tm
+            .mk_term(cvc5::Kind::Equal, &[accessed, forty_two])
+            .expect("cvc5");
+        let not_eq_42 = tm.mk_term(cvc5::Kind::Not, &[eq_42]).expect("cvc5");
+        solver.push(1).expect("cvc5");
+        solver.assert_formula(not_eq_42).expect("cvc5");
+        let result = solver.check_sat().expect("cvc5");
         assert!(
             result.is_unsat(),
             "accessor(Some(42)) must equal 42 (negation should be UNSAT)"
         );
-        solver.pop(1);
+        solver.pop(1).expect("cvc5");
 
         // Verify exhaustiveness: tag(x) == 99 should be UNSAT
-        let x = tm.mk_const(tm.integer_sort(), "x_adt_exh");
-        let tag_x = tm.mk_term(cvc5::Kind::ApplyUf, &[adt_symbols.tag_fn.clone(), x]);
-        let bad_tag = tm.mk_term(cvc5::Kind::Equal, &[tag_x, tm.mk_integer(99)]);
-        solver.push(1);
-        solver.assert_formula(bad_tag);
-        let result = solver.check_sat();
+        let x = {
+            let __cvc1 = tm.integer_sort();
+            tm.mk_const(__cvc1, "x_adt_exh")
+        }
+        .expect("cvc5");
+        let tag_x = tm
+            .mk_term(cvc5::Kind::ApplyUf, &[adt_symbols.tag_fn.clone(), x])
+            .expect("cvc5");
+        let bad_tag = {
+            let __cvc0 = tm.mk_integer(99);
+            tm.mk_term(cvc5::Kind::Equal, &[tag_x, __cvc0])
+        }
+        .expect("cvc5");
+        solver.push(1).expect("cvc5");
+        solver.assert_formula(bad_tag).expect("cvc5");
+        let result = solver.check_sat().expect("cvc5");
         assert!(
             result.is_unsat(),
             "tag(x) == 99 should be UNSAT with only tags 0 and 1"
         );
-        solver.pop(1);
+        solver.pop(1).expect("cvc5");
     }
 
     #[test]
@@ -912,25 +944,37 @@ mod frame_tests {
 
     #[test]
     fn test_cvc5_bitvector_wrapping() {
-        let tm = cvc5::TermManager::new();
-        let mut solver = cvc5::Solver::new(&tm);
-        solver.set_logic("QF_BV");
-        solver.set_option("produce-models", "true");
+        let mut tm = cvc5::TermManager::new();
+        let mut solver = cvc5::Solver::new(&mut tm);
+        solver.set_logic("QF_BV").expect("cvc5");
+        solver.set_option("produce-models", "true").expect("cvc5");
 
-        let eight = tm.mk_bv_sort(8);
-        let a = tm.mk_const(eight.clone(), "a");
-        let b = tm.mk_const(eight, "b");
-        let two_five_five = tm.mk_bv(8, 255);
-        let one = tm.mk_bv(8, 1);
-        let zero = tm.mk_bv(8, 0);
+        let eight = tm.mk_bv_sort(8).expect("cvc5");
+        let a = tm.mk_const(eight.clone(), "a").expect("cvc5");
+        let b = tm.mk_const(eight, "b").expect("cvc5");
+        let two_five_five = tm.mk_bv(8, 255).expect("cvc5");
+        let one = tm.mk_bv(8, 1).expect("cvc5");
+        let zero = tm.mk_bv(8, 0).expect("cvc5");
 
-        solver.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[a.clone(), two_five_five]));
-        solver.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[b.clone(), one]));
-        let sum = tm.mk_term(cvc5::Kind::BitvectorAdd, &[a, b]);
-        solver.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[sum, zero]));
+        solver
+            .assert_formula(
+                tm.mk_term(cvc5::Kind::Equal, &[a.clone(), two_five_five])
+                    .expect("cvc5"),
+            )
+            .expect("cvc5");
+        solver
+            .assert_formula(
+                tm.mk_term(cvc5::Kind::Equal, &[b.clone(), one])
+                    .expect("cvc5"),
+            )
+            .expect("cvc5");
+        let sum = tm.mk_term(cvc5::Kind::BitvectorAdd, &[a, b]).expect("cvc5");
+        solver
+            .assert_formula(tm.mk_term(cvc5::Kind::Equal, &[sum, zero]).expect("cvc5"))
+            .expect("cvc5");
 
         assert!(
-            solver.check_sat().is_sat(),
+            solver.check_sat().expect("cvc5").is_sat(),
             "255 + 1 should wrap to 0 in 8-bit BV"
         );
     }

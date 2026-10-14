@@ -30,44 +30,57 @@ use assura_types::checkers::expr_references_var;
 pub(crate) fn guard_quantifier_body_cvc5<'a, 'v, 's, E>(
     ctx: &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a, 'v, 's>,
     domain: &SpExpr,
-    bound_var: &cvc5::Term<'a>,
-    body: cvc5::Term<'a>,
+    bound_var: &cvc5::Term,
+    body: cvc5::Term,
     is_forall: bool,
     mut encode: E,
-) -> cvc5::Term<'a>
+) -> cvc5::Term
 where
     E: FnMut(
         &SpExpr,
         &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a, 'v, 's>,
-    ) -> Option<cvc5::Term<'a>>,
+    ) -> Option<cvc5::Term>,
 {
     let guard = if let Some((lo, hi)) = domain_as_range(domain) {
         let lo_val = encode(lo, ctx).unwrap_or_else(|| ctx.tm.mk_integer(0));
         let hi_val = encode(hi, ctx).unwrap_or_else(|| ctx.tm.mk_integer(0));
         let ge_lo = ctx
             .tm
-            .mk_term(cvc5::Kind::Geq, &[bound_var.clone(), lo_val]);
-        let lt_hi = ctx.tm.mk_term(cvc5::Kind::Lt, &[bound_var.clone(), hi_val]);
-        ctx.tm.mk_term(cvc5::Kind::And, &[ge_lo, lt_hi])
+            .mk_term(cvc5::Kind::Geq, &[bound_var.clone(), lo_val])
+            .expect("cvc5");
+        let lt_hi = ctx
+            .tm
+            .mk_term(cvc5::Kind::Lt, &[bound_var.clone(), hi_val])
+            .expect("cvc5");
+        ctx.tm
+            .mk_term(cvc5::Kind::And, &[ge_lo, lt_hi])
+            .expect("cvc5")
     } else {
         let domain_val = encode(domain, ctx).unwrap_or_else(|| {
-            ctx.tm.mk_const(
-                ctx.tm.integer_sort(),
-                crate::encode_quantifier_policy::DOMAIN_UNKNOWN_NAME,
-            )
+            let sort = ctx.tm.integer_sort();
+            ctx.tm
+                .mk_const(sort, crate::encode_quantifier_policy::DOMAIN_UNKNOWN_NAME)
+                .expect("cvc5")
         });
-        let contains_sort = ctx.tm.mk_fun_sort(
-            &[ctx.tm.integer_sort(), ctx.tm.integer_sort()],
-            ctx.tm.boolean_sort(),
-        );
-        let contains_fn = ctx.tm.mk_const(
-            contains_sort,
-            crate::encode_quantifier_policy::DOMAIN_CONTAINS_UF_NAME,
-        );
-        ctx.tm.mk_term(
-            cvc5::Kind::ApplyUf,
-            &[contains_fn, domain_val, bound_var.clone()],
-        )
+        let int_sort = ctx.tm.integer_sort();
+        let bool_sort = ctx.tm.boolean_sort();
+        let contains_sort = ctx
+            .tm
+            .mk_fun_sort(&[int_sort.clone(), int_sort], bool_sort)
+            .expect("cvc5");
+        let contains_fn = ctx
+            .tm
+            .mk_const(
+                contains_sort,
+                crate::encode_quantifier_policy::DOMAIN_CONTAINS_UF_NAME,
+            )
+            .expect("cvc5");
+        ctx.tm
+            .mk_term(
+                cvc5::Kind::ApplyUf,
+                &[contains_fn, domain_val, bound_var.clone()],
+            )
+            .expect("cvc5")
     };
     crate::cvc5_raw_ops::combine_quantifier_guard_cvc5(ctx.tm, is_forall, guard, body)
 }
@@ -81,15 +94,16 @@ pub(crate) fn encode_ast_quantifier_cvc5<'a, 'v, 's, E>(
     domain: &SpExpr,
     body: &SpExpr,
     mut encode: E,
-) -> Option<cvc5::Term<'a>>
+) -> Option<cvc5::Term>
 where
     E: FnMut(
         &SpExpr,
         &mut crate::cvc5_encoder_state::Cvc5QuantifierEncodeCtx<'a, 'v, 's>,
-    ) -> Option<cvc5::Term<'a>>,
+    ) -> Option<cvc5::Term>,
 {
     let v_name = sanitize_smt_name(var);
-    let bound_var = ctx.tm.mk_var(ctx.tm.integer_sort(), &v_name);
+    let int_sort = ctx.tm.integer_sort();
+    let bound_var = ctx.tm.mk_var(int_sort, &v_name).expect("cvc5");
     let old_binding = ctx.vars.insert(v_name.clone(), bound_var.clone());
     let b = encode(body, ctx)?;
     if let Some(old) = old_binding {
@@ -100,7 +114,8 @@ where
     let guarded = guard_quantifier_body_cvc5(ctx, domain, &bound_var, b, is_forall, &mut encode);
     let bound_list = ctx
         .tm
-        .mk_term(cvc5::Kind::VariableList, std::slice::from_ref(&bound_var));
+        .mk_term(cvc5::Kind::VariableList, std::slice::from_ref(&bound_var))
+        .expect("cvc5");
     // Register calls in the quantifier body itself (may refine contract-level manager).
     crate::cvc5_encoder_state::register_trigger_functions_from_expr(
         body,
@@ -127,10 +142,17 @@ where
         cvc5::Kind::Exists
     };
     if trigger_terms.is_empty() {
-        Some(ctx.tm.mk_term(kind, &[bound_list, guarded]))
+        Some(ctx.tm.mk_term(kind, &[bound_list, guarded]).expect("cvc5"))
     } else {
-        let inst_pattern = ctx.tm.mk_term(cvc5::Kind::InstPattern, &trigger_terms);
-        Some(ctx.tm.mk_term(kind, &[bound_list, guarded, inst_pattern]))
+        let inst_pattern = ctx
+            .tm
+            .mk_term(cvc5::Kind::InstPattern, &trigger_terms)
+            .expect("cvc5");
+        Some(
+            ctx.tm
+                .mk_term(kind, &[bound_list, guarded, inst_pattern])
+                .expect("cvc5"),
+        )
     }
 }
 
@@ -139,25 +161,25 @@ where
 /// When `trigger_mgr` is provided (shared contract-level manager with registered
 /// functions), AST-based inference runs first; otherwise only direct Call scan.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn infer_quantifier_patterns_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn infer_quantifier_patterns_cvc5(
+    tm: &mut cvc5::TermManager,
     body: &SpExpr,
     bound_var_name: &str,
-    bound_cvc5: &cvc5::Term<'a>,
-) -> Vec<cvc5::Term<'a>> {
+    bound_cvc5: &cvc5::Term,
+) -> Vec<cvc5::Term> {
     infer_quantifier_patterns_cvc5_with_mgr(tm, body, bound_var_name, bound_cvc5, None)
 }
 
 /// Tier A2: same as [`infer_quantifier_patterns_cvc5`] with optional shared
 /// [`TriggerManager`] so known functions/method names participate in inference.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn infer_quantifier_patterns_cvc5_with_mgr<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn infer_quantifier_patterns_cvc5_with_mgr(
+    tm: &mut cvc5::TermManager,
     body: &SpExpr,
     bound_var_name: &str,
-    bound_cvc5: &cvc5::Term<'a>,
+    bound_cvc5: &cvc5::Term,
     trigger_mgr: Option<&crate::advanced::TriggerManager>,
-) -> Vec<cvc5::Term<'a>> {
+) -> Vec<cvc5::Term> {
     let mut patterns = Vec::new();
 
     if let Some(mgr) = trigger_mgr
@@ -166,9 +188,16 @@ pub(crate) fn infer_quantifier_patterns_cvc5_with_mgr<'a>(
         for term in &trigger.terms {
             if let Some(fname) = term.split('(').next() {
                 let fname = fname.trim();
-                let fun_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-                let func = tm.mk_const(fun_sort, fname);
-                let app = tm.mk_term(cvc5::Kind::ApplyUf, &[func, bound_cvc5.clone()]);
+                let fun_sort = {
+                    let __cvc3 = tm.integer_sort();
+                    let __cvc2 = tm.integer_sort();
+                    tm.mk_fun_sort(&[__cvc3], __cvc2)
+                }
+                .expect("cvc5");
+                let func = tm.mk_const(fun_sort, fname).expect("cvc5");
+                let app = tm
+                    .mk_term(cvc5::Kind::ApplyUf, &[func, bound_cvc5.clone()])
+                    .expect("cvc5");
                 patterns.push(app);
             }
         }
@@ -182,12 +211,12 @@ pub(crate) fn infer_quantifier_patterns_cvc5_with_mgr<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
-fn collect_trigger_calls_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+fn collect_trigger_calls_cvc5(
+    tm: &mut cvc5::TermManager,
     expr: &SpExpr,
     bound_var: &str,
-    bound_cvc5: &cvc5::Term<'a>,
-    patterns: &mut Vec<cvc5::Term<'a>>,
+    bound_cvc5: &cvc5::Term,
+    patterns: &mut Vec<cvc5::Term>,
 ) {
     match &expr.node {
         Expr::Call { func, args } => {
@@ -195,20 +224,27 @@ fn collect_trigger_calls_cvc5<'a>(
             if refs_bound && let Expr::Ident(fname) = &func.node {
                 let arity = args.len();
                 let param_sorts: Vec<cvc5::Sort> = (0..arity).map(|_| tm.integer_sort()).collect();
-                let fun_sort = tm.mk_fun_sort(&param_sorts, tm.integer_sort());
-                let func_decl = tm.mk_const(fun_sort, fname.as_str());
+                let fun_sort = {
+                    let __cvc1 = tm.integer_sort();
+                    tm.mk_fun_sort(&param_sorts, __cvc1)
+                }
+                .expect("cvc5");
+                let func_decl = tm.mk_const(fun_sort, fname.as_str()).expect("cvc5");
                 let mut uf_args = vec![func_decl];
                 for a in args {
                     if expr_references_var(a, bound_var) {
                         uf_args.push(bound_cvc5.clone());
                     } else {
-                        uf_args.push(tm.mk_const(
-                            tm.integer_sort(),
-                            crate::encode_atom_policy::TRIGGER_OTHER_NAME,
-                        ));
+                        uf_args.push(
+                            {
+                                let __cvc0 = tm.integer_sort();
+                                tm.mk_const(__cvc0, crate::encode_atom_policy::TRIGGER_OTHER_NAME)
+                            }
+                            .expect("cvc5"),
+                        );
                     }
                 }
-                let app = tm.mk_term(cvc5::Kind::ApplyUf, &uf_args);
+                let app = tm.mk_term(cvc5::Kind::ApplyUf, &uf_args).expect("cvc5");
                 patterns.push(app);
             }
             for a in args {

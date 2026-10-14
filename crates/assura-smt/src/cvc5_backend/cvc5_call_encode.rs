@@ -147,36 +147,37 @@ where
 }
 
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_length_receiver_cvc5<'a, F>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn encode_length_receiver_cvc5<F>(
+    tm: &mut cvc5::TermManager,
     receiver: &SpExpr,
-    vars: &mut HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
+    vars: &mut HashMap<String, cvc5::Term>,
+    state: &mut Cvc5EncoderState,
     mut encode: F,
-) -> Option<cvc5::Term<'a>>
+) -> Option<cvc5::Term>
 where
     F: FnMut(
+        &mut cvc5::TermManager,
         &SpExpr,
-        &mut HashMap<String, cvc5::Term<'a>>,
-        &mut Cvc5EncoderState<'a>,
-    ) -> Option<cvc5::Term<'a>>,
+        &mut HashMap<String, cvc5::Term>,
+        &mut Cvc5EncoderState,
+    ) -> Option<cvc5::Term>,
 {
     if let Expr::Ident(name) = &receiver.node {
         return Some(canonical_length_cvc5(tm, name, vars, state));
     }
-    let recv_val = encode(receiver, vars, state)?;
+    let recv_val = encode(tm, receiver, vars, state)?;
     Some(field_len_of_receiver_cvc5(tm, &recv_val, state))
 }
 
 /// If `expr` is a simple ident, link `len`/`__field_len` UFs on its term to the
 /// canonical length variable (Z3 `collection_len_of` parity for named bindings).
 #[cfg(feature = "cvc5-verify")]
-fn maybe_link_ident_length_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+fn maybe_link_ident_length_cvc5(
+    tm: &mut cvc5::TermManager,
     expr: &SpExpr,
-    term: &cvc5::Term<'a>,
-    vars: &mut HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
+    term: &cvc5::Term,
+    vars: &mut HashMap<String, cvc5::Term>,
+    state: &mut Cvc5EncoderState,
 ) {
     if let Expr::Ident(name) = &expr.node {
         let canon = canonical_length_cvc5(tm, name, vars, state);
@@ -186,32 +187,38 @@ fn maybe_link_ident_length_cvc5<'a>(
 
 /// Encode `f(args)` as a native CVC5 term (builtin table or generic UF).
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_call_cvc5<'a, F>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn encode_call_cvc5<F>(
+    tm: &mut cvc5::TermManager,
     func: &SpExpr,
     args: &[SpExpr],
-    vars: &mut HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
+    vars: &mut HashMap<String, cvc5::Term>,
+    state: &mut Cvc5EncoderState,
     mut encode: F,
-) -> Option<cvc5::Term<'a>>
+) -> Option<cvc5::Term>
 where
     F: FnMut(
+        &mut cvc5::TermManager,
         &SpExpr,
-        &mut HashMap<String, cvc5::Term<'a>>,
-        &mut Cvc5EncoderState<'a>,
-    ) -> Option<cvc5::Term<'a>>,
+        &mut HashMap<String, cvc5::Term>,
+        &mut Cvc5EncoderState,
+    ) -> Option<cvc5::Term>,
 {
     if let Expr::Ident(name) = &func.node {
         let f_name = sanitize_smt_name(name);
         if args.is_empty() {
-            return vars
-                .get(&f_name)
-                .cloned()
-                .or_else(|| Some(tm.mk_const(tm.integer_sort(), &f_name)));
+            return vars.get(&f_name).cloned().or_else(|| {
+                Some(
+                    {
+                        let __cvc0 = tm.integer_sort();
+                        tm.mk_const(__cvc0, &f_name)
+                    }
+                    .expect("cvc5"),
+                )
+            });
         }
         let mut encoded_args = Vec::with_capacity(args.len());
         for a in args {
-            let t = encode(a, vars, state)?;
+            let t = encode(tm, a, vars, state)?;
             maybe_link_ident_length_cvc5(tm, a, &t, vars, state);
             encoded_args.push(t);
         }
@@ -232,32 +239,33 @@ where
 
 /// Expand `f(args)` using `ensures { result == <expr> }` from a same-file helper.
 #[cfg(feature = "cvc5-verify")]
-fn try_encode_call_via_callee_spec_cvc5<'a, F>(
-    _tm: &'a cvc5::TermManager,
+fn try_encode_call_via_callee_spec_cvc5<F>(
+    tm: &mut cvc5::TermManager,
     func_name: &str,
-    encoded_args: &[cvc5::Term<'a>],
-    vars: &mut HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
+    encoded_args: &[cvc5::Term],
+    vars: &mut HashMap<String, cvc5::Term>,
+    state: &mut Cvc5EncoderState,
     encode: &mut F,
-) -> Option<cvc5::Term<'a>>
+) -> Option<cvc5::Term>
 where
     F: FnMut(
+        &mut cvc5::TermManager,
         &SpExpr,
-        &mut HashMap<String, cvc5::Term<'a>>,
-        &mut Cvc5EncoderState<'a>,
-    ) -> Option<cvc5::Term<'a>>,
+        &mut HashMap<String, cvc5::Term>,
+        &mut Cvc5EncoderState,
+    ) -> Option<cvc5::Term>,
 {
     let spec = state.callee_specs.get(func_name)?.clone();
     if spec.param_names.len() != encoded_args.len() {
         return None;
     }
-    let mut saved: Vec<(String, Option<cvc5::Term<'a>>)> = Vec::new();
+    let mut saved: Vec<(String, Option<cvc5::Term>)> = Vec::new();
     for (param, arg) in spec.param_names.iter().zip(encoded_args.iter()) {
         saved.push((param.clone(), vars.remove(param)));
         vars.insert(param.clone(), arg.clone());
     }
     let body = spec.result_body.clone();
-    let encoded = encode(&body, vars, state);
+    let encoded = encode(tm, &body, vars, state);
     for (param, old) in saved {
         match old {
             Some(v) => {
@@ -273,31 +281,32 @@ where
 
 /// Encode `receiver.method(args)` as a native CVC5 term.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_method_call_cvc5<'a, F>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn encode_method_call_cvc5<F>(
+    tm: &mut cvc5::TermManager,
     receiver: &SpExpr,
     method: &str,
     args: &[SpExpr],
-    vars: &mut HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
+    vars: &mut HashMap<String, cvc5::Term>,
+    state: &mut Cvc5EncoderState,
     mut encode: F,
-) -> Option<cvc5::Term<'a>>
+) -> Option<cvc5::Term>
 where
     F: FnMut(
+        &mut cvc5::TermManager,
         &SpExpr,
-        &mut HashMap<String, cvc5::Term<'a>>,
-        &mut Cvc5EncoderState<'a>,
-    ) -> Option<cvc5::Term<'a>>,
+        &mut HashMap<String, cvc5::Term>,
+        &mut Cvc5EncoderState,
+    ) -> Option<cvc5::Term>,
 {
     if is_receiver_length_method(method, args.len()) {
         return encode_length_receiver_cvc5(tm, receiver, vars, state, encode);
     }
 
-    let recv_val = encode(receiver, vars, state)?;
+    let recv_val = encode(tm, receiver, vars, state)?;
     maybe_link_ident_length_cvc5(tm, receiver, &recv_val, vars, state);
     let mut all_encoded = vec![recv_val];
     for arg in args {
-        let t = encode(arg, vars, state)?;
+        let t = encode(tm, arg, vars, state)?;
         maybe_link_ident_length_cvc5(tm, arg, &t, vars, state);
         all_encoded.push(t);
     }

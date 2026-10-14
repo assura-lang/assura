@@ -25,14 +25,13 @@ else
   DIR_NAME="cvc5-Linux-x86_64-static"
 fi
 
-# Newest prebuilt the cvc5 0.4 bindings accept (solver < 1.3.5).
-# 1.3.4 includes per-TermManager libpoly contexts (cvc5 #12282).
-# 1.3.1 and 1.3.2 crash when several threads each own a TermManager
-# and set logic ALL. Do not use 1.4.x with these bindings.
-# Without CVC5_LIB_DIR, cvc5-sys still builds cvc5 1.3.1 from source.
+# Prebuilt for the cvc5 0.6.1 crate (cvc5-sys 0.6.1 expects solver 1.4.0).
+# 1.4.0 applies -Wno-error=deprecated-literal-operator for Apple Clang.
+# Do not point these bindings at a 1.3.x library.
+# Without CVC5_LIB_DIR, cvc5-sys clones tag cvc5-1.4.0 and builds it.
 # Do not use /releases/latest.
 # Override with CVC5_RELEASE_TAG if you need a different prebuilt.
-CVC5_RELEASE_TAG="${CVC5_RELEASE_TAG:-cvc5-1.3.4}"
+CVC5_RELEASE_TAG="${CVC5_RELEASE_TAG:-cvc5-1.4.0}"
 URL="https://github.com/cvc5/cvc5/releases/download/${CVC5_RELEASE_TAG}/${ZIP_NAME}"
 TMP_ZIP="$(mktemp -t cvc5.XXXXXX.zip)"
 

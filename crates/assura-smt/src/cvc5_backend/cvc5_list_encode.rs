@@ -19,13 +19,13 @@ pub(crate) fn encode_list_smtlib() -> String {
 
 /// Native CVC5: fresh Int constant with `__list_get` element axioms and length UF.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_list_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
-    elem_vals: &[cvc5::Term<'a>],
-    axioms: &mut Vec<cvc5::Term<'a>>,
+pub(crate) fn encode_list_cvc5(
+    tm: &mut cvc5::TermManager,
+    elem_vals: &[cvc5::Term],
+    axioms: &mut Vec<cvc5::Term>,
     fresh_counter: &mut usize,
-    len_func: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+    len_func: &cvc5::Term,
+) -> cvc5::Term {
     use crate::encode_list_policy::{list_get_uf_name, list_value_fresh_name};
 
     let len = elem_vals.len();
@@ -37,23 +37,43 @@ pub(crate) fn encode_list_cvc5<'a>(
 
     let list_name = list_value_fresh_name(*fresh_counter);
     *fresh_counter += 1;
-    let list_val = tm.mk_const(tm.integer_sort(), &list_name);
+    let list_val = {
+        let __cvc3 = tm.integer_sort();
+        tm.mk_const(__cvc3, &list_name)
+    }
+    .expect("cvc5");
 
-    let get_sort = tm.mk_fun_sort(&[tm.integer_sort(), tm.integer_sort()], tm.integer_sort());
-    let get_func = tm.mk_const(get_sort, list_get_uf_name());
+    let get_sort = {
+        let __cvc2 = tm.integer_sort();
+        let __cvc1 = tm.integer_sort();
+        let __cvc0 = tm.integer_sort();
+        tm.mk_fun_sort(&[__cvc2, __cvc1], __cvc0)
+    }
+    .expect("cvc5");
+    let get_func = tm.mk_const(get_sort, list_get_uf_name()).expect("cvc5");
 
     for (i, elem_val) in elem_vals.iter().enumerate() {
         let idx = tm.mk_integer(i as i64);
-        let accessed = tm.mk_term(
-            cvc5::Kind::ApplyUf,
-            &[get_func.clone(), list_val.clone(), idx],
+        let accessed = tm
+            .mk_term(
+                cvc5::Kind::ApplyUf,
+                &[get_func.clone(), list_val.clone(), idx],
+            )
+            .expect("cvc5");
+        axioms.push(
+            tm.mk_term(cvc5::Kind::Equal, &[accessed, elem_val.clone()])
+                .expect("cvc5"),
         );
-        axioms.push(tm.mk_term(cvc5::Kind::Equal, &[accessed, elem_val.clone()]));
     }
 
-    let len_result = tm.mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), list_val.clone()]);
+    let len_result = tm
+        .mk_term(cvc5::Kind::ApplyUf, &[len_func.clone(), list_val.clone()])
+        .expect("cvc5");
     let expected_len = tm.mk_integer(elem_vals.len() as i64);
-    axioms.push(tm.mk_term(cvc5::Kind::Equal, &[len_result, expected_len]));
+    axioms.push(
+        tm.mk_term(cvc5::Kind::Equal, &[len_result, expected_len])
+            .expect("cvc5"),
+    );
 
     list_val
 }

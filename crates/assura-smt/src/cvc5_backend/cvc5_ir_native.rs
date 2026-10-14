@@ -14,16 +14,14 @@ use crate::ir_lower::{IrSlotContext, IrTermBuilder};
 #[cfg(feature = "cvc5-verify")]
 use assura_ast::SpExpr;
 
-/// `'a` = term/manager lifetime; `'v`/`'s` = encoder session borrows (independent
-/// so we can construct the builder without requiring `vars`/`state` to outlive
-/// the function with the same lifetime as `tm` — that E0621 is why this path
-/// was temporarily stubbed).
+/// `'a` borrows the TermManager. `'v` and `'s` borrow the encoder session
+/// so `vars` and `state` do not have to share `tm`'s lifetime.
 #[cfg(feature = "cvc5-verify")]
 struct Cvc5IrBuilder<'a, 'v, 's, 'b> {
-    tm: &'a cvc5::TermManager,
-    slots: HashMap<usize, cvc5::Term<'a>>,
-    vars: &'v mut HashMap<String, cvc5::Term<'a>>,
-    state: &'s mut Cvc5EncoderState<'a>,
+    tm: &'a mut cvc5::TermManager,
+    slots: HashMap<usize, cvc5::Term>,
+    vars: &'v mut HashMap<String, cvc5::Term>,
+    state: &'s mut Cvc5EncoderState,
     slot_to_name: &'b HashMap<usize, String>,
     slot_types: &'b HashMap<usize, String>,
     enc_ctx: IrEncodeContext<'b>,
@@ -34,47 +32,52 @@ use std::collections::HashMap;
 
 #[cfg(feature = "cvc5-verify")]
 impl<'a, 'v, 's> Cvc5IrBuilder<'a, 'v, 's, '_> {
-    fn mk_named_const(&mut self, name: &str) -> cvc5::Term<'a> {
+    fn mk_named_const(&mut self, name: &str) -> cvc5::Term {
         let key = sanitize_smt_name(name);
+        let sort = self.tm.integer_sort();
         self.vars
             .entry(key.clone())
-            .or_insert_with(|| self.tm.mk_const(self.tm.integer_sort(), &key))
+            .or_insert_with(|| self.tm.mk_const(sort, &key).expect("cvc5"))
             .clone()
     }
 
-    fn mk_fresh_const(&mut self) -> cvc5::Term<'a> {
+    fn mk_fresh_const(&mut self) -> cvc5::Term {
         let name = crate::encode_atom_policy::fresh_temp_name(self.state.fresh_counter);
         self.state.fresh_counter += 1;
-        self.tm.mk_const(self.tm.integer_sort(), &name)
+        let sort = self.tm.integer_sort();
+        self.tm.mk_const(sort, &name).expect("cvc5")
     }
 
-    fn mk_unary_uf(&mut self, name: &str, arg: cvc5::Term<'a>) -> cvc5::Term<'a> {
+    fn mk_unary_uf(&mut self, name: &str, arg: cvc5::Term) -> cvc5::Term {
         self.mk_nary_uf(name, &[arg])
     }
 
-    fn mk_nary_uf(&mut self, name: &str, args: &[cvc5::Term<'a>]) -> cvc5::Term<'a> {
+    fn mk_nary_uf(&mut self, name: &str, args: &[cvc5::Term]) -> cvc5::Term {
         let key = sanitize_smt_name(name);
-        let domain: Vec<cvc5::Sort<'_>> = (0..args.len()).map(|_| self.tm.integer_sort()).collect();
+        let int_sort = self.tm.integer_sort();
+        let domain: Vec<cvc5::Sort> = (0..args.len()).map(|_| int_sort.clone()).collect();
         let fun_sort = if domain.is_empty() {
-            self.tm.integer_sort()
+            int_sort
         } else {
-            self.tm.mk_fun_sort(&domain, self.tm.integer_sort())
+            self.tm.mk_fun_sort(&domain, int_sort).expect("cvc5")
         };
-        let decl = self.tm.mk_const(fun_sort, &key);
+        let decl = self.tm.mk_const(fun_sort, &key).expect("cvc5");
         if args.is_empty() {
             decl
         } else {
             let mut apply_args = Vec::with_capacity(1 + args.len());
             apply_args.push(decl);
             apply_args.extend_from_slice(args);
-            self.tm.mk_term(cvc5::Kind::ApplyUf, &apply_args)
+            self.tm
+                .mk_term(cvc5::Kind::ApplyUf, &apply_args)
+                .expect("cvc5")
         }
     }
 }
 
 #[cfg(feature = "cvc5-verify")]
 impl<'a, 'v, 's> IrTermBuilder for Cvc5IrBuilder<'a, 'v, 's, '_> {
-    type Term = cvc5::Term<'a>;
+    type Term = cvc5::Term;
 
     fn int_const(&mut self, n: i64) -> Self::Term {
         self.tm.mk_integer(n)
@@ -92,17 +95,22 @@ impl<'a, 'v, 's> IrTermBuilder for Cvc5IrBuilder<'a, 'v, 's, '_> {
     }
 
     fn push_eq_axiom(&mut self, lhs: Self::Term, rhs: Self::Term) {
-        self.state
-            .axioms
-            .push(self.tm.mk_term(cvc5::Kind::Equal, &[lhs, rhs]));
+        self.state.axioms.push(
+            self.tm
+                .mk_term(cvc5::Kind::Equal, &[lhs, rhs])
+                .expect("cvc5"),
+        );
     }
 
     fn arith(&mut self, op: crate::ir::IrArithOp, lhs: Self::Term, rhs: Self::Term) -> Self::Term {
         use crate::ir::IrArithOp;
         match op {
-            IrArithOp::Add => self.tm.mk_term(cvc5::Kind::Add, &[lhs, rhs]),
-            IrArithOp::Sub => self.tm.mk_term(cvc5::Kind::Sub, &[lhs, rhs]),
-            IrArithOp::Mul => self.tm.mk_term(cvc5::Kind::Mult, &[lhs, rhs]),
+            IrArithOp::Add => self.tm.mk_term(cvc5::Kind::Add, &[lhs, rhs]).expect("cvc5"),
+            IrArithOp::Sub => self.tm.mk_term(cvc5::Kind::Sub, &[lhs, rhs]).expect("cvc5"),
+            IrArithOp::Mul => self
+                .tm
+                .mk_term(cvc5::Kind::Mult, &[lhs, rhs])
+                .expect("cvc5"),
             IrArithOp::Div => crate::cvc5_raw_ops::rust_trunc_div_cvc5(self.tm, lhs, rhs),
             IrArithOp::Mod => crate::cvc5_raw_ops::rust_trunc_mod_cvc5(self.tm, lhs, rhs),
         }
@@ -119,20 +127,27 @@ impl<'a, 'v, 's> IrTermBuilder for Cvc5IrBuilder<'a, 'v, 's, '_> {
         rhs: Self::Term,
     ) -> Self::Term {
         let b = match op {
-            crate::ir::IrCmpOp::Eq => self.tm.mk_term(cvc5::Kind::Equal, &[lhs, rhs]),
-            crate::ir::IrCmpOp::Ne => self.tm.mk_term(
-                cvc5::Kind::Not,
-                &[self.tm.mk_term(cvc5::Kind::Equal, &[lhs, rhs])],
-            ),
-            crate::ir::IrCmpOp::Lt => self.tm.mk_term(cvc5::Kind::Lt, &[lhs, rhs]),
-            crate::ir::IrCmpOp::Le => self.tm.mk_term(cvc5::Kind::Leq, &[lhs, rhs]),
-            crate::ir::IrCmpOp::Gt => self.tm.mk_term(cvc5::Kind::Gt, &[lhs, rhs]),
-            crate::ir::IrCmpOp::Ge => self.tm.mk_term(cvc5::Kind::Geq, &[lhs, rhs]),
+            crate::ir::IrCmpOp::Eq => self
+                .tm
+                .mk_term(cvc5::Kind::Equal, &[lhs, rhs])
+                .expect("cvc5"),
+            crate::ir::IrCmpOp::Ne => {
+                let eq = self
+                    .tm
+                    .mk_term(cvc5::Kind::Equal, &[lhs, rhs])
+                    .expect("cvc5");
+                self.tm.mk_term(cvc5::Kind::Not, &[eq]).expect("cvc5")
+            }
+            crate::ir::IrCmpOp::Lt => self.tm.mk_term(cvc5::Kind::Lt, &[lhs, rhs]).expect("cvc5"),
+            crate::ir::IrCmpOp::Le => self.tm.mk_term(cvc5::Kind::Leq, &[lhs, rhs]).expect("cvc5"),
+            crate::ir::IrCmpOp::Gt => self.tm.mk_term(cvc5::Kind::Gt, &[lhs, rhs]).expect("cvc5"),
+            crate::ir::IrCmpOp::Ge => self.tm.mk_term(cvc5::Kind::Geq, &[lhs, rhs]).expect("cvc5"),
         };
-        self.tm.mk_term(
-            cvc5::Kind::Ite,
-            &[b, self.tm.mk_integer(1), self.tm.mk_integer(0)],
-        )
+        let one = self.tm.mk_integer(1);
+        let zero = self.tm.mk_integer(0);
+        self.tm
+            .mk_term(cvc5::Kind::Ite, &[b, one, zero])
+            .expect("cvc5")
     }
 
     fn ite_nonzero(
@@ -142,9 +157,13 @@ impl<'a, 'v, 's> IrTermBuilder for Cvc5IrBuilder<'a, 'v, 's, '_> {
         else_v: Self::Term,
     ) -> Self::Term {
         let zero = self.tm.mk_integer(0);
-        let cond_bool = self.tm.mk_term(cvc5::Kind::Distinct, &[cond, zero]);
+        let cond_bool = self
+            .tm
+            .mk_term(cvc5::Kind::Distinct, &[cond, zero])
+            .expect("cvc5");
         self.tm
             .mk_term(cvc5::Kind::Ite, &[cond_bool, then_v, else_v])
+            .expect("cvc5")
     }
 
     fn nullary_uf(&mut self, name: &str) -> Self::Term {
@@ -220,7 +239,7 @@ impl<'a, 'v, 's> IrTermBuilder for Cvc5IrBuilder<'a, 'v, 's, '_> {
         if self.enc_ctx.type_ctx.has_struct_layout(type_id) {
             return encode_ir_construct_typed_cvc5(self, type_id, fields, slots);
         }
-        let args: Vec<cvc5::Term<'a>> = fields
+        let args: Vec<cvc5::Term> = fields
             .iter()
             .map(|(_, s)| self.load_slot(slots, *s))
             .collect();
@@ -232,9 +251,9 @@ impl<'a, 'v, 's> IrTermBuilder for Cvc5IrBuilder<'a, 'v, 's, '_> {
 }
 
 #[cfg(feature = "cvc5-verify")]
-fn ensure_struct_adt_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
-    state: &mut Cvc5EncoderState<'a>,
+fn ensure_struct_adt_cvc5(
+    tm: &mut cvc5::TermManager,
+    state: &mut Cvc5EncoderState,
     type_name: &str,
     field_names: &[&str],
 ) {
@@ -254,8 +273,8 @@ fn encode_ir_construct_typed_cvc5<'a, 'v, 's>(
     builder: &mut Cvc5IrBuilder<'a, 'v, 's, '_>,
     type_id: &str,
     fields: &[(usize, usize)],
-    slots: &HashMap<usize, cvc5::Term<'a>>,
-) -> cvc5::Term<'a> {
+    slots: &HashMap<usize, cvc5::Term>,
+) -> cvc5::Term {
     use crate::cvc5_adt::adt_constructor_cvc5_native;
 
     let field_names: Vec<&str> = builder
@@ -267,7 +286,7 @@ fn encode_ir_construct_typed_cvc5<'a, 'v, 's>(
 
     let mut ordered = fields.to_vec();
     ordered.sort_by_key(|(idx, _)| *idx);
-    let arg_terms: Vec<cvc5::Term<'a>> = ordered
+    let arg_terms: Vec<cvc5::Term> = ordered
         .iter()
         .map(|(_, s)| builder.load_slot(slots, *s))
         .collect();
@@ -296,13 +315,13 @@ fn encode_ir_construct_typed_cvc5<'a, 'v, 's>(
 }
 
 #[cfg(feature = "cvc5-verify")]
-fn encode_ir_pred_arg_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+fn encode_ir_pred_arg_cvc5(
+    tm: &mut cvc5::TermManager,
     arg: &crate::ir::IrPredArg,
-    slots: &HashMap<usize, cvc5::Term<'a>>,
-    vars: &mut HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
-) -> cvc5::Term<'a> {
+    slots: &HashMap<usize, cvc5::Term>,
+    vars: &mut HashMap<String, cvc5::Term>,
+    state: &mut Cvc5EncoderState,
+) -> cvc5::Term {
     use crate::havoc_assume::RESULT_SLOT;
     use crate::ir::{IrArithOp, IrLiteral, IrPredArg};
 
@@ -310,12 +329,22 @@ fn encode_ir_pred_arg_cvc5<'a>(
         IrPredArg::Slot(n) => slots.get(n).cloned().unwrap_or_else(|| {
             let name = crate::encode_atom_policy::fresh_temp_name(state.fresh_counter);
             state.fresh_counter += 1;
-            tm.mk_const(tm.integer_sort(), &name)
+            {
+                let __cvc5 = tm.integer_sort();
+                tm.mk_const(__cvc5, &name)
+            }
+            .expect("cvc5")
         }),
         IrPredArg::SlotResult => slots.get(&RESULT_SLOT).cloned().unwrap_or_else(|| {
             let key = crate::encode_atom_policy::RESULT_VAR_NAME.to_string();
             vars.entry(key.clone())
-                .or_insert_with(|| tm.mk_const(tm.integer_sort(), &key))
+                .or_insert_with(|| {
+                    {
+                        let __cvc4 = tm.integer_sort();
+                        tm.mk_const(__cvc4, &key)
+                    }
+                    .expect("cvc5")
+                })
                 .clone()
         }),
         IrPredArg::Lit(IrLiteral::Int(n)) => tm.mk_integer(*n),
@@ -324,15 +353,19 @@ fn encode_ir_pred_arg_cvc5<'a>(
         IrPredArg::Lit(IrLiteral::Str(_)) => {
             let name = crate::encode_atom_policy::fresh_temp_name(state.fresh_counter);
             state.fresh_counter += 1;
-            tm.mk_const(tm.integer_sort(), &name)
+            {
+                let __cvc3 = tm.integer_sort();
+                tm.mk_const(__cvc3, &name)
+            }
+            .expect("cvc5")
         }
         IrPredArg::Arith { op, lhs, rhs } => {
             let l = encode_ir_pred_arg_cvc5(tm, lhs, slots, vars, state);
             let r = encode_ir_pred_arg_cvc5(tm, rhs, slots, vars, state);
             match op {
-                IrArithOp::Add => tm.mk_term(cvc5::Kind::Add, &[l, r]),
-                IrArithOp::Sub => tm.mk_term(cvc5::Kind::Sub, &[l, r]),
-                IrArithOp::Mul => tm.mk_term(cvc5::Kind::Mult, &[l, r]),
+                IrArithOp::Add => tm.mk_term(cvc5::Kind::Add, &[l, r]).expect("cvc5"),
+                IrArithOp::Sub => tm.mk_term(cvc5::Kind::Sub, &[l, r]).expect("cvc5"),
+                IrArithOp::Mul => tm.mk_term(cvc5::Kind::Mult, &[l, r]).expect("cvc5"),
                 IrArithOp::Div => crate::cvc5_raw_ops::rust_trunc_div_cvc5(tm, l, r),
                 IrArithOp::Mod => crate::cvc5_raw_ops::rust_trunc_mod_cvc5(tm, l, r),
             }
@@ -341,32 +374,35 @@ fn encode_ir_pred_arg_cvc5<'a>(
 }
 
 #[cfg(feature = "cvc5-verify")]
-fn mk_ir_cmp_bool_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+fn mk_ir_cmp_bool_cvc5(
+    tm: &mut cvc5::TermManager,
     op: crate::ir::IrCmpOp,
-    l: cvc5::Term<'a>,
-    r: cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+    l: cvc5::Term,
+    r: cvc5::Term,
+) -> cvc5::Term {
     use crate::ir::IrCmpOp;
 
     match op {
-        IrCmpOp::Eq => tm.mk_term(cvc5::Kind::Equal, &[l, r]),
-        IrCmpOp::Ne => tm.mk_term(cvc5::Kind::Not, &[tm.mk_term(cvc5::Kind::Equal, &[l, r])]),
-        IrCmpOp::Lt => tm.mk_term(cvc5::Kind::Lt, &[l, r]),
-        IrCmpOp::Le => tm.mk_term(cvc5::Kind::Leq, &[l, r]),
-        IrCmpOp::Gt => tm.mk_term(cvc5::Kind::Gt, &[l, r]),
-        IrCmpOp::Ge => tm.mk_term(cvc5::Kind::Geq, &[l, r]),
+        IrCmpOp::Eq => tm.mk_term(cvc5::Kind::Equal, &[l, r]).expect("cvc5"),
+        IrCmpOp::Ne => {
+            let eq = tm.mk_term(cvc5::Kind::Equal, &[l, r]).expect("cvc5");
+            tm.mk_term(cvc5::Kind::Not, &[eq]).expect("cvc5")
+        }
+        IrCmpOp::Lt => tm.mk_term(cvc5::Kind::Lt, &[l, r]).expect("cvc5"),
+        IrCmpOp::Le => tm.mk_term(cvc5::Kind::Leq, &[l, r]).expect("cvc5"),
+        IrCmpOp::Gt => tm.mk_term(cvc5::Kind::Gt, &[l, r]).expect("cvc5"),
+        IrCmpOp::Ge => tm.mk_term(cvc5::Kind::Geq, &[l, r]).expect("cvc5"),
     }
 }
 
 #[cfg(feature = "cvc5-verify")]
-fn encode_ir_pred_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+fn encode_ir_pred_cvc5(
+    tm: &mut cvc5::TermManager,
     pred: &crate::ir::IrPred,
-    slots: &HashMap<usize, cvc5::Term<'a>>,
-    vars: &mut HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
-) -> Option<cvc5::Term<'a>> {
+    slots: &HashMap<usize, cvc5::Term>,
+    vars: &mut HashMap<String, cvc5::Term>,
+    state: &mut Cvc5EncoderState,
+) -> Option<cvc5::Term> {
     use crate::ir::IrPred;
 
     match pred {
@@ -380,15 +416,15 @@ fn encode_ir_pred_cvc5<'a>(
         IrPred::And(a, b) => {
             let la = encode_ir_pred_cvc5(tm, a, slots, vars, state)?;
             let lb = encode_ir_pred_cvc5(tm, b, slots, vars, state)?;
-            Some(tm.mk_term(cvc5::Kind::And, &[la, lb]))
+            Some(tm.mk_term(cvc5::Kind::And, &[la, lb]).expect("cvc5"))
         }
         IrPred::Or(a, b) => {
             let la = encode_ir_pred_cvc5(tm, a, slots, vars, state)?;
             let lb = encode_ir_pred_cvc5(tm, b, slots, vars, state)?;
-            Some(tm.mk_term(cvc5::Kind::Or, &[la, lb]))
+            Some(tm.mk_term(cvc5::Kind::Or, &[la, lb]).expect("cvc5"))
         }
         IrPred::Not(inner) => encode_ir_pred_cvc5(tm, inner, slots, vars, state)
-            .map(|p| tm.mk_term(cvc5::Kind::Not, &[p])),
+            .map(|p| tm.mk_term(cvc5::Kind::Not, &[p]).expect("cvc5")),
     }
 }
 
@@ -402,22 +438,28 @@ pub(crate) const CVC5_IR_BODY_CONSTRAINTS_IS_STUB: bool = false;
 /// [`crate::ir_exec::apply_ir_body_constraints`]; mirrors Z3 builder path).
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+    tm: &mut cvc5::TermManager,
     func: &crate::ir::IrFunction,
     contract_param_names: &[String],
-    vars: &mut HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
+    vars: &mut HashMap<String, cvc5::Term>,
+    state: &mut Cvc5EncoderState,
     enc_ctx: IrEncodeContext<'a>,
 ) {
     use crate::havoc_assume::{RESULT_SLOT, ir_param_names};
 
-    let mut slots: HashMap<usize, cvc5::Term<'a>> = HashMap::new();
+    let mut slots: HashMap<usize, cvc5::Term> = HashMap::new();
 
     for (slot, name) in ir_param_names(func, contract_param_names) {
         let key = sanitize_smt_name(&name);
         let v = vars
             .entry(key.clone())
-            .or_insert_with(|| tm.mk_const(tm.integer_sort(), &key))
+            .or_insert_with(|| {
+                {
+                    let __cvc1 = tm.integer_sort();
+                    tm.mk_const(__cvc1, &key)
+                }
+                .expect("cvc5")
+            })
             .clone();
         slots.insert(slot, v);
     }
@@ -425,7 +467,13 @@ pub(crate) fn apply_ir_body_constraints_cvc5<'a>(
     let result_key = crate::encode_atom_policy::RESULT_VAR_NAME.to_string();
     let result = vars
         .entry(result_key.clone())
-        .or_insert_with(|| tm.mk_const(tm.integer_sort(), &result_key))
+        .or_insert_with(|| {
+            {
+                let __cvc0 = tm.integer_sort();
+                tm.mk_const(__cvc0, &result_key)
+            }
+            .expect("cvc5")
+        })
         .clone();
     slots.insert(RESULT_SLOT, result);
 
@@ -460,10 +508,10 @@ mod tests {
 
     #[test]
     fn ir_arith_add_encodes() {
-        let tm = cvc5::TermManager::new();
+        let mut tm = cvc5::TermManager::new();
         let mut state = default_cvc5_encoder_state();
-        let slots: HashMap<usize, cvc5::Term<'_>> = HashMap::new();
-        let mut vars: HashMap<String, cvc5::Term<'_>> = HashMap::new();
+        let slots: HashMap<usize, cvc5::Term> = HashMap::new();
+        let mut vars: HashMap<String, cvc5::Term> = HashMap::new();
         let _expr = IrExprKind::Arith {
             op: IrArithOp::Add,
             lhs: 0,
@@ -477,7 +525,7 @@ mod tests {
         };
         // Test construction of Cvc5IrBuilder temporarily stubbed to avoid 'a lifetime + drop order borrow
         // issues with local vars/state under cvc5-verify test build. Core IR + native paths tested via fixtures.
-        let _ = (&mut vars, &mut state, &tm, &slots, &ctx, _expr);
+        let _ = (&mut vars, &mut state, &mut tm, &slots, &ctx, _expr);
     }
 
     /// Guard: if someone re-stubs the IR body path, fail fast in tests.
@@ -526,11 +574,11 @@ module double {
         let mut bodies = HashMap::new();
         bodies.insert("double".into(), helper_ir);
 
-        let tm = cvc5::TermManager::new();
+        let mut tm = cvc5::TermManager::new();
         let mut state = default_cvc5_encoder_state();
         let mut vars = HashMap::new();
         apply_ir_body_constraints_cvc5(
-            &tm,
+            &mut tm,
             &main_ir,
             &["x".into()],
             &mut vars,
@@ -550,10 +598,17 @@ module double {
         let (func, blocks) = crate::ir_encode::branch_if_else_ir_fixture();
         let enc_ctx = IrEncodeContext::new(None, None, Some(&blocks));
 
-        let tm = cvc5::TermManager::new();
+        let mut tm = cvc5::TermManager::new();
         let mut state = default_cvc5_encoder_state();
         let mut vars = HashMap::new();
-        apply_ir_body_constraints_cvc5(&tm, &func, &["x".into()], &mut vars, &mut state, enc_ctx);
+        apply_ir_body_constraints_cvc5(
+            &mut tm,
+            &func,
+            &["x".into()],
+            &mut vars,
+            &mut state,
+            enc_ctx,
+        );
 
         let text: String = state
             .axioms

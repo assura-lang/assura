@@ -20,10 +20,10 @@ pub(crate) struct Cvc5AdtDef {
 
 /// Native CVC5 UF symbols declared by `define_adt_cvc5_native`.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) struct Cvc5AdtNativeSymbols<'a> {
+pub(crate) struct Cvc5AdtNativeSymbols {
     pub(crate) adt_name: String,
-    pub(crate) tag_fn: cvc5::Term<'a>,
-    pub(crate) acc_fns: std::collections::HashMap<String, cvc5::Term<'a>>,
+    pub(crate) tag_fn: cvc5::Term,
+    pub(crate) acc_fns: std::collections::HashMap<String, cvc5::Term>,
 }
 
 /// Define an ADT for CVC5 and generate SMT-LIB2 assertions.
@@ -145,11 +145,11 @@ pub(crate) fn adt_accessor_smt(adt_name: &str, accessor: &str, value: &str) -> S
 }
 
 #[cfg(feature = "cvc5-verify")]
-fn build_adt_cvc5_native<'a>(
-    tm: &'a cvc5::TermManager,
+fn build_adt_cvc5_native(
+    tm: &mut cvc5::TermManager,
     adt_name: &str,
     constructors: &[(&str, &[&str])],
-) -> (Cvc5AdtDef, Cvc5AdtNativeSymbols<'a>) {
+) -> (Cvc5AdtDef, Cvc5AdtNativeSymbols) {
     let mut adt_ctors = Vec::new();
 
     for (tag, (ctor_name, accessors)) in constructors.iter().enumerate() {
@@ -166,15 +166,25 @@ fn build_adt_cvc5_native<'a>(
     };
 
     let tag_fn_name = crate::encode_atom_policy::adt_tag_uf_name(adt_name);
-    let tag_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-    let tag_fn = tm.mk_const(tag_sort, &tag_fn_name);
+    let tag_sort = {
+        let __cvc10 = tm.integer_sort();
+        let __cvc9 = tm.integer_sort();
+        tm.mk_fun_sort(&[__cvc10], __cvc9)
+    }
+    .expect("cvc5");
+    let tag_fn = tm.mk_const(tag_sort, &tag_fn_name).expect("cvc5");
 
     let mut acc_fns = std::collections::HashMap::new();
     for ctor in &adt_def.constructors {
         for accessor in &ctor.accessors {
             let acc_fn_name = crate::encode_atom_policy::adt_accessor_uf_name(adt_name, accessor);
-            let acc_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-            let acc_fn_term = tm.mk_const(acc_sort, &acc_fn_name);
+            let acc_sort = {
+                let __cvc8 = tm.integer_sort();
+                let __cvc7 = tm.integer_sort();
+                tm.mk_fun_sort(&[__cvc8], __cvc7)
+            }
+            .expect("cvc5");
+            let acc_fn_term = tm.mk_const(acc_sort, &acc_fn_name).expect("cvc5");
             acc_fns.insert(acc_fn_name, acc_fn_term);
         }
     }
@@ -191,106 +201,166 @@ fn build_adt_cvc5_native<'a>(
 
 /// Declare struct ADT UF symbols for IR field/construct encoding (no solver axioms).
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn declare_struct_adt_ufs_cvc5_native<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn declare_struct_adt_ufs_cvc5_native(
+    tm: &mut cvc5::TermManager,
     type_name: &str,
     field_names: &[&str],
-) -> (Cvc5AdtDef, Cvc5AdtNativeSymbols<'a>) {
+) -> (Cvc5AdtDef, Cvc5AdtNativeSymbols) {
     build_adt_cvc5_native(tm, type_name, &[(type_name, field_names)])
 }
 
 #[cfg(feature = "cvc5-verify")]
 #[cfg_attr(not(test), allow(dead_code, reason = "cvc5 native ADT tests"))]
-pub(crate) fn define_adt_cvc5_native<'a>(
-    tm: &'a cvc5::TermManager,
-    solver: &mut cvc5::Solver<'a>,
+pub(crate) fn define_adt_cvc5_native(
+    tm: &mut cvc5::TermManager,
+    solver: &mut cvc5::Solver,
     adt_name: &str,
     constructors: &[(&str, &[&str])],
-) -> (Cvc5AdtDef, Cvc5AdtNativeSymbols<'a>) {
+) -> (Cvc5AdtDef, Cvc5AdtNativeSymbols) {
     let (adt_def, symbols) = build_adt_cvc5_native(tm, adt_name, constructors);
     let tag_fn = symbols.tag_fn.clone();
 
-    let x = tm.mk_var(
-        tm.integer_sort(),
-        &crate::encode_atom_policy::adt_exhaust_var_name(adt_name),
-    );
-    let tag_x = tm.mk_term(cvc5::Kind::ApplyUf, &[tag_fn.clone(), x.clone()]);
+    let x = {
+        let __cvc6 = tm.integer_sort();
+        tm.mk_var(
+            __cvc6,
+            &crate::encode_atom_policy::adt_exhaust_var_name(adt_name),
+        )
+    }
+    .expect("cvc5");
+    let tag_x = tm
+        .mk_term(cvc5::Kind::ApplyUf, &[tag_fn.clone(), x.clone()])
+        .expect("cvc5");
 
     let tag_eqs: Vec<cvc5::Term> = adt_def
         .constructors
         .iter()
-        .map(|c| tm.mk_term(cvc5::Kind::Equal, &[tag_x.clone(), tm.mk_integer(c.tag)]))
+        .map(|c| {
+            {
+                let __cvc5 = tm.mk_integer(c.tag);
+                tm.mk_term(cvc5::Kind::Equal, &[tag_x.clone(), __cvc5])
+            }
+            .expect("cvc5")
+        })
         .collect();
     let exhaustive = if tag_eqs.len() == 1 {
         tag_eqs[0].clone()
     } else {
-        tm.mk_term(cvc5::Kind::Or, &tag_eqs)
+        tm.mk_term(cvc5::Kind::Or, &tag_eqs).expect("cvc5")
     };
-    let bound_list = tm.mk_term(cvc5::Kind::VariableList, std::slice::from_ref(&x));
-    let forall_exhaustive = tm.mk_term(cvc5::Kind::Forall, &[bound_list, exhaustive]);
-    solver.assert_formula(forall_exhaustive);
+    let bound_list = tm
+        .mk_term(cvc5::Kind::VariableList, std::slice::from_ref(&x))
+        .expect("cvc5");
+    let forall_exhaustive = tm
+        .mk_term(cvc5::Kind::Forall, &[bound_list, exhaustive])
+        .expect("cvc5");
+    solver.assert_formula(forall_exhaustive).expect("cvc5");
 
     for ctor in &adt_def.constructors {
-        let a = tm.mk_var(
-            tm.integer_sort(),
-            &crate::encode_atom_policy::adt_inject_var_name(adt_name, &ctor.name, 'a'),
-        );
-        let b = tm.mk_var(
-            tm.integer_sort(),
-            &crate::encode_atom_policy::adt_inject_var_name(adt_name, &ctor.name, 'b'),
-        );
-        let tag_a = tm.mk_term(cvc5::Kind::ApplyUf, &[tag_fn.clone(), a.clone()]);
-        let tag_b = tm.mk_term(cvc5::Kind::ApplyUf, &[tag_fn.clone(), b.clone()]);
+        let a = {
+            let __cvc4 = tm.integer_sort();
+            tm.mk_var(
+                __cvc4,
+                &crate::encode_atom_policy::adt_inject_var_name(adt_name, &ctor.name, 'a'),
+            )
+        }
+        .expect("cvc5");
+        let b = {
+            let __cvc3 = tm.integer_sort();
+            tm.mk_var(
+                __cvc3,
+                &crate::encode_atom_policy::adt_inject_var_name(adt_name, &ctor.name, 'b'),
+            )
+        }
+        .expect("cvc5");
+        let tag_a = tm
+            .mk_term(cvc5::Kind::ApplyUf, &[tag_fn.clone(), a.clone()])
+            .expect("cvc5");
+        let tag_b = tm
+            .mk_term(cvc5::Kind::ApplyUf, &[tag_fn.clone(), b.clone()])
+            .expect("cvc5");
         let tag_val = tm.mk_integer(ctor.tag);
 
         let mut conjuncts = vec![
-            tm.mk_term(cvc5::Kind::Equal, &[tag_a, tag_val.clone()]),
-            tm.mk_term(cvc5::Kind::Equal, &[tag_b, tag_val]),
+            tm.mk_term(cvc5::Kind::Equal, &[tag_a, tag_val.clone()])
+                .expect("cvc5"),
+            tm.mk_term(cvc5::Kind::Equal, &[tag_b, tag_val])
+                .expect("cvc5"),
         ];
 
         for accessor in &ctor.accessors {
             let acc_fn_name = crate::encode_atom_policy::adt_accessor_uf_name(adt_name, accessor);
             if let Some(acc_fn_term) = symbols.acc_fns.get(&acc_fn_name) {
-                let acc_a = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn_term.clone(), a.clone()]);
-                let acc_b = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn_term.clone(), b.clone()]);
-                conjuncts.push(tm.mk_term(cvc5::Kind::Equal, &[acc_a, acc_b]));
+                let acc_a = tm
+                    .mk_term(cvc5::Kind::ApplyUf, &[acc_fn_term.clone(), a.clone()])
+                    .expect("cvc5");
+                let acc_b = tm
+                    .mk_term(cvc5::Kind::ApplyUf, &[acc_fn_term.clone(), b.clone()])
+                    .expect("cvc5");
+                conjuncts.push(
+                    tm.mk_term(cvc5::Kind::Equal, &[acc_a, acc_b])
+                        .expect("cvc5"),
+                );
             }
         }
 
-        let premise = tm.mk_term(cvc5::Kind::And, &conjuncts);
-        let eq_ab = tm.mk_term(cvc5::Kind::Equal, &[a.clone(), b.clone()]);
-        let implication = tm.mk_term(cvc5::Kind::Implies, &[premise, eq_ab]);
-        let bound_list_ab = tm.mk_term(cvc5::Kind::VariableList, &[a, b]);
-        let forall_inj = tm.mk_term(cvc5::Kind::Forall, &[bound_list_ab, implication]);
-        solver.assert_formula(forall_inj);
+        let premise = tm.mk_term(cvc5::Kind::And, &conjuncts).expect("cvc5");
+        let eq_ab = tm
+            .mk_term(cvc5::Kind::Equal, &[a.clone(), b.clone()])
+            .expect("cvc5");
+        let implication = tm
+            .mk_term(cvc5::Kind::Implies, &[premise, eq_ab])
+            .expect("cvc5");
+        let bound_list_ab = tm.mk_term(cvc5::Kind::VariableList, &[a, b]).expect("cvc5");
+        let forall_inj = tm
+            .mk_term(cvc5::Kind::Forall, &[bound_list_ab, implication])
+            .expect("cvc5");
+        solver.assert_formula(forall_inj).expect("cvc5");
     }
 
     (adt_def, symbols)
 }
 
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn adt_constructor_cvc5_native<'a>(
-    tm: &'a cvc5::TermManager,
-    symbols: &Cvc5AdtNativeSymbols<'a>,
+pub(crate) fn adt_constructor_cvc5_native(
+    tm: &mut cvc5::TermManager,
+    symbols: &Cvc5AdtNativeSymbols,
     ctor: &Cvc5AdtConstructor,
-    args: &[cvc5::Term<'a>],
-    axioms: &mut Vec<cvc5::Term<'a>>,
+    args: &[cvc5::Term],
+    axioms: &mut Vec<cvc5::Term>,
     fresh_counter: &mut usize,
-) -> cvc5::Term<'a> {
+) -> cvc5::Term {
     let val_name = crate::encode_atom_policy::adt_val_fresh_name(*fresh_counter, &ctor.name);
     *fresh_counter += 1;
-    let val = tm.mk_const(tm.integer_sort(), &val_name);
+    let val = {
+        let __cvc2 = tm.integer_sort();
+        tm.mk_const(__cvc2, &val_name)
+    }
+    .expect("cvc5");
 
-    let tag_applied = tm.mk_term(cvc5::Kind::ApplyUf, &[symbols.tag_fn.clone(), val.clone()]);
-    axioms.push(tm.mk_term(cvc5::Kind::Equal, &[tag_applied, tm.mk_integer(ctor.tag)]));
+    let tag_applied = tm
+        .mk_term(cvc5::Kind::ApplyUf, &[symbols.tag_fn.clone(), val.clone()])
+        .expect("cvc5");
+    axioms.push(
+        {
+            let __cvc1 = tm.mk_integer(ctor.tag);
+            tm.mk_term(cvc5::Kind::Equal, &[tag_applied, __cvc1])
+        }
+        .expect("cvc5"),
+    );
 
     for (i, accessor) in ctor.accessors.iter().enumerate() {
         if let Some(arg) = args.get(i) {
             let acc_fn_name =
                 crate::encode_atom_policy::adt_accessor_uf_name(&symbols.adt_name, accessor);
             if let Some(acc_fn) = symbols.acc_fns.get(&acc_fn_name) {
-                let acc_applied = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn.clone(), val.clone()]);
-                axioms.push(tm.mk_term(cvc5::Kind::Equal, &[acc_applied, arg.clone()]));
+                let acc_applied = tm
+                    .mk_term(cvc5::Kind::ApplyUf, &[acc_fn.clone(), val.clone()])
+                    .expect("cvc5");
+                axioms.push(
+                    tm.mk_term(cvc5::Kind::Equal, &[acc_applied, arg.clone()])
+                        .expect("cvc5"),
+                );
             }
         }
     }
@@ -300,33 +370,40 @@ pub(crate) fn adt_constructor_cvc5_native<'a>(
 
 #[cfg(feature = "cvc5-verify")]
 #[cfg_attr(not(test), allow(dead_code, reason = "cvc5 native ADT tests"))]
-pub(crate) fn adt_is_constructor_cvc5_native<'a>(
-    tm: &'a cvc5::TermManager,
-    symbols: &Cvc5AdtNativeSymbols<'a>,
+pub(crate) fn adt_is_constructor_cvc5_native(
+    tm: &mut cvc5::TermManager,
+    symbols: &Cvc5AdtNativeSymbols,
     ctor: &Cvc5AdtConstructor,
-    value: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
-    let tag_val = tm.mk_term(
-        cvc5::Kind::ApplyUf,
-        &[symbols.tag_fn.clone(), value.clone()],
-    );
-    tm.mk_term(cvc5::Kind::Equal, &[tag_val, tm.mk_integer(ctor.tag)])
+    value: &cvc5::Term,
+) -> cvc5::Term {
+    let tag_val = tm
+        .mk_term(
+            cvc5::Kind::ApplyUf,
+            &[symbols.tag_fn.clone(), value.clone()],
+        )
+        .expect("cvc5");
+    {
+        let __cvc0 = tm.mk_integer(ctor.tag);
+        tm.mk_term(cvc5::Kind::Equal, &[tag_val, __cvc0])
+    }
+    .expect("cvc5")
 }
 
 #[cfg(feature = "cvc5-verify")]
 #[cfg_attr(not(test), allow(dead_code, reason = "cvc5 native ADT tests"))]
-pub(crate) fn adt_accessor_cvc5_native<'a>(
-    tm: &'a cvc5::TermManager,
-    symbols: &Cvc5AdtNativeSymbols<'a>,
+pub(crate) fn adt_accessor_cvc5_native(
+    tm: &mut cvc5::TermManager,
+    symbols: &Cvc5AdtNativeSymbols,
     accessor: &str,
-    value: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+    value: &cvc5::Term,
+) -> cvc5::Term {
     let acc_fn_name = crate::encode_atom_policy::adt_accessor_uf_name(&symbols.adt_name, accessor);
     let acc_fn = symbols
         .acc_fns
         .get(&acc_fn_name)
         .expect("accessor must be declared by define_adt_cvc5_native");
     tm.mk_term(cvc5::Kind::ApplyUf, &[acc_fn.clone(), value.clone()])
+        .expect("cvc5")
 }
 
 #[cfg(test)]

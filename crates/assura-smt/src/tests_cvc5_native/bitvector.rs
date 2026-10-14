@@ -6,21 +6,21 @@ use super::*;
 #[test]
 fn test_cvc5_bv_const_sort() {
     use crate::cvc5_bitvector_encode::*;
-    let tm = cvc5::TermManager::new();
-    let v = bv_const(&tm, "x", 8);
+    let mut tm = cvc5::TermManager::new();
+    let v = bv_const(&mut tm, "x", 8);
     assert!(v.sort().is_bv());
-    assert_eq!(v.sort().bv_size(), 8);
+    assert_eq!(v.sort().bv_size().expect("cvc5"), 8);
 }
 
 #[cfg(feature = "cvc5-verify")]
 #[test]
 fn test_cvc5_bv_from_u64() {
     use crate::cvc5_bitvector_encode::*;
-    let tm = cvc5::TermManager::new();
+    let mut tm = cvc5::TermManager::new();
     for width in [8, 16, 32, 64] {
-        let v = bv_from_u64(&tm, 42, width);
+        let v = bv_from_u64(&mut tm, 42, width);
         assert!(v.sort().is_bv());
-        assert_eq!(v.sort().bv_size(), width);
+        assert_eq!(v.sort().bv_size().expect("cvc5"), width);
     }
 }
 
@@ -28,30 +28,30 @@ fn test_cvc5_bv_from_u64() {
 #[test]
 fn test_cvc5_bv_from_i64() {
     use crate::cvc5_bitvector_encode::*;
-    let tm = cvc5::TermManager::new();
-    let v = bv_from_i64(&tm, -1, 8);
+    let mut tm = cvc5::TermManager::new();
+    let v = bv_from_i64(&mut tm, -1, 8);
     assert!(v.sort().is_bv());
-    assert_eq!(v.sort().bv_size(), 8);
+    assert_eq!(v.sort().bv_size().expect("cvc5"), 8);
     // -1 as u8 = 255 = 0xFF
-    assert_eq!(v.bv_value(10), "255");
+    assert_eq!(v.bv_value(10).expect("cvc5"), "255");
 }
 
 #[cfg(feature = "cvc5-verify")]
 #[test]
 fn test_cvc5_bv_arithmetic() {
     use crate::cvc5_bitvector_encode::*;
-    let tm = cvc5::TermManager::new();
-    let a = bv_const(&tm, "a", 32);
-    let b = bv_const(&tm, "b", 32);
+    let mut tm = cvc5::TermManager::new();
+    let a = bv_const(&mut tm, "a", 32);
+    let b = bv_const(&mut tm, "b", 32);
 
-    let sum = bvadd(&tm, &a, &b);
+    let sum = bvadd(&mut tm, &a, &b);
     assert!(sum.sort().is_bv());
-    assert_eq!(sum.sort().bv_size(), 32);
+    assert_eq!(sum.sort().bv_size().expect("cvc5"), 32);
 
-    let diff = bvsub(&tm, &a, &b);
+    let diff = bvsub(&mut tm, &a, &b);
     assert!(diff.sort().is_bv());
 
-    let prod = bvmul(&tm, &a, &b);
+    let prod = bvmul(&mut tm, &a, &b);
     assert!(prod.sort().is_bv());
 }
 
@@ -59,20 +59,20 @@ fn test_cvc5_bv_arithmetic() {
 #[test]
 fn test_cvc5_bv_comparisons() {
     use crate::cvc5_bitvector_encode::*;
-    let tm = cvc5::TermManager::new();
-    let a = bv_const(&tm, "a", 16);
-    let b = bv_const(&tm, "b", 16);
+    let mut tm = cvc5::TermManager::new();
+    let a = bv_const(&mut tm, "a", 16);
+    let b = bv_const(&mut tm, "b", 16);
 
-    let slt = bvslt(&tm, &a, &b);
+    let slt = bvslt(&mut tm, &a, &b);
     assert!(slt.sort().is_boolean());
 
-    let sle = bvsle(&tm, &a, &b);
+    let sle = bvsle(&mut tm, &a, &b);
     assert!(sle.sort().is_boolean());
 
-    let ult = bvult(&tm, &a, &b);
+    let ult = bvult(&mut tm, &a, &b);
     assert!(ult.sort().is_boolean());
 
-    let ule = bvule(&tm, &a, &b);
+    let ule = bvule(&mut tm, &a, &b);
     assert!(ule.sort().is_boolean());
 }
 
@@ -80,17 +80,17 @@ fn test_cvc5_bv_comparisons() {
 #[test]
 fn test_cvc5_bv_bitwise() {
     use crate::cvc5_bitvector_encode::*;
-    let tm = cvc5::TermManager::new();
-    let a = bv_const(&tm, "a", 8);
-    let b = bv_const(&tm, "b", 8);
+    let mut tm = cvc5::TermManager::new();
+    let a = bv_const(&mut tm, "a", 8);
+    let b = bv_const(&mut tm, "b", 8);
 
-    let and_val = bvand(&tm, &a, &b);
+    let and_val = bvand(&mut tm, &a, &b);
     assert!(and_val.sort().is_bv());
 
-    let or_val = bvor(&tm, &a, &b);
+    let or_val = bvor(&mut tm, &a, &b);
     assert!(or_val.sort().is_bv());
 
-    let xor_val = bvxor(&tm, &a, &b);
+    let xor_val = bvxor(&mut tm, &a, &b);
     assert!(xor_val.sort().is_bv());
 }
 
@@ -98,17 +98,17 @@ fn test_cvc5_bv_bitwise() {
 #[test]
 fn test_cvc5_bv_shifts() {
     use crate::cvc5_bitvector_encode::*;
-    let tm = cvc5::TermManager::new();
-    let a = bv_const(&tm, "a", 32);
-    let b = bv_const(&tm, "b", 32);
+    let mut tm = cvc5::TermManager::new();
+    let a = bv_const(&mut tm, "a", 32);
+    let b = bv_const(&mut tm, "b", 32);
 
-    let shl = bvshl(&tm, &a, &b);
+    let shl = bvshl(&mut tm, &a, &b);
     assert!(shl.sort().is_bv());
 
-    let lshr = bvlshr(&tm, &a, &b);
+    let lshr = bvlshr(&mut tm, &a, &b);
     assert!(lshr.sort().is_bv());
 
-    let ashr = bvashr(&tm, &a, &b);
+    let ashr = bvashr(&mut tm, &a, &b);
     assert!(ashr.sort().is_bv());
 }
 
@@ -116,14 +116,14 @@ fn test_cvc5_bv_shifts() {
 #[test]
 fn test_cvc5_bv_overflow_detection() {
     use crate::cvc5_bitvector_encode::*;
-    let tm = cvc5::TermManager::new();
-    let a = bv_const(&tm, "a", 8);
-    let b = bv_const(&tm, "b", 8);
+    let mut tm = cvc5::TermManager::new();
+    let a = bv_const(&mut tm, "a", 8);
+    let b = bv_const(&mut tm, "b", 8);
 
-    let uaddo = bvadd_overflow_unsigned(&tm, &a, &b);
+    let uaddo = bvadd_overflow_unsigned(&mut tm, &a, &b);
     assert!(uaddo.sort().is_boolean());
 
-    let saddo = bvadd_overflow_signed(&tm, &a, &b);
+    let saddo = bvadd_overflow_signed(&mut tm, &a, &b);
     assert!(saddo.sort().is_boolean());
 }
 
@@ -131,29 +131,33 @@ fn test_cvc5_bv_overflow_detection() {
 #[test]
 fn test_cvc5_bv_extension_extraction() {
     use crate::cvc5_bitvector_encode::*;
-    let tm = cvc5::TermManager::new();
-    let a = bv_const(&tm, "a", 8);
+    let mut tm = cvc5::TermManager::new();
+    let a = bv_const(&mut tm, "a", 8);
 
-    let zext = bv_zero_extend(&tm, &a, 8);
+    let zext = bv_zero_extend(&mut tm, &a, 8);
     assert!(zext.sort().is_bv());
-    assert_eq!(zext.sort().bv_size(), 16);
+    assert_eq!(zext.sort().bv_size().expect("cvc5"), 16);
 
-    let sext = bv_sign_extend(&tm, &a, 8);
+    let sext = bv_sign_extend(&mut tm, &a, 8);
     assert!(sext.sort().is_bv());
-    assert_eq!(sext.sort().bv_size(), 16);
+    assert_eq!(sext.sort().bv_size().expect("cvc5"), 16);
 
-    let extr = bv_extract(&tm, &a, 7, 4);
+    let extr = bv_extract(&mut tm, &a, 7, 4);
     assert!(extr.sort().is_bv());
-    assert_eq!(extr.sort().bv_size(), 4);
+    assert_eq!(extr.sort().bv_size().expect("cvc5"), 4);
 }
 
 #[cfg(feature = "cvc5-verify")]
 #[test]
 fn test_cvc5_bv_is_bv_and_width() {
     use crate::cvc5_bitvector_encode::*;
-    let tm = cvc5::TermManager::new();
-    let bv_term = bv_const(&tm, "x", 32);
-    let int_term = tm.mk_const(tm.integer_sort(), "y");
+    let mut tm = cvc5::TermManager::new();
+    let bv_term = bv_const(&mut tm, "x", 32);
+    let int_term = {
+        let __cvc2 = tm.integer_sort();
+        tm.mk_const(__cvc2, "y")
+    }
+    .expect("cvc5");
 
     assert!(is_bv(&bv_term));
     assert!(!is_bv(&int_term));
@@ -166,16 +170,16 @@ fn test_cvc5_bv_is_bv_and_width() {
 fn test_cvc5_bv_overflow_sat_check() {
     // Verify overflow detection semantics: u8 250 + 10 overflows.
     use crate::cvc5_bitvector_encode::*;
-    let tm = cvc5::TermManager::new();
-    let mut solver = cvc5::Solver::new(&tm);
-    solver.set_logic("ALL");
-    solver.set_option("produce-models", "true");
+    let mut tm = cvc5::TermManager::new();
+    let mut solver = cvc5::Solver::new(&mut tm);
+    solver.set_logic("ALL").expect("cvc5");
+    solver.set_option("produce-models", "true").expect("cvc5");
 
-    let a = bv_from_u64(&tm, 250, 8);
-    let b = bv_from_u64(&tm, 10, 8);
-    let overflow = bvadd_overflow_unsigned(&tm, &a, &b);
-    solver.assert_formula(overflow);
-    let result = solver.check_sat();
+    let a = bv_from_u64(&mut tm, 250, 8);
+    let b = bv_from_u64(&mut tm, 10, 8);
+    let overflow = bvadd_overflow_unsigned(&mut tm, &a, &b);
+    solver.assert_formula(overflow).expect("cvc5");
+    let result = solver.check_sat().expect("cvc5");
     assert!(result.is_sat(), "250u8 + 10u8 should overflow");
 }
 
@@ -184,18 +188,18 @@ fn test_cvc5_bv_overflow_sat_check() {
 fn test_cvc5_bv_no_overflow_sat_check() {
     // Verify no overflow: u8 100 + 100 = 200 (no overflow).
     use crate::cvc5_bitvector_encode::*;
-    let tm = cvc5::TermManager::new();
-    let mut solver = cvc5::Solver::new(&tm);
-    solver.set_logic("ALL");
-    solver.set_option("produce-models", "true");
+    let mut tm = cvc5::TermManager::new();
+    let mut solver = cvc5::Solver::new(&mut tm);
+    solver.set_logic("ALL").expect("cvc5");
+    solver.set_option("produce-models", "true").expect("cvc5");
 
-    let a = bv_from_u64(&tm, 100, 8);
-    let b = bv_from_u64(&tm, 100, 8);
-    let overflow = bvadd_overflow_unsigned(&tm, &a, &b);
+    let a = bv_from_u64(&mut tm, 100, 8);
+    let b = bv_from_u64(&mut tm, 100, 8);
+    let overflow = bvadd_overflow_unsigned(&mut tm, &a, &b);
     // Assert NOT overflow.
-    let no_overflow = tm.mk_term(cvc5::Kind::Not, &[overflow]);
-    solver.assert_formula(no_overflow);
-    let result = solver.check_sat();
+    let no_overflow = tm.mk_term(cvc5::Kind::Not, &[overflow]).expect("cvc5");
+    solver.assert_formula(no_overflow).expect("cvc5");
+    let result = solver.check_sat().expect("cvc5");
     assert!(result.is_sat(), "100u8 + 100u8 should not overflow");
 }
 
@@ -204,16 +208,16 @@ fn test_cvc5_bv_no_overflow_sat_check() {
 fn test_cvc5_bv_signed_overflow_sat_check() {
     // i8 120 + 20 = 140 > 127 overflows signed.
     use crate::cvc5_bitvector_encode::*;
-    let tm = cvc5::TermManager::new();
-    let mut solver = cvc5::Solver::new(&tm);
-    solver.set_logic("ALL");
-    solver.set_option("produce-models", "true");
+    let mut tm = cvc5::TermManager::new();
+    let mut solver = cvc5::Solver::new(&mut tm);
+    solver.set_logic("ALL").expect("cvc5");
+    solver.set_option("produce-models", "true").expect("cvc5");
 
-    let a = bv_from_i64(&tm, 120, 8);
-    let b = bv_from_i64(&tm, 20, 8);
-    let overflow = bvadd_overflow_signed(&tm, &a, &b);
-    solver.assert_formula(overflow);
-    let result = solver.check_sat();
+    let a = bv_from_i64(&mut tm, 120, 8);
+    let b = bv_from_i64(&mut tm, 20, 8);
+    let overflow = bvadd_overflow_signed(&mut tm, &a, &b);
+    solver.assert_formula(overflow).expect("cvc5");
+    let result = solver.check_sat().expect("cvc5");
     assert!(result.is_sat(), "120i8 + 20i8 should overflow signed");
 }
 
@@ -225,10 +229,24 @@ fn test_cvc5_bv_param_registration() {
     use crate::cvc5_verify_native_solver::register_cvc5_fixed_width_params;
     use std::collections::HashMap;
 
-    let tm = cvc5::TermManager::new();
+    let mut tm = cvc5::TermManager::new();
     let mut var_map: HashMap<String, cvc5::Term> = HashMap::new();
-    var_map.insert("x".to_string(), tm.mk_const(tm.integer_sort(), "x"));
-    var_map.insert("y".to_string(), tm.mk_const(tm.integer_sort(), "y"));
+    var_map.insert(
+        "x".to_string(),
+        {
+            let __cvc1 = tm.integer_sort();
+            tm.mk_const(__cvc1, "x")
+        }
+        .expect("cvc5"),
+    );
+    var_map.insert(
+        "y".to_string(),
+        {
+            let __cvc0 = tm.integer_sort();
+            tm.mk_const(__cvc0, "y")
+        }
+        .expect("cvc5"),
+    );
 
     let mut enc_state = default_cvc5_encoder_state();
 
@@ -243,12 +261,12 @@ fn test_cvc5_bv_param_registration() {
         },
     ];
 
-    register_cvc5_fixed_width_params(&tm, &params, &mut var_map, &mut enc_state);
+    register_cvc5_fixed_width_params(&mut tm, &params, &mut var_map, &mut enc_state);
 
     // x should now be BV-sorted.
     let x = var_map.get("x").unwrap();
     assert!(x.sort().is_bv(), "u32 param should be BV-sorted");
-    assert_eq!(x.sort().bv_size(), 32);
+    assert_eq!(x.sort().bv_size().expect("cvc5"), 32);
 
     // y should remain integer-sorted.
     let y = var_map.get("y").unwrap();
@@ -284,13 +302,13 @@ fn test_cvc5_signed_i8_neg_one_lt_zero() {
     use crate::cvc5_encoder_state::default_cvc5_encoder_state;
     use assura_ast::BinOp;
 
-    let tm = cvc5::TermManager::new();
+    let mut tm = cvc5::TermManager::new();
     let mut state = default_cvc5_encoder_state();
     state.bv_signed.insert("x".into(), true); // I8
 
-    let x = bv_const(&tm, "x", 8);
-    let neg_one = bv_from_i64(&tm, -1, 8);
-    let zero = bv_from_u64(&tm, 0, 8);
+    let x = bv_const(&mut tm, "x", 8);
+    let neg_one = bv_from_i64(&mut tm, -1, 8);
+    let zero = bv_from_u64(&mut tm, 0, 8);
 
     assert!(
         cvc5_bv_operand_signed(&x, &state),
@@ -308,25 +326,36 @@ fn test_cvc5_signed_i8_neg_one_lt_zero() {
     );
 
     // Solver: assert x = -1 and NOT (x < 0) signed → unsat.
-    let mut solver = cvc5::Solver::new(&tm);
-    solver.set_logic("ALL");
-    solver.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[x.clone(), neg_one]));
-    let signed_lt = bvslt(&tm, &x, &zero);
-    solver.assert_formula(tm.mk_term(cvc5::Kind::Not, &[signed_lt]));
+    let mut solver = cvc5::Solver::new(&mut tm);
+    solver.set_logic("ALL").expect("cvc5");
+    solver
+        .assert_formula(
+            tm.mk_term(cvc5::Kind::Equal, &[x.clone(), neg_one])
+                .expect("cvc5"),
+        )
+        .expect("cvc5");
+    let signed_lt = bvslt(&mut tm, &x, &zero);
+    solver
+        .assert_formula(tm.mk_term(cvc5::Kind::Not, &[signed_lt]).expect("cvc5"))
+        .expect("cvc5");
     assert!(
-        solver.check_sat().is_unsat(),
+        solver.check_sat().expect("cvc5").is_unsat(),
         "signed I8: -1 < 0 must hold (negate is unsat)"
     );
 
     // Sanity: unsigned order would not prove -1 < 0.
-    let mut solver_u = cvc5::Solver::new(&tm);
-    solver_u.set_logic("ALL");
-    let xu = bv_const(&tm, "xu", 8);
-    solver_u.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[xu.clone(), bv_from_i64(&tm, -1, 8)]));
-    let unsigned_lt = bvult(&tm, &xu, &zero);
-    solver_u.assert_formula(unsigned_lt);
+    let mut solver_u = cvc5::Solver::new(&mut tm);
+    solver_u.set_logic("ALL").expect("cvc5");
+    let xu = bv_const(&mut tm, "xu", 8);
+    let neg = bv_from_i64(&mut tm, -1, 8);
+    let eq = tm
+        .mk_term(cvc5::Kind::Equal, &[xu.clone(), neg])
+        .expect("cvc5");
+    solver_u.assert_formula(eq).expect("cvc5");
+    let unsigned_lt = bvult(&mut tm, &xu, &zero);
+    solver_u.assert_formula(unsigned_lt).expect("cvc5");
     assert!(
-        solver_u.check_sat().is_unsat(),
+        solver_u.check_sat().expect("cvc5").is_unsat(),
         "unsigned: 0xFF < 0 is false (asserting it is unsat)"
     );
 }
@@ -340,22 +369,26 @@ fn test_cvc5_encode_binop_uses_signed_order_for_i8() {
     use crate::cvc5_encoder_state::default_cvc5_encoder_state;
     use assura_ast::BinOp;
 
-    let tm = cvc5::TermManager::new();
+    let mut tm = cvc5::TermManager::new();
     let mut state = default_cvc5_encoder_state();
     state.bv_signed.insert("x".into(), true);
 
-    let x = bv_const(&tm, "x", 8);
-    let zero = bv_from_u64(&tm, 0, 8);
-    let cmp = encode_ast_binop_cvc5(&tm, &BinOp::Lt, x.clone(), zero.clone(), &mut state)
+    let x = bv_const(&mut tm, "x", 8);
+    let zero = bv_from_u64(&mut tm, 0, 8);
+    let cmp = encode_ast_binop_cvc5(&mut tm, &BinOp::Lt, x.clone(), zero.clone(), &mut state)
         .expect("encode BV Lt");
 
     // Prove: x = -1 => x < 0 under the encoded comparison.
-    let mut solver = cvc5::Solver::new(&tm);
-    solver.set_logic("ALL");
-    solver.assert_formula(tm.mk_term(cvc5::Kind::Equal, &[x, bv_from_i64(&tm, -1, 8)]));
-    solver.assert_formula(tm.mk_term(cvc5::Kind::Not, &[cmp]));
+    let mut solver = cvc5::Solver::new(&mut tm);
+    solver.set_logic("ALL").expect("cvc5");
+    let neg = bv_from_i64(&mut tm, -1, 8);
+    let eq = tm.mk_term(cvc5::Kind::Equal, &[x, neg]).expect("cvc5");
+    solver.assert_formula(eq).expect("cvc5");
+    solver
+        .assert_formula(tm.mk_term(cvc5::Kind::Not, &[cmp]).expect("cvc5"))
+        .expect("cvc5");
     assert!(
-        solver.check_sat().is_unsat(),
+        solver.check_sat().expect("cvc5").is_unsat(),
         "encode_ast_binop_cvc5 must use signed Lt for I8 so -1 < 0 holds"
     );
 }
@@ -369,13 +402,13 @@ fn test_cvc5_signedness_propagates_through_bv_add() {
     use crate::cvc5_encoder_state::default_cvc5_encoder_state;
     use assura_ast::BinOp;
 
-    let tm = cvc5::TermManager::new();
+    let mut tm = cvc5::TermManager::new();
     let mut state = default_cvc5_encoder_state();
     state.bv_signed.insert("x".into(), true);
 
-    let x = bv_const(&tm, "x", 8);
-    let z = bv_from_u64(&tm, 0, 8);
-    let sum = encode_ast_binop_cvc5(&tm, &BinOp::Add, x, z, &mut state).expect("add");
+    let x = bv_const(&mut tm, "x", 8);
+    let z = bv_from_u64(&mut tm, 0, 8);
+    let sum = encode_ast_binop_cvc5(&mut tm, &BinOp::Add, x, z, &mut state).expect("add");
     assert!(is_bv(&sum));
     assert!(
         cvc5_bv_operand_signed(&sum, &state),

@@ -23,11 +23,11 @@ use assura_ast::{BinOp, UnaryOp};
 
 /// Reduce an Int term into the contract machine range (#1584).
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn wrap_cvc5_machine_int<'a>(
-    tm: &'a cvc5::TermManager,
-    x: cvc5::Term<'a>,
+pub(crate) fn wrap_cvc5_machine_int(
+    tm: &mut cvc5::TermManager,
+    x: cvc5::Term,
     wrap: Option<(u32, bool)>,
-) -> cvc5::Term<'a> {
+) -> cvc5::Term {
     let Some((width, signed)) = wrap else {
         return x;
     };
@@ -39,37 +39,49 @@ pub(crate) fn wrap_cvc5_machine_int<'a>(
         return x;
     }
     let modulus = if width == 64 {
-        let max = tm.mk_integer_from_str("18446744073709551615");
-        tm.mk_term(cvc5::Kind::Add, &[max, tm.mk_integer(1)])
+        let max = tm
+            .mk_integer_from_str("18446744073709551615")
+            .expect("cvc5");
+        {
+            let __cvc5 = tm.mk_integer(1);
+            tm.mk_term(cvc5::Kind::Add, &[max, __cvc5])
+        }
+        .expect("cvc5")
     } else {
         tm.mk_integer(1i64 << width)
     };
     if !signed {
-        return tm.mk_term(cvc5::Kind::IntsModulus, &[x, modulus]);
+        return tm
+            .mk_term(cvc5::Kind::IntsModulus, &[x, modulus])
+            .expect("cvc5");
     }
     let half = if width == 64 {
-        tm.mk_integer_from_str("9223372036854775808")
+        tm.mk_integer_from_str("9223372036854775808").expect("cvc5")
     } else {
         tm.mk_integer(1i64 << (width - 1))
     };
-    let shifted = tm.mk_term(cvc5::Kind::Add, &[x, half.clone()]);
-    let reduced = tm.mk_term(cvc5::Kind::IntsModulus, &[shifted, modulus]);
-    tm.mk_term(cvc5::Kind::Sub, &[reduced, half])
+    let shifted = tm
+        .mk_term(cvc5::Kind::Add, &[x, half.clone()])
+        .expect("cvc5");
+    let reduced = tm
+        .mk_term(cvc5::Kind::IntsModulus, &[shifted, modulus])
+        .expect("cvc5");
+    tm.mk_term(cvc5::Kind::Sub, &[reduced, half]).expect("cvc5")
 }
 
 /// Encode an AST binary operator as a native CVC5 term.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_ast_binop_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn encode_ast_binop_cvc5(
+    tm: &mut cvc5::TermManager,
     op: &BinOp,
-    l: cvc5::Term<'a>,
-    r: cvc5::Term<'a>,
-    state: &mut Cvc5EncoderState<'a>,
-) -> Option<cvc5::Term<'a>> {
+    l: cvc5::Term,
+    r: cvc5::Term,
+    state: &mut Cvc5EncoderState,
+) -> Option<cvc5::Term> {
     match classify_ast_binop(op) {
         AstBinOpKind::Neq => {
-            let eq = tm.mk_term(cvc5::Kind::Equal, &[l, r]);
-            Some(tm.mk_term(cvc5::Kind::Not, &[eq]))
+            let eq = tm.mk_term(cvc5::Kind::Equal, &[l, r]).expect("cvc5");
+            Some(tm.mk_term(cvc5::Kind::Not, &[eq]).expect("cvc5"))
         }
         AstBinOpKind::Range => Some(encode_range_binop_cvc5(
             tm,
@@ -81,7 +93,7 @@ pub(crate) fn encode_ast_binop_cvc5<'a>(
         AstBinOpKind::In => Some(encode_contains_binop_cvc5(tm, r, l)),
         AstBinOpKind::NotIn => {
             let in_result = encode_contains_binop_cvc5(tm, r, l);
-            Some(tm.mk_term(cvc5::Kind::Not, &[in_result]))
+            Some(tm.mk_term(cvc5::Kind::Not, &[in_result]).expect("cvc5"))
         }
         AstBinOpKind::Concat => {
             let len_func = field_len_fn_cvc5(tm, state);
@@ -101,7 +113,7 @@ pub(crate) fn encode_ast_binop_cvc5<'a>(
             if super::cvc5_bitvector_encode::is_bv(&l) || super::cvc5_bitvector_encode::is_bv(&r) {
                 let signed = cvc5_bv_operand_signed(&l, state) || cvc5_bv_operand_signed(&r, state);
                 if let Some(bv_kind) = bv_ast_binop_cvc5_kind(op, signed) {
-                    return Some(tm.mk_term(bv_kind, &[l, r]));
+                    return Some(tm.mk_term(bv_kind, &[l, r]).expect("cvc5"));
                 }
             }
             if matches!(op, BinOp::Div | BinOp::Mod)
@@ -115,7 +127,7 @@ pub(crate) fn encode_ast_binop_cvc5<'a>(
                 });
             }
             let kind = crate::cvc5_raw_ops::standard_ast_binop_cvc5_kind(op)?;
-            Some(tm.mk_term(kind, &[l, r]))
+            Some(tm.mk_term(kind, &[l, r]).expect("cvc5"))
         }
         AstBinOpKind::Unsupported => None,
     }
@@ -126,13 +138,13 @@ pub(crate) fn encode_ast_binop_cvc5<'a>(
 /// Walks free constant symbols and subterms so `x + 1` inherits signedness of `x`
 /// when `x` was registered as `I8`/`I32`/… via `bv_signed` (#858).
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn cvc5_bv_operand_signed(term: &cvc5::Term<'_>, state: &Cvc5EncoderState<'_>) -> bool {
-    if term.has_symbol() && state.bv_signed.get(term.symbol()) == Some(&true) {
+pub(crate) fn cvc5_bv_operand_signed(term: &cvc5::Term, state: &Cvc5EncoderState) -> bool {
+    if term.has_symbol() && state.bv_signed.get(term.symbol().expect("cvc5")) == Some(&true) {
         return true;
     }
     let n = term.num_children();
     for i in 0..n {
-        if cvc5_bv_operand_signed(&term.child(i), state) {
+        if cvc5_bv_operand_signed(&term.child(i).expect("cvc5"), state) {
             return true;
         }
     }
@@ -166,26 +178,28 @@ pub(crate) fn bv_ast_binop_cvc5_kind(op: &BinOp, signed: bool) -> Option<cvc5::K
 ///
 /// Arm order via [`crate::encode_binop_policy::classify_ast_unary`] (parity with Z3).
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_ast_unary_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn encode_ast_unary_cvc5(
+    tm: &mut cvc5::TermManager,
     op: &UnaryOp,
-    inner: cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+    inner: cvc5::Term,
+) -> cvc5::Term {
     use crate::encode_binop_policy::{AstUnaryKind, classify_ast_unary};
 
     match classify_ast_unary(op) {
         AstUnaryKind::Not => {
             if super::cvc5_bitvector_encode::is_bv(&inner) {
                 tm.mk_term(cvc5::Kind::BitvectorNot, &[inner])
+                    .expect("cvc5")
             } else {
-                tm.mk_term(cvc5::Kind::Not, &[inner])
+                tm.mk_term(cvc5::Kind::Not, &[inner]).expect("cvc5")
             }
         }
         AstUnaryKind::Neg => {
             if super::cvc5_bitvector_encode::is_bv(&inner) {
                 tm.mk_term(cvc5::Kind::BitvectorNeg, &[inner])
+                    .expect("cvc5")
             } else {
-                tm.mk_term(cvc5::Kind::Neg, &[inner])
+                tm.mk_term(cvc5::Kind::Neg, &[inner]).expect("cvc5")
             }
         }
     }
@@ -254,9 +268,13 @@ mod tests {
     #[cfg(feature = "cvc5-verify")]
     #[test]
     fn wrap_cvc5_machine_int_skips_non_integer() {
-        let tm = cvc5::TermManager::new();
-        let flag = tm.mk_const(tm.boolean_sort(), "flag");
-        let wrapped = wrap_cvc5_machine_int(&tm, flag.clone(), Some((64, false)));
+        let mut tm = cvc5::TermManager::new();
+        let flag = {
+            let __cvc4 = tm.boolean_sort();
+            tm.mk_const(__cvc4, "flag")
+        }
+        .expect("cvc5");
+        let wrapped = wrap_cvc5_machine_int(&mut tm, flag.clone(), Some((64, false)));
         assert!(wrapped.sort().is_boolean(), "wrap on Bool must be a no-op");
         assert_eq!(wrapped.to_string(), flag.to_string());
     }
@@ -264,16 +282,26 @@ mod tests {
     #[cfg(feature = "cvc5-verify")]
     #[test]
     fn wrap_cvc5_machine_int_unsigned_max_plus_one_is_zero() {
-        let tm = cvc5::TermManager::new();
-        let mut solver = cvc5::Solver::new(&tm);
-        let max = tm.mk_integer_from_str("18446744073709551615");
-        let sum = tm.mk_term(cvc5::Kind::Add, &[max, tm.mk_integer(1)]);
-        let wrapped = wrap_cvc5_machine_int(&tm, sum, Some((64, false)));
+        let mut tm = cvc5::TermManager::new();
+        let mut solver = cvc5::Solver::new(&mut tm);
+        let max = tm
+            .mk_integer_from_str("18446744073709551615")
+            .expect("cvc5");
+        let sum = {
+            let __cvc3 = tm.mk_integer(1);
+            tm.mk_term(cvc5::Kind::Add, &[max, __cvc3])
+        }
+        .expect("cvc5");
+        let wrapped = wrap_cvc5_machine_int(&mut tm, sum, Some((64, false)));
         assert!(wrapped.sort().is_integer());
-        let eq0 = tm.mk_term(cvc5::Kind::Equal, &[wrapped, tm.mk_integer(0)]);
-        solver.assert_formula(eq0);
+        let eq0 = {
+            let __cvc2 = tm.mk_integer(0);
+            tm.mk_term(cvc5::Kind::Equal, &[wrapped, __cvc2])
+        }
+        .expect("cvc5");
+        solver.assert_formula(eq0).expect("cvc5");
         assert!(
-            solver.check_sat().is_sat(),
+            solver.check_sat().expect("cvc5").is_sat(),
             "unsigned wrap of 2^64-1+1 must be 0"
         );
     }
@@ -281,16 +309,24 @@ mod tests {
     #[cfg(feature = "cvc5-verify")]
     #[test]
     fn wrap_cvc5_machine_int_signed_max_plus_one_is_min() {
-        let tm = cvc5::TermManager::new();
-        let mut solver = cvc5::Solver::new(&tm);
+        let mut tm = cvc5::TermManager::new();
+        let mut solver = cvc5::Solver::new(&mut tm);
         let max = tm.mk_integer(i64::MAX);
-        let sum = tm.mk_term(cvc5::Kind::Add, &[max, tm.mk_integer(1)]);
-        let wrapped = wrap_cvc5_machine_int(&tm, sum, Some((64, true)));
+        let sum = {
+            let __cvc1 = tm.mk_integer(1);
+            tm.mk_term(cvc5::Kind::Add, &[max, __cvc1])
+        }
+        .expect("cvc5");
+        let wrapped = wrap_cvc5_machine_int(&mut tm, sum, Some((64, true)));
         assert!(wrapped.sort().is_integer());
-        let eq_min = tm.mk_term(cvc5::Kind::Equal, &[wrapped, tm.mk_integer(i64::MIN)]);
-        solver.assert_formula(eq_min);
+        let eq_min = {
+            let __cvc0 = tm.mk_integer(i64::MIN);
+            tm.mk_term(cvc5::Kind::Equal, &[wrapped, __cvc0])
+        }
+        .expect("cvc5");
+        solver.assert_formula(eq_min).expect("cvc5");
         assert!(
-            solver.check_sat().is_sat(),
+            solver.check_sat().expect("cvc5").is_sat(),
             "signed wrap of i64::MAX+1 must be i64::MIN"
         );
     }

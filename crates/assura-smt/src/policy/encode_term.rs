@@ -26,7 +26,7 @@ pub(crate) trait EncodeTerm {
     /// The backend-specific term type.
     ///
     /// Z3: `Z3Value` (tagged enum of Bool/Int/Real/Str/Bv).
-    /// CVC5: `cvc5::Term<'a>` (sort is tracked internally).
+    /// CVC5: `cvc5::Term` (sort is tracked internally).
     type Term: Clone;
 
     // === Literals ===
@@ -969,23 +969,23 @@ mod tests_cvc5_encode_term {
     use crate::cvc5_encoder_state::default_cvc5_encoder_state;
     use std::collections::HashMap;
 
-    fn expect_int(term: Option<cvc5::Term<'_>>, why: &str) {
+    fn expect_int(term: Option<cvc5::Term>, why: &str) {
         let t = term.unwrap_or_else(|| panic!("{why}: None"));
         assert!(t.sort().is_integer(), "{why}: expected integer sort");
     }
 
-    fn expect_bool(term: Option<cvc5::Term<'_>>, why: &str) {
+    fn expect_bool(term: Option<cvc5::Term>, why: &str) {
         let t = term.unwrap_or_else(|| panic!("{why}: None"));
         assert!(t.sort().is_boolean(), "{why}: expected boolean sort");
     }
 
     #[test]
     fn cvc5_encode_term_int_literal() {
-        let tm = cvc5::TermManager::new();
+        let mut tm = cvc5::TermManager::new();
         let mut vars = HashMap::new();
         let mut state = default_cvc5_encoder_state();
         let mut builder = Cvc5TermBuilder {
-            tm: &tm,
+            tm: &mut tm,
             vars: &mut vars,
             state: &mut state,
         };
@@ -995,11 +995,11 @@ mod tests_cvc5_encode_term {
 
     #[test]
     fn cvc5_encode_term_bool_literal() {
-        let tm = cvc5::TermManager::new();
+        let mut tm = cvc5::TermManager::new();
         let mut vars = HashMap::new();
         let mut state = default_cvc5_encoder_state();
         let mut builder = Cvc5TermBuilder {
-            tm: &tm,
+            tm: &mut tm,
             vars: &mut vars,
             state: &mut state,
         };
@@ -1009,11 +1009,11 @@ mod tests_cvc5_encode_term {
 
     #[test]
     fn cvc5_encode_term_ident() {
-        let tm = cvc5::TermManager::new();
+        let mut tm = cvc5::TermManager::new();
         let mut vars = HashMap::new();
         let mut state = default_cvc5_encoder_state();
         let mut builder = Cvc5TermBuilder {
-            tm: &tm,
+            tm: &mut tm,
             vars: &mut vars,
             state: &mut state,
         };
@@ -1024,11 +1024,11 @@ mod tests_cvc5_encode_term {
 
     #[test]
     fn cvc5_encode_term_binop_add() {
-        let tm = cvc5::TermManager::new();
+        let mut tm = cvc5::TermManager::new();
         let mut vars = HashMap::new();
         let mut state = default_cvc5_encoder_state();
         let mut builder = Cvc5TermBuilder {
-            tm: &tm,
+            tm: &mut tm,
             vars: &mut vars,
             state: &mut state,
         };
@@ -1042,11 +1042,11 @@ mod tests_cvc5_encode_term {
 
     #[test]
     fn cvc5_encode_term_comparison_lt() {
-        let tm = cvc5::TermManager::new();
+        let mut tm = cvc5::TermManager::new();
         let mut vars = HashMap::new();
         let mut state = default_cvc5_encoder_state();
         let mut builder = Cvc5TermBuilder {
-            tm: &tm,
+            tm: &mut tm,
             vars: &mut vars,
             state: &mut state,
         };
@@ -1060,11 +1060,11 @@ mod tests_cvc5_encode_term {
 
     #[test]
     fn cvc5_encode_term_if_then_else() {
-        let tm = cvc5::TermManager::new();
+        let mut tm = cvc5::TermManager::new();
         let mut vars = HashMap::new();
         let mut state = default_cvc5_encoder_state();
         let mut builder = Cvc5TermBuilder {
-            tm: &tm,
+            tm: &mut tm,
             vars: &mut vars,
             state: &mut state,
         };
@@ -1080,11 +1080,11 @@ mod tests_cvc5_encode_term {
 
     #[test]
     fn cvc5_encode_term_ghost_transparent() {
-        let tm = cvc5::TermManager::new();
+        let mut tm = cvc5::TermManager::new();
         let mut vars = HashMap::new();
         let mut state = default_cvc5_encoder_state();
         let mut builder = Cvc5TermBuilder {
-            tm: &tm,
+            tm: &mut tm,
             vars: &mut vars,
             state: &mut state,
         };
@@ -1095,11 +1095,11 @@ mod tests_cvc5_encode_term {
 
     #[test]
     fn cvc5_encode_term_unary_neg() {
-        let tm = cvc5::TermManager::new();
+        let mut tm = cvc5::TermManager::new();
         let mut vars = HashMap::new();
         let mut state = default_cvc5_encoder_state();
         let mut builder = Cvc5TermBuilder {
-            tm: &tm,
+            tm: &mut tm,
             vars: &mut vars,
             state: &mut state,
         };
@@ -1116,7 +1116,7 @@ mod tests_cvc5_encode_term {
         // registrations as encode_expr_cvc5 for the same AST.
         use crate::cvc5_native_encoder::encode_expr_cvc5;
 
-        let tm = cvc5::TermManager::new();
+        let mut tm = cvc5::TermManager::new();
         let expr = Spanned::no_span(Expr::BinOp {
             lhs: Box::new(Spanned::no_span(Expr::Ident("x".into()))),
             op: BinOp::Add,
@@ -1126,13 +1126,13 @@ mod tests_cvc5_encode_term {
         // Direct encode
         let mut vars_direct = HashMap::new();
         let mut state_direct = default_cvc5_encoder_state();
-        let _direct = encode_expr_cvc5(&tm, &expr, &mut vars_direct, &mut state_direct);
+        let _direct = encode_expr_cvc5(&mut tm, &expr, &mut vars_direct, &mut state_direct);
 
         // Shared encode
         let mut vars_shared = HashMap::new();
         let mut state_shared = default_cvc5_encoder_state();
         let mut builder = Cvc5TermBuilder {
-            tm: &tm,
+            tm: &mut tm,
             vars: &mut vars_shared,
             state: &mut state_shared,
         };

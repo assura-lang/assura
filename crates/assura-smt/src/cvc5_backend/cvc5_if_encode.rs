@@ -11,26 +11,36 @@ pub(crate) use crate::encode_if_policy::{IfEncodePlan, encode_if_smtlib, plan_if
 
 /// Encode `if cond then t [else e]` as a native CVC5 term (with Real/Int promotion on branches).
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_if_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
-    cond: cvc5::Term<'a>,
-    then_branch: cvc5::Term<'a>,
-    else_branch: Option<cvc5::Term<'a>>,
-) -> cvc5::Term<'a> {
+pub(crate) fn encode_if_cvc5(
+    tm: &mut cvc5::TermManager,
+    cond: cvc5::Term,
+    then_branch: cvc5::Term,
+    else_branch: Option<cvc5::Term>,
+) -> cvc5::Term {
     use crate::encode_if_policy::{IfEncodePlan, plan_if_encode};
 
     match (plan_if_encode(else_branch.is_some()), else_branch) {
         (IfEncodePlan::Ite, Some(e)) => {
             let (t_final, e_final) = if then_branch.sort().is_real() && e.sort().is_integer() {
-                (then_branch, tm.mk_term(cvc5::Kind::ToReal, &[e]))
+                (
+                    then_branch,
+                    tm.mk_term(cvc5::Kind::ToReal, &[e]).expect("cvc5"),
+                )
             } else if then_branch.sort().is_integer() && e.sort().is_real() {
-                (tm.mk_term(cvc5::Kind::ToReal, &[then_branch]), e)
+                (
+                    tm.mk_term(cvc5::Kind::ToReal, &[then_branch])
+                        .expect("cvc5"),
+                    e,
+                )
             } else {
                 (then_branch, e)
             };
             tm.mk_term(cvc5::Kind::Ite, &[cond, t_final, e_final])
+                .expect("cvc5")
         }
-        _ => tm.mk_term(cvc5::Kind::Implies, &[cond, then_branch]),
+        _ => tm
+            .mk_term(cvc5::Kind::Implies, &[cond, then_branch])
+            .expect("cvc5"),
     }
 }
 

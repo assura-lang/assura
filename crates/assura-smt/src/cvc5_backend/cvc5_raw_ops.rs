@@ -68,84 +68,106 @@ pub(crate) fn standard_ast_binop_cvc5_kind(op: &BinOp) -> Option<cvc5::Kind> {
 
 /// Combine a quantifier domain guard with its body (native API).
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn combine_quantifier_guard_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn combine_quantifier_guard_cvc5(
+    tm: &mut cvc5::TermManager,
     is_forall: bool,
-    guard: cvc5::Term<'a>,
-    body: cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+    guard: cvc5::Term,
+    body: cvc5::Term,
+) -> cvc5::Term {
     if is_forall {
         tm.mk_term(cvc5::Kind::Implies, &[guard, body])
+            .expect("cvc5")
     } else {
-        tm.mk_term(cvc5::Kind::And, &[guard, body])
+        tm.mk_term(cvc5::Kind::And, &[guard, body]).expect("cvc5")
     }
 }
 
 /// Apply a shared raw binary operator in the native CVC5 API.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn apply_raw_op_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn apply_raw_op_cvc5(
+    tm: &mut cvc5::TermManager,
     op: crate::encode_raw_ops_policy::RawBinOp,
-    lhs: cvc5::Term<'a>,
-    rhs: cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+    lhs: cvc5::Term,
+    rhs: cvc5::Term,
+) -> cvc5::Term {
     use crate::encode_raw_ops_policy::RawBinOp;
     match op {
-        RawBinOp::Add => tm.mk_term(cvc5::Kind::Add, &[lhs, rhs]),
-        RawBinOp::Sub => tm.mk_term(cvc5::Kind::Sub, &[lhs, rhs]),
-        RawBinOp::Mul => tm.mk_term(cvc5::Kind::Mult, &[lhs, rhs]),
+        RawBinOp::Add => tm.mk_term(cvc5::Kind::Add, &[lhs, rhs]).expect("cvc5"),
+        RawBinOp::Sub => tm.mk_term(cvc5::Kind::Sub, &[lhs, rhs]).expect("cvc5"),
+        RawBinOp::Mul => tm.mk_term(cvc5::Kind::Mult, &[lhs, rhs]).expect("cvc5"),
         RawBinOp::Div if lhs.sort().is_integer() && rhs.sort().is_integer() => {
             rust_trunc_div_cvc5(tm, lhs, rhs)
         }
         RawBinOp::Mod if lhs.sort().is_integer() && rhs.sort().is_integer() => {
             rust_trunc_mod_cvc5(tm, lhs, rhs)
         }
-        RawBinOp::Div => tm.mk_term(cvc5::Kind::IntsDivision, &[lhs, rhs]),
-        RawBinOp::Mod => tm.mk_term(cvc5::Kind::IntsModulus, &[lhs, rhs]),
-        RawBinOp::Eq => tm.mk_term(cvc5::Kind::Equal, &[lhs, rhs]),
+        RawBinOp::Div => tm
+            .mk_term(cvc5::Kind::IntsDivision, &[lhs, rhs])
+            .expect("cvc5"),
+        RawBinOp::Mod => tm
+            .mk_term(cvc5::Kind::IntsModulus, &[lhs, rhs])
+            .expect("cvc5"),
+        RawBinOp::Eq => tm.mk_term(cvc5::Kind::Equal, &[lhs, rhs]).expect("cvc5"),
         RawBinOp::Neq => {
-            let eq = tm.mk_term(cvc5::Kind::Equal, &[lhs, rhs]);
-            tm.mk_term(cvc5::Kind::Not, &[eq])
+            let eq = tm.mk_term(cvc5::Kind::Equal, &[lhs, rhs]).expect("cvc5");
+            tm.mk_term(cvc5::Kind::Not, &[eq]).expect("cvc5")
         }
-        RawBinOp::Lt => tm.mk_term(cvc5::Kind::Lt, &[lhs, rhs]),
-        RawBinOp::Leq => tm.mk_term(cvc5::Kind::Leq, &[lhs, rhs]),
-        RawBinOp::Gt => tm.mk_term(cvc5::Kind::Gt, &[lhs, rhs]),
-        RawBinOp::Geq => tm.mk_term(cvc5::Kind::Geq, &[lhs, rhs]),
-        RawBinOp::And => tm.mk_term(cvc5::Kind::And, &[lhs, rhs]),
-        RawBinOp::Or => tm.mk_term(cvc5::Kind::Or, &[lhs, rhs]),
-        RawBinOp::Implies => tm.mk_term(cvc5::Kind::Implies, &[lhs, rhs]),
+        RawBinOp::Lt => tm.mk_term(cvc5::Kind::Lt, &[lhs, rhs]).expect("cvc5"),
+        RawBinOp::Leq => tm.mk_term(cvc5::Kind::Leq, &[lhs, rhs]).expect("cvc5"),
+        RawBinOp::Gt => tm.mk_term(cvc5::Kind::Gt, &[lhs, rhs]).expect("cvc5"),
+        RawBinOp::Geq => tm.mk_term(cvc5::Kind::Geq, &[lhs, rhs]).expect("cvc5"),
+        RawBinOp::And => tm.mk_term(cvc5::Kind::And, &[lhs, rhs]).expect("cvc5"),
+        RawBinOp::Or => tm.mk_term(cvc5::Kind::Or, &[lhs, rhs]).expect("cvc5"),
+        RawBinOp::Implies => tm.mk_term(cvc5::Kind::Implies, &[lhs, rhs]).expect("cvc5"),
     }
 }
 
 /// Toward-zero quotient. `IntsDivision` floors; add one when signs differ.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn rust_trunc_div_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
-    lhs: cvc5::Term<'a>,
-    rhs: cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
-    let q = tm.mk_term(cvc5::Kind::IntsDivision, &[lhs.clone(), rhs.clone()]);
-    let remainder = tm.mk_term(cvc5::Kind::IntsModulus, &[lhs.clone(), rhs.clone()]);
+pub(crate) fn rust_trunc_div_cvc5(
+    tm: &mut cvc5::TermManager,
+    lhs: cvc5::Term,
+    rhs: cvc5::Term,
+) -> cvc5::Term {
+    let q = tm
+        .mk_term(cvc5::Kind::IntsDivision, &[lhs.clone(), rhs.clone()])
+        .expect("cvc5");
+    let remainder = tm
+        .mk_term(cvc5::Kind::IntsModulus, &[lhs.clone(), rhs.clone()])
+        .expect("cvc5");
     let zero = tm.mk_integer(0);
-    let exact = tm.mk_term(cvc5::Kind::Equal, &[remainder, zero.clone()]);
-    let lhs_neg = tm.mk_term(cvc5::Kind::Lt, &[lhs, zero.clone()]);
-    let rhs_neg = tm.mk_term(cvc5::Kind::Lt, &[rhs, zero]);
-    let same_sign = tm.mk_term(cvc5::Kind::Equal, &[lhs_neg, rhs_neg]);
-    let cond = tm.mk_term(cvc5::Kind::Or, &[exact, same_sign]);
-    let q_plus = tm.mk_term(cvc5::Kind::Add, &[q.clone(), tm.mk_integer(1)]);
+    let exact = tm
+        .mk_term(cvc5::Kind::Equal, &[remainder, zero.clone()])
+        .expect("cvc5");
+    let lhs_neg = tm
+        .mk_term(cvc5::Kind::Lt, &[lhs, zero.clone()])
+        .expect("cvc5");
+    let rhs_neg = tm.mk_term(cvc5::Kind::Lt, &[rhs, zero]).expect("cvc5");
+    let same_sign = tm
+        .mk_term(cvc5::Kind::Equal, &[lhs_neg, rhs_neg])
+        .expect("cvc5");
+    let cond = tm
+        .mk_term(cvc5::Kind::Or, &[exact, same_sign])
+        .expect("cvc5");
+    let q_plus = {
+        let __cvc0 = tm.mk_integer(1);
+        tm.mk_term(cvc5::Kind::Add, &[q.clone(), __cvc0])
+    }
+    .expect("cvc5");
     tm.mk_term(cvc5::Kind::Ite, &[cond, q, q_plus])
+        .expect("cvc5")
 }
 
 /// Remainder with the sign of the dividend, matching Rust `%`.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn rust_trunc_mod_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
-    lhs: cvc5::Term<'a>,
-    rhs: cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn rust_trunc_mod_cvc5(
+    tm: &mut cvc5::TermManager,
+    lhs: cvc5::Term,
+    rhs: cvc5::Term,
+) -> cvc5::Term {
     let q = rust_trunc_div_cvc5(tm, lhs.clone(), rhs.clone());
-    let prod = tm.mk_term(cvc5::Kind::Mult, &[rhs, q]);
-    tm.mk_term(cvc5::Kind::Sub, &[lhs, prod])
+    let prod = tm.mk_term(cvc5::Kind::Mult, &[rhs, q]).expect("cvc5");
+    tm.mk_term(cvc5::Kind::Sub, &[lhs, prod]).expect("cvc5")
 }
 
 #[cfg(test)]
