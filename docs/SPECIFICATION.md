@@ -2158,7 +2158,7 @@ OPTIONS:
   --verbose           Show timing and intermediate results (global)
   --stats             Print verification statistics
   --watch             Watch for file changes and re-check
-  --timeout <ms>      SMT solver timeout in milliseconds
+  --timeout <ms>      SMT solver timeout in milliseconds (values below 10000 are raised to 10000)
   --layer <N>         Verification layer 0..=3
                       (0=structural, 1=SMT, 2=quantified/termination, 3=BMC)
   --strict            Treat SMT Unknown and Timeout as errors
