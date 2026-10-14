@@ -84,7 +84,7 @@ output = "generated"
 [verify]
 smt-solver = "z3"       # "z3", "cvc5", or "portfolio"
 layer = 1               # 0=structural, 1=SMT, 2=quantified/termination, 3=BMC
-timeout = 1000          # SMT timeout in ms
+timeout = 10000         # milliseconds; values below 10000 are raised to 10000
 
 # [dependencies]         # Optional: import contracts from other projects
 # math-lib = { path = "../math-lib" }

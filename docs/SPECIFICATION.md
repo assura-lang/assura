@@ -2158,7 +2158,7 @@ OPTIONS:
   --verbose           Show timing and intermediate results (global)
   --stats             Print verification statistics
   --watch             Watch for file changes and re-check
-  --timeout <ms>      SMT solver timeout in milliseconds
+  --timeout <ms>      SMT solver timeout in milliseconds (values below 10000 are raised to 10000)
   --layer <N>         Verification layer 0..=3
                       (0=structural, 1=SMT, 2=quantified/termination, 3=BMC)
   --strict            Treat SMT Unknown and Timeout as errors
@@ -2258,7 +2258,7 @@ output = "generated"
 [verify]
 layer = 1                   # default for `assura check`
 smt-solver = "z3"
-timeout = 1000              # milliseconds; `assura check --timeout` overrides
+timeout = 10000             # milliseconds; values below 10000 are raised to 10000
 
 [effects]
 [effects.custom]
@@ -2610,14 +2610,14 @@ Trust annotations:
 
 ### 12.5 Verification Budget Configuration
 
+The live setting is `[verify] timeout` in `assura.toml`, in milliseconds.
+`assura check --timeout` overrides it. Values below 10000 are raised to
+10000 before a clause is solved. Layer 3 bounded model checking uses at
+least 30000 ms. The compiler does not read a `[verify.budgets]` table.
+
 ```toml
-[verify.budgets]
-layer_0_timeout_ms = 100
-layer_1_timeout_ms = 1000
-layer_2_timeout_ms = 10000
-total_timeout_ms = 300000
-max_fuel = 10
-max_smt_queries = 1000
+[verify]
+timeout = 10000
 ```
 
 ---

@@ -99,7 +99,8 @@ enum Commands {
         #[arg(long)]
         showcase_only: bool,
 
-        /// SMT solver timeout in milliseconds (overrides assura.toml [verify] timeout)
+        /// SMT solver timeout in milliseconds (overrides assura.toml [verify] timeout).
+        /// Requests below 10000 are raised to 10000.
         #[arg(long, value_name = "MS")]
         timeout: Option<u64>,
     },
@@ -778,5 +779,23 @@ pub fn run() {
                 }
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::CommandFactory;
+
+    use super::Cli;
+
+    #[test]
+    fn check_timeout_help_mentions_the_ten_second_floor() {
+        let mut cmd = Cli::command();
+        let check = cmd.find_subcommand_mut("check").expect("check subcommand");
+        let help = check.render_long_help().to_string();
+        assert!(
+            help.contains("raised to 10000"),
+            "check --timeout help must say short values are raised to 10000 ms:\n{help}"
+        );
     }
 }
