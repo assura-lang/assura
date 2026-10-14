@@ -2610,14 +2610,14 @@ Trust annotations:
 
 ### 12.5 Verification Budget Configuration
 
+The live setting is `[verify] timeout` in `assura.toml`, in milliseconds.
+`assura check --timeout` overrides it. Values below 10000 are raised to
+10000 before a clause is solved. Layer 3 bounded model checking uses at
+least 30000 ms. The compiler does not read a `[verify.budgets]` table.
+
 ```toml
-[verify.budgets]
-layer_0_timeout_ms = 100
-layer_1_timeout_ms = 1000
-layer_2_timeout_ms = 10000
-total_timeout_ms = 300000
-max_fuel = 10
-max_smt_queries = 1000
+[verify]
+timeout = 10000
 ```
 
 ---
