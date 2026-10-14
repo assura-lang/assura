@@ -273,7 +273,7 @@ impl Layer2Verifier {
                                 let reason = solver
                                     .get_reason_unknown()
                                     .unwrap_or_else(|| "unknown".into());
-                                if reason.contains("timeout") {
+                                if crate::z3_backend::solver::z3_unknown_is_timeout(&reason) {
                                     results.push(Layer2Result::Timeout {
                                         invariant: inv.name.clone(),
                                         timeout_ms: self.config.timeout_ms,
@@ -370,7 +370,7 @@ impl Layer2Verifier {
                                 let reason = solver
                                     .get_reason_unknown()
                                     .unwrap_or_else(|| "unknown".into());
-                                if reason.contains("timeout") {
+                                if crate::z3_backend::solver::z3_unknown_is_timeout(&reason) {
                                     results.push(Layer2Result::Timeout {
                                         invariant: format!("termination:{}", obl.fn_name),
                                         timeout_ms: self.config.timeout_ms,
@@ -442,7 +442,7 @@ impl Layer2Verifier {
                             let reason = solver
                                 .get_reason_unknown()
                                 .unwrap_or_else(|| "unknown".into());
-                            if reason.contains("timeout") {
+                            if crate::z3_backend::solver::z3_unknown_is_timeout(&reason) {
                                 results.push(Layer2Result::Timeout {
                                     invariant: format!("roundtrip:{}", obl.type_name),
                                     timeout_ms: self.config.timeout_ms,

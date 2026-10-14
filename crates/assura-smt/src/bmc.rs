@@ -309,7 +309,7 @@ impl BmcEngine {
                         let reason = solver
                             .get_reason_unknown()
                             .unwrap_or_else(|| "unknown".into());
-                        if reason.contains("timeout") {
+                        if crate::z3_backend::solver::z3_unknown_is_timeout(&reason) {
                             return BmcResult::Unknown {
                                 property: name.to_string(),
                                 reason: format!("timeout at step {step}"),
@@ -406,7 +406,7 @@ impl BmcEngine {
                         let reason = solver
                             .get_reason_unknown()
                             .unwrap_or_else(|| "unknown".into());
-                        if reason.contains("timeout") {
+                        if crate::z3_backend::solver::z3_unknown_is_timeout(&reason) {
                             return BmcResult::Unknown {
                                 property: name.to_string(),
                                 reason: format!("timeout during lasso check at loop point {i}"),

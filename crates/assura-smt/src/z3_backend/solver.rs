@@ -5,6 +5,13 @@ use crate::*;
 use z3::ast::Ast;
 use z3::{Model, Params, SatResult, Solver, ast};
 
+/// Z3 reports a budget stop as `timeout`, or as `canceled` when the
+/// `solver2` stage is interrupted. Both are the clause timeout.
+pub(crate) fn z3_unknown_is_timeout(reason: &str) -> bool {
+    let reason = reason.to_ascii_lowercase();
+    reason.contains("timeout") || reason.contains("canceled") || reason.contains("cancelled")
+}
+
 /// Apply a check timeout to both Z3 combined-solver stages.
 ///
 /// `push`/`pop` switches Z3 to `solver2`. On Z3 5.1 the `timeout` parameter
@@ -162,7 +169,7 @@ pub(super) fn z3_clause_sat_outcome(
             let reason = solver
                 .get_reason_unknown()
                 .unwrap_or_else(|| "unknown".into());
-            if reason.contains("timeout") {
+            if z3_unknown_is_timeout(&reason) {
                 ClauseSatOutcome::timeout()
             } else {
                 ClauseSatOutcome::unknown(reason)
@@ -194,4 +201,17 @@ pub(super) fn check_satisfiability(
         &assura_ast::ClauseKind::Invariant,
         outcome,
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::z3_unknown_is_timeout;
+
+    #[test]
+    fn canceled_unknown_is_a_timeout() {
+        assert!(z3_unknown_is_timeout("timeout"));
+        assert!(z3_unknown_is_timeout("canceled"));
+        assert!(z3_unknown_is_timeout("cancelled"));
+        assert!(!z3_unknown_is_timeout("incomplete (theory arithmetic)"));
+    }
 }
