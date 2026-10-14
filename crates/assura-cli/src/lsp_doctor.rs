@@ -157,7 +157,7 @@ pub(crate) fn run_doctor(output_mode: OutputMode, verbosity: Verbosity) {
                 println!("                `assura check` already links Z3 via the z3 crate.");
             }
             if name == "cvc5" && status != "ok" {
-                println!("                Install: bash scripts/setup-cvc5.sh");
+                println!("                {}", cvc5_missing_hint());
             }
             if name == "wasm_target" && detail.contains("not installed") {
                 println!("                Install: rustup target add wasm32-wasip1");
@@ -169,10 +169,33 @@ pub(crate) fn run_doctor(output_mode: OutputMode, verbosity: Verbosity) {
     }
 }
 
+/// Human hint when `cvc5 --version` fails.
+///
+/// `scripts/setup-cvc5.sh` downloads libraries for building Assura. It does
+/// not put the `cvc5` program on `PATH`, and a cargo install does not
+/// include that script. `assura check` uses the linked Z3 library unless
+/// the user passes `--solver cvc5`.
+fn cvc5_missing_hint() -> &'static str {
+    "Optional: `assura check --solver cvc5` needs the cvc5 program on PATH. Z3 is already linked."
+}
+
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
+    use super::cvc5_missing_hint;
+
+    #[test]
+    fn cvc5_missing_hint_does_not_point_at_the_build_script() {
+        let hint = cvc5_missing_hint();
+        assert!(hint.contains("--solver cvc5"), "{hint}");
+        assert!(hint.contains("PATH"), "{hint}");
+        assert!(
+            !hint.contains("setup-cvc5.sh"),
+            "doctor must not send users to the native build script: {hint}"
+        );
+    }
+
     #[test]
     fn z3_version_prefix_strip() {
         // run_doctor extracts the Z3 version with this logic:
