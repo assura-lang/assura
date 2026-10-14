@@ -109,6 +109,10 @@ fn execute_cvc5(script: &str, tlimit_ms: u32) -> Result<String, String> {
         // declaration, so the flag has to be on the command line. A single
         // `(check-sat)` still answers under this flag.
         .arg("--incremental")
+        // 64-bit wrapping division (vault share formulas) makes the default
+        // nonlinear solver hit the clause budget. Splitting on zero finds
+        // the same counterexample Z3 finds, and linear unsat stays unsat.
+        .arg("--nl-ext-split-zero")
         .arg("--tlimit")
         .arg(tlimit)
         .stdin(Stdio::piped())
@@ -366,6 +370,42 @@ mod tests {
                 );
             }
             Err(reason) => panic!("cvc5 error: {reason}"),
+        }
+    }
+
+    #[test]
+    fn cvc5_wrapped_div_counterexample_is_sat() {
+        let Ok(out) = std::process::Command::new("cvc5").arg("--version").output() else {
+            return;
+        };
+        if !out.status.success() {
+            return;
+        }
+        // VaultShareInflation: victim shares use 64-bit wrapping division.
+        // The default nonlinear solver times out; `--nl-ext-split-zero` on
+        // the cvc5 command line finds the counterexample.
+        let script = "\
+(set-logic ALL)
+(declare-const total_shares_before Int)
+(declare-const total_assets_before Int)
+(declare-const donation Int)
+(declare-const victim_deposit Int)
+(declare-const attacker_deposit Int)
+(assert (>= attacker_deposit 1))
+(assert (>= donation 0))
+(assert (>= victim_deposit 1))
+(assert (>= total_shares_before 1))
+(assert (>= total_assets_before 1))
+(assert (= total_shares_before attacker_deposit))
+(assert (= total_assets_before (- (mod (+ (+ attacker_deposit donation) 9223372036854775808) 18446744073709551616) 9223372036854775808)))
+(assert (not (>= (div (* victim_deposit total_shares_before) total_assets_before) 1)))
+(check-sat)
+";
+        match run_cvc5_binary(script, 8_000) {
+            Cvc5Result::Sat(_) => {}
+            Cvc5Result::Unsat => panic!("share inflation must have a counterexample"),
+            Cvc5Result::Timeout => panic!("share inflation must not time out"),
+            Cvc5Result::Error(reason) => panic!("cvc5 error: {reason}"),
         }
     }
 
