@@ -31,6 +31,7 @@ pub(crate) mod cvc5_ir_native;
 pub(crate) mod cvc5_ir_smtlib;
 pub(crate) mod cvc5_let_block_encode;
 pub(crate) mod cvc5_list_encode;
+pub(crate) mod cvc5_machine_bv;
 pub(crate) mod cvc5_match_encode;
 pub(crate) mod cvc5_model;
 #[cfg(feature = "cvc5-verify")]

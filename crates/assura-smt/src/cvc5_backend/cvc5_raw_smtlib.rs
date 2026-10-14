@@ -75,7 +75,13 @@ fn parse_raw_atom_smtlib(
 
     if tok == "not" || tok == "!" {
         let (val, next) = parse_raw_atom_smtlib(tokens, start + 1, fresh)?;
-        return Some((format!("(not {val})"), next));
+        return Some((
+            format!(
+                "(not {})",
+                crate::encode_binop_policy::smtlib_bool_term(&val)
+            ),
+            next,
+        ));
     }
 
     if tok == "-" {

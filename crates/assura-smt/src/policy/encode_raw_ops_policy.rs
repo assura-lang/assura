@@ -79,14 +79,33 @@ pub(crate) fn format_raw_binop_smtlib(op: RawBinOp, lhs: &str, rhs: &str) -> Str
         RawBinOp::Mul => format!("(* {lhs} {rhs})"),
         RawBinOp::Div => rust_trunc_div_smtlib(lhs, rhs),
         RawBinOp::Mod => rust_trunc_mod_smtlib(lhs, rhs),
+        RawBinOp::Eq if lhs == "true" || lhs == "false" || rhs == "true" || rhs == "false" => {
+            format!(
+                "(= {} {})",
+                crate::encode_binop_policy::smtlib_bool_term(lhs),
+                crate::encode_binop_policy::smtlib_bool_term(rhs)
+            )
+        }
         RawBinOp::Eq => format!("(= {lhs} {rhs})"),
         RawBinOp::Lt => format!("(< {lhs} {rhs})"),
         RawBinOp::Gt => format!("(> {lhs} {rhs})"),
         RawBinOp::Leq => format!("(<= {lhs} {rhs})"),
         RawBinOp::Geq => format!("(>= {lhs} {rhs})"),
-        RawBinOp::And => format!("(and {lhs} {rhs})"),
-        RawBinOp::Or => format!("(or {lhs} {rhs})"),
-        RawBinOp::Implies => format!("(=> {lhs} {rhs})"),
+        RawBinOp::And => format!(
+            "(and {} {})",
+            crate::encode_binop_policy::smtlib_bool_term(lhs),
+            crate::encode_binop_policy::smtlib_bool_term(rhs)
+        ),
+        RawBinOp::Or => format!(
+            "(or {} {})",
+            crate::encode_binop_policy::smtlib_bool_term(lhs),
+            crate::encode_binop_policy::smtlib_bool_term(rhs)
+        ),
+        RawBinOp::Implies => format!(
+            "(=> {} {})",
+            crate::encode_binop_policy::smtlib_bool_term(lhs),
+            crate::encode_binop_policy::smtlib_bool_term(rhs)
+        ),
     }
 }
 
@@ -281,7 +300,7 @@ mod tests {
         );
         assert_eq!(
             format_raw_binop_smtlib(RawBinOp::Implies, "p", "q"),
-            "(=> p q)"
+            "(=> (distinct p 0) (distinct q 0))"
         );
     }
 

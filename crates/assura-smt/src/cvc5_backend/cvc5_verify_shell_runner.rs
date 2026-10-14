@@ -16,7 +16,17 @@ pub(crate) enum Cvc5Result {
 }
 
 pub(crate) fn run_cvc5_binary(script: &str, tlimit_ms: u32) -> Cvc5Result {
-    match execute_cvc5(script, tlimit_ms) {
+    run_cvc5_binary_mode(script, tlimit_ms, false)
+}
+
+/// `QF_BV` scripts for machine division. Eager bitblasting is rejected on
+/// `(set-logic ALL)`, so the integer shell scripts do not pass this flag.
+pub(crate) fn run_cvc5_binary_eager(script: &str, tlimit_ms: u32) -> Cvc5Result {
+    run_cvc5_binary_mode(script, tlimit_ms, true)
+}
+
+fn run_cvc5_binary_mode(script: &str, tlimit_ms: u32, eager_bitblast: bool) -> Cvc5Result {
+    match execute_cvc5(script, tlimit_ms, eager_bitblast) {
         Ok(stdout) => parse_cvc5_stdout_first(&stdout),
         Err(reason) => Cvc5Result::Error(reason),
     }
@@ -50,7 +60,22 @@ pub(crate) fn run_cvc5_binary_queries(
     script: &str,
     tlimit_ms: u32,
 ) -> Result<Vec<Cvc5Result>, String> {
-    let stdout = execute_cvc5(script, tlimit_ms)?;
+    run_cvc5_binary_queries_mode(script, tlimit_ms, false)
+}
+
+pub(crate) fn run_cvc5_binary_queries_eager(
+    script: &str,
+    tlimit_ms: u32,
+) -> Result<Vec<Cvc5Result>, String> {
+    run_cvc5_binary_queries_mode(script, tlimit_ms, true)
+}
+
+fn run_cvc5_binary_queries_mode(
+    script: &str,
+    tlimit_ms: u32,
+    eager_bitblast: bool,
+) -> Result<Vec<Cvc5Result>, String> {
+    let stdout = execute_cvc5(script, tlimit_ms, eager_bitblast)?;
     parse_cvc5_stdout_all(&stdout)
 }
 
@@ -93,7 +118,7 @@ pub(crate) fn read_capped(mut reader: impl std::io::Read, limit: usize) -> Resul
     }
 }
 
-fn execute_cvc5(script: &str, tlimit_ms: u32) -> Result<String, String> {
+fn execute_cvc5(script: &str, tlimit_ms: u32, eager_bitblast: bool) -> Result<String, String> {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
@@ -104,7 +129,22 @@ fn execute_cvc5(script: &str, tlimit_ms: u32) -> Result<String, String> {
     cmd.arg("--lang")
         .arg("smt2")
         .arg("--produce-models")
-        .arg("--tlimit")
+        // Multi-clause scripts use `(push 1)` / `(pop 1)`. cvc5 rejects
+        // `set-option` for `:incremental` after `(set-logic ALL)` plus any
+        // declaration, so the flag has to be on the command line. A single
+        // `(check-sat)` still answers under this flag.
+        .arg("--incremental")
+        // 64-bit wrapping division (vault share formulas) makes the default
+        // nonlinear solver hit the clause budget. Splitting on zero finds
+        // the same counterexample Z3 finds, and linear unsat stays unsat.
+        .arg("--nl-ext-split-zero");
+    if eager_bitblast {
+        // Nested 64-bit `bvsdiv` (vault rounding) stays lazy-bitblast until
+        // the clause budget. Eager bitblasting finishes the same query.
+        // Only legal for `QF_BV`; `ALL` errors with ackermann.
+        cmd.arg("--bitblast=eager");
+    }
+    cmd.arg("--tlimit")
         .arg(tlimit)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -130,15 +170,52 @@ fn execute_cvc5(script: &str, tlimit_ms: u32) -> Result<String, String> {
         .ok_or_else(|| "cvc5 stderr pipe missing".to_string())?;
     // Drain stderr to EOF. Stopping at the stdout cap would leave the
     // pipe full and stall cvc5 inside write, before kill() runs.
-    let stderr_thread = std::thread::spawn(move || discard_until_eof(stderr));
+    let stderr_thread = std::thread::spawn(move || drain_keeping_prefix(stderr, 4096));
     let stdout_result = read_capped(stdout, CVC5_STDOUT_CAP);
     if stdout_result.is_err() {
         let _ = child.kill();
     }
     let _ = child.wait();
-    let _ = stderr_thread.join();
+    let stderr_bytes = stderr_thread.join().unwrap_or_default();
     let bytes = stdout_result?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    let stdout_text = String::from_utf8_lossy(&bytes).into_owned();
+    let stderr_text = String::from_utf8_lossy(&stderr_bytes);
+    Ok(promote_solver_timeout(stdout_text, &stderr_text))
+}
+
+/// cvc5 prints `cvc5 interrupted by timeout.` on stderr and may leave
+/// stdout empty. That is a timeout, not a script with no `(check-sat)`.
+fn promote_solver_timeout(stdout: String, stderr: &str) -> String {
+    if stdout.lines().any(|line| is_query_line(line.trim())) {
+        return stdout;
+    }
+    if stderr.contains("interrupted by timeout") {
+        return "timeout\n".to_string();
+    }
+    stdout
+}
+
+fn drain_keeping_prefix(mut reader: impl std::io::Read, keep: usize) -> Vec<u8> {
+    let mut kept = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) | Err(_) => return kept,
+            Ok(n) => {
+                if kept.len() >= keep {
+                    let _ = discard_until_eof(reader);
+                    return kept;
+                }
+                let room = keep - kept.len();
+                let take = n.min(room);
+                kept.extend_from_slice(&chunk[..take]);
+                if take < n {
+                    let _ = discard_until_eof(reader);
+                    return kept;
+                }
+            }
+        }
+    }
 }
 
 fn is_query_line(line: &str) -> bool {
@@ -276,6 +353,90 @@ mod tests {
             Cvc5Result::Unsat | Cvc5Result::Sat(_) => {
                 panic!("unknown must not be sat or unsat")
             }
+        }
+    }
+
+    #[test]
+    fn empty_stdout_with_timeout_stderr_is_a_timeout() {
+        let text = promote_solver_timeout(String::new(), "cvc5 interrupted by timeout.\n");
+        assert!(matches!(
+            parse_cvc5_stdout_first(&text),
+            Cvc5Result::Timeout
+        ));
+    }
+
+    #[test]
+    fn cvc5_push_pop_returns_one_result_per_check_sat() {
+        let Ok(out) = std::process::Command::new("cvc5").arg("--version").output() else {
+            return;
+        };
+        if !out.status.success() {
+            return;
+        }
+        // Declarations sit between set-logic and the pushes, which is where
+        // an in-script `(set-option :incremental true)` makes cvc5 abort
+        // before any check-sat.
+        let script = "\
+(set-logic ALL)
+(declare-const x Int)
+(push 1)
+(assert (> x 0))
+(check-sat)
+(pop 1)
+(push 1)
+(assert (and (> x 0) (< x 0)))
+(check-sat)
+(pop 1)
+";
+        match run_cvc5_binary_queries(script, 5_000) {
+            Ok(results) => {
+                assert_eq!(results.len(), 2, "expected one result per check-sat");
+                assert!(
+                    matches!(results[0], Cvc5Result::Sat(_)),
+                    "first query should be sat"
+                );
+                assert!(
+                    matches!(results[1], Cvc5Result::Unsat),
+                    "contradiction should be unsat"
+                );
+            }
+            Err(reason) => panic!("cvc5 error: {reason}"),
+        }
+    }
+
+    #[test]
+    fn cvc5_wrapped_div_counterexample_is_sat() {
+        let Ok(out) = std::process::Command::new("cvc5").arg("--version").output() else {
+            return;
+        };
+        if !out.status.success() {
+            return;
+        }
+        // VaultShareInflation: victim shares use 64-bit wrapping division.
+        // The default nonlinear solver times out; `--nl-ext-split-zero` on
+        // the cvc5 command line finds the counterexample.
+        let script = "\
+(set-logic ALL)
+(declare-const total_shares_before Int)
+(declare-const total_assets_before Int)
+(declare-const donation Int)
+(declare-const victim_deposit Int)
+(declare-const attacker_deposit Int)
+(assert (>= attacker_deposit 1))
+(assert (>= donation 0))
+(assert (>= victim_deposit 1))
+(assert (>= total_shares_before 1))
+(assert (>= total_assets_before 1))
+(assert (= total_shares_before attacker_deposit))
+(assert (= total_assets_before (- (mod (+ (+ attacker_deposit donation) 9223372036854775808) 18446744073709551616) 9223372036854775808)))
+(assert (not (>= (div (* victim_deposit total_shares_before) total_assets_before) 1)))
+(check-sat)
+";
+        match run_cvc5_binary(script, 8_000) {
+            Cvc5Result::Sat(_) => {}
+            Cvc5Result::Unsat => panic!("share inflation must have a counterexample"),
+            Cvc5Result::Timeout => panic!("share inflation must not time out"),
+            Cvc5Result::Error(reason) => panic!("cvc5 error: {reason}"),
         }
     }
 

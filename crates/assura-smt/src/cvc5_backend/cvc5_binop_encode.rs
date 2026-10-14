@@ -207,7 +207,10 @@ mod tests {
 
     #[test]
     fn unary_not_smtlib() {
-        assert_eq!(encode_ast_unary_smtlib(&UnaryOp::Not, "flag"), "(not flag)");
+        assert_eq!(
+            encode_ast_unary_smtlib(&UnaryOp::Not, "flag"),
+            "(not (distinct flag 0))"
+        );
     }
 
     /// Kind selection for BV order is pure (no solver); always runs under default features

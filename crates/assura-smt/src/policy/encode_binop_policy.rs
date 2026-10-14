@@ -12,7 +12,7 @@ use assura_ast::{BinOp, UnaryOp};
 
 use crate::encode_atom_policy::{
     concat_binop_smtlib, format_neq_ast_binop_smtlib, format_standard_ast_binop_smtlib,
-    in_binop_smtlib, not_in_binop_smtlib, range_binop_smtlib,
+    in_binop_smtlib, not_in_binop_smtlib, range_binop_smtlib, standard_ast_binop_smtlib_op,
 };
 
 /// Encode an AST binary operator as SMT-LIB2 (both operands already rendered).
@@ -23,6 +23,19 @@ pub(crate) fn encode_ast_binop_smtlib(op: &BinOp, l: &str, r: &str) -> Option<St
         BinOp::In => Some(in_binop_smtlib(l, r)),
         BinOp::NotIn => Some(not_in_binop_smtlib(l, r)),
         BinOp::Concat => Some(concat_binop_smtlib(l, r)),
+        BinOp::And | BinOp::Or | BinOp::Implies => {
+            let smt_op = standard_ast_binop_smtlib_op(op)?;
+            Some(format!(
+                "({smt_op} {} {})",
+                smtlib_bool_term(l),
+                smtlib_bool_term(r)
+            ))
+        }
+        BinOp::Eq if l == "true" || l == "false" || r == "true" || r == "false" => Some(format!(
+            "(= {} {})",
+            smtlib_bool_term(l),
+            smtlib_bool_term(r)
+        )),
         _ => format_standard_ast_binop_smtlib(op, l, r),
     }
 }
@@ -44,10 +57,31 @@ pub(crate) fn classify_ast_unary(op: &UnaryOp) -> AstUnaryKind {
     }
 }
 
+/// Treat `term` as a Bool.
+///
+/// Shell scripts declare values as Int. Z3 coerces with `!= 0`. CVC5
+/// rejects `(or x y)` and `(= __result true)` when `x` and `__result` are Int.
+pub(crate) fn smtlib_bool_term(term: &str) -> String {
+    let term = term.trim();
+    if matches!(term, "true" | "false") {
+        return term.to_string();
+    }
+    if let Some(rest) = term.strip_prefix('(') {
+        let head = rest.split_whitespace().next().unwrap_or("");
+        if matches!(
+            head,
+            "not" | "and" | "or" | "xor" | "=>" | "=" | "distinct" | "<" | ">" | "<=" | ">="
+        ) {
+            return term.to_string();
+        }
+    }
+    format!("(distinct {term} 0)")
+}
+
 /// Encode an AST unary operator as SMT-LIB2.
 pub(crate) fn encode_ast_unary_smtlib(op: &UnaryOp, inner: &str) -> String {
     match classify_ast_unary(op) {
-        AstUnaryKind::Not => format!("(not {inner})"),
+        AstUnaryKind::Not => format!("(not {})", smtlib_bool_term(inner)),
         AstUnaryKind::Neg => format!("(- {inner})"),
     }
 }
@@ -137,7 +171,10 @@ mod tests {
             encode_ast_binop_smtlib(&BinOp::Add, "1", "2").as_deref(),
             Some("(+ 1 2)")
         );
-        assert_eq!(encode_ast_unary_smtlib(&UnaryOp::Not, "p"), "(not p)");
+        assert_eq!(
+            encode_ast_unary_smtlib(&UnaryOp::Not, "p"),
+            "(not (distinct p 0))"
+        );
         assert_eq!(encode_ast_unary_smtlib(&UnaryOp::Neg, "3"), "(- 3)");
         assert_eq!(classify_ast_unary(&UnaryOp::Not), AstUnaryKind::Not);
         assert_eq!(classify_ast_unary(&UnaryOp::Neg), AstUnaryKind::Neg);

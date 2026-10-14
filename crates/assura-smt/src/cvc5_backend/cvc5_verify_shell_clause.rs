@@ -38,6 +38,55 @@ pub(crate) fn check_clause_cvc5_shellout(
         return result;
     }
 
+    let frame_vars = crate::clause_policy::frame_axiom_vars_for_clause(
+        &prepared.frame_checker,
+        &kind,
+        ensures_body,
+        &prepared.param_names,
+    );
+    let bv_script = super::cvc5_machine_bv::machine_division_script(
+        contract.params,
+        contract.return_ty,
+        &prepared.requires_exprs,
+        &[super::cvc5_machine_bv::MachineDivClause {
+            body: ensures_body,
+            kind: &kind,
+            frame_vars: &frame_vars,
+        }],
+        contract.ir.is_some(),
+    );
+    if let Some(script) = bv_script {
+        let query =
+            super::cvc5_verify_shell_runner::run_cvc5_binary_eager(&script, session.timeout_ms);
+        // Full 64-bit wrap matches the integer encoding when every `+`/`-`/`*`
+        // is a machine atom. A later multiply of a quotient is unbounded in
+        // the integer encoding, so a bitvector `sat` is kept only when the
+        // model still breaks that encoding.
+        let trust = super::cvc5_machine_bv::integer_wrap_matches_bitvector(
+            contract.params,
+            contract.return_ty,
+            &prepared.requires_exprs,
+            ensures_body,
+        );
+        let refute = matches!(
+            &query,
+            super::cvc5_verify_shell_runner::Cvc5Result::Sat(model)
+                if super::cvc5_machine_bv::model_refutes_negated_clause(
+                    contract.params,
+                    contract.return_ty,
+                    &prepared.requires_exprs,
+                    ensures_body,
+                    &kind,
+                    model,
+                )
+        );
+        if trust || refute {
+            let result = cvc5_shell_query_to_verification_result(desc, kind.clone(), query);
+            store_cvc5_clause_cache(session.cache, cache_key, &result);
+            return result;
+        }
+    }
+
     let mut vars = HashSet::new();
     for req in &prepared.requires_exprs {
         collect_vars(req, &mut vars);
@@ -73,12 +122,6 @@ pub(crate) fn check_clause_cvc5_shellout(
         append_cvc5_shellout_lemma_assumptions(&mut script, ensures_body, defs);
     }
 
-    let frame_vars = crate::clause_policy::frame_axiom_vars_for_clause(
-        &prepared.frame_checker,
-        &kind,
-        ensures_body,
-        &prepared.param_names,
-    );
     if !frame_vars.is_empty() {
         append_cvc5_shellout_frame_axioms(&mut script, &vars, &frame_vars);
     }
@@ -101,6 +144,7 @@ pub(crate) fn check_clause_cvc5_shellout(
     crate::cvc5_verify_shell_script::declare_missing_old_snapshots(&mut script);
     crate::cvc5_verify_shell_script::link_canonical_lengths(&mut script);
     crate::cvc5_verify_shell_script::declare_missing_string_literals(&mut script);
+    crate::cvc5_verify_shell_script::declare_missing_smt_symbols(&mut script);
     let result = cvc5_shell_query_to_verification_result(
         desc,
         kind.clone(),
