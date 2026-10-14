@@ -36,6 +36,12 @@ pub(crate) fn extract_raw_base_name(collapsed: &str) -> &str {
     collapsed.rsplit('_').next().unwrap_or(collapsed)
 }
 
+/// `true` and `false` are SMT-LIB literals. Declaring them as constants
+/// shadows the literal and makes `(assert true)` ill-sorted.
+pub(crate) fn is_smt_bool_literal_name(name: &str) -> bool {
+    matches!(name, "true" | "false")
+}
+
 /// Map source `result` ident to [`RESULT_VAR_NAME`]; other idents are sanitized only.
 pub(crate) fn encode_ident_name(name: &str) -> String {
     if name == "result" {

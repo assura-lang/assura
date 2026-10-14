@@ -231,6 +231,9 @@ fn build_incremental_shell_script(
         &input.prepared.verifiable,
     );
     for var in &vars {
+        if crate::encode_atom_policy::is_smt_bool_literal_name(var) {
+            continue;
+        }
         script.push_str(&format!("(declare-const {var} Int)\n"));
     }
 

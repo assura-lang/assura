@@ -97,6 +97,9 @@ pub(crate) fn check_clause_cvc5_shellout(
     script.push_str("(set-logic ALL)\n");
 
     for var in &vars {
+        if crate::encode_atom_policy::is_smt_bool_literal_name(var) {
+            continue;
+        }
         script.push_str(&format!("(declare-const {var} Int)\n"));
     }
 
