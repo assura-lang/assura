@@ -179,6 +179,7 @@ fn is_keyword_as_value(k: SyntaxKind) -> bool {
             | SyntaxKind::MERGE_KW
             | SyntaxKind::FAIR_KW
             | SyntaxKind::FENCE_KW
+            | SyntaxKind::LIMIT_KW
     )
 }
 
@@ -692,6 +693,20 @@ mod tests {
             .next()
             .map(|c| c.kind())
             .unwrap_or(SyntaxKind::ERROR)
+    }
+
+    #[test]
+    fn limit_keyword_is_a_value_in_a_comparison() {
+        let (root, errors) = parse_expr_to_tree("count <= limit");
+        assert!(errors.is_empty(), "{errors:?}");
+        let texts: Vec<String> = root
+            .descendants_with_tokens()
+            .filter_map(|el| el.into_token().map(|tok| tok.text().to_string()))
+            .collect();
+        assert!(
+            texts.iter().any(|text| text == "limit"),
+            "limit was dropped from the comparison: {texts:?}"
+        );
     }
 
     #[test]
