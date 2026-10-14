@@ -198,6 +198,25 @@ fn project_a04008_suppressed_after_verified_ensures() {
 }
 
 #[test]
+fn project_a04008_kept_when_ensures_is_also_a_counterexample() {
+    let typed = typecheck_unc_contract();
+    let mut diags = super::typed_warnings_to_diags(&typed.warnings, "unc.assura");
+    let results = vec![
+        assura_smt::VerificationResult::verified("Unc::ensures"),
+        assura_smt::VerificationResult::Counterexample {
+            clause_desc: "Unc::ensures".into(),
+            model: "result = 0".into(),
+            counter_model: None,
+        },
+    ];
+    super::suppress_a04008_for_verified_ensures(&mut diags, &results);
+    assert!(
+        diags.iter().any(|d| d.code == "A04008"),
+        "counterexample sibling must keep A04008, got: {diags:?}"
+    );
+}
+
+#[test]
 fn project_smt_diagnostics_use_clause_spans() {
     let src = include_str!("project.rs");
     assert!(

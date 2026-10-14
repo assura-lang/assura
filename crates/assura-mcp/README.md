@@ -1,31 +1,17 @@
 # assura-mcp
 
-`assura mcp` is the Model Context Protocol server for the Assura compiler. There is no separate `assura-mcp` binary.
+MCP server for [Assura](https://github.com/assura-lang/assura).
 
-Install the CLI, then start the server:
+The registered tools are `assura_check`, `assura_infer`, `assura_explain`,
+`assura_type_map`, `assura_ir_prompt`, and `assura_ir_verify`. Tool results
+are JSON text.
 
-```bash
-cargo install assura --locked
-assura mcp
-```
+Depend on this crate to embed the server. The `assura mcp` command runs it
+on stdio. Check uses the default Z3 solver.
 
-A bare terminal looks idle. MCP hosts must spawn this process. Example host config:
+## Documentation
 
-```json
-{
-  "mcpServers": {
-    "assura": {
-      "command": "assura",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-Verification returns Verified, Counterexample, or Unknown. That is not a claim that the code is secure.
-
-- [docs/AI-AGENTS.md](../../docs/AI-AGENTS.md)
-- [docs/WHAT-WE-PROVE.md](../../docs/WHAT-WE-PROVE.md)
+- [For AI agents](https://github.com/assura-lang/assura/blob/main/docs/AI-AGENTS.md)
 
 ## License
 

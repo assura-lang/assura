@@ -265,21 +265,16 @@ pub fn compile_full(source: &str, filename: &str, config: &CompilerConfig) -> Co
 
 /// Drop A04008 "result unconstrained" warnings only for contracts whose
 /// `::ensures` clause verified. A verified sibling must not hide A04008 on
-/// another contract in the same file.
+/// another contract in the same file. A counterexample on the same contract
+/// keeps the warning (#1700).
 pub fn suppress_a04008_for_verified_ensures(
     diagnostics: &mut Vec<assura_diagnostics::Diagnostic>,
     verification: &[assura_smt::VerificationResult],
 ) {
-    let verified: std::collections::HashSet<&str> = verification
-        .iter()
-        .filter_map(|r| match r {
-            assura_smt::VerificationResult::Verified { clause_desc, .. }
-                if clause_desc.ends_with("::ensures") =>
-            {
-                Some(clause_desc.trim_end_matches("::ensures"))
-            }
-            _ => None,
-        })
+    let counterexample = ensures_contracts(verification, true);
+    let verified: std::collections::HashSet<&str> = ensures_contracts(verification, false)
+        .into_iter()
+        .filter(|name| !counterexample.contains(name))
         .collect();
     if verified.is_empty() {
         return;
@@ -290,6 +285,35 @@ pub fn suppress_a04008_for_verified_ensures(
         }
         !matches!(a04008_contract_name(&d.message), Some(name) if verified.contains(name))
     });
+}
+
+fn ensures_contracts(
+    verification: &[assura_smt::VerificationResult],
+    counterexample: bool,
+) -> std::collections::HashSet<&str> {
+    verification
+        .iter()
+        .filter_map(|r| {
+            let clause_desc = if counterexample {
+                match r {
+                    assura_smt::VerificationResult::Counterexample { clause_desc, .. } => {
+                        clause_desc.as_str()
+                    }
+                    _ => return None,
+                }
+            } else {
+                match r {
+                    assura_smt::VerificationResult::Verified { clause_desc, .. } => {
+                        clause_desc.as_str()
+                    }
+                    _ => return None,
+                }
+            };
+            clause_desc
+                .ends_with("::ensures")
+                .then(|| clause_desc.trim_end_matches("::ensures"))
+        })
+        .collect()
 }
 
 fn a04008_contract_name(message: &str) -> Option<&str> {

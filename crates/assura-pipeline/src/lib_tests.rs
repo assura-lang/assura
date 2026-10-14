@@ -1636,6 +1636,29 @@ fn suppress_a04008_only_drops_verified_contract() {
 }
 
 #[test]
+fn suppress_a04008_kept_when_same_ensures_is_a_counterexample() {
+    let mut diags = vec![assura_diagnostics::Diagnostic::warning(
+        "A04008",
+        "`RoundUp`: ensures clause references `result` which is unconstrained in SMT; Z3 can assign it any value",
+        0..1,
+    )];
+    let results = vec![
+        assura_smt::VerificationResult::verified("RoundUp::ensures"),
+        assura_smt::VerificationResult::Counterexample {
+            clause_desc: "RoundUp::ensures".into(),
+            model: "result = 0".into(),
+            counter_model: None,
+        },
+    ];
+    suppress_a04008_for_verified_ensures(&mut diags, &results);
+    assert_eq!(
+        diags.len(),
+        1,
+        "a counterexample on the same ensures must keep A04008: {diags:?}"
+    );
+}
+
+#[test]
 fn compile_full_scopes_a04008_to_verified_contract() {
     // Good synthesizes identity IR (`result == x`) and verifies.
     // Bad uses an unanalyzable square-root shape and stays unverified.
