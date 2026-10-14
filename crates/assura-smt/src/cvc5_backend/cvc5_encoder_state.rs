@@ -6,16 +6,16 @@ use crate::cvc5_adt::{Cvc5AdtDef, Cvc5AdtNativeSymbols};
 
 /// Tracks background axioms, string constants, and fresh temporaries.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) struct Cvc5EncoderState<'a> {
-    pub(crate) axioms: Vec<cvc5::Term<'a>>,
+pub(crate) struct Cvc5EncoderState {
+    pub(crate) axioms: Vec<cvc5::Term>,
     pub(crate) string_constants: Vec<String>,
     pub(crate) fresh_counter: usize,
     pub(crate) use_string_theory: bool,
-    field_len_fn: Option<cvc5::Term<'a>>,
+    field_len_fn: Option<cvc5::Term>,
     /// Cached uninterpreted function symbols (`name@arity@bool|int`) so axioms
     /// from requires share the same UF with ensures (CVC5 does not intern by name).
-    uf_cache: HashMap<String, cvc5::Term<'a>>,
-    pub(crate) struct_adt_symbols: HashMap<String, Cvc5AdtNativeSymbols<'a>>,
+    uf_cache: HashMap<String, cvc5::Term>,
+    pub(crate) struct_adt_symbols: HashMap<String, Cvc5AdtNativeSymbols>,
     pub(crate) struct_adt_defs: HashMap<String, Cvc5AdtDef>,
     /// Contract-level quantifier trigger manager (seeded from clauses, refined during encode).
     pub(crate) trigger_manager: crate::advanced::TriggerManager,
@@ -30,7 +30,7 @@ pub(crate) struct Cvc5EncoderState<'a> {
 }
 
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn default_cvc5_encoder_state<'a>() -> Cvc5EncoderState<'a> {
+pub(crate) fn default_cvc5_encoder_state() -> Cvc5EncoderState {
     Cvc5EncoderState {
         axioms: Vec::new(),
         string_constants: Vec::new(),
@@ -53,7 +53,7 @@ pub(crate) fn default_cvc5_encoder_state<'a>() -> Cvc5EncoderState<'a> {
 /// Delegates to [`crate::trigger_seed_policy`] (shared with Z3).
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn seed_cvc5_trigger_manager_from_clauses(
-    state: &mut Cvc5EncoderState<'_>,
+    state: &mut Cvc5EncoderState,
     clauses: &[assura_ast::Clause],
 ) {
     crate::trigger_seed_policy::seed_trigger_manager_from_clauses(
@@ -74,21 +74,26 @@ pub(crate) fn register_trigger_functions_from_expr(
 
 /// Canonical length variable for a named binding (`__canonical_len_{name}`).
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn canonical_length_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn canonical_length_cvc5(
+    tm: &mut cvc5::TermManager,
     name: &str,
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
-) -> cvc5::Term<'a> {
+    vars: &mut std::collections::HashMap<String, cvc5::Term>,
+    state: &mut Cvc5EncoderState,
+) -> cvc5::Term {
     let key = crate::encode_atom_policy::canonical_length_name(name);
     if let Some(v) = vars.get(&key) {
         return v.clone();
     }
-    let v = tm.mk_const(tm.integer_sort(), &key);
+    let v = {
+        let __cvc2 = tm.integer_sort();
+        tm.mk_const(__cvc2, &key)
+    }
+    .expect("cvc5");
     let zero = tm.mk_integer(0);
-    state
-        .axioms
-        .push(tm.mk_term(cvc5::Kind::Geq, &[v.clone(), zero]));
+    state.axioms.push(
+        tm.mk_term(cvc5::Kind::Geq, &[v.clone(), zero])
+            .expect("cvc5"),
+    );
     vars.insert(key, v.clone());
     v
 }
@@ -99,22 +104,27 @@ pub(crate) fn canonical_length_cvc5<'a>(
 /// `encode_expr_cvc5` can pass its normal `&mut` parameters without E0621.
 #[cfg(feature = "cvc5-verify")]
 pub(crate) struct Cvc5QuantifierEncodeCtx<'a, 'v, 's> {
-    pub tm: &'a cvc5::TermManager,
-    pub vars: &'v mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    pub state: &'s mut Cvc5EncoderState<'a>,
+    pub tm: &'a mut cvc5::TermManager,
+    pub vars: &'v mut std::collections::HashMap<String, cvc5::Term>,
+    pub state: &'s mut Cvc5EncoderState,
 }
 
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn field_len_fn_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
-    state: &mut Cvc5EncoderState<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn field_len_fn_cvc5(
+    tm: &mut cvc5::TermManager,
+    state: &mut Cvc5EncoderState,
+) -> cvc5::Term {
     if let Some(f) = state.field_len_fn.as_ref() {
         return f.clone();
     }
     let len_name = crate::encode_atom_policy::FIELD_LEN_UF_NAME;
-    let len_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-    let len_func = tm.mk_const(len_sort, len_name);
+    let len_sort = {
+        let __cvc1 = tm.integer_sort();
+        let __cvc0 = tm.integer_sort();
+        tm.mk_fun_sort(&[__cvc1], __cvc0)
+    }
+    .expect("cvc5");
+    let len_func = tm.mk_const(len_sort, len_name).expect("cvc5");
     state.field_len_fn = Some(len_func.clone());
     // Keep uf_cache aligned so `collection_len_of(FIELD_LEN_UF_NAME)` reuses this symbol.
     state
@@ -132,13 +142,13 @@ pub(crate) fn uf_cache_key(name: &str, arity: usize, returns_bool: bool) -> Stri
 
 /// Interned UF symbol for the encoder session (avoids per-call `mk_const` divergence).
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn intern_uf_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
-    state: &mut Cvc5EncoderState<'a>,
+pub(crate) fn intern_uf_cvc5(
+    tm: &mut cvc5::TermManager,
+    state: &mut Cvc5EncoderState,
     name: &str,
     arity: usize,
     returns_bool: bool,
-) -> cvc5::Term<'a> {
+) -> cvc5::Term {
     let key = uf_cache_key(name, arity, returns_bool);
     if let Some(f) = state.uf_cache.get(&key) {
         return f.clone();
@@ -149,8 +159,8 @@ pub(crate) fn intern_uf_cvc5<'a>(
     } else {
         tm.integer_sort()
     };
-    let func_sort = tm.mk_fun_sort(&domain, codomain);
-    let func_const = tm.mk_const(func_sort, name);
+    let func_sort = tm.mk_fun_sort(&domain, codomain).expect("cvc5");
+    let func_const = tm.mk_const(func_sort, name).expect("cvc5");
     if name == crate::encode_atom_policy::FIELD_LEN_UF_NAME && arity == 1 && !returns_bool {
         state.field_len_fn = Some(func_const.clone());
     }

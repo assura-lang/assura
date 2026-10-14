@@ -548,7 +548,7 @@ Keep dependencies up to date. Run `cargo outdated -R` periodically.
 | logos | 0.16 | stable, upgrades OK |
 | z3 | 0.21 | No lifetime params on AST types; no &ctx first arg; `gh-release` links static Z3 5.1.0 (not distro libz3) |
 | sha2 | 0.11 | Uses digest 0.11, high-level API unchanged |
-| cvc5 | 0.4 | Native FFI bindings; `Sort` not Copy; `Kind` names differ from SMT-LIB2; requires `features = ["static"]` for static linking |
+| cvc5 | 0.6.1 | Native FFI for solver 1.4.0. `Term` has no lifetime. `mk_term` returns `Result`. `features = ["static"]` links the static libs. |
 
 **rowan 0.17 patterns**: `GreenNodeBuilder`, `SyntaxNode::new_root()`,
 `Language` trait on `AssuraLanguage`, `SyntaxKind` enum with `From<u16>`.
@@ -568,10 +568,14 @@ No `&ctx` first arg on constructors (`Int::from_i64(n)`, not
 `Int::from_i64(&ctx, n)`). Use `.eq()` not `._eq()`. Context
 created via `z3::with_z3_config(&cfg, || { ... })`.
 
-**cvc5 0.4 patterns**: `TermManager` is the factory for all sorts,
-terms, and operators. `Solver::new(&tm)` borrows the TermManager
-(lifetime tied). `Sort` is NOT Copy; call `tm.integer_sort()` each
-time instead of reusing a variable across loop iterations. `Kind`
+**cvc5 0.6.1 patterns**: `TermManager` is the factory for all sorts,
+terms, and operators. `Term` and `Sort` own a reference into that
+manager and have no lifetime parameter. `Solver::new(&tm)` does not
+borrow `tm` for the solver's lifetime. `mk_term`, `mk_const`,
+`set_logic`, `assert_formula`, and `check_sat` return `Result`.
+`check_sat` yields `Result<SmtResult>`. `Sort` is NOT Copy. Finish
+one `tm` borrow before the next: bind `tm.integer_sort()` to a local,
+then pass that local. `Kind`
 enum names differ from SMT-LIB2: `IntsDivision` (not `IntsDiv`),
 `IntsModulus` (not `IntsMod`). Function sorts: `tm.mk_fun_sort()`
 (not `mk_function_sort`). Quantifier bound variables:
@@ -1163,16 +1167,16 @@ brew install cmake gmp
 # the Rust crate build.
 
 # For CI or manual prebuilt setup:
-# macOS ARM64. 1.3.4 is the newest prebuilt the cvc5 0.4 bindings
-# accept. It includes cvc5 #12282. Do not point these URLs at 1.4.x.
-curl -sL "https://github.com/cvc5/cvc5/releases/download/cvc5-1.3.4/cvc5-macOS-arm64-static.zip" \
+# macOS ARM64. cvc5 0.6.1 expects solver 1.4.0. Do not point these
+# URLs at 1.3.x.
+curl -sL "https://github.com/cvc5/cvc5/releases/download/cvc5-1.4.0/cvc5-macOS-arm64-static.zip" \
   -o /tmp/cvc5.zip
 unzip -o /tmp/cvc5.zip -d /tmp/cvc5-install
 export CVC5_LIB_DIR=/tmp/cvc5-install/cvc5-macOS-arm64-static/lib
 export CVC5_INCLUDE_DIR=/tmp/cvc5-install/cvc5-macOS-arm64-static/include
 
 # Linux x86_64
-curl -sL "https://github.com/cvc5/cvc5/releases/download/cvc5-1.3.4/cvc5-Linux-x86_64-static.zip" \
+curl -sL "https://github.com/cvc5/cvc5/releases/download/cvc5-1.4.0/cvc5-Linux-x86_64-static.zip" \
   -o /tmp/cvc5.zip
 unzip -o /tmp/cvc5.zip -d /tmp/cvc5-install
 export CVC5_LIB_DIR=/tmp/cvc5-install/cvc5-Linux-x86_64-static/lib
@@ -1201,11 +1205,13 @@ blocked on cvc5-sys build" is not equivalent to "CVC5 parity verified."
 **CI enforcement:** `.github/workflows/ci.yml` job `cvc5` runs native
 clippy + tests with prebuilt static libs (same URLs as below).
 
-**macOS ARM developers:** `cvc5-sys` source builds often fail on AppleClang
-(Poly-EP / `gmpxx.h` `-Werror`). Run prebuilt setup **before**
-manual commands (pre-commit scripts removed), not only after a failure:
+**macOS ARM developers:** With `CVC5_LIB_DIR` unset, `cvc5-sys` 0.6.1
+clones tag `cvc5-1.4.0` and builds it. That source build works on Apple
+Clang. `scripts/setup-cvc5.sh` is the faster prebuilt path that CI uses.
+Point it at solver 1.4.0, not 1.3.x.
 
 ```bash
+# Optional. Leave CVC5_LIB_DIR unset to build solver 1.4.0 from source.
 bash scripts/setup-cvc5.sh
 # paste the printed export CVC5_LIB_DIR / CVC5_INCLUDE_DIR lines
 cargo test -p assura-smt --features cvc5-verify -- cvc5_

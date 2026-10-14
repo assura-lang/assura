@@ -6,16 +6,16 @@
 #![cfg(feature = "cvc5-verify")]
 
 /// Create a bitvector constant from a `u64` value.
-pub(crate) fn bv_from_u64<'a>(tm: &'a cvc5::TermManager, val: u64, width: u32) -> cvc5::Term<'a> {
+pub(crate) fn bv_from_u64(tm: &mut cvc5::TermManager, val: u64, width: u32) -> cvc5::Term {
     assert!(
         matches!(width, 8 | 16 | 32 | 64),
         "unsupported bitvector width: {width}"
     );
-    tm.mk_bv(width, val)
+    tm.mk_bv(width, val).expect("cvc5")
 }
 
 /// Create a bitvector constant from an `i64` value.
-pub(crate) fn bv_from_i64<'a>(tm: &'a cvc5::TermManager, val: i64, width: u32) -> cvc5::Term<'a> {
+pub(crate) fn bv_from_i64(tm: &mut cvc5::TermManager, val: i64, width: u32) -> cvc5::Term {
     assert!(
         matches!(width, 8 | 16 | 32 | 64),
         "unsupported bitvector width: {width}"
@@ -28,221 +28,177 @@ pub(crate) fn bv_from_i64<'a>(tm: &'a cvc5::TermManager, val: i64, width: u32) -
         64 => val as u64,
         _ => unreachable!(),
     };
-    tm.mk_bv(width, unsigned)
+    tm.mk_bv(width, unsigned).expect("cvc5")
 }
 
 /// Create a named bitvector variable (uninterpreted constant of BV sort).
-pub(crate) fn bv_const<'a>(tm: &'a cvc5::TermManager, name: &str, width: u32) -> cvc5::Term<'a> {
-    let sort = tm.mk_bv_sort(width);
-    tm.mk_const(sort, name)
+pub(crate) fn bv_const(tm: &mut cvc5::TermManager, name: &str, width: u32) -> cvc5::Term {
+    let sort = tm.mk_bv_sort(width).expect("cvc5");
+    tm.mk_const(sort, name).expect("cvc5")
 }
 
 // ── Arithmetic ──────────────────────────────────────────────────────────
 
-pub(crate) fn bvadd<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvadd(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorAdd, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
-pub(crate) fn bvsub<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvsub(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorSub, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
-pub(crate) fn bvmul<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvmul(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorMult, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
 // ── Signed comparisons ──────────────────────────────────────────────────
 
-pub(crate) fn bvslt<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvslt(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorSlt, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
-pub(crate) fn bvsle<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvsle(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorSle, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
-pub(crate) fn bvsgt<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvsgt(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorSgt, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
-pub(crate) fn bvsge<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvsge(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorSge, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
 // ── Unsigned comparisons ────────────────────────────────────────────────
 
-pub(crate) fn bvult<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvult(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorUlt, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
-pub(crate) fn bvule<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvule(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorUle, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
-pub(crate) fn bvugt<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvugt(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorUgt, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
-pub(crate) fn bvuge<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvuge(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorUge, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
 // ── Bitwise ─────────────────────────────────────────────────────────────
 
-pub(crate) fn bvand<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvand(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorAnd, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
-pub(crate) fn bvor<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvor(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorOr, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
-pub(crate) fn bvxor<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvxor(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorXor, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
 // ── Shifts ──────────────────────────────────────────────────────────────
 
-pub(crate) fn bvshl<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvshl(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorShl, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
-pub(crate) fn bvlshr<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvlshr(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorLshr, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
-pub(crate) fn bvashr<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvashr(tm: &mut cvc5::TermManager, a: &cvc5::Term, b: &cvc5::Term) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorAshr, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
 // ── Overflow detection ──────────────────────────────────────────────────
 
 /// Unsigned addition overflow: CVC5 `BitvectorUaddo` returns Bool directly.
-pub(crate) fn bvadd_overflow_unsigned<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvadd_overflow_unsigned(
+    tm: &mut cvc5::TermManager,
+    a: &cvc5::Term,
+    b: &cvc5::Term,
+) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorUaddo, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
 /// Signed addition overflow: CVC5 `BitvectorSaddo` returns Bool directly.
-pub(crate) fn bvadd_overflow_signed<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    b: &cvc5::Term<'a>,
-) -> cvc5::Term<'a> {
+pub(crate) fn bvadd_overflow_signed(
+    tm: &mut cvc5::TermManager,
+    a: &cvc5::Term,
+    b: &cvc5::Term,
+) -> cvc5::Term {
     tm.mk_term(cvc5::Kind::BitvectorSaddo, &[a.clone(), b.clone()])
+        .expect("cvc5")
 }
 
 // ── Extension / extraction helpers ──────────────────────────────────────
 
 /// Zero-extend a bitvector by `extra` bits.
-pub(crate) fn bv_zero_extend<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    extra: u32,
-) -> cvc5::Term<'a> {
-    let op = tm.mk_op(cvc5::Kind::BitvectorZeroExtend, &[extra]);
+pub(crate) fn bv_zero_extend(tm: &mut cvc5::TermManager, a: &cvc5::Term, extra: u32) -> cvc5::Term {
+    let op = tm
+        .mk_op(cvc5::Kind::BitvectorZeroExtend, &[extra])
+        .expect("cvc5");
     tm.mk_term_from_op(op, std::slice::from_ref(a))
+        .expect("cvc5")
 }
 
 /// Sign-extend a bitvector by `extra` bits.
-pub(crate) fn bv_sign_extend<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
-    extra: u32,
-) -> cvc5::Term<'a> {
-    let op = tm.mk_op(cvc5::Kind::BitvectorSignExtend, &[extra]);
+pub(crate) fn bv_sign_extend(tm: &mut cvc5::TermManager, a: &cvc5::Term, extra: u32) -> cvc5::Term {
+    let op = tm
+        .mk_op(cvc5::Kind::BitvectorSignExtend, &[extra])
+        .expect("cvc5");
     tm.mk_term_from_op(op, std::slice::from_ref(a))
+        .expect("cvc5")
 }
 
 /// Extract bits `[high:low]` from a bitvector (inclusive, zero-indexed).
-pub(crate) fn bv_extract<'a>(
-    tm: &'a cvc5::TermManager,
-    a: &cvc5::Term<'a>,
+pub(crate) fn bv_extract(
+    tm: &mut cvc5::TermManager,
+    a: &cvc5::Term,
     high: u32,
     low: u32,
-) -> cvc5::Term<'a> {
-    let op = tm.mk_op(cvc5::Kind::BitvectorExtract, &[high, low]);
+) -> cvc5::Term {
+    let op = tm
+        .mk_op(cvc5::Kind::BitvectorExtract, &[high, low])
+        .expect("cvc5");
     tm.mk_term_from_op(op, std::slice::from_ref(a))
+        .expect("cvc5")
 }
 
 /// Check if a CVC5 term has bitvector sort.
-pub(crate) fn is_bv(term: &cvc5::Term<'_>) -> bool {
+pub(crate) fn is_bv(term: &cvc5::Term) -> bool {
     term.sort().is_bv()
 }
 
 /// Get the bit-width of a bitvector-sorted term (defaults to 32 for non-BV).
-pub(crate) fn bv_width(term: &cvc5::Term<'_>) -> u32 {
+pub(crate) fn bv_width(term: &cvc5::Term) -> u32 {
     let sort = term.sort();
-    if sort.is_bv() { sort.bv_size() } else { 32 }
+    if sort.is_bv() {
+        sort.bv_size().expect("cvc5")
+    } else {
+        32
+    }
 }

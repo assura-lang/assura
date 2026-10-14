@@ -35,39 +35,43 @@ use crate::cvc5_wrapper_encode::encode_wrapper_cvc5;
 
 #[cfg(feature = "cvc5-verify")]
 pub(crate) fn apply_havoc_assume_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+    tm: &mut cvc5::TermManager,
     input: &HavocAssumeInput<'a>,
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
+    vars: &mut std::collections::HashMap<String, cvc5::Term>,
+    state: &mut Cvc5EncoderState,
 ) {
     use crate::havoc_assume::{HavocAssumeEffects, apply_havoc_assume_policy};
     use crate::ir::IrFunction;
     use crate::ir_encode::IrEncodeContext;
 
     // Structural axioms only; IR apply is done below so `IrEncodeContext<'a>`
-    // shares the TermManager lifetime required by invariant `cvc5::Term<'a>`
+    // shares the TermManager lifetime required by invariant `cvc5::Term`
     // / `HashMap` borrows (trait method only offers `IrEncodeContext<'_>`).
     struct Cvc5HavocEffects<'a, 'v, 's> {
-        tm: &'a cvc5::TermManager,
-        vars: &'v mut std::collections::HashMap<String, cvc5::Term<'a>>,
-        state: &'s mut Cvc5EncoderState<'a>,
+        tm: &'a mut cvc5::TermManager,
+        vars: &'v mut std::collections::HashMap<String, cvc5::Term>,
+        state: &'s mut Cvc5EncoderState,
     }
 
     impl HavocAssumeEffects for Cvc5HavocEffects<'_, '_, '_> {
         fn collection_result_nonneg(&mut self) {
             let len = canonical_length_cvc5(self.tm, "result", self.vars, self.state);
             let zero = self.tm.mk_integer(0);
-            self.state
-                .axioms
-                .push(self.tm.mk_term(cvc5::Kind::Geq, &[len, zero]));
+            self.state.axioms.push(
+                self.tm
+                    .mk_term(cvc5::Kind::Geq, &[len, zero])
+                    .expect("cvc5"),
+            );
         }
 
         fn length_identity_le(&mut self, result_name: &str, input_name: &str) {
             let len_result = canonical_length_cvc5(self.tm, result_name, self.vars, self.state);
             let len_input = canonical_length_cvc5(self.tm, input_name, self.vars, self.state);
-            self.state
-                .axioms
-                .push(self.tm.mk_term(cvc5::Kind::Leq, &[len_result, len_input]));
+            self.state.axioms.push(
+                self.tm
+                    .mk_term(cvc5::Kind::Leq, &[len_result, len_input])
+                    .expect("cvc5"),
+            );
         }
 
         fn apply_ir_body(
@@ -97,12 +101,12 @@ pub(crate) fn apply_havoc_assume_cvc5<'a>(
 /// `state` collects background axioms and tracks string constants
 /// so that `check_clause_cvc5_native` can assert them before check_sat.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_expr_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn encode_expr_cvc5(
+    tm: &mut cvc5::TermManager,
     expr: &SpExpr,
-    vars: &mut HashMap<String, cvc5::Term<'a>>,
-    state: &mut Cvc5EncoderState<'a>,
-) -> Option<cvc5::Term<'a>> {
+    vars: &mut HashMap<String, cvc5::Term>,
+    state: &mut Cvc5EncoderState,
+) -> Option<cvc5::Term> {
     use crate::cvc5_backend::cvc5_encode_term_impl::Cvc5TermBuilder;
     let mut builder = Cvc5TermBuilder { tm, vars, state };
     crate::encode_term::encode_expr_shared(&mut builder, expr)

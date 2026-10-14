@@ -70,9 +70,9 @@ fn verify_contract_cvc5_native_incremental(
 
     let use_cores =
         crate::prelude_policy::track_requires_unsat_cores(prepared.requires_exprs.len());
-    let tm = cvc5::TermManager::new();
+    let mut tm = cvc5::TermManager::new();
     let mut solver = new_cvc5_solver(
-        &tm,
+        &mut tm,
         Cvc5SolverOpts {
             incremental: true,
             unsat_core: use_cores,
@@ -82,9 +82,9 @@ fn verify_contract_cvc5_native_incremental(
 
     let var_names =
         collect_cvc5_var_names_from_clauses(&prepared.requires_exprs, &prepared.verifiable);
-    let mut var_map = build_cvc5_var_map(&tm, &var_names, contract.constants);
+    let mut var_map = build_cvc5_var_map(&mut tm, &var_names, contract.constants);
     assert_cvc5_solver_prelude(
-        &tm,
+        &mut tm,
         &mut solver,
         &var_map,
         contract.params,
@@ -101,8 +101,8 @@ fn verify_contract_cvc5_native_incremental(
     if let Some(specs) = contract.callee_specs {
         enc_state.callee_specs.clone_from(specs);
     }
-    register_cvc5_fixed_width_params(&tm, contract.params, &mut var_map, &mut enc_state);
-    register_cvc5_fixed_width_return(&tm, contract.return_ty, &mut var_map, &mut enc_state);
+    register_cvc5_fixed_width_params(&mut tm, contract.params, &mut var_map, &mut enc_state);
+    register_cvc5_fixed_width_return(&mut tm, contract.return_ty, &mut var_map, &mut enc_state);
     seed_cvc5_trigger_manager_from_clauses(&mut enc_state, contract.clauses);
 
     // Havoc+assume: parity with per-clause path (fixes #451).
@@ -119,12 +119,12 @@ fn verify_contract_cvc5_native_incremental(
             ir: ir.and_then(LoadedIrContext::body),
             enc_ctx: ir.map(LoadedIrContext::enc_ctx).unwrap_or_default(),
         };
-        apply_havoc_assume_cvc5(&tm, &havoc_input, &mut var_map, &mut enc_state);
+        apply_havoc_assume_cvc5(&mut tm, &havoc_input, &mut var_map, &mut enc_state);
     }
 
     let tracked_labels = if use_cores {
         assert_cvc5_requires_tracked(
-            &tm,
+            &mut tm,
             &mut solver,
             &prepared.requires_exprs,
             &mut var_map,
@@ -132,7 +132,7 @@ fn verify_contract_cvc5_native_incremental(
         )
     } else {
         assert_cvc5_requires(
-            &tm,
+            &mut tm,
             &mut solver,
             &prepared.requires_exprs,
             &mut var_map,
@@ -146,7 +146,7 @@ fn verify_contract_cvc5_native_incremental(
 
     if let Some(defs) = session.lemma_defs {
         inject_cvc5_lemma_assumptions_for_bodies(
-            &tm,
+            &mut tm,
             &mut solver,
             prepared.verifiable.iter().map(|c| &c.body),
             defs,
@@ -170,7 +170,7 @@ fn verify_contract_cvc5_native_incremental(
             continue;
         }
 
-        solver.push(1);
+        solver.push(1).expect("cvc5");
 
         let axiom_base = enc_state.axioms.len();
 
@@ -178,10 +178,11 @@ fn verify_contract_cvc5_native_incremental(
         assert_cvc5_axioms_since(&mut solver, &enc_state.axioms, axiom_base);
         let havoc_axiom_end = enc_state.axioms.len();
 
-        let body_term = match encode_expr_cvc5(&tm, &clause.body, &mut var_map, &mut enc_state) {
+        let body_term = match encode_expr_cvc5(&mut tm, &clause.body, &mut var_map, &mut enc_state)
+        {
             Some(t) => t,
             None => {
-                solver.pop(1);
+                solver.pop(1).expect("cvc5");
                 enc_state.axioms.truncate(axiom_base);
                 results.push(cvc5_encode_failure(&desc));
                 continue;
@@ -197,10 +198,10 @@ fn verify_contract_cvc5_native_incremental(
             &prepared.param_names,
         );
         if !frame_vars.is_empty() {
-            assert_cvc5_frame_axioms(&tm, &mut solver, &var_map, &frame_vars);
+            assert_cvc5_frame_axioms(&mut tm, &mut solver, &var_map, &frame_vars);
         }
 
-        assert_cvc5_clause_check(&tm, &mut solver, clause.kind.clone(), body_term);
+        assert_cvc5_clause_check(&mut tm, &mut solver, clause.kind.clone(), body_term);
 
         let result = finish_cvc5_clause_check(
             &desc,
@@ -213,7 +214,7 @@ fn verify_contract_cvc5_native_incremental(
 
         results.push(result);
 
-        solver.pop(1);
+        solver.pop(1).expect("cvc5");
         enc_state.axioms.truncate(axiom_base);
     }
 

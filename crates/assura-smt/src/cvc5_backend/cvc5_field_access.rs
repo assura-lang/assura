@@ -18,32 +18,39 @@ use crate::encode_field_policy::field_uf_smtlib_name;
 use assura_ast::{Expr, SpExpr};
 
 #[cfg(feature = "cvc5-verify")]
-fn get_or_create_int_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+fn get_or_create_int_cvc5(
+    tm: &mut cvc5::TermManager,
     name: &str,
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-) -> cvc5::Term<'a> {
+    vars: &mut std::collections::HashMap<String, cvc5::Term>,
+) -> cvc5::Term {
     vars.entry(name.to_string())
-        .or_insert_with(|| tm.mk_const(tm.integer_sort(), name))
+        .or_insert_with(|| {
+            {
+                let __cvc7 = tm.integer_sort();
+                tm.mk_const(__cvc7, name)
+            }
+            .expect("cvc5")
+        })
         .clone()
 }
 
 /// Encode `obj.field` for the native CVC5 backend (flatten, shallow UF, or length).
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_field_cvc5<'a, E>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn encode_field_cvc5<E>(
+    tm: &mut cvc5::TermManager,
     obj: &SpExpr,
     field: &str,
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
+    vars: &mut std::collections::HashMap<String, cvc5::Term>,
+    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState,
     mut encode: E,
-) -> Option<cvc5::Term<'a>>
+) -> Option<cvc5::Term>
 where
     E: FnMut(
+        &mut cvc5::TermManager,
         &SpExpr,
-        &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-        &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
-    ) -> Option<cvc5::Term<'a>>,
+        &mut std::collections::HashMap<String, cvc5::Term>,
+        &mut crate::cvc5_encoder_state::Cvc5EncoderState,
+    ) -> Option<cvc5::Term>,
 {
     use crate::cvc5_encoder_state::canonical_length_cvc5;
 
@@ -54,20 +61,27 @@ where
         FieldAccessPlan::Flatten(flat_name) => {
             use crate::encode_field_policy::{FieldValueKind, classify_field_value_kind};
             match classify_field_value_kind(field) {
-                FieldValueKind::Bool => Some(tm.mk_const(tm.boolean_sort(), &flat_name)),
+                FieldValueKind::Bool => Some(
+                    {
+                        let __cvc6 = tm.boolean_sort();
+                        tm.mk_const(__cvc6, &flat_name)
+                    }
+                    .expect("cvc5"),
+                ),
                 FieldValueKind::SizeNonNeg => {
                     let v = get_or_create_int_cvc5(tm, &flat_name, vars);
                     let zero = tm.mk_integer(0);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[v.clone(), zero]));
+                    state.axioms.push(
+                        tm.mk_term(cvc5::Kind::Geq, &[v.clone(), zero])
+                            .expect("cvc5"),
+                    );
                     Some(v)
                 }
                 FieldValueKind::Int => Some(get_or_create_int_cvc5(tm, &flat_name, vars)),
             }
         }
         FieldAccessPlan::ShallowUf { field: f } => {
-            let obj_val = encode(obj, vars, state)?;
+            let obj_val = encode(tm, obj, vars, state)?;
             Some(encode_shallow_field_cvc5(
                 tm,
                 &f,
@@ -77,49 +91,76 @@ where
             ))
         }
         FieldAccessPlan::TupleProj { index, .. } => match &obj.node {
-            Expr::Tuple(elems) => encode(&elems[index], vars, state),
+            Expr::Tuple(elems) => encode(tm, &elems[index], vars, state),
             _ => None,
         },
     }
 }
 
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_shallow_field_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn encode_shallow_field_cvc5(
+    tm: &mut cvc5::TermManager,
     field: &str,
-    obj_val: cvc5::Term<'a>,
-    axioms: &mut Vec<cvc5::Term<'a>>,
+    obj_val: cvc5::Term,
+    axioms: &mut Vec<cvc5::Term>,
     use_string_theory: bool,
-) -> cvc5::Term<'a> {
+) -> cvc5::Term {
     use crate::encode_atom_policy::is_length_method_name;
     use crate::encode_field_policy::{FieldValueKind, classify_field_value_kind};
 
     if use_string_theory && is_length_method_name(field) && obj_val.sort().is_string() {
-        let len = tm.mk_term(cvc5::Kind::StringLength, &[obj_val]);
+        let len = tm
+            .mk_term(cvc5::Kind::StringLength, &[obj_val])
+            .expect("cvc5");
         let zero = tm.mk_integer(0);
-        axioms.push(tm.mk_term(cvc5::Kind::Geq, &[len.clone(), zero]));
+        axioms.push(
+            tm.mk_term(cvc5::Kind::Geq, &[len.clone(), zero])
+                .expect("cvc5"),
+        );
         return len;
     }
 
     let func_name = field_uf_smtlib_name(field);
     match classify_field_value_kind(field) {
         FieldValueKind::Bool => {
-            let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.boolean_sort());
-            let func_const = tm.mk_const(func_sort, &func_name);
+            let func_sort = {
+                let __cvc5 = tm.integer_sort();
+                let __cvc4 = tm.boolean_sort();
+                tm.mk_fun_sort(&[__cvc5], __cvc4)
+            }
+            .expect("cvc5");
+            let func_const = tm.mk_const(func_sort, &func_name).expect("cvc5");
             tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val])
+                .expect("cvc5")
         }
         FieldValueKind::SizeNonNeg => {
-            let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-            let func_const = tm.mk_const(func_sort, &func_name);
-            let result = tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val]);
+            let func_sort = {
+                let __cvc3 = tm.integer_sort();
+                let __cvc2 = tm.integer_sort();
+                tm.mk_fun_sort(&[__cvc3], __cvc2)
+            }
+            .expect("cvc5");
+            let func_const = tm.mk_const(func_sort, &func_name).expect("cvc5");
+            let result = tm
+                .mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val])
+                .expect("cvc5");
             let zero = tm.mk_integer(0);
-            axioms.push(tm.mk_term(cvc5::Kind::Geq, &[result.clone(), zero]));
+            axioms.push(
+                tm.mk_term(cvc5::Kind::Geq, &[result.clone(), zero])
+                    .expect("cvc5"),
+            );
             result
         }
         FieldValueKind::Int => {
-            let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-            let func_const = tm.mk_const(func_sort, &func_name);
+            let func_sort = {
+                let __cvc1 = tm.integer_sort();
+                let __cvc0 = tm.integer_sort();
+                tm.mk_fun_sort(&[__cvc1], __cvc0)
+            }
+            .expect("cvc5");
+            let func_const = tm.mk_const(func_sort, &func_name).expect("cvc5");
             tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, obj_val])
+                .expect("cvc5")
         }
     }
 }

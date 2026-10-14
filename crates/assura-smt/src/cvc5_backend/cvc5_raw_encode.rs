@@ -16,12 +16,12 @@ pub(crate) fn encode_raw_expr_smtlib(tokens: &[String]) -> Option<String> {
 }
 
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_raw_expr_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn encode_raw_expr_cvc5(
+    tm: &mut cvc5::TermManager,
     tokens: &[String],
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
-) -> Option<cvc5::Term<'a>> {
+    vars: &mut std::collections::HashMap<String, cvc5::Term>,
+    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState,
+) -> Option<cvc5::Term> {
     use crate::cvc5_atom_encode::{encode_raw_empty_cvc5, encode_raw_single_token_cvc5};
     use crate::cvc5_raw_native::encode_raw_tokens_cvc5;
 

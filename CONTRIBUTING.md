@@ -296,9 +296,10 @@ skips. The final `cargo check --no-default-features` verifies the no-Z3
 build: any code in `assura-smt` that imports Z3 must be behind
 `#[cfg(feature = "z3-verify")]` with a fallback.
 
-For local CVC5 on macOS ARM, run `bash scripts/setup-cvc5.sh` and export
-the printed `CVC5_LIB_DIR` / `CVC5_INCLUDE_DIR` before the cvc5 clippy/test
-commands (source builds often fail under AppleClang).
+For a faster local CVC5 build on macOS ARM, run `bash scripts/setup-cvc5.sh`
+and export the printed `CVC5_LIB_DIR` / `CVC5_INCLUDE_DIR` before the cvc5
+clippy and test commands. Leaving those variables unset builds solver
+1.4.0 from source.
 
 ### 3. Verify demo files still parse and generate Rust
 

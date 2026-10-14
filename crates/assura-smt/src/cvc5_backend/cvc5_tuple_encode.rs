@@ -20,12 +20,12 @@ pub(crate) fn encode_tuple_smtlib() -> String {
 
 /// Native CVC5: fresh Int constant with per-element accessor UF axioms.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_tuple_cvc5<'a>(
-    tm: &'a cvc5::TermManager,
-    elem_vals: &[cvc5::Term<'a>],
-    axioms: &mut Vec<cvc5::Term<'a>>,
+pub(crate) fn encode_tuple_cvc5(
+    tm: &mut cvc5::TermManager,
+    elem_vals: &[cvc5::Term],
+    axioms: &mut Vec<cvc5::Term>,
     fresh_counter: &mut usize,
-) -> cvc5::Term<'a> {
+) -> cvc5::Term {
     use crate::encode_tuple_policy::{tuple_accessor_uf_name, tuple_value_fresh_name};
     let arity = elem_vals.len();
     let plan = plan_tuple_encode(arity, false);
@@ -35,13 +35,27 @@ pub(crate) fn encode_tuple_cvc5<'a>(
     ));
     let tuple_name = tuple_value_fresh_name(*fresh_counter);
     *fresh_counter += 1;
-    let tuple_val = tm.mk_const(tm.integer_sort(), &tuple_name);
+    let tuple_val = {
+        let __cvc2 = tm.integer_sort();
+        tm.mk_const(__cvc2, &tuple_name)
+    }
+    .expect("cvc5");
     for (i, elem_val) in elem_vals.iter().enumerate() {
         let accessor_name = tuple_accessor_uf_name(arity, i);
-        let acc_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-        let acc_func = tm.mk_const(acc_sort, &accessor_name);
-        let accessed = tm.mk_term(cvc5::Kind::ApplyUf, &[acc_func, tuple_val.clone()]);
-        axioms.push(tm.mk_term(cvc5::Kind::Equal, &[accessed, elem_val.clone()]));
+        let acc_sort = {
+            let __cvc1 = tm.integer_sort();
+            let __cvc0 = tm.integer_sort();
+            tm.mk_fun_sort(&[__cvc1], __cvc0)
+        }
+        .expect("cvc5");
+        let acc_func = tm.mk_const(acc_sort, &accessor_name).expect("cvc5");
+        let accessed = tm
+            .mk_term(cvc5::Kind::ApplyUf, &[acc_func, tuple_val.clone()])
+            .expect("cvc5");
+        axioms.push(
+            tm.mk_term(cvc5::Kind::Equal, &[accessed, elem_val.clone()])
+                .expect("cvc5"),
+        );
     }
     tuple_val
 }

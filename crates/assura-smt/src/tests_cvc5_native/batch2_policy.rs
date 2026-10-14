@@ -147,15 +147,15 @@ mod batch2_policy_tests {
         use crate::solver_outcome_policy::ClauseSatOutcome;
 
         // Create a simple solver and verify UNSAT outcome (validity check).
-        let tm = cvc5::TermManager::new();
-        let mut solver = cvc5::Solver::new(&tm);
-        solver.set_logic("ALL");
-        solver.set_option("produce-models", "true");
+        let mut tm = cvc5::TermManager::new();
+        let mut solver = cvc5::Solver::new(&mut tm);
+        solver.set_logic("ALL").expect("cvc5");
+        solver.set_option("produce-models", "true").expect("cvc5");
 
         // assert false => UNSAT
         let f = tm.mk_false();
-        solver.assert_formula(f);
-        let sat_result = solver.check_sat();
+        solver.assert_formula(f).expect("cvc5");
+        let sat_result = solver.check_sat().expect("cvc5");
         assert!(sat_result.is_unsat());
 
         let outcome =
@@ -179,18 +179,18 @@ fn test_cvc5_raw_var_caching() {
     use crate::cvc5_backend::cvc5_raw_native::encode_raw_tokens_cvc5;
     use std::collections::HashMap;
 
-    let tm = cvc5::TermManager::new();
+    let mut tm = cvc5::TermManager::new();
     let mut vars: HashMap<String, cvc5::Term> = HashMap::new();
     let mut state = crate::cvc5_encoder_state::default_cvc5_encoder_state();
 
     // First reference to "x" should create and cache it.
     let tokens_1 = vec!["x".to_string()];
-    let _v1 = encode_raw_tokens_cvc5(&tm, &tokens_1, &mut vars, &mut state);
+    let _v1 = encode_raw_tokens_cvc5(&mut tm, &tokens_1, &mut vars, &mut state);
     assert!(vars.contains_key("x"), "first reference should cache 'x'");
 
     // Second reference should hit the cache (map already has "x").
     let before_len = vars.len();
-    let _v2 = encode_raw_tokens_cvc5(&tm, &tokens_1, &mut vars, &mut state);
+    let _v2 = encode_raw_tokens_cvc5(&mut tm, &tokens_1, &mut vars, &mut state);
     assert_eq!(
         vars.len(),
         before_len,
@@ -205,12 +205,12 @@ fn test_cvc5_raw_result_var_caching() {
     use crate::cvc5_backend::cvc5_raw_native::encode_raw_tokens_cvc5;
     use std::collections::HashMap;
 
-    let tm = cvc5::TermManager::new();
+    let mut tm = cvc5::TermManager::new();
     let mut vars: HashMap<String, cvc5::Term> = HashMap::new();
     let mut state = crate::cvc5_encoder_state::default_cvc5_encoder_state();
 
     let tokens = vec!["result".to_string()];
-    let _v = encode_raw_tokens_cvc5(&tm, &tokens, &mut vars, &mut state);
+    let _v = encode_raw_tokens_cvc5(&mut tm, &tokens, &mut vars, &mut state);
     assert!(
         vars.contains_key(crate::encode_atom_policy::RESULT_VAR_NAME),
         "result keyword should cache under RESULT_VAR_NAME"

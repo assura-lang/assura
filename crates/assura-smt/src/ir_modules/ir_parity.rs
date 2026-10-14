@@ -58,10 +58,17 @@ mod tests {
         use crate::cvc5_encoder_state::default_cvc5_encoder_state;
         use crate::cvc5_ir_native::apply_ir_body_constraints_cvc5;
 
-        let tm = cvc5::TermManager::new();
+        let mut tm = cvc5::TermManager::new();
         let mut state = default_cvc5_encoder_state();
         let mut vars = HashMap::new();
-        apply_ir_body_constraints_cvc5(&tm, func, &["x".into()], &mut vars, &mut state, enc_ctx);
+        apply_ir_body_constraints_cvc5(
+            &mut tm,
+            func,
+            &["x".into()],
+            &mut vars,
+            &mut state,
+            enc_ctx,
+        );
         state
             .axioms
             .iter()

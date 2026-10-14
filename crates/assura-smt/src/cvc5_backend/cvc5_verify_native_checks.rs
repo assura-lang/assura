@@ -24,9 +24,9 @@ pub(crate) fn check_validity_cvc5(
         return result;
     }
 
-    let tm = cvc5::TermManager::new();
+    let mut tm = cvc5::TermManager::new();
     let mut solver = new_cvc5_solver(
-        &tm,
+        &mut tm,
         Cvc5SolverOpts {
             unsat_core: true,
             ..Default::default()
@@ -34,7 +34,7 @@ pub(crate) fn check_validity_cvc5(
     );
 
     let var_names = collect_cvc5_var_names_from_assumptions(assumptions, body);
-    let mut var_map = build_cvc5_var_map(&tm, &var_names, &[]);
+    let mut var_map = build_cvc5_var_map(&mut tm, &var_names, &[]);
 
     let mut enc_state = default_cvc5_encoder_state();
 
@@ -43,33 +43,37 @@ pub(crate) fn check_validity_cvc5(
 
     // Track assumptions with labels for unsat-core extraction (#266).
     for (i, a) in assumptions.iter().enumerate() {
-        if let Some(term) = encode_expr_cvc5(&tm, a, &mut var_map, &mut enc_state) {
+        if let Some(term) = encode_expr_cvc5(&mut tm, a, &mut var_map, &mut enc_state) {
             let label = format!(
                 "{}{i}",
                 crate::encode_atom_policy::REQUIRES_TRACK_LABEL_PREFIX
             );
-            let track = tm.mk_const(bool_sort.clone(), &label);
+            let track = tm.mk_const(bool_sort.clone(), &label).expect("cvc5");
             tracked_assumptions.push(track.clone());
-            let implication = tm.mk_term(cvc5::Kind::Implies, &[track, term]);
-            solver.assert_formula(implication);
+            let implication = tm
+                .mk_term(cvc5::Kind::Implies, &[track, term])
+                .expect("cvc5");
+            solver.assert_formula(implication).expect("cvc5");
         }
     }
 
     // Encode body
-    let body_term = match encode_expr_cvc5(&tm, body, &mut var_map, &mut enc_state) {
+    let body_term = match encode_expr_cvc5(&mut tm, body, &mut var_map, &mut enc_state) {
         Some(t) => t,
         None => return cvc5_encode_failure(desc),
     };
 
     assert_cvc5_axioms(&mut solver, &enc_state.axioms);
 
-    let negated = tm.mk_term(cvc5::Kind::Not, &[body_term]);
-    solver.assert_formula(negated);
+    let negated = tm.mk_term(cvc5::Kind::Not, &[body_term]).expect("cvc5");
+    solver.assert_formula(negated).expect("cvc5");
 
     let sat_result = if tracked_assumptions.is_empty() {
-        solver.check_sat()
+        solver.check_sat().expect("cvc5")
     } else {
-        solver.check_sat_assuming(&tracked_assumptions)
+        solver
+            .check_sat_assuming(&tracked_assumptions)
+            .expect("cvc5")
     };
     let outcome = cvc5_clause_sat_outcome(&sat_result, &solver, &var_map, &tracked_assumptions);
     crate::solver_outcome_policy::interpret_clause_check_result(
@@ -92,30 +96,30 @@ pub(crate) fn check_satisfiability_cvc5(
         return result;
     }
 
-    let tm = cvc5::TermManager::new();
-    let mut solver = new_cvc5_solver(&tm, Cvc5SolverOpts::default());
+    let mut tm = cvc5::TermManager::new();
+    let mut solver = new_cvc5_solver(&mut tm, Cvc5SolverOpts::default());
 
     let var_names = collect_cvc5_var_names_from_assumptions(assumptions, body);
-    let mut var_map = build_cvc5_var_map(&tm, &var_names, &[]);
+    let mut var_map = build_cvc5_var_map(&mut tm, &var_names, &[]);
 
     let mut enc_state = default_cvc5_encoder_state();
 
     for a in assumptions {
-        if let Some(term) = encode_expr_cvc5(&tm, a, &mut var_map, &mut enc_state) {
-            solver.assert_formula(term);
+        if let Some(term) = encode_expr_cvc5(&mut tm, a, &mut var_map, &mut enc_state) {
+            solver.assert_formula(term).expect("cvc5");
         }
     }
 
-    let body_term = match encode_expr_cvc5(&tm, body, &mut var_map, &mut enc_state) {
+    let body_term = match encode_expr_cvc5(&mut tm, body, &mut var_map, &mut enc_state) {
         Some(t) => t,
         None => return cvc5_encode_failure(desc),
     };
 
     assert_cvc5_axioms(&mut solver, &enc_state.axioms);
 
-    solver.assert_formula(body_term);
+    solver.assert_formula(body_term).expect("cvc5");
 
-    let sat_result = solver.check_sat();
+    let sat_result = solver.check_sat().expect("cvc5");
     let outcome = cvc5_clause_sat_outcome(&sat_result, &solver, &var_map, &[]);
     crate::solver_outcome_policy::interpret_clause_check_result(
         desc,

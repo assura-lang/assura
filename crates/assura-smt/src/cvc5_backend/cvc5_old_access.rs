@@ -49,19 +49,20 @@ where
 
 /// Encode `old(inner)` as a native CVC5 term via recursive `encode` callback.
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_old_cvc5<'a, E>(
-    tm: &'a cvc5::TermManager,
+pub(crate) fn encode_old_cvc5<E>(
+    tm: &mut cvc5::TermManager,
     inner: &SpExpr,
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
+    vars: &mut std::collections::HashMap<String, cvc5::Term>,
+    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState,
     mut encode: E,
-) -> Option<cvc5::Term<'a>>
+) -> Option<cvc5::Term>
 where
     E: FnMut(
+        &mut cvc5::TermManager,
         &SpExpr,
-        &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-        &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
-    ) -> Option<cvc5::Term<'a>>,
+        &mut std::collections::HashMap<String, cvc5::Term>,
+        &mut crate::cvc5_encoder_state::Cvc5EncoderState,
+    ) -> Option<cvc5::Term>,
 {
     use crate::cvc5_field_access::encode_shallow_field_cvc5;
     use assura_ast::Spanned;
@@ -70,11 +71,13 @@ where
         OldAccessPlan::Ident(name) => {
             // `old_ident_name` already sanitizes; do not double-sanitize.
             let key = old_ident_name(&name);
-            Some(
-                vars.get(&key)
-                    .cloned()
-                    .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &key)),
-            )
+            Some(vars.get(&key).cloned().unwrap_or_else(|| {
+                {
+                    let __cvc5 = tm.integer_sort();
+                    tm.mk_const(__cvc5, &key)
+                }
+                .expect("cvc5")
+            }))
         }
         OldAccessPlan::FlatField(flat) => {
             use crate::encode_field_policy::{
@@ -82,28 +85,40 @@ where
             };
             let key = crate::encode_atom_policy::old_snapshot_name(&flat);
             match classify_field_value_kind(flat_leaf_field(&flat)) {
-                FieldValueKind::Bool => Some(tm.mk_const(tm.boolean_sort(), &key)),
+                FieldValueKind::Bool => Some(
+                    {
+                        let __cvc4 = tm.boolean_sort();
+                        tm.mk_const(__cvc4, &key)
+                    }
+                    .expect("cvc5"),
+                ),
                 FieldValueKind::SizeNonNeg => {
-                    let v = vars
-                        .get(&key)
-                        .cloned()
-                        .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &key));
+                    let v = vars.get(&key).cloned().unwrap_or_else(|| {
+                        {
+                            let __cvc3 = tm.integer_sort();
+                            tm.mk_const(__cvc3, &key)
+                        }
+                        .expect("cvc5")
+                    });
                     let zero = tm.mk_integer(0);
-                    state
-                        .axioms
-                        .push(tm.mk_term(cvc5::Kind::Geq, &[v.clone(), zero]));
+                    state.axioms.push(
+                        tm.mk_term(cvc5::Kind::Geq, &[v.clone(), zero])
+                            .expect("cvc5"),
+                    );
                     Some(v)
                 }
-                FieldValueKind::Int => Some(
-                    vars.get(&key)
-                        .cloned()
-                        .unwrap_or_else(|| tm.mk_const(tm.integer_sort(), &key)),
-                ),
+                FieldValueKind::Int => Some(vars.get(&key).cloned().unwrap_or_else(|| {
+                    {
+                        let __cvc2 = tm.integer_sort();
+                        tm.mk_const(__cvc2, &key)
+                    }
+                    .expect("cvc5")
+                })),
             }
         }
         OldAccessPlan::ShallowField { obj, field } => {
             let old_expr = Spanned::no_span(Expr::Old(obj));
-            let old_obj = encode(&old_expr, vars, state)?;
+            let old_obj = encode(tm, &old_expr, vars, state)?;
             Some(encode_shallow_field_cvc5(
                 tm,
                 &field,
@@ -122,20 +137,28 @@ where
                     );
                 }
                 let old_expr = Spanned::no_span(Expr::Old(receiver));
-                let old_recv = encode(&old_expr, vars, state)?;
+                let old_recv = encode(tm, &old_expr, vars, state)?;
                 return Some(crate::cvc5_native_builtins::field_len_of_receiver_cvc5(
                     tm, &old_recv, state,
                 ));
             }
             let old_expr = Spanned::no_span(Expr::Old(receiver));
-            let old_recv = encode(&old_expr, vars, state)?;
-            let func_sort = tm.mk_fun_sort(&[tm.integer_sort()], tm.integer_sort());
-            let func_const = tm.mk_const(func_sort, &method);
-            Some(tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, old_recv]))
+            let old_recv = encode(tm, &old_expr, vars, state)?;
+            let func_sort = {
+                let __cvc1 = tm.integer_sort();
+                let __cvc0 = tm.integer_sort();
+                tm.mk_fun_sort(&[__cvc1], __cvc0)
+            }
+            .expect("cvc5");
+            let func_const = tm.mk_const(func_sort, &method).expect("cvc5");
+            Some(
+                tm.mk_term(cvc5::Kind::ApplyUf, &[func_const, old_recv])
+                    .expect("cvc5"),
+            )
         }
         OldAccessPlan::Other => {
             let rewritten = crate::encode_old_policy::rewrite_expr_under_old(inner);
-            encode(&rewritten, vars, state)
+            encode(tm, &rewritten, vars, state)
         }
     }
 }

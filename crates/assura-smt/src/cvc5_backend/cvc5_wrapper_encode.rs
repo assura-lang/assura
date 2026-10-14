@@ -12,18 +12,18 @@ where
 
 /// Encode through a wrapper by recursing on the inner expression (native CVC5).
 #[cfg(feature = "cvc5-verify")]
-pub(crate) fn encode_wrapper_cvc5<'a, F>(
+pub(crate) fn encode_wrapper_cvc5<F>(
     inner: &SpExpr,
-    vars: &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
+    vars: &mut std::collections::HashMap<String, cvc5::Term>,
+    state: &mut crate::cvc5_encoder_state::Cvc5EncoderState,
     mut encode: F,
-) -> Option<cvc5::Term<'a>>
+) -> Option<cvc5::Term>
 where
     F: FnMut(
         &SpExpr,
-        &mut std::collections::HashMap<String, cvc5::Term<'a>>,
-        &mut crate::cvc5_encoder_state::Cvc5EncoderState<'a>,
-    ) -> Option<cvc5::Term<'a>>,
+        &mut std::collections::HashMap<String, cvc5::Term>,
+        &mut crate::cvc5_encoder_state::Cvc5EncoderState,
+    ) -> Option<cvc5::Term>,
 {
     encode(inner, vars, state)
 }

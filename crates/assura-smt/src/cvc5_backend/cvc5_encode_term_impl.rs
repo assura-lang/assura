@@ -20,28 +20,28 @@ use crate::encode_term::EncodeTerm;
 /// CVC5 native term builder that bundles the TermManager, variable map, and
 /// encoder state into a single struct implementing `EncodeTerm`.
 pub(crate) struct Cvc5TermBuilder<'a, 'v, 's> {
-    pub(crate) tm: &'a cvc5::TermManager,
-    pub(crate) vars: &'v mut HashMap<String, cvc5::Term<'a>>,
-    pub(crate) state: &'s mut Cvc5EncoderState<'a>,
+    pub(crate) tm: &'a mut cvc5::TermManager,
+    pub(crate) vars: &'v mut HashMap<String, cvc5::Term>,
+    pub(crate) state: &'s mut Cvc5EncoderState,
 }
 
 impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
-    type Term = cvc5::Term<'a>;
+    type Term = cvc5::Term;
 
     // === Literals ===
 
-    fn make_int_literal(&mut self, s: &str) -> cvc5::Term<'a> {
+    fn make_int_literal(&mut self, s: &str) -> cvc5::Term {
         if let Ok(n) = s.parse::<i64>() {
             self.tm.mk_integer(n)
         } else if let Some(rest) = s.strip_prefix('-') {
-            let abs = self.tm.mk_integer_from_str(rest);
-            self.tm.mk_term(cvc5::Kind::Neg, &[abs])
+            let abs = self.tm.mk_integer_from_str(rest).expect("cvc5");
+            self.tm.mk_term(cvc5::Kind::Neg, &[abs]).expect("cvc5")
         } else {
-            self.tm.mk_integer_from_str(s)
+            self.tm.mk_integer_from_str(s).expect("cvc5")
         }
     }
 
-    fn make_bool_literal(&mut self, b: bool) -> cvc5::Term<'a> {
+    fn make_bool_literal(&mut self, b: bool) -> cvc5::Term {
         if b {
             self.tm.mk_true()
         } else {
@@ -49,68 +49,74 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         }
     }
 
-    fn make_real_literal(&mut self, numer: i64, denom: i64) -> cvc5::Term<'a> {
-        self.tm.mk_real_from_rational(numer, denom)
+    fn make_real_literal(&mut self, numer: i64, denom: i64) -> cvc5::Term {
+        self.tm.mk_real_from_rational(numer, denom).expect("cvc5")
     }
 
-    fn make_string_literal(&mut self, s: &str) -> cvc5::Term<'a> {
+    fn make_string_literal(&mut self, s: &str) -> cvc5::Term {
         if self.state.use_string_theory {
             self.tm.mk_string(s, false)
         } else {
             let const_name = crate::encode_atom_policy::string_literal_const_name(s);
-            let v = self.tm.mk_const(self.tm.integer_sort(), &const_name);
+            let int_sort = self.tm.integer_sort();
+            let v = self.tm.mk_const(int_sort, &const_name).expect("cvc5");
             // Pairwise distinctness axioms
             if !self.state.string_constants.contains(&const_name) {
                 for prev in &self.state.string_constants {
-                    let prev_val = self.tm.mk_const(self.tm.integer_sort(), prev);
-                    let eq = self.tm.mk_term(cvc5::Kind::Equal, &[v.clone(), prev_val]);
+                    let prev_sort = self.tm.integer_sort();
+                    let prev_val = self.tm.mk_const(prev_sort, prev).expect("cvc5");
+                    let eq = self
+                        .tm
+                        .mk_term(cvc5::Kind::Equal, &[v.clone(), prev_val])
+                        .expect("cvc5");
                     self.state
                         .axioms
-                        .push(self.tm.mk_term(cvc5::Kind::Not, &[eq]));
+                        .push(self.tm.mk_term(cvc5::Kind::Not, &[eq]).expect("cvc5"));
                 }
                 self.state.string_constants.push(const_name);
             }
             // Length axiom
             let len_func = field_len_fn_cvc5(self.tm, self.state);
-            let len_result = self.tm.mk_term(cvc5::Kind::ApplyUf, &[len_func, v.clone()]);
+            let len_result = self
+                .tm
+                .mk_term(cvc5::Kind::ApplyUf, &[len_func, v.clone()])
+                .expect("cvc5");
             let str_len = self.tm.mk_integer(s.len() as i64);
-            self.state
-                .axioms
-                .push(self.tm.mk_term(cvc5::Kind::Equal, &[len_result, str_len]));
+            self.state.axioms.push(
+                self.tm
+                    .mk_term(cvc5::Kind::Equal, &[len_result, str_len])
+                    .expect("cvc5"),
+            );
             v
         }
     }
 
     // === Variables ===
 
-    fn get_var(&self, name: &str) -> Option<cvc5::Term<'a>> {
+    fn get_var(&self, name: &str) -> Option<cvc5::Term> {
         let key = encode_ident_name(name);
         self.vars.get(&key).cloned()
     }
 
-    fn set_var(&mut self, name: &str, val: cvc5::Term<'a>) {
+    fn set_var(&mut self, name: &str, val: cvc5::Term) {
         let key = encode_ident_name(name);
         self.vars.insert(key, val);
     }
 
-    fn get_or_create_int_var(&mut self, name: &str) -> cvc5::Term<'a> {
+    fn get_or_create_int_var(&mut self, name: &str) -> cvc5::Term {
         let key = encode_ident_name(name);
         if let Some(val) = self.vars.get(&key) {
             return val.clone();
         }
-        let v = self.tm.mk_const(self.tm.integer_sort(), &key);
+        let sort = self.tm.integer_sort();
+        let v = self.tm.mk_const(sort, &key).expect("cvc5");
         self.vars.insert(key, v.clone());
         v
     }
 
     // === Binary operations ===
 
-    fn apply_binop(
-        &mut self,
-        op: &BinOp,
-        lhs: cvc5::Term<'a>,
-        rhs: cvc5::Term<'a>,
-    ) -> Option<cvc5::Term<'a>> {
+    fn apply_binop(&mut self, op: &BinOp, lhs: cvc5::Term, rhs: cvc5::Term) -> Option<cvc5::Term> {
         encode_ast_binop_cvc5(self.tm, op, lhs, rhs, self.state)
     }
 
@@ -119,8 +125,8 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         op: &BinOp,
         lhs: &assura_ast::SpExpr,
         rhs: &assura_ast::SpExpr,
-        term: cvc5::Term<'a>,
-    ) -> cvc5::Term<'a> {
+        term: cvc5::Term,
+    ) -> cvc5::Term {
         if !matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul) {
             return term;
         }
@@ -142,8 +148,8 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
     fn maybe_wrap_machine_neg(
         &mut self,
         inner: &assura_ast::SpExpr,
-        term: cvc5::Term<'a>,
-    ) -> cvc5::Term<'a> {
+        term: cvc5::Term,
+    ) -> cvc5::Term {
         if self.state.machine_wrap.is_none() {
             return term;
         }
@@ -159,36 +165,38 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
 
     // === Unary operations ===
 
-    fn make_neg(&mut self, t: cvc5::Term<'a>) -> cvc5::Term<'a> {
+    fn make_neg(&mut self, t: cvc5::Term) -> cvc5::Term {
         encode_ast_unary_cvc5(self.tm, &assura_ast::UnaryOp::Neg, t)
     }
 
-    fn make_not(&mut self, t: cvc5::Term<'a>) -> cvc5::Term<'a> {
+    fn make_not(&mut self, t: cvc5::Term) -> cvc5::Term {
         encode_ast_unary_cvc5(self.tm, &assura_ast::UnaryOp::Not, t)
     }
 
     // === Boolean combinators ===
 
-    fn make_and(&mut self, a: cvc5::Term<'a>, b: cvc5::Term<'a>) -> cvc5::Term<'a> {
-        self.tm.mk_term(cvc5::Kind::And, &[a, b])
+    fn make_and(&mut self, a: cvc5::Term, b: cvc5::Term) -> cvc5::Term {
+        self.tm.mk_term(cvc5::Kind::And, &[a, b]).expect("cvc5")
     }
 
-    fn make_or(&mut self, a: cvc5::Term<'a>, b: cvc5::Term<'a>) -> cvc5::Term<'a> {
-        self.tm.mk_term(cvc5::Kind::Or, &[a, b])
+    fn make_or(&mut self, a: cvc5::Term, b: cvc5::Term) -> cvc5::Term {
+        self.tm.mk_term(cvc5::Kind::Or, &[a, b]).expect("cvc5")
     }
 
-    fn make_implies(&mut self, lhs: cvc5::Term<'a>, rhs: cvc5::Term<'a>) -> cvc5::Term<'a> {
-        self.tm.mk_term(cvc5::Kind::Implies, &[lhs, rhs])
+    fn make_implies(&mut self, lhs: cvc5::Term, rhs: cvc5::Term) -> cvc5::Term {
+        self.tm
+            .mk_term(cvc5::Kind::Implies, &[lhs, rhs])
+            .expect("cvc5")
     }
 
     // === Control flow ===
 
     fn make_ite(
         &mut self,
-        cond: cvc5::Term<'a>,
-        then_val: cvc5::Term<'a>,
-        else_val: cvc5::Term<'a>,
-    ) -> cvc5::Term<'a> {
+        cond: cvc5::Term,
+        then_val: cvc5::Term,
+        else_val: cvc5::Term,
+    ) -> cvc5::Term {
         // CVC5 requires ITE branches to have the same sort. Coerce Int/Real
         // mismatches (e.g. `(/ 3 2)` is Real, `0` is Int) to Real.
         let then_sort = then_val.sort();
@@ -196,58 +204,74 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         let real = self.tm.real_sort();
         let int = self.tm.integer_sort();
         if then_sort == real && else_sort == int {
-            let else_real = self.tm.mk_term(cvc5::Kind::ToReal, &[else_val]);
+            let else_real = self
+                .tm
+                .mk_term(cvc5::Kind::ToReal, &[else_val])
+                .expect("cvc5");
             self.tm
                 .mk_term(cvc5::Kind::Ite, &[cond, then_val, else_real])
+                .expect("cvc5")
         } else if then_sort == int && else_sort == real {
-            let then_real = self.tm.mk_term(cvc5::Kind::ToReal, &[then_val]);
+            let then_real = self
+                .tm
+                .mk_term(cvc5::Kind::ToReal, &[then_val])
+                .expect("cvc5");
             self.tm
                 .mk_term(cvc5::Kind::Ite, &[cond, then_real, else_val])
+                .expect("cvc5")
         } else {
             self.tm
                 .mk_term(cvc5::Kind::Ite, &[cond, then_val, else_val])
+                .expect("cvc5")
         }
     }
 
     // === Quantifiers ===
 
-    fn make_bound_int_var(&mut self, name: &str) -> cvc5::Term<'a> {
-        self.tm.mk_var(self.tm.integer_sort(), name)
+    fn make_bound_int_var(&mut self, name: &str) -> cvc5::Term {
+        let sort = self.tm.integer_sort();
+        self.tm.mk_var(sort, name).expect("cvc5")
     }
 
     fn make_forall(
         &mut self,
         _var: &str,
-        bound: &cvc5::Term<'a>,
-        body: cvc5::Term<'a>,
-        _patterns: Vec<cvc5::Term<'a>>,
-    ) -> cvc5::Term<'a> {
+        bound: &cvc5::Term,
+        body: cvc5::Term,
+        _patterns: Vec<cvc5::Term>,
+    ) -> cvc5::Term {
         let var_list = self
             .tm
-            .mk_term(cvc5::Kind::VariableList, std::slice::from_ref(bound));
-        self.tm.mk_term(cvc5::Kind::Forall, &[var_list, body])
+            .mk_term(cvc5::Kind::VariableList, std::slice::from_ref(bound))
+            .expect("cvc5");
+        self.tm
+            .mk_term(cvc5::Kind::Forall, &[var_list, body])
+            .expect("cvc5")
     }
 
     fn make_exists(
         &mut self,
         _var: &str,
-        bound: &cvc5::Term<'a>,
-        body: cvc5::Term<'a>,
-        _patterns: Vec<cvc5::Term<'a>>,
-    ) -> cvc5::Term<'a> {
+        bound: &cvc5::Term,
+        body: cvc5::Term,
+        _patterns: Vec<cvc5::Term>,
+    ) -> cvc5::Term {
         let var_list = self
             .tm
-            .mk_term(cvc5::Kind::VariableList, std::slice::from_ref(bound));
-        self.tm.mk_term(cvc5::Kind::Exists, &[var_list, body])
+            .mk_term(cvc5::Kind::VariableList, std::slice::from_ref(bound))
+            .expect("cvc5");
+        self.tm
+            .mk_term(cvc5::Kind::Exists, &[var_list, body])
+            .expect("cvc5")
     }
 
     fn guard_quantifier_body(
         &mut self,
         domain: &SpExpr,
-        bound: &cvc5::Term<'a>,
-        body: cvc5::Term<'a>,
+        bound: &cvc5::Term,
+        body: cvc5::Term,
         is_forall: bool,
-    ) -> cvc5::Term<'a> {
+    ) -> cvc5::Term {
         use crate::encode_quantifier_policy::domain_as_range;
 
         if let Some((lo, hi)) = domain_as_range(domain) {
@@ -255,13 +279,26 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
                 .unwrap_or_else(|| self.tm.mk_integer(0));
             let hi_t = crate::encode_term::encode_expr_shared(self, hi)
                 .unwrap_or_else(|| self.tm.mk_integer(0));
-            let ge_lo = self.tm.mk_term(cvc5::Kind::Geq, &[bound.clone(), lo_t]);
-            let lt_hi = self.tm.mk_term(cvc5::Kind::Lt, &[bound.clone(), hi_t]);
-            let guard = self.tm.mk_term(cvc5::Kind::And, &[ge_lo, lt_hi]);
+            let ge_lo = self
+                .tm
+                .mk_term(cvc5::Kind::Geq, &[bound.clone(), lo_t])
+                .expect("cvc5");
+            let lt_hi = self
+                .tm
+                .mk_term(cvc5::Kind::Lt, &[bound.clone(), hi_t])
+                .expect("cvc5");
+            let guard = self
+                .tm
+                .mk_term(cvc5::Kind::And, &[ge_lo, lt_hi])
+                .expect("cvc5");
             if is_forall {
-                self.tm.mk_term(cvc5::Kind::Implies, &[guard, body])
+                self.tm
+                    .mk_term(cvc5::Kind::Implies, &[guard, body])
+                    .expect("cvc5")
             } else {
-                self.tm.mk_term(cvc5::Kind::And, &[guard, body])
+                self.tm
+                    .mk_term(cvc5::Kind::And, &[guard, body])
+                    .expect("cvc5")
             }
         } else {
             body
@@ -272,8 +309,8 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         &mut self,
         _body: &SpExpr,
         _var_name: &str,
-        _bound: &cvc5::Term<'a>,
-    ) -> Vec<cvc5::Term<'a>> {
+        _bound: &cvc5::Term,
+    ) -> Vec<cvc5::Term> {
         // CVC5 native triggers use InstPattern kind which requires solver
         // integration. For now, return empty (same as Z3 impl); real
         // quantifier encoding still goes through encode_ast_quantifier_cvc5.
@@ -282,23 +319,27 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
 
     // === Uninterpreted functions ===
 
-    fn apply_uf_int(&mut self, name: &str, args: &[cvc5::Term<'a>]) -> cvc5::Term<'a> {
+    fn apply_uf_int(&mut self, name: &str, args: &[cvc5::Term]) -> cvc5::Term {
         let func = intern_uf_cvc5(self.tm, self.state, name, args.len(), false);
         let mut apply_args = vec![func];
         apply_args.extend(args.iter().cloned());
-        self.tm.mk_term(cvc5::Kind::ApplyUf, &apply_args)
+        self.tm
+            .mk_term(cvc5::Kind::ApplyUf, &apply_args)
+            .expect("cvc5")
     }
 
-    fn apply_uf_bool(&mut self, name: &str, args: &[cvc5::Term<'a>]) -> cvc5::Term<'a> {
+    fn apply_uf_bool(&mut self, name: &str, args: &[cvc5::Term]) -> cvc5::Term {
         let func = intern_uf_cvc5(self.tm, self.state, name, args.len(), true);
         let mut apply_args = vec![func];
         apply_args.extend(args.iter().cloned());
-        self.tm.mk_term(cvc5::Kind::ApplyUf, &apply_args)
+        self.tm
+            .mk_term(cvc5::Kind::ApplyUf, &apply_args)
+            .expect("cvc5")
     }
 
     // === Sort coercion ===
 
-    fn as_bool(&mut self, term: cvc5::Term<'a>) -> cvc5::Term<'a> {
+    fn as_bool(&mut self, term: cvc5::Term) -> cvc5::Term {
         // CVC5 terms have intrinsic sorts. If already Bool, return as-is.
         // If Int, treat non-zero as true: (distinct term 0)
         let sort = term.sort();
@@ -306,11 +347,13 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
             term
         } else {
             let zero = self.tm.mk_integer(0);
-            self.tm.mk_term(cvc5::Kind::Distinct, &[term, zero])
+            self.tm
+                .mk_term(cvc5::Kind::Distinct, &[term, zero])
+                .expect("cvc5")
         }
     }
 
-    fn as_int(&mut self, term: cvc5::Term<'a>) -> cvc5::Term<'a> {
+    fn as_int(&mut self, term: cvc5::Term) -> cvc5::Term {
         let sort = term.sort();
         if sort == self.tm.integer_sort() {
             term
@@ -318,34 +361,38 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
             // Bool -> Int: ite(b, 1, 0)
             let one = self.tm.mk_integer(1);
             let zero = self.tm.mk_integer(0);
-            self.tm.mk_term(cvc5::Kind::Ite, &[term, one, zero])
+            self.tm
+                .mk_term(cvc5::Kind::Ite, &[term, one, zero])
+                .expect("cvc5")
         } else {
             // Real or unknown: just pass through (CVC5 handles coercion)
             term
         }
     }
 
-    fn is_real_sort(&self, term: &cvc5::Term<'a>) -> bool {
-        term.sort() == self.tm.real_sort()
+    fn is_real_sort(&self, term: &cvc5::Term) -> bool {
+        term.sort().is_real()
     }
 
     // === Fresh variables ===
 
-    fn fresh_int(&mut self) -> cvc5::Term<'a> {
+    fn fresh_int(&mut self) -> cvc5::Term {
         let name = crate::encode_atom_policy::fresh_temp_name(self.state.fresh_counter);
         self.state.fresh_counter += 1;
-        self.tm.mk_const(self.tm.integer_sort(), &name)
+        let sort = self.tm.integer_sort();
+        self.tm.mk_const(sort, &name).expect("cvc5")
     }
 
-    fn fresh_bool(&mut self) -> cvc5::Term<'a> {
+    fn fresh_bool(&mut self) -> cvc5::Term {
         let name = crate::encode_atom_policy::fresh_temp_name(self.state.fresh_counter);
         self.state.fresh_counter += 1;
-        self.tm.mk_const(self.tm.boolean_sort(), &name)
+        let sort = self.tm.boolean_sort();
+        self.tm.mk_const(sort, &name).expect("cvc5")
     }
 
     // === Axioms ===
 
-    fn push_axiom(&mut self, axiom: cvc5::Term<'a>) {
+    fn push_axiom(&mut self, axiom: cvc5::Term) {
         self.state.axioms.push(axiom);
     }
 
@@ -359,7 +406,7 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
 
     // === Collection operations ===
 
-    fn canonical_length(&mut self, name: &str) -> cvc5::Term<'a> {
+    fn canonical_length(&mut self, name: &str) -> cvc5::Term {
         canonical_length_cvc5(self.tm, name, self.vars, self.state)
     }
 
@@ -369,15 +416,13 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         &mut self,
         func: &SpExpr,
         args: &[SpExpr],
-        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term<'a>>,
-    ) -> Option<cvc5::Term<'a>> {
+        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term>,
+    ) -> Option<cvc5::Term> {
         // Delegate to existing CVC5 call encoder. Internal recursion in the
         // call encoder goes through encode_expr_cvc5 -> encode_expr_shared.
         use crate::cvc5_call_encode::encode_call_cvc5;
         use crate::cvc5_native_encoder::encode_expr_cvc5;
-        encode_call_cvc5(self.tm, func, args, self.vars, self.state, |e, v, s| {
-            encode_expr_cvc5(self.tm, e, v, s)
-        })
+        encode_call_cvc5(self.tm, func, args, self.vars, self.state, encode_expr_cvc5)
     }
 
     fn encode_method_call(
@@ -385,8 +430,8 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         receiver: &SpExpr,
         method: &str,
         args: &[SpExpr],
-        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term<'a>>,
-    ) -> Option<cvc5::Term<'a>> {
+        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term>,
+    ) -> Option<cvc5::Term> {
         use crate::cvc5_call_encode::encode_method_call_cvc5;
         use crate::cvc5_native_encoder::encode_expr_cvc5;
         encode_method_call_cvc5(
@@ -396,7 +441,7 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
             args,
             self.vars,
             self.state,
-            |e, v, s| encode_expr_cvc5(self.tm, e, v, s),
+            encode_expr_cvc5,
         )
     }
 
@@ -404,33 +449,29 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         &mut self,
         obj: &SpExpr,
         field: &str,
-        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term<'a>>,
-    ) -> Option<cvc5::Term<'a>> {
+        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term>,
+    ) -> Option<cvc5::Term> {
         use crate::cvc5_field_access::encode_field_cvc5;
         use crate::cvc5_native_encoder::encode_expr_cvc5;
-        encode_field_cvc5(self.tm, obj, field, self.vars, self.state, |e, v, s| {
-            encode_expr_cvc5(self.tm, e, v, s)
-        })
+        encode_field_cvc5(self.tm, obj, field, self.vars, self.state, encode_expr_cvc5)
     }
 
     fn encode_old(
         &mut self,
         inner: &SpExpr,
-        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term<'a>>,
-    ) -> Option<cvc5::Term<'a>> {
+        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term>,
+    ) -> Option<cvc5::Term> {
         use crate::cvc5_native_encoder::encode_expr_cvc5;
         use crate::cvc5_old_access::encode_old_cvc5;
-        encode_old_cvc5(self.tm, inner, self.vars, self.state, |e, v, s| {
-            encode_expr_cvc5(self.tm, e, v, s)
-        })
+        encode_old_cvc5(self.tm, inner, self.vars, self.state, encode_expr_cvc5)
     }
 
     fn encode_match(
         &mut self,
         scrutinee: &SpExpr,
         arms: &[MatchArm],
-        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term<'a>>,
-    ) -> Option<cvc5::Term<'a>> {
+        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term>,
+    ) -> Option<cvc5::Term> {
         use crate::cvc5_match_encode::encode_match_cvc5;
         use crate::cvc5_native_encoder::encode_expr_cvc5;
         encode_match_cvc5(
@@ -439,7 +480,7 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
             arms,
             self.vars,
             self.state,
-            |e, v, s| encode_expr_cvc5(self.tm, e, v, s),
+            encode_expr_cvc5,
         )
     }
 
@@ -448,8 +489,8 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         name: &str,
         value: &SpExpr,
         body: &SpExpr,
-        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term<'a>>,
-    ) -> Option<cvc5::Term<'a>> {
+        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term>,
+    ) -> Option<cvc5::Term> {
         use crate::cvc5_let_block_encode::encode_let_cvc5;
         use crate::cvc5_native_encoder::encode_expr_cvc5;
         encode_let_cvc5(
@@ -459,28 +500,26 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
             body,
             self.vars,
             self.state,
-            |e, v, s| encode_expr_cvc5(self.tm, e, v, s),
+            encode_expr_cvc5,
         )
     }
 
     fn encode_block(
         &mut self,
         body: &[SpExpr],
-        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term<'a>>,
-    ) -> Option<cvc5::Term<'a>> {
+        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term>,
+    ) -> Option<cvc5::Term> {
         use crate::cvc5_let_block_encode::encode_block_cvc5;
         use crate::cvc5_native_encoder::encode_expr_cvc5;
-        encode_block_cvc5(self.tm, body, self.vars, self.state, |e, v, s| {
-            encode_expr_cvc5(self.tm, e, v, s)
-        })
+        encode_block_cvc5(self.tm, body, self.vars, self.state, encode_expr_cvc5)
     }
 
-    fn encode_raw(&mut self, tokens: &[String]) -> Option<cvc5::Term<'a>> {
+    fn encode_raw(&mut self, tokens: &[String]) -> Option<cvc5::Term> {
         use crate::cvc5_raw_encode::encode_raw_expr_cvc5;
         encode_raw_expr_cvc5(self.tm, tokens, self.vars, self.state)
     }
 
-    fn encode_tuple(&mut self, elem_vals: &[cvc5::Term<'a>]) -> cvc5::Term<'a> {
+    fn encode_tuple(&mut self, elem_vals: &[cvc5::Term]) -> cvc5::Term {
         use crate::cvc5_tuple_encode::encode_tuple_cvc5;
         encode_tuple_cvc5(
             self.tm,
@@ -490,7 +529,7 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         )
     }
 
-    fn encode_list(&mut self, elem_vals: &[cvc5::Term<'a>]) -> cvc5::Term<'a> {
+    fn encode_list(&mut self, elem_vals: &[cvc5::Term]) -> cvc5::Term {
         use crate::cvc5_list_encode::encode_list_cvc5;
         let len_func = field_len_fn_cvc5(self.tm, self.state);
         encode_list_cvc5(
@@ -502,7 +541,7 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         )
     }
 
-    fn encode_index(&mut self, coll: cvc5::Term<'a>, index: cvc5::Term<'a>) -> cvc5::Term<'a> {
+    fn encode_index(&mut self, coll: cvc5::Term, index: cvc5::Term) -> cvc5::Term {
         use crate::cvc5_index_access::encode_index_access_cvc5;
         encode_index_access_cvc5(self.tm, coll, index, &mut self.state.axioms)
     }
@@ -511,8 +550,8 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
         &mut self,
         lemma_name: &str,
         args: &[SpExpr],
-        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term<'a>>,
-    ) -> Option<cvc5::Term<'a>> {
+        _encode_sub: &mut dyn FnMut(&mut Self, &SpExpr) -> Option<cvc5::Term>,
+    ) -> Option<cvc5::Term> {
         use crate::cvc5_atom_encode::encode_apply_cvc5;
         use crate::cvc5_native_encoder::encode_expr_cvc5;
         encode_apply_cvc5(
@@ -521,7 +560,7 @@ impl<'a> EncodeTerm for Cvc5TermBuilder<'a, '_, '_> {
             args,
             self.vars,
             self.state,
-            |e, v, s| encode_expr_cvc5(self.tm, e, v, s),
+            encode_expr_cvc5,
         )
     }
 }
