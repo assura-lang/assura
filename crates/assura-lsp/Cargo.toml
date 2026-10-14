@@ -9,6 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
+readme = "README.md"
 [[bin]]
 name = "assura-lsp"
 path = "src/main.rs"

@@ -9,6 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
+readme = "README.md"
 
 [dependencies]
 assura-rust-analyzer = { version = "0.6.0", path = "../assura-rust-analyzer" }

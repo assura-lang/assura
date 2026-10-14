@@ -13,7 +13,8 @@
 //! - **invariant**: Check satisfiability (not always false).
 //! - **requires**: Recorded as assumptions (checked at call sites).
 //!
-//! The default timeout is 1 second (Layer 1).
+//! Clause checks use the configured timeout. Values below 10 seconds are
+//! raised to 10 seconds.
 
 #![cfg_attr(feature = "cvc5-verify", allow(dead_code, unused_imports))]
 
