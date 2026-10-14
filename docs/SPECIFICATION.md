@@ -2258,7 +2258,7 @@ output = "generated"
 [verify]
 layer = 1                   # default for `assura check`
 smt-solver = "z3"
-timeout = 1000              # milliseconds; `assura check --timeout` overrides
+timeout = 10000             # milliseconds; values below 10000 are raised to 10000
 
 [effects]
 [effects.custom]

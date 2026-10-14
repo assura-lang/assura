@@ -86,34 +86,7 @@ pub(crate) fn run_init(project_name: &str, output_mode: OutputMode) {
     });
 
     // Write assura.toml
-    let toml_content = format!(
-        r#"[package]
-name = "{project_name}"
-version = "0.1.0"
-
-[build]
-target = "native"       # "native" or "wasm32-wasi"
-output = "generated"
-
-[verify]
-smt-solver = "z3"       # "z3", "cvc5", or "portfolio"
-layer = 1               # 0=structural, 1=SMT, 2=quantified/termination, 3=BMC
-timeout = 1000          # SMT timeout in ms
-
-[profile]
-type = "minimal"        # minimal, parser, database, etc.
-
-# [ai]
-# mode = "api"            # "api" (direct HTTP) or "cli" (shell out)
-# provider = "anthropic"  # "anthropic", "openai", "ollama"
-# model = "claude-sonnet-4-20250514"
-#
-# For CLI mode (any tool that accepts a prompt):
-# mode = "cli"
-# command = "claude"      # or "aider", "sgpt", etc.
-# args = ["-p", "{{prompt}}"]  # {{prompt}} is replaced with the actual prompt
-"#
-    );
+    let toml_content = project_toml(project_name);
     let toml_path = project_dir.join("assura.toml");
     fs::write(&toml_path, &toml_content).unwrap_or_else(|e| {
         if json {
@@ -210,6 +183,41 @@ contract SafeDivision {
     }
 }
 
+/// `assura.toml` written by `assura init`.
+///
+/// The verify timeout matches the clause-solver floor. A lower number is
+/// raised to 10000 before a clause is solved.
+pub(crate) fn project_toml(project_name: &str) -> String {
+    format!(
+        r#"[package]
+name = "{project_name}"
+version = "0.1.0"
+
+[build]
+target = "native"       # "native" or "wasm32-wasi"
+output = "generated"
+
+[verify]
+smt-solver = "z3"       # "z3", "cvc5", or "portfolio"
+layer = 1               # 0=structural, 1=SMT, 2=quantified/termination, 3=BMC
+timeout = 10000         # milliseconds; values below 10000 are raised to 10000
+
+[profile]
+type = "minimal"        # minimal, parser, database, etc.
+
+# [ai]
+# mode = "api"            # "api" (direct HTTP) or "cli" (shell out)
+# provider = "anthropic"  # "anthropic", "openai", "ollama"
+# model = "claude-sonnet-4-20250514"
+#
+# For CLI mode (any tool that accepts a prompt):
+# mode = "cli"
+# command = "claude"      # or "aider", "sgpt", etc.
+# args = ["-p", "{{prompt}}"]  # {{prompt}} is replaced with the actual prompt
+"#
+    )
+}
+
 /// First commands after `assura init` (human + JSON).
 fn init_next_steps(project_name: &str) -> [String; 2] {
     [
@@ -269,7 +277,18 @@ pub(crate) fn run_explain(code: &str, output_mode: OutputMode) {
 
 #[cfg(test)]
 mod init_name_tests {
-    use super::{init_next_steps, validate_project_name};
+    use super::{init_next_steps, project_toml, validate_project_name};
+
+    #[test]
+    fn scaffold_toml_requests_the_solver_floor() {
+        let toml = project_toml("demo");
+        assert!(toml.contains("name = \"demo\""));
+        assert!(
+            toml.contains("timeout = 10000"),
+            "init must request the clause floor, got:\n{toml}"
+        );
+        assert!(toml.contains("raised to 10000"), "{toml}");
+    }
 
     #[test]
     fn next_steps_point_at_scaffold_check() {
