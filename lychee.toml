@@ -2,6 +2,9 @@
 max_retries = 5
 retry_wait_time = 3
 timeout = 30
+# github.com blob pages return 503 from GitHub Actions after those retries.
+# A 503 is not a missing file. 404 still fails.
+accept = ["100..=103", "200..=299", "503"]
 # Lower concurrency reduces GitHub Actions IP rate / 500 storms on issue URLs.
 max_concurrency = 8
 
