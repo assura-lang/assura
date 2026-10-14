@@ -247,7 +247,10 @@ fn plan_from_ensures(expr: &SpExpr, ctx: &PlanCtx<'_>) -> Option<IrGenPlan> {
 /// 2. Else prefer any other non-bound plan (if/match/calls, leftmost).
 /// 3. Else if every ensures is a pure result-ordering bound (or And of those),
 ///    synthesize one combined witness (prefer lower bound).
-/// 4. Else fall back to first successfully planned ensures (legacy).
+/// 4. Else, if every ensures has a plan, fall back to the first plan (legacy).
+///    A bound witness must not be attached when another ensures has no plan.
+///    That partial body is why RoundUp was verified and a counterexample at
+///    once (#1700).
 ///
 /// Returns the plan plus a [`SynthNote`] describing the body driver vs residual
 /// ensures for verbose diagnostics (#1370).
@@ -306,11 +309,18 @@ fn plan_from_all_ensures(clauses: &[Clause], ctx: &PlanCtx<'_>) -> Option<(IrGen
         ));
     }
 
-    // Legacy first-wins among any plannable ensures.
+    // Legacy first-wins only when every ensures plans. A lone `result >= n`
+    // witness (`result = n`) must not be attached beside an unplanned
+    // ensures such as `result % multiple == 0` (#1700).
+    let mut first_planned: Option<(usize, IrGenPlan)> = None;
     for (i, expr) in ensures.iter().enumerate() {
-        if let Some(plan) = plan_from_ensures(expr, ctx) {
-            return Some((plan, synth_note_for_driver(i, "legacy", n)));
+        let plan = plan_from_ensures(expr, ctx)?;
+        if first_planned.is_none() {
+            first_planned = Some((i, plan));
         }
+    }
+    if let Some((i, plan)) = first_planned {
+        return Some((plan, synth_note_for_driver(i, "legacy", n)));
     }
     None
 }
@@ -3354,6 +3364,52 @@ mod tests {
         assert!(
             text.contains("Stub IR"),
             "mixed And must not peel as result-bound only:\n{text}"
+        );
+    }
+
+    #[test]
+    fn test_round_up_bound_plus_modulo_stays_stub() {
+        // result >= n plans as result = n. result % multiple == 0 does not
+        // plan. Attaching the bound witness makes one ensures verified and
+        // the other a counterexample (#1700).
+        let clauses = vec![
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Gte,
+                    lhs: spb(Expr::Ident("result".into())),
+                    rhs: spb(Expr::Ident("n".into())),
+                }),
+                effect_variables: vec![],
+            },
+            Clause {
+                kind: ClauseKind::Ensures,
+                body: sp(Expr::BinOp {
+                    op: BinOp::Eq,
+                    lhs: spb(Expr::BinOp {
+                        op: BinOp::Mod,
+                        lhs: spb(Expr::Ident("result".into())),
+                        rhs: spb(Expr::Ident("multiple".into())),
+                    }),
+                    rhs: spb(Expr::Literal(Literal::Int("0".into()))),
+                }),
+                effect_variables: vec![],
+            },
+        ];
+        let text = generate_ir_sidecar_text(
+            "RoundUp",
+            &[int_param("n", 0), int_param("multiple", 1)],
+            &["n".into(), "multiple".into()],
+            "Int",
+            &clauses,
+        );
+        assert!(
+            text.contains("Stub IR"),
+            "partial bound witness must stay a stub:\n{text}"
+        );
+        assert!(
+            !text.contains("assura-synth-body"),
+            "no synthesized body for mixed bound and modulo:\n{text}"
         );
     }
 }
