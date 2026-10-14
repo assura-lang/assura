@@ -152,7 +152,6 @@ fn verify_contract_cvc5_shellout_incremental(
         } else {
             String::new()
         };
-
         let query = if let Some(script) = eager_script {
             run_cvc5_binary_queries_eager(&script, session.timeout_ms)
         } else {
@@ -231,7 +230,7 @@ fn build_incremental_shell_script(
         &input.prepared.verifiable,
     );
     for var in &vars {
-        if crate::encode_atom_policy::is_smt_bool_literal_name(var) {
+        if crate::encode_atom_policy::is_reserved_smt_symbol(var) {
             continue;
         }
         script.push_str(&format!("(declare-const {var} Int)\n"));

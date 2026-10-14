@@ -118,6 +118,17 @@ pub(crate) fn declare_missing_canonical_lengths(script: &mut String) {
     }
 }
 
+/// `len` is a common parameter name. A `(declare-fun len ...)` next to
+/// `(declare-const len Int)` makes `(>= len 0)` ill-formed. Keep only
+/// `__field_len` when that constant is already in the script.
+fn length_ufs(script: &str) -> Vec<&'static str> {
+    if script.contains("(declare-const len ") {
+        vec!["__field_len"]
+    } else {
+        vec!["len", "__field_len"]
+    }
+}
+
 /// Tie each `__canonical_len_*` constant to `len` and `__field_len` on its receiver.
 ///
 /// Z3 does this inside `canonical_length`, so `s == s__old` implies
@@ -150,7 +161,7 @@ pub(crate) fn link_canonical_lengths(script: &mut String) {
         if !declared {
             continue;
         }
-        for uf in ["len", "__field_len"] {
+        for uf in length_ufs(script) {
             let axiom = format!("(assert (= {name} ({uf} {obj})))");
             if script.contains(&axiom) {
                 continue;
@@ -163,7 +174,7 @@ pub(crate) fn link_canonical_lengths(script: &mut String) {
         return;
     }
     let mut header = String::new();
-    for uf in ["len", "__field_len"] {
+    for uf in length_ufs(script) {
         let decl = format!("(declare-fun {uf} (Int) Int)\n");
         if !script.contains(&decl) {
             header.push_str(&decl);
@@ -722,6 +733,25 @@ mod tests {
         let mut script = String::new();
         append_cvc5_shellout_clause_check(&mut script, kind, "m");
         script
+    }
+
+    #[test]
+    fn length_function_is_not_declared_when_len_is_a_constant() {
+        let mut script = "\
+(set-logic ALL)
+(declare-const len Int)
+(declare-const buf Int)
+(declare-const __canonical_len_buf Int)
+(check-sat)
+"
+        .to_string();
+        link_canonical_lengths(&mut script);
+        assert!(
+            !script.contains("(declare-fun len "),
+            "len parameter must not also be a function: {script}"
+        );
+        assert!(script.contains("(declare-fun __field_len (Int) Int)"));
+        assert!(script.contains("(= __canonical_len_buf (__field_len buf))"));
     }
 
     #[test]

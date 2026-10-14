@@ -10,7 +10,7 @@ use crate::encode_atom_policy::sanitize_smt_name;
 /// Collect all variable names referenced in an expression.
 pub fn collect_vars(expr: &SpExpr, vars: &mut HashSet<String>) {
     match &expr.node {
-        Expr::Ident(name) if !crate::encode_atom_policy::is_smt_bool_literal_name(name) => {
+        Expr::Ident(name) if !crate::encode_atom_policy::is_reserved_smt_symbol(name) => {
             if name == "result" {
                 vars.insert(RESULT_VAR_NAME.to_string());
             } else {
@@ -91,8 +91,8 @@ pub fn collect_vars(expr: &SpExpr, vars: &mut HashSet<String>) {
                     .chars()
                     .next()
                     .is_some_and(|c| c.is_alphabetic() || c == '_')
-                    && tok != "true"
-                    && tok != "false"
+                    && !crate::encode_atom_policy::is_reserved_smt_symbol(tok)
+                    && !crate::encode_raw_ops_policy::is_raw_spec_skip_keyword(tok)
                 {
                     vars.insert(sanitize_smt_name(tok));
                 }
@@ -150,6 +150,22 @@ mod tests {
     }
     fn spb(e: Expr) -> Box<SpExpr> {
         Box::new(sp(e))
+    }
+
+    #[test]
+    fn collect_vars_forall_token_is_not_a_var() {
+        let mut vars = HashSet::new();
+        collect_vars(
+            &sp(Expr::Raw(vec![
+                "forall".into(),
+                "u".into(),
+                "in".into(),
+                "users".into(),
+            ])),
+            &mut vars,
+        );
+        assert!(!vars.contains("forall"), "{vars:?}");
+        assert!(vars.contains("users"), "{vars:?}");
     }
 
     #[test]
