@@ -525,7 +525,10 @@ fn shell_unary_not_encoding() {
         op: assura_ast::UnaryOp::Not,
         expr: Box::new(Spanned::no_span(Expr::Ident("flag".into()))),
     });
-    assert_eq!(expr_to_smtlib(&not_expr), Some("(not flag)".into()));
+    assert_eq!(
+        expr_to_smtlib(&not_expr),
+        Some("(not (distinct flag 0))".into())
+    );
 }
 
 #[test]
@@ -583,19 +586,28 @@ fn shell_logical_and_or_implies() {
         op: BinOp::And,
         rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
     });
-    assert_eq!(expr_to_smtlib(&and_expr), Some("(and a b)".into()));
+    assert_eq!(
+        expr_to_smtlib(&and_expr),
+        Some("(and (distinct a 0) (distinct b 0))".into())
+    );
 
     let or_expr = Spanned::no_span(Expr::BinOp {
         lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         op: BinOp::Or,
         rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
     });
-    assert_eq!(expr_to_smtlib(&or_expr), Some("(or a b)".into()));
+    assert_eq!(
+        expr_to_smtlib(&or_expr),
+        Some("(or (distinct a 0) (distinct b 0))".into())
+    );
 
     let implies = Spanned::no_span(Expr::BinOp {
         lhs: Box::new(Spanned::no_span(Expr::Ident("a".into()))),
         op: BinOp::Implies,
         rhs: Box::new(Spanned::no_span(Expr::Ident("b".into()))),
     });
-    assert_eq!(expr_to_smtlib(&implies), Some("(=> a b)".into()));
+    assert_eq!(
+        expr_to_smtlib(&implies),
+        Some("(=> (distinct a 0) (distinct b 0))".into())
+    );
 }

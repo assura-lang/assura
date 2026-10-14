@@ -71,7 +71,7 @@ fn cvc5_expr_to_smtlib_unary() {
     });
     assert_eq!(
         cvc5_backend::expr_to_smtlib(&e),
-        Some("(not p)".to_string())
+        Some("(not (distinct p 0))".to_string())
     );
 }
 

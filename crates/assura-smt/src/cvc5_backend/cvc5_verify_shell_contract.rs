@@ -12,7 +12,7 @@ use crate::cvc5_verify_shared::{
 };
 use crate::cvc5_verify_shell_clause::check_clause_cvc5_shellout;
 use crate::cvc5_verify_shell_runner::{
-    cvc5_shell_query_to_verification_result, run_cvc5_binary_queries,
+    cvc5_shell_query_to_verification_result, run_cvc5_binary_queries, run_cvc5_binary_queries_eager,
 };
 use crate::cvc5_verify_shell_script::{
     append_cvc5_shellout_clause_check, append_cvc5_shellout_constraints,
@@ -144,11 +144,21 @@ fn verify_contract_cvc5_shellout_incremental(
         let empty_specs = std::collections::HashMap::new();
         let specs = session.contract.callee_specs.unwrap_or(&empty_specs);
         let havoc = session.havoc_assume_input();
-        let script = crate::encode_callee_policy::with_shell_callee_specs(specs, || {
-            build_incremental_shell_script(&script_input, havoc)
-        });
+        let eager_script = machine_div_pending_script(session, &pending);
+        let script = if eager_script.is_none() {
+            crate::encode_callee_policy::with_shell_callee_specs(specs, || {
+                build_incremental_shell_script(&script_input, havoc)
+            })
+        } else {
+            String::new()
+        };
 
-        match run_cvc5_binary_queries(&script, session.timeout_ms) {
+        let query = if let Some(script) = eager_script {
+            run_cvc5_binary_queries_eager(&script, session.timeout_ms)
+        } else {
+            run_cvc5_binary_queries(&script, session.timeout_ms)
+        };
+        match query {
             Ok(query_results) if query_results.len() == pending_count => {
                 for (pending_clause, query) in pending.into_iter().zip(query_results) {
                     let result = cvc5_shell_query_to_verification_result(
@@ -286,6 +296,58 @@ fn build_incremental_shell_script(
     crate::cvc5_verify_shell_script::declare_missing_smt_symbols(&mut script);
     crate::cvc5_verify_shell_script::hoist_push_declarations(&mut script);
     script
+}
+
+fn machine_div_pending_script(
+    session: &Cvc5ContractVerifySession<'_>,
+    pending: &[PendingShellClause],
+) -> Option<String> {
+    let prepared = &session.prepared;
+    let frames: Vec<Vec<String>> = pending
+        .iter()
+        .map(|pending_clause| {
+            let clause = &prepared.verifiable[pending_clause.index];
+            crate::clause_policy::frame_axiom_vars_for_clause(
+                &prepared.frame_checker,
+                &clause.kind,
+                &clause.body,
+                &prepared.param_names,
+            )
+        })
+        .collect();
+    let clauses: Vec<super::cvc5_machine_bv::MachineDivClause<'_>> = pending
+        .iter()
+        .zip(frames.iter())
+        .map(|(pending_clause, frame)| {
+            let clause = &prepared.verifiable[pending_clause.index];
+            super::cvc5_machine_bv::MachineDivClause {
+                body: &clause.body,
+                kind: &clause.kind,
+                frame_vars: frame,
+            }
+        })
+        .collect();
+    let script = super::cvc5_machine_bv::machine_division_script(
+        session.contract.params,
+        session.contract.return_ty,
+        &prepared.requires_exprs,
+        &clauses,
+        session.contract.ir.is_some(),
+    )?;
+    // A multi-clause bitvector script is trusted as a whole. Keep it only
+    // when every clause's `+`/`-`/`*` matches integer wrap. Mixed clauses
+    // stay on the integer script, where a single-clause path can still
+    // accept a checked counterexample.
+    let sound = pending.iter().all(|pending_clause| {
+        let clause = &prepared.verifiable[pending_clause.index];
+        super::cvc5_machine_bv::integer_wrap_matches_bitvector(
+            session.contract.params,
+            session.contract.return_ty,
+            &prepared.requires_exprs,
+            &clause.body,
+        )
+    });
+    sound.then_some(script)
 }
 
 #[cfg(test)]

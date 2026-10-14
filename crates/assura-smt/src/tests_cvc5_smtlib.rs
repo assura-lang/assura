@@ -164,7 +164,10 @@ fn test_smtlib_binop_implies() {
         lhs: Box::new(Spanned::no_span(Expr::Ident("p".into()))),
         rhs: Box::new(Spanned::no_span(Expr::Ident("q".into()))),
     });
-    assert_eq!(expr_to_smtlib(&expr), Some("(=> p q)".into()));
+    assert_eq!(
+        expr_to_smtlib(&expr),
+        Some("(=> (distinct p 0) (distinct q 0))".into())
+    );
 }
 
 #[test]

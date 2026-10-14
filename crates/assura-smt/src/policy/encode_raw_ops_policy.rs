@@ -300,7 +300,7 @@ mod tests {
         );
         assert_eq!(
             format_raw_binop_smtlib(RawBinOp::Implies, "p", "q"),
-            "(=> p q)"
+            "(=> (distinct p 0) (distinct q 0))"
         );
     }
 

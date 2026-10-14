@@ -171,7 +171,10 @@ mod tests {
             encode_ast_binop_smtlib(&BinOp::Add, "1", "2").as_deref(),
             Some("(+ 1 2)")
         );
-        assert_eq!(encode_ast_unary_smtlib(&UnaryOp::Not, "p"), "(not p)");
+        assert_eq!(
+            encode_ast_unary_smtlib(&UnaryOp::Not, "p"),
+            "(not (distinct p 0))"
+        );
         assert_eq!(encode_ast_unary_smtlib(&UnaryOp::Neg, "3"), "(- 3)");
         assert_eq!(classify_ast_unary(&UnaryOp::Not), AstUnaryKind::Not);
         assert_eq!(classify_ast_unary(&UnaryOp::Neg), AstUnaryKind::Neg);

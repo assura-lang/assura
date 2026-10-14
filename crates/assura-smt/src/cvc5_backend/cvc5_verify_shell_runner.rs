@@ -16,7 +16,17 @@ pub(crate) enum Cvc5Result {
 }
 
 pub(crate) fn run_cvc5_binary(script: &str, tlimit_ms: u32) -> Cvc5Result {
-    match execute_cvc5(script, tlimit_ms) {
+    run_cvc5_binary_mode(script, tlimit_ms, false)
+}
+
+/// `QF_BV` scripts for machine division. Eager bitblasting is rejected on
+/// `(set-logic ALL)`, so the integer shell scripts do not pass this flag.
+pub(crate) fn run_cvc5_binary_eager(script: &str, tlimit_ms: u32) -> Cvc5Result {
+    run_cvc5_binary_mode(script, tlimit_ms, true)
+}
+
+fn run_cvc5_binary_mode(script: &str, tlimit_ms: u32, eager_bitblast: bool) -> Cvc5Result {
+    match execute_cvc5(script, tlimit_ms, eager_bitblast) {
         Ok(stdout) => parse_cvc5_stdout_first(&stdout),
         Err(reason) => Cvc5Result::Error(reason),
     }
@@ -50,7 +60,22 @@ pub(crate) fn run_cvc5_binary_queries(
     script: &str,
     tlimit_ms: u32,
 ) -> Result<Vec<Cvc5Result>, String> {
-    let stdout = execute_cvc5(script, tlimit_ms)?;
+    run_cvc5_binary_queries_mode(script, tlimit_ms, false)
+}
+
+pub(crate) fn run_cvc5_binary_queries_eager(
+    script: &str,
+    tlimit_ms: u32,
+) -> Result<Vec<Cvc5Result>, String> {
+    run_cvc5_binary_queries_mode(script, tlimit_ms, true)
+}
+
+fn run_cvc5_binary_queries_mode(
+    script: &str,
+    tlimit_ms: u32,
+    eager_bitblast: bool,
+) -> Result<Vec<Cvc5Result>, String> {
+    let stdout = execute_cvc5(script, tlimit_ms, eager_bitblast)?;
     parse_cvc5_stdout_all(&stdout)
 }
 
@@ -93,7 +118,7 @@ pub(crate) fn read_capped(mut reader: impl std::io::Read, limit: usize) -> Resul
     }
 }
 
-fn execute_cvc5(script: &str, tlimit_ms: u32) -> Result<String, String> {
+fn execute_cvc5(script: &str, tlimit_ms: u32, eager_bitblast: bool) -> Result<String, String> {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
@@ -112,8 +137,14 @@ fn execute_cvc5(script: &str, tlimit_ms: u32) -> Result<String, String> {
         // 64-bit wrapping division (vault share formulas) makes the default
         // nonlinear solver hit the clause budget. Splitting on zero finds
         // the same counterexample Z3 finds, and linear unsat stays unsat.
-        .arg("--nl-ext-split-zero")
-        .arg("--tlimit")
+        .arg("--nl-ext-split-zero");
+    if eager_bitblast {
+        // Nested 64-bit `bvsdiv` (vault rounding) stays lazy-bitblast until
+        // the clause budget. Eager bitblasting finishes the same query.
+        // Only legal for `QF_BV`; `ALL` errors with ackermann.
+        cmd.arg("--bitblast=eager");
+    }
+    cmd.arg("--tlimit")
         .arg(tlimit)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
