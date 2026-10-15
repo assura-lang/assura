@@ -37,6 +37,9 @@ Unknown results agents can branch on, not only "tests green."
 - Layer 0: parse / resolve / types / domain checkers
 - Layer 1: Z3 and optional CVC5; **portfolio merge** prefers Verified and
   Counterexample over Timeout/Unknown; ties prefer Z3
+- Native CVC5 (`--features cvc5-verify`) builds solver 1.4.0 from source
+  when `CVC5_LIB_DIR` is unset. `scripts/setup-cvc5.sh` downloads that
+  same 1.4.0 library when you want the faster prebuilt
 - Shared **10s floor** on per-clause timeout (`tlimit` / Z3); raise via
   `verify.timeout` when needed
 - Known-limitation Unknowns use marker `not yet encoded in SMT` (CLI
@@ -59,8 +62,6 @@ Pointer: [SMT-NOTE.md](../SMT-NOTE.md), [WHAT-WE-PROVE.md](../WHAT-WE-PROVE.md)
 - Not a claim of "all security bugs gone"
 - Vacuous success: empty obligations can still "pass"; JSON marks
   `vacuous`
-- CVC5 native macOS source build still blocked on upstream cvc5-rs
-  (prebuilt path via `setup-cvc5.sh`)
 
 ### 6. Ask (30 s)
 
