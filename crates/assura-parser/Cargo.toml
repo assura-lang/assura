@@ -12,8 +12,8 @@ categories.workspace = true
 readme = "README.md"
 
 [dependencies]
-assura-ast = { version = "0.6.0", path = "../assura-ast" }
-assura-diagnostics = { version = "0.6.0", path = "../assura-diagnostics" }
+assura-ast = { version = "0.7.0", path = "../assura-ast" }
+assura-diagnostics = { version = "0.7.0", path = "../assura-diagnostics" }
 logos = "0.16"
 rowan = "0.17"
 
