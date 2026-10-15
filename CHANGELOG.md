@@ -3,6 +3,34 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.0](https://github.com/assura-lang/assura/compare/v0.6.0...v0.7.0) (2026-10-15)
+
+
+### Features
+
+* **smt:** migrate native cvc5 to crate 0.6.1 ([#1704](https://github.com/assura-lang/assura/issues/1704)) ([ce6ee99](https://github.com/assura-lang/assura/commit/ce6ee9995d7f62acbcccb6ebd09f0db4ce9252a8))
+
+
+### Bug Fixes
+
+* **cli:** document the 10 second solver timeout floor ([#1701](https://github.com/assura-lang/assura/issues/1701)) ([eb8f66b](https://github.com/assura-lang/assura/commit/eb8f66bc18609d677d46f6da1f4808cf652cb47d))
+* **cli:** stop telling doctor users to run setup-cvc5.sh ([#1702](https://github.com/assura-lang/assura/issues/1702)) ([45e4440](https://github.com/assura-lang/assura/commit/45e4440815650b0f36a87206bbf8bdca8180eccf))
+* close test and CI holes from review ([#1688](https://github.com/assura-lang/assura/issues/1688)) ([031f88f](https://github.com/assura-lang/assura/commit/031f88f351f7289da0247d8d5f8e3af1901106f0))
+* **deps:** bump quinn-proto past the 0.11.18 advisories ([#1687](https://github.com/assura-lang/assura/issues/1687)) ([a7d5394](https://github.com/assura-lang/assura/commit/a7d53940493c4691a681834bb8e09eea9b7432f5))
+* **mcp:** say why a jailed path was refused ([#1689](https://github.com/assura-lang/assura/issues/1689)) ([309420c](https://github.com/assura-lang/assura/commit/309420cb689d560349de7232baf4c12d841a301e))
+* **parser:** parse limit as a value in expressions ([#1698](https://github.com/assura-lang/assura/issues/1698)) ([29e9bbf](https://github.com/assura-lang/assura/commit/29e9bbf0c27950ed93df9b3520d81b2ed616d587))
+* **smt:** align the CVC5 shell with Z3 on division and symbols ([#1695](https://github.com/assura-lang/assura/issues/1695)) ([5c48222](https://github.com/assura-lang/assura/commit/5c482224f7343e58d0592ddea29badba6ba543a2))
+* **smt:** declare bool methods in the CVC5 shell ([#1693](https://github.com/assura-lang/assura/issues/1693)) ([a79423f](https://github.com/assura-lang/assura/commit/a79423fcfc0c937b3bab0f7435a71c3bb2d8371b))
+* **smt:** do not declare true and false as CVC5 constants ([#1696](https://github.com/assura-lang/assura/issues/1696)) ([deb2aa0](https://github.com/assura-lang/assura/commit/deb2aa0185c96006d419333a23e9805b50e54e10))
+* **smt:** do not treat a partial RoundUp witness as verified ([#1703](https://github.com/assura-lang/assura/issues/1703)) ([3d3246a](https://github.com/assura-lang/assura/commit/3d3246ac92f17352ab88150a6423ede420a075d4))
+* **smt:** encode Option is_some for the CVC5 shell ([#1691](https://github.com/assura-lang/assura/issues/1691)) ([0105882](https://github.com/assura-lang/assura/commit/0105882a4e13605f4daa004dba762806027c96f0))
+* **smt:** encode string length and literals for the CVC5 shell ([#1694](https://github.com/assura-lang/assura/issues/1694)) ([5098b92](https://github.com/assura-lang/assura/commit/5098b924758ed82bad55eb3a5542a81c6ce8defe))
+* **smt:** ground Option axioms so CVC5 can find counterexamples ([#1692](https://github.com/assura-lang/assura/issues/1692)) ([8e14f97](https://github.com/assura-lang/assura/commit/8e14f971da9773ce9957cbe2f9413622d026ffe0))
+* **smt:** keep CVC5 from shadowing len and forall ([#1699](https://github.com/assura-lang/assura/issues/1699)) ([ece725b](https://github.com/assura-lang/assura/commit/ece725b2225193868302e873982ce91895a5c982))
+* **smt:** link the cvc5 1.3.4 prebuilt ([#1684](https://github.com/assura-lang/assura/issues/1684)) ([04fe5d7](https://github.com/assura-lang/assura/commit/04fe5d7228426fe2e238a2558e13d9dd50a9e002))
+* **smt:** report a canceled Z3 check as a timeout ([#1697](https://github.com/assura-lang/assura/issues/1697)) ([77e007e](https://github.com/assura-lang/assura/commit/77e007ea0923181fbc20a48f61561ff3318b57ae))
+* **smt:** stop reporting a CVC5 counterexample as a timeout ([#1690](https://github.com/assura-lang/assura/issues/1690)) ([f1a147c](https://github.com/assura-lang/assura/commit/f1a147c55d203aca381a58df96738b29a22f2cac))
+
 ## [0.6.0](https://github.com/assura-lang/assura/compare/v0.5.0...v0.6.0) (2026-10-06)
 
 
