@@ -12,7 +12,7 @@ categories.workspace = true
 readme = "README.md"
 
 [dependencies]
-assura-parser = { version = "0.6.0", path = "../assura-parser" }
-assura-diagnostics = { version = "0.6.0", path = "../assura-diagnostics" }
-assura-stdlib = { version = "0.6.0", path = "../assura-stdlib" }
-assura-config = { version = "0.6.0", path = "../assura-config" }
+assura-parser = { version = "0.7.0", path = "../assura-parser" }
+assura-diagnostics = { version = "0.7.0", path = "../assura-diagnostics" }
+assura-stdlib = { version = "0.7.0", path = "../assura-stdlib" }
+assura-config = { version = "0.7.0", path = "../assura-config" }
