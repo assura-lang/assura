@@ -37,6 +37,8 @@ jobs:
       - uses: rustsec/audit-check@858dc40f52ca2b8570b7a997c1c4e35c6fc9a432 # node24 (main post-v2.0.0)
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # z3-sys 0.13.1 requires zip ^8.2. Same exception as deny.toml. #1711
+          ignore: RUSTSEC-2026-0367,RUSTSEC-2026-0368,RUSTSEC-2026-0369
 
   codeql:
     name: CodeQL analysis
