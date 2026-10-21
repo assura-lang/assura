@@ -1,0 +1,124 @@
+# Published crates.io z3-sys 0.13.1, with zip required at 9 instead of 8.2.
+# extract_unwrapped_root_dir is unchanged. Drop the workspace patch when
+# crates.io z3-sys allows zip >= 9.
+
+[package]
+edition = "2024"
+rust-version = "1.85.0"
+name = "z3-sys"
+version = "0.13.1"
+authors = [
+    "Graydon Hoare <graydon@pobox.com>",
+    "Bruce Mitchener <bruce.mitchener@gmail.com>",
+    "Nick Fitzgerald <fitzgen@gmail.com>",
+    "Mark DenHoed <mark.denhoed@cs.ox.ac.uk>",
+]
+build = "build.rs"
+links = "z3"
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "Low-level bindings for the Z3 SMT solver from Microsoft Research"
+homepage = "https://github.com/prove-rs/z3.rs"
+documentation = "https://docs.rs/z3-sys/"
+readme = "README.md"
+keywords = [
+    "FFI",
+    "SMT",
+    "satisfiability",
+    "solver",
+]
+categories = [
+    "external-ffi-bindings",
+    "no-std",
+    "no-std::no-alloc",
+]
+license = "MIT"
+repository = "https://github.com/prove-rs/z3.rs.git"
+
+[features]
+bindgen = [
+    "dep:bindgen",
+    "dep:proc-macro2",
+    "dep:prettyplease",
+    "dep:quote",
+    "dep:syn",
+    "dep:regex",
+]
+bundled = ["vendored"]
+gh-release = [
+    "dep:reqwest",
+    "dep:serde_json",
+    "dep:zip",
+]
+vcpkg = ["dep:vcpkg"]
+vendored = ["dep:z3-src"]
+
+[lib]
+name = "z3_sys"
+path = "src/lib.rs"
+doctest = false
+
+[[test]]
+name = "lib"
+path = "tests/lib.rs"
+
+[build-dependencies.bindgen]
+version = "0.72"
+optional = true
+
+[build-dependencies.pkg-config]
+version = "0.3.32"
+
+[build-dependencies.prettyplease]
+version = "0.2"
+optional = true
+
+[build-dependencies.proc-macro2]
+version = "1"
+optional = true
+
+[build-dependencies.quote]
+version = "1"
+optional = true
+
+[build-dependencies.regex]
+version = "1"
+optional = true
+
+[build-dependencies.reqwest]
+version = "0.12.22"
+features = [
+    "blocking",
+    "rustls-tls",
+]
+optional = true
+default-features = false
+
+[build-dependencies.serde_json]
+version = "1.0.140"
+optional = true
+
+[build-dependencies.syn]
+version = "2"
+features = ["full"]
+optional = true
+
+[build-dependencies.vcpkg]
+version = "0.2.15"
+optional = true
+
+[build-dependencies.z3-src]
+version = "501"
+optional = true
+
+# crates.io z3-sys 0.13.1 requires zip ^8.2. That range is
+# RUSTSEC-2026-0367, RUSTSEC-2026-0368, and RUSTSEC-2026-0369.
+# extract_unwrapped_root_dir is the same call on zip 9, which patches them.
+# This tree is otherwise the published 0.13.1 crate. Drop the workspace
+# patch when a crates.io z3-sys release allows zip >= 9.
+[build-dependencies.zip]
+version = "9"
+optional = true

@@ -16,3 +16,9 @@ categories = ["compilers", "development-tools"]
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+# crates.io z3-sys 0.13.1 requires zip ^8.2 (RUSTSEC-2026-0367/0368/0369).
+# third_party/z3-sys is that release with zip 9. Remove this when crates.io
+# z3-sys allows zip >= 9.
+[patch.crates-io]
+z3-sys = { path = "third_party/z3-sys" }
