@@ -245,6 +245,9 @@ jobs:
       - name: Test verify composite helper
         run: bash .github/actions/verify/verify_test.sh
 
+      - name: Classify Dependabot push failures
+        run: bash scripts/classify-dependabot-push-failure_test.sh
+
       - name: Classify demo headers
         run: bash scripts/check-demos.sh --step classify
 
