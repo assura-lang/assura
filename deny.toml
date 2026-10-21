@@ -8,15 +8,6 @@ all-features = false
 [advisories]
 version = 2
 yanked = "warn"
-ignore = [
-    # z3-sys 0.13.1 requires zip ^8.2. Its build script downloads the official
-    # Z3 release zip and calls extract_unwrapped_root_dir, which uses the same
-    # extract_internal path as ZipArchive::extract (symlinks and Unix modes).
-    # zip 9 is the patched line. Tracked in #1711.
-    { id = "RUSTSEC-2026-0367", reason = "z3-sys 0.13.1 pins zip ^8.2; build extracts the official Z3 release via extract_unwrapped_root_dir (#1711)" },
-    { id = "RUSTSEC-2026-0368", reason = "z3-sys 0.13.1 pins zip ^8.2; build extracts the official Z3 release via extract_unwrapped_root_dir (#1711)" },
-    { id = "RUSTSEC-2026-0369", reason = "z3-sys 0.13.1 pins zip ^8.2; build extracts the official Z3 release via extract_unwrapped_root_dir (#1711)" },
-]
 
 [licenses]
 version = 2

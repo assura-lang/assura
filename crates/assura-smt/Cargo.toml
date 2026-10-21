@@ -22,6 +22,8 @@ assura-types = { version = "0.7.0", path = "../assura-types" }
 assura-config = { version = "0.7.0", path = "../assura-config" }
 assura-parser = { version = "0.7.0", path = "../assura-parser" }
 assura-resolve = { version = "0.7.0", path = "../assura-resolve" }
+# gh-release downloads the official Z3 archive in z3-sys's build script.
+# The workspace patch in third_party/z3-sys uses zip 9 for that extract.
 z3 = { version = "0.21", optional = true, features = ["gh-release"] }
 cvc5 = { version = "0.6.1", optional = true, features = ["static"] }
 serde = { version = "1", features = ["derive"] }
