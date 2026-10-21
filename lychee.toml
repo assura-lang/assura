@@ -12,7 +12,12 @@ max_concurrency = 8
 # returns HTTP 500 for those HTML pages from GHA runners (issue pages that
 # redirect to pulls), which flakes main after every markdown merge. The links
 # are machine-generated and still useful for humans; skip automated recheck.
-exclude_path = ["CHANGELOG.md"]
+exclude_path = [
+  "CHANGELOG.md",
+  # Vendored z3-sys docs. Upstream links are not ours (Patreon returns 403
+  # from GitHub Actions). #1711
+  "third_party/**",
+]
 
 exclude = [
   "localhost",
