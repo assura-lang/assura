@@ -19,9 +19,12 @@ name: Rebase Dependabot
 # (or live CI). Treating "no stubs yet" as success races the
 # create and leaves required ci unreported.
 #
-# The job token also needs workflows: write. A rebase that edits
-# .github/workflows is rejected without it. That rejection is not a
-# stale lease. Exit 1 so the hourly run goes red (#1709).
+# GITHUB_TOKEN cannot push a commit that edits .github/workflows.
+# `workflows` is not a permissions: scope; putting it in this file
+# makes GitHub reject the workflow (run 39663145858, #1709).
+# That rejection is not a stale lease. Retry the push with the App
+# token, which is minted with permission-workflows: write. The App
+# is then the last pusher, so GITHUB_TOKEN approves the PR.
 
 on:
   push:
@@ -45,9 +48,6 @@ jobs:
       contents: write
       pull-requests: write
       actions: write
-      # GitHub rejects a workflow-file push without this scope (#1709).
-      # actionlint 1.7.7 does not know the name; ci.yml ignores that one message.
-      workflows: write
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
@@ -79,6 +79,7 @@ jobs:
       - name: Rebase Dependabot PRs that are behind main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -96,14 +97,16 @@ jobs:
 
           git fetch origin main
           remote_url="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          : > "${RUNNER_TEMP}/app-pushed-prs.txt"
           perm_fail=0
           push_rebased() {
             local n="$1"
             local branch="$2"
             local expected="$3"
+            local url="$4"
             local push_out="${RUNNER_TEMP}/dependabot-push-${n}.log"
             if git push --force-with-lease="refs/heads/${branch}:${expected}" \
-                "${remote_url}" "HEAD:refs/heads/${branch}" >"${push_out}" 2>&1; then
+                "${url}" "HEAD:refs/heads/${branch}" >"${push_out}" 2>&1; then
               return 0
             fi
             cat "${push_out}"
@@ -113,6 +116,35 @@ jobs:
               return 2
             fi
             return 1
+          }
+          # Exit 0 on success. Exit 2 when neither token can push workflow
+          # files. Exit 1 for a stale lease.
+          push_or_app() {
+            local n="$1"
+            local branch="$2"
+            local expected="$3"
+            local rc=0
+            push_rebased "${n}" "${branch}" "${expected}" "${remote_url}" || rc=$?
+            if [ "${rc}" -eq 0 ]; then
+              return 0
+            fi
+            if [ "${rc}" -ne 2 ]; then
+              return 1
+            fi
+            if [ -z "${APP_TOKEN:-}" ]; then
+              echo "FAIL: #${n} needs the App token to push workflow files"
+              return 2
+            fi
+            echo "DO: #${n} GITHUB_TOKEN cannot update workflow files; pushing with the App token"
+            local app_url="https://x-access-token:${APP_TOKEN}@github.com/${REPO}.git"
+            rc=0
+            push_rebased "${n}" "${branch}" "${expected}" "${app_url}" || rc=$?
+            if [ "${rc}" -ne 0 ]; then
+              echo "FAIL: App token push rejected on #${n}"
+              return "${rc}"
+            fi
+            echo "${n}" >> "${RUNNER_TEMP}/app-pushed-prs.txt"
+            return 0
           }
           for n in ${nums}; do
             branch=$(gh pr view "${n}" --repo "${REPO}" --json headRefName --jq .headRefName)
@@ -132,7 +164,7 @@ jobs:
               continue
             fi
             rc=0
-            push_rebased "${n}" "${branch}" "${expected}" || rc=$?
+            push_or_app "${n}" "${branch}" "${expected}" || rc=$?
             if [ "${rc}" -eq 2 ]; then
               perm_fail=1
               continue
@@ -148,13 +180,13 @@ jobs:
                 continue
               fi
               rc=0
-              push_rebased "${n}" "${branch}" "${expected}" || rc=$?
-              if [ "${rc}" -eq 2 ]; then
-                perm_fail=1
-                continue
-              fi
+              push_or_app "${n}" "${branch}" "${expected}" || rc=$?
               if [ "${rc}" -ne 0 ]; then
-                echo "Lease rejected again on #${n}; leaving it for a later run."
+                if [ "${rc}" -eq 2 ]; then
+                  perm_fail=1
+                else
+                  echo "Lease rejected again on #${n}; leaving it for a later run."
+                fi
                 continue
               fi
             fi
@@ -232,10 +264,39 @@ jobs:
             for n in ${nums}; do
               branch=$(gh pr view "${n}" --repo "${REPO}" --json headRefName \
                 --jq .headRefName)
+              app_pushed=0
+              if [ -s "${RUNNER_TEMP}/app-pushed-prs.txt" ] \
+                && grep -qx "${n}" "${RUNNER_TEMP}/app-pushed-prs.txt"; then
+                app_pushed=1
+              fi
+              # An App push starts real CI, so there are no action_required
+              # stubs. Still approve here: the App is the last pusher and
+              # its own review does not satisfy require_last_push_approval.
+              if [ "${app_pushed}" -eq 1 ]; then
+                found=1
+                echo "DO: #${n} was pushed by the App; GITHUB_TOKEN approves"
+                approve_out="${RUNNER_TEMP}/approve-${n}.log"
+                if GH_TOKEN="${ACTIONS_TOKEN}" gh pr review --approve "${n}" \
+                  --repo "${REPO}" >"${approve_out}" 2>&1; then
+                  echo "OK: approved #${n}"
+                else
+                  cat "${approve_out}"
+                  if grep -qi 'already' "${approve_out}"; then
+                    echo "OK: #${n} already approved"
+                  else
+                    echo "FAIL: approve #${n}"
+                    approve_fail=1
+                  fi
+                fi
+              fi
               ids=$(gh run list --repo "${REPO}" --branch "${branch}" --limit 15 \
                 --json databaseId,conclusion \
                 --jq '.[] | select(.conclusion == "action_required") | .databaseId')
               if [ -z "${ids}" ]; then
+                if [ "${app_pushed}" -eq 1 ]; then
+                  gh pr merge --auto --squash "${n}" --repo "${REPO}" \
+                    || echo "auto-merge already armed or blocked on #${n}"
+                fi
                 continue
               fi
               found=1
@@ -250,8 +311,10 @@ jobs:
                   approve_fail=1
                 fi
               done <<<"${ids}"
-              gh pr review --approve "${n}" --repo "${REPO}" \
-                || echo "Approve #${n} failed or already approved"
+              if [ "${app_pushed}" -eq 0 ]; then
+                gh pr review --approve "${n}" --repo "${REPO}" \
+                  || echo "Approve #${n} failed or already approved"
+              fi
               gh pr merge --auto --squash "${n}" --repo "${REPO}" \
                 || echo "auto-merge already armed or blocked on #${n}"
             done

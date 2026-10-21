@@ -24,7 +24,7 @@ set -e
 if [ "$rc" -ne 2 ]; then
   fail "workflows permission log exited ${rc}, expected 2"
 fi
-grep -q 'permissions.workflows: write' "$TMP.out" || fail "missing workflows permission message"
+grep -q 'retry with the App token' "$TMP.out" || fail "missing App token retry message"
 
 echo "DO: stale lease rejection exits 1"
 printf '%s\n' ' ! [rejected] (stale info)' >"$TMP"
@@ -35,6 +35,6 @@ set -e
 if [ "$rc" -ne 1 ]; then
   fail "stale lease log exited ${rc}, expected 1"
 fi
-grep -q 'permissions.workflows: write' "$TMP.out" && fail "lease miss was classified as a workflows permission error"
+grep -q 'App token' "$TMP.out" && fail "lease miss was classified as a workflow-file rejection"
 
 echo "OK: classify-dependabot-push-failure"

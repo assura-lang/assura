@@ -224,9 +224,7 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run actionlint
-        # actionlint 1.7.7 rejects workflows: write. That scope is what lets
-        # the Dependabot rebase job push edits under .github/workflows.
-        run: actionlint -color -ignore 'unknown permission scope "workflows"'
+        run: actionlint -color
 
       - name: Run zizmor
         run: zizmor --config .github/zizmor.yml .github/workflows/ .github/actions/
