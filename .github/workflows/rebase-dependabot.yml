@@ -18,6 +18,10 @@ name: Rebase Dependabot
 # GITHUB_TOKEN force-push, poll until GitHub creates the stubs
 # (or live CI). Treating "no stubs yet" as success races the
 # create and leaves required ci unreported.
+#
+# The job token also needs workflows: write. A rebase that edits
+# .github/workflows is rejected without it. That rejection is not a
+# stale lease. Exit 1 so the hourly run goes red (#1709).
 
 on:
   push:
@@ -41,6 +45,9 @@ jobs:
       contents: write
       pull-requests: write
       actions: write
+      # GitHub rejects a workflow-file push without this scope (#1709).
+      # actionlint 1.7.7 does not know the name; ci.yml ignores that one message.
+      workflows: write
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
@@ -89,6 +96,24 @@ jobs:
 
           git fetch origin main
           remote_url="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          perm_fail=0
+          push_rebased() {
+            local n="$1"
+            local branch="$2"
+            local expected="$3"
+            local push_out="${RUNNER_TEMP}/dependabot-push-${n}.log"
+            if git push --force-with-lease="refs/heads/${branch}:${expected}" \
+                "${remote_url}" "HEAD:refs/heads/${branch}" >"${push_out}" 2>&1; then
+              return 0
+            fi
+            cat "${push_out}"
+            local rc=0
+            bash scripts/classify-dependabot-push-failure.sh "${push_out}" || rc=$?
+            if [ "${rc}" -eq 2 ]; then
+              return 2
+            fi
+            return 1
+          }
           for n in ${nums}; do
             branch=$(gh pr view "${n}" --repo "${REPO}" --json headRefName --jq .headRefName)
             # Named-remote lease needs a tracking SHA. Pushing to a URL has none,
@@ -106,8 +131,13 @@ jobs:
               git rebase --abort
               continue
             fi
-            if ! git push --force-with-lease="refs/heads/${branch}:${expected}" \
-              "${remote_url}" "HEAD:refs/heads/${branch}"; then
+            rc=0
+            push_rebased "${n}" "${branch}" "${expected}" || rc=$?
+            if [ "${rc}" -eq 2 ]; then
+              perm_fail=1
+              continue
+            fi
+            if [ "${rc}" -ne 0 ]; then
               echo "Lease rejected on #${n}; refetch and retry once."
               git fetch origin "refs/heads/${branch}:refs/remotes/origin/${branch}"
               expected=$(git rev-parse "origin/${branch}")
@@ -117,14 +147,23 @@ jobs:
                 git rebase --abort
                 continue
               fi
-              if ! git push --force-with-lease="refs/heads/${branch}:${expected}" \
-                "${remote_url}" "HEAD:refs/heads/${branch}"; then
+              rc=0
+              push_rebased "${n}" "${branch}" "${expected}" || rc=$?
+              if [ "${rc}" -eq 2 ]; then
+                perm_fail=1
+                continue
+              fi
+              if [ "${rc}" -ne 0 ]; then
                 echo "Lease rejected again on #${n}; leaving it for a later run."
                 continue
               fi
             fi
             echo "${n}" >> "${RUNNER_TEMP}/rebased-prs.txt"
           done
+          if [ "${perm_fail}" -ne 0 ]; then
+            echo "FAIL: workflow-file push denied; branch was not updated"
+            exit 1
+          fi
 
       - name: Require App token to unstick CI
         if: steps.app-token.outputs.token == ''
