@@ -3,6 +3,13 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.1](https://github.com/assura-lang/assura/compare/v0.7.0...v0.7.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **deps:** extract the Z3 release with zip 9 ([#1712](https://github.com/assura-lang/assura/issues/1712)) ([b2a99f3](https://github.com/assura-lang/assura/commit/b2a99f38b9c74db0f823bab1b043dc10bf784786))
+
 ## [0.7.0](https://github.com/assura-lang/assura/compare/v0.6.0...v0.7.0) (2026-10-15)
 
 
