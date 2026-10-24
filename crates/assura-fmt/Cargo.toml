@@ -12,4 +12,4 @@ categories.workspace = true
 readme = "README.md"
 
 [dependencies]
-assura-parser = { version = "0.7.0", path = "../assura-parser" }
+assura-parser = { version = "0.7.1", path = "../assura-parser" }
