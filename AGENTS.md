@@ -946,6 +946,8 @@ cargo clippy --workspace --locked -- -D warnings
 cargo clippy -p assura-smt --features cvc5-verify -- -D warnings
 cargo test --workspace --locked
 cargo check --no-default-features -p assura-smt
+rustup toolchain install 1.88.0
+cargo +1.88.0 check --locked
 bash scripts/check-smt-feature-matrix.sh   # if assura-smt changed this session
 ```
 
@@ -962,9 +964,13 @@ Implementation, reproduction, or "make this green" questions are the only time t
 executable (see #328), run the full checks + explicitly `cargo test --workspace --locked`
 before the end of the session / before pushing the final commit.**
 
-The `cargo clippy -p assura-smt --features cvc5-verify` step mirrors the CI
-`cvc5` job and catches cfg-gate violations in native CVC5 modules that the
-default workspace clippy build skips.
+The `cargo clippy -p assura-smt --features cvc5-verify` step catches
+cfg-gate violations in native CVC5 modules that the default workspace
+clippy build skips. It is not the whole CI `cvc5` job. That job also
+runs `bash scripts/check-smt-feature-matrix.sh --lint`,
+`cargo test -p assura-smt --features cvc5-verify --locked`, and
+`check --solver cvc5` on `demos/libwebp-huffman.assura`.
+`cargo +1.88.0 check --locked` matches the required `MSRV 1.88.0` job.
 
 The final `cargo check --no-default-features` verifies the no-z3 build.
 Any code in `assura-smt` that imports from `z3_backend` or `z3` must be

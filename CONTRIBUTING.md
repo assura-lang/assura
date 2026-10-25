@@ -161,9 +161,9 @@ under `crates/`.
 ### 2. Run the pre-commit gate
 
 Full pre-commit gate (matches the rust-path CI jobs: fmt, clippy, tests,
-package, no-Z3). Use `--locked` so `Cargo.lock` is not rewritten
-accidentally. A PR that only adds or edits `demos/*.assura` skips those
-jobs and runs codegen-validation instead (step 3).
+package, no-Z3, and MSRV 1.88.0). Use `--locked` so `Cargo.lock` is not
+rewritten accidentally. A PR that only adds or edits `demos/*.assura`
+skips those jobs and runs codegen-validation instead (step 3).
 
 ```bash
 cargo fmt --all -- --check
@@ -175,6 +175,8 @@ bash scripts/check-cargo-package.sh   # every publishable crate; see docs/CRATES
 cargo clippy -p assura-smt --features cvc5-verify -- -D warnings
 cargo test --workspace --locked
 cargo check --no-default-features -p assura-smt
+rustup toolchain install 1.88.0
+cargo +1.88.0 check --locked
 ```
 
 Faster local gate (fmt + guards + clippy on key crates + one demo check):
@@ -290,10 +292,24 @@ actionlint -color
 zizmor --config .github/zizmor.yml .github/workflows/*.yml
 ```
 
-The `cvc5-verify` clippy pass mirrors the CI `cvc5` job and catches
-cfg-gate mistakes in native CVC5 modules that default workspace clippy
-skips. The final `cargo check --no-default-features` verifies the no-Z3
-build: any code in `assura-smt` that imports Z3 must be behind
+When you touch `assura-smt`, the CI job **CVC5 native tests** is more
+than clippy. It runs, in order:
+
+```bash
+bash scripts/check-smt-feature-matrix.sh --lint
+cargo clippy -p assura-smt --features cvc5-verify --locked -- -D warnings
+cargo test -p assura-smt --features cvc5-verify --locked
+cargo build --bin assura --features cvc5-verify --locked
+cargo run --locked --bin assura --features cvc5-verify -- check --solver cvc5 demos/libwebp-huffman.assura
+```
+
+Clippy alone misses cfg-gate mistakes the matrix lint catches, and it
+misses native test or solver-demo failures. The job runs when
+`crates/assura-smt/**` changes (and on schedule or workflow_dispatch).
+The full gate above still includes the clippy line because default
+workspace clippy does not build the native modules. The final
+`cargo check --no-default-features` verifies the no-Z3 build: any code
+in `assura-smt` that imports Z3 must be behind
 `#[cfg(feature = "z3-verify")]` with a fallback.
 
 For a faster local CVC5 build on macOS ARM, run `bash scripts/setup-cvc5.sh`
@@ -313,18 +329,25 @@ cargo run --locked --bin assura -- check demos/taint-tracking.assura
 cargo run --locked --bin assura -- check demos/heartbleed.assura
 ```
 
-When you add or edit a demo, match the CI `codegen-validation` job
-(skip `*-audit*` files). `check` alone is not enough: generated Rust
-must compile.
+When you add or edit a demo, match the CI `codegen-validation` job.
+`scripts/check-demos.sh --step check` is the parse and type-check step
+(EXPECT FAIL demos must exit non-zero). Generated Rust must also
+compile. Must-pass demos use `cargo check --all-targets` so the
+generated proptest harness is compiled. EXPECT FAIL demos use plain
+`cargo check`.
 
 ```bash
 bash scripts/smoke-getting-started.sh
+ASSURA="cargo run --locked --bin assura --" bash scripts/check-demos.sh --step check
 for demo in demos/*.assura; do
-  case "$demo" in *-audit*|*audit-*) continue;; esac
-  cargo run --locked --bin assura -- check "$demo"
   cargo run --locked --bin assura -- build --no-check "$demo"
-  (cd "$(dirname "$demo")/generated" && cargo check)
-  rm -rf "$(dirname "$demo")/generated"
+  gen_dir="$(dirname "$demo")/generated"
+  if head -n 5 "$demo" | grep -q "EXPECT FAIL"; then
+    (cd "$gen_dir" && cargo check)
+  else
+    (cd "$gen_dir" && cargo check --all-targets)
+  fi
+  rm -rf "$gen_dir"
 done
 ```
 
