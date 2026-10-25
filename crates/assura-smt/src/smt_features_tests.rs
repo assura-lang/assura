@@ -156,6 +156,31 @@ fn unknown_feature_returns_empty() {
 
 #[cfg(feature = "z3-verify")]
 #[test]
+fn feature_clause_timeout_follows_caller_not_a_two_second_cap() {
+    use assura_ast::Literal;
+    let body = sp(Expr::Literal(Literal::Bool(true)));
+    let recorded = crate::z3_backend::solver::record_clause_timeouts(|| {
+        let _ = verify_feature_clause_with_timeout("allocator", "test_fn", &body, &[], 30_000);
+    });
+    assert!(
+        recorded.contains(&30_000),
+        "feature clause must use the caller timeout, got {recorded:?}"
+    );
+    let short = crate::z3_backend::solver::record_clause_timeouts(|| {
+        let _ = verify_feature_clause_with_timeout("allocator", "test_fn", &body, &[], 1_000);
+    });
+    assert!(
+        short.contains(&10_000),
+        "feature clause must floor short timeouts at 10000 ms, got {short:?}"
+    );
+    assert!(
+        !short.contains(&2_000),
+        "feature clause must not keep the old 2000 ms cap, got {short:?}"
+    );
+}
+
+#[cfg(feature = "z3-verify")]
+#[test]
 fn feature_body_verified_with_tautology() {
     // A feature clause with body `true` should be verified (not Unknown).
     use assura_ast::Literal;

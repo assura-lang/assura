@@ -222,7 +222,7 @@ methods exist only in `advanced.rs` / tests.
 - `display.rs`: Contract name collection and stats
 
 **Verification layers:**
-- Layer 1 (1s timeout): Quantifier-free (QF_UFLIA, QF_UFLRA)
+- Layer 1 (10s floor): Quantifier-free (QF_UFLIA, QF_UFLRA)
 - Layer 2 (10s timeout): With quantifiers (AUFLIA)
 
 **Graceful fallback:** When compiled without `z3-verify`, all verification

@@ -92,6 +92,7 @@ pub(crate) fn verify_contract_cvc5_with_lemmas_timeout(
         ctx.clauses,
         ctx.params,
         ctx.constants,
+        timeout_ms,
     );
     let mut session = Cvc5ContractVerifySession::new(ctx, prepared, lemma_defs, cache, timeout_ms);
 

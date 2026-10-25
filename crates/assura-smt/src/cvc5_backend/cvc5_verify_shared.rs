@@ -89,8 +89,15 @@ pub(crate) fn prepare_cvc5_contract_verification<'a>(
     clauses: &'a [Clause],
     params: &[assura_ast::Param],
     constants: &[(String, i64)],
+    timeout_ms: u64,
 ) -> (Vec<VerificationResult>, Cvc5ContractPrepared<'a>) {
-    crate::clause_policy::prepare_contract_clauses(contract_name, clauses, params, constants)
+    crate::clause_policy::prepare_contract_clauses(
+        contract_name,
+        clauses,
+        params,
+        constants,
+        timeout_ms,
+    )
 }
 
 pub(crate) fn cvc5_lookup_cached_clause(

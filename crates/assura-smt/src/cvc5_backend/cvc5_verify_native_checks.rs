@@ -29,6 +29,7 @@ pub(crate) fn check_validity_cvc5(
         &mut tm,
         Cvc5SolverOpts {
             unsat_core: true,
+            tlimit_ms: crate::encode_timeout_policy::feature_solver_timeout_ms(),
             ..Default::default()
         },
     );

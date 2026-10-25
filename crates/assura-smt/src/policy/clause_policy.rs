@@ -100,15 +100,17 @@ pub(crate) fn build_frame_checker(clauses: &[Clause]) -> assura_types::FrameChec
 pub(crate) fn dispatch_feature_clauses(
     contract_name: &str,
     clauses: &[Clause],
+    timeout_ms: u64,
 ) -> Vec<VerificationResult> {
     let mut results = Vec::new();
     for clause in clauses {
         if let ClauseKind::Other(kind) = &clause.kind {
-            results.extend(crate::smt_features::verify_feature_clause(
+            results.extend(crate::smt_features::verify_feature_clause_with_timeout(
                 kind,
                 contract_name,
                 &clause.body,
                 clauses,
+                timeout_ms,
             ));
         }
     }
@@ -123,8 +125,9 @@ pub(crate) fn prepare_contract_clauses<'a>(
     clauses: &'a [Clause],
     params: &[Param],
     constants: &[(String, i64)],
+    timeout_ms: u64,
 ) -> (Vec<VerificationResult>, ContractClausePrep<'a>) {
-    let feature_results = dispatch_feature_clauses(contract_name, clauses);
+    let feature_results = dispatch_feature_clauses(contract_name, clauses, timeout_ms);
     let narrowings = derive_narrowings(constants);
     let requires_exprs = collect_requires_exprs(clauses);
     let frame_checker = build_frame_checker(clauses);
@@ -245,7 +248,7 @@ mod tests {
             clause(ClauseKind::Ensures, Expr::Literal(Literal::Bool(true))),
             clause(ClauseKind::Modifies, Expr::Ident("x".into())),
         ];
-        let (_features, prep) = prepare_contract_clauses("C", &clauses, &[], &[]);
+        let (_features, prep) = prepare_contract_clauses("C", &clauses, &[], &[], 10_000);
         assert_eq!(prep.requires_clauses.len(), 1);
         assert_eq!(prep.ensures_clauses.len(), 1);
         assert_eq!(prep.verifiable.len(), 1);
@@ -266,7 +269,7 @@ mod tests {
             ClauseKind::Other("fmt.1".into()),
             Expr::Literal(Literal::Bool(true)),
         )];
-        let (features, prep) = prepare_contract_clauses("C", &clauses, &[], &[]);
+        let (features, prep) = prepare_contract_clauses("C", &clauses, &[], &[], 10_000);
         assert!(prep.verifiable.is_empty());
         // Feature may return Unknown/Verified depending on feature; must not panic.
         let _ = features.len();
