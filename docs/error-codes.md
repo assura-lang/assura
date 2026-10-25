@@ -86,7 +86,7 @@
 | A22002 | ? | ? | Complexity analysis timeout | AARA solver timed out | Complexity Bounds (A22xxx) | rg code in crates |
 | A22003 | ? | ? | Unbounded allocation detected | No allocation bound proved | Complexity Bounds (A22xxx) | rg code in crates |
 | A05100 | smt+cli | assura-smt / assura-cli | SMT counterexample found (verification failed) | Fix the contract (real violation) | (impl) | check/report.rs |
-| A05101 | cli | assura-cli | SMT solver timed out | Increase `--timeout` | (impl) | check/report.rs |
+| A05101 | cli | assura-cli | SMT solver timed out | Increase `--timeout` (milliseconds; values below 10000 are raised to 10000) | (impl) | check/report.rs |
 | A05102 | cli | assura-cli | Known compiler limitation (warning, exit 0; error under `--strict`) | Simplify ensures, add IR, or ignore until encoding lands | (impl) | check/report.rs |
 | A05103 | cli | assura-cli | Solver inconclusive (error, exit 1) | Simplify the contract or raise `--timeout` | (impl) | check/report.rs |
 | A10002 | types | assura-types | Match on unknown scrutinee without wildcard | (implementation; see CLI/SMT Unknown policy) | (impl) | checks/meta.rs (match exhaustiveness) |
