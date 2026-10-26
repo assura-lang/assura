@@ -695,7 +695,7 @@ for a detailed description of any error code.
 | Layer | What it checks | Timeout | Flag |
 |-------|---------------|---------|------|
 | 0 | Type checking only (no solver) | instant | `--layer 0` |
-| 1 | Standard SMT (requires/ensures) | 1s | `--layer 1` (default) |
+| 1 | Standard SMT (requires/ensures) | 10s floor | `--layer 1` (default) |
 | 2 | Quantified invariants, termination, roundtrips | 10s | `--layer 2` |
 | 3 | BMC, k-induction, liveness properties | 30s | `--layer 3` |
 

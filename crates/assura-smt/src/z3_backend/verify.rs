@@ -99,6 +99,7 @@ fn verify_clauses_with_types(
         clauses,
         types.params,
         types.constants,
+        u64::from(timeout_ms),
     );
     results.extend(feature_results);
 

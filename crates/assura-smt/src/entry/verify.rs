@@ -178,7 +178,10 @@ impl<'a> Verifier<'a> {
         };
 
         if self.include_decrease_checks {
-            results.extend(crate::display::dispatch_decrease_checks(self.typed));
+            results.extend(crate::encode_timeout_policy::with_feature_solver_timeout(
+                self.options.timeout_ms,
+                || crate::display::dispatch_decrease_checks(self.typed),
+            ));
         }
 
         results

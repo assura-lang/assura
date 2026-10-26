@@ -165,7 +165,10 @@ fn verify_feature_body(
 
     let solver = Solver::new();
     let mut params = z3::Params::new();
-    crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
+    crate::z3_backend::solver::set_solver_timeout(
+        &mut params,
+        crate::encode_timeout_policy::feature_solver_timeout_ms(),
+    );
     solver.set_params(&params);
     let mut encoder = Encoder::new();
 
@@ -496,7 +499,10 @@ pub fn verify_structural_invariant_inductive(
         );
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
+        crate::z3_backend::solver::set_solver_timeout(
+            &mut params,
+            crate::encode_timeout_policy::feature_solver_timeout_ms(),
+        );
         solver.set_params(&params);
         let mut encoder = Encoder::new();
 
@@ -535,7 +541,10 @@ pub fn verify_structural_invariant_inductive(
         );
         let solver = Solver::new();
         let mut params = z3::Params::new();
-        crate::z3_backend::solver::set_solver_timeout(&mut params, 2000);
+        crate::z3_backend::solver::set_solver_timeout(
+            &mut params,
+            crate::encode_timeout_policy::feature_solver_timeout_ms(),
+        );
         solver.set_params(&params);
         let mut encoder = Encoder::new();
 
@@ -817,6 +826,36 @@ fn verify_crypto_conformance(
 /// Most features produce a single result; structural invariants produce
 /// two (establishment + preservation) via inductive checking.
 pub fn verify_feature_clause(
+    clause_kind: &str,
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+) -> Vec<VerificationResult> {
+    verify_feature_clause_with_timeout(
+        clause_kind,
+        parent_name,
+        body,
+        sibling_clauses,
+        u64::from(crate::encode_timeout_policy::DEFAULT_SOLVER_TIMEOUT_MS),
+    )
+}
+
+/// Same as [`verify_feature_clause`], with the caller solver budget.
+///
+/// `requested_ms` is floored at 10000. A longer `--timeout` is kept.
+pub fn verify_feature_clause_with_timeout(
+    clause_kind: &str,
+    parent_name: &str,
+    body: &SpExpr,
+    sibling_clauses: &[Clause],
+    requested_ms: u64,
+) -> Vec<VerificationResult> {
+    crate::encode_timeout_policy::with_feature_solver_timeout(requested_ms, || {
+        verify_feature_clause_inner(clause_kind, parent_name, body, sibling_clauses)
+    })
+}
+
+fn verify_feature_clause_inner(
     clause_kind: &str,
     parent_name: &str,
     body: &SpExpr,

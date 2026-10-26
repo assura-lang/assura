@@ -2566,6 +2566,8 @@ mitigations), and undecidable (require timeouts).
 | Multi-service protocol | HORN | Semidecidable | 2 | 5s |
 | Noninterference proof | FOL + quantifiers | **No** | 2 | 10s |
 
+The Budget column lists the original per-check targets. The solver uses one clock. Section 12.5 is that clock: at least 10000 ms, and at least 30000 ms for layer 3 bounded model checking.
+
 ### 12.2 Dangerous Combinations
 
 These combinations are known to cause solver instability:

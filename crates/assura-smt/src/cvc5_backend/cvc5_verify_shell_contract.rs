@@ -400,7 +400,7 @@ mod tests {
             },
         ];
         let (feature_results, prepared) =
-            prepare_cvc5_contract_verification("T", &clauses, &[], &[]);
+            prepare_cvc5_contract_verification("T", &clauses, &[], &[], 10_000);
         assert!(feature_results.is_empty());
         let pending = vec![
             PendingShellClause {

@@ -545,9 +545,10 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
       requires { a * b * c > 0 }
       ensures { a * b * c < 1000 }
   }"#,
-            fix: "Increase the solver timeout with `--timeout <seconds>`. If that does \
-                 not help, try simplifying the contract: break complex conditions into \
-                 smaller contracts, add intermediate lemmas, or avoid non-linear \
+            fix: "Increase the solver timeout with `--timeout <ms>`. The value is \
+                 milliseconds, and requests below 10000 are raised to 10000. If that \
+                 does not help, try simplifying the contract: break complex conditions \
+                 into smaller contracts, add intermediate lemmas, or avoid non-linear \
                  arithmetic.",
         },
         ErrorInfo {
@@ -2152,6 +2153,21 @@ mod tests {
             catalog.len() >= 50,
             "catalog has only {} entries, expected 50+",
             catalog.len()
+        );
+    }
+
+    #[test]
+    fn explain_a05101_timeout_is_milliseconds() {
+        let info = explain("A05101").expect("A05101 should exist");
+        assert!(
+            info.fix.contains("milliseconds") && info.fix.contains("10000"),
+            "explain A05101 must name milliseconds and the 10000 floor, got: {}",
+            info.fix
+        );
+        assert!(
+            !info.fix.contains("<seconds>"),
+            "explain A05101 must not call --timeout a seconds value, got: {}",
+            info.fix
         );
     }
 

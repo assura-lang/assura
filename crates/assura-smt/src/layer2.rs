@@ -587,7 +587,7 @@ fn parse_int_expr(expr: &str, vars: &[(String, z3::ast::Int)]) -> Option<z3::ast
 /// Returns a `VerificationResult` (not `Layer2Result`) for consistency
 /// with the main verification pipeline.
 ///
-/// Layer 2 uses a 10s timeout (vs 1s for Layer 1).
+/// Layer 2 uses a 10s timeout, the same floor as layer 1 clause checks.
 pub fn verify_quantified_expr(
     name: &str,
     assumptions: &[SpExpr],

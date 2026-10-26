@@ -3,6 +3,8 @@
 //! All backends use these constants so Z3, CVC5 native, and CVC5 shell
 //! have identical timeout behavior.
 
+use std::cell::Cell;
+
 /// Default solver timeout for contract clause checks (milliseconds).
 ///
 /// Also the **floor** for file-level verify: config defaults are often 1s
@@ -22,6 +24,36 @@ pub(crate) const DEFAULT_SOLVER_TIMEOUT_TLIMIT: &str = "10000";
 pub(crate) fn clause_timeout_ms(requested_ms: u64) -> u32 {
     let requested = u32::try_from(requested_ms).unwrap_or(u32::MAX);
     requested.max(DEFAULT_SOLVER_TIMEOUT_MS)
+}
+
+// Per-thread budget for solvers that are not the main clause solver.
+// Feature clauses and decrease checks run on the caller thread. The
+// budget is set for one dispatch instead of a parameter on every arm.
+thread_local! {
+    static FEATURE_SOLVER_TIMEOUT_MS: Cell<u32> = const { Cell::new(DEFAULT_SOLVER_TIMEOUT_MS) };
+}
+
+struct RestoreFeatureTimeout(u32);
+
+impl Drop for RestoreFeatureTimeout {
+    fn drop(&mut self) {
+        FEATURE_SOLVER_TIMEOUT_MS.with(|cell| cell.set(self.0));
+    }
+}
+
+/// Timeout in milliseconds for side solvers on this thread.
+pub(crate) fn feature_solver_timeout_ms() -> u32 {
+    FEATURE_SOLVER_TIMEOUT_MS.with(Cell::get)
+}
+
+/// Run `f` with the clause timeout. Short requests floor at 10s.
+/// Longer requests pass through. The previous budget is restored,
+/// including when `f` panics.
+pub(crate) fn with_feature_solver_timeout<R>(requested_ms: u64, f: impl FnOnce() -> R) -> R {
+    let timeout = clause_timeout_ms(requested_ms);
+    let prev = FEATURE_SOLVER_TIMEOUT_MS.with(|cell| cell.replace(timeout));
+    let _restore = RestoreFeatureTimeout(prev);
+    f()
 }
 
 /// Resolve per-clause timeout as a CVC5 `--tlimit` / `tlimit` option string.
