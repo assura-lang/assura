@@ -3,6 +3,16 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.1](https://github.com/assura-lang/assura/compare/v0.7.0...v0.7.1) (2026-10-26)
+
+
+### Bug Fixes
+
+* **cli:** state the solver timeout unit on A05101 ([#1723](https://github.com/assura-lang/assura/issues/1723)) ([277abd5](https://github.com/assura-lang/assura/commit/277abd5e9f29227ff10ae0b1197b9d05f28954d9))
+* **deps:** bump ctutils to 0.4.5 ([#1720](https://github.com/assura-lang/assura/issues/1720)) ([8bebf17](https://github.com/assura-lang/assura/commit/8bebf17df09d7b61cea8b2ec63671f606834665b))
+* **deps:** extract the Z3 release with zip 9 ([#1712](https://github.com/assura-lang/assura/issues/1712)) ([b2a99f3](https://github.com/assura-lang/assura/commit/b2a99f38b9c74db0f823bab1b043dc10bf784786))
+* pin msal-node and honor solver timeouts ([#1722](https://github.com/assura-lang/assura/issues/1722)) ([c26bcf9](https://github.com/assura-lang/assura/commit/c26bcf99159f8d8d63e737d7138af59e02c56339))
+
 ## [0.7.0](https://github.com/assura-lang/assura/compare/v0.6.0...v0.7.0) (2026-10-15)
 
 
