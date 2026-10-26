@@ -192,12 +192,15 @@ pub(crate) fn run_check_project(
                                 module_verify_errors += 1;
                                 total_errors += 1;
                                 if output_mode == OutputMode::Human {
-                                    eprintln!("    {clause_desc} ... timeout");
+                                    eprintln!(
+                                        "    {}",
+                                        super::report::verification_timeout_message(clause_desc)
+                                    );
                                 }
                                 all_diags.push(
                                     assura_diagnostics::Diagnostic::error(
                                         "A05101",
-                                        format!("verification timeout for {clause_desc}"),
+                                        super::report::verification_timeout_message(clause_desc),
                                         span,
                                     )
                                     .with_file(filename.clone()),

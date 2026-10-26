@@ -177,9 +177,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                 diagnostics.push(
                     assura_diagnostics::Diagnostic::error(
                         "A05101",
-                        format!(
-                            "verification timeout for {clause_desc} (consider increasing --timeout)"
-                        ),
+                        verification_timeout_message(clause_desc),
                         span.clone(),
                     )
                     .with_file(shown_file),
@@ -524,6 +522,15 @@ pub(crate) fn synth_note_detail_from_ir(ir_text: &str) -> Option<String> {
     })
 }
 
+/// A05101 text for a single timed-out clause.
+///
+/// `--timeout` is milliseconds. Values below 10000 are raised to 10000.
+pub(crate) fn verification_timeout_message(clause_desc: &str) -> String {
+    format!(
+        "verification timeout for {clause_desc} (increase --timeout; the value is milliseconds, and values below 10000 are raised to 10000)"
+    )
+}
+
 #[cfg(test)]
 mod synth_note_parse_tests {
     use super::synth_note_detail_from_ir;
@@ -555,5 +562,24 @@ module X {
     #[test]
     fn missing_body_comment_returns_none() {
         assert!(synth_note_detail_from_ir("// Generated IR\nmodule Z {}\n").is_none());
+    }
+}
+
+#[cfg(test)]
+mod timeout_message_tests {
+    use super::verification_timeout_message;
+
+    #[test]
+    fn names_milliseconds_and_the_floor() {
+        let msg = verification_timeout_message("Foo::ensures");
+        assert!(msg.contains("Foo::ensures"), "{msg}");
+        assert!(
+            msg.contains("milliseconds") && msg.contains("10000"),
+            "{msg}"
+        );
+        assert!(
+            !msg.contains("<seconds>") && !msg.contains(" in seconds"),
+            "timeout message must not call --timeout a seconds value, got {msg}"
+        );
     }
 }
