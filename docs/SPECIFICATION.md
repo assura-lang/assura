@@ -2589,13 +2589,16 @@ These combinations are known to cause solver instability:
 
 When the SMT solver times out:
 
-1. **Layer 2 timeout**: Emit warning, not error. Code compiles.
-   Unverified property is flagged.
+1. **Any layer**: Emit error A05101. `assura check` exits 1.
+   A timeout is not a successful proof, including at layer 2.
+   The message tells the user that `--timeout` is milliseconds and
+   that values below 10000 are raised to 10000.
 
-2. **Layer 1 timeout**: Emit error suggesting simplified predicate.
+2. **What to change**: Simplify the predicate, split the property,
+   add a lemma, or raise `--timeout`.
 
-3. **Persistent timeout**: Suggest lemma hints, property splitting,
-   `trust` annotation, or property-based test fallback.
+3. **Known encoder gaps** are A05102, a warning (exit 0). That is
+   separate from a solver timeout.
 
 ### 12.4 Trust Escape Hatch
 
