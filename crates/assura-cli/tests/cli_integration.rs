@@ -3450,6 +3450,38 @@ fn check_missing_file_json_envelope() {
     assert!(v["verification"].is_array());
 }
 
+/// `check --json` on a directory with no `.assura` files uses the project
+/// report object and exits 2. A bare diagnostic array is not that report.
+#[test]
+fn check_empty_dir_json_uses_project_envelope() {
+    let tmp = unique_temp("assura_check_empty_dir");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let out = Command::new(assura_bin())
+        .args(["check", tmp.to_str().unwrap(), "--json"])
+        .output()
+        .expect("failed to run assura check --json on empty dir");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "empty dir should exit 2: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("empty dir --json must be a JSON object");
+    assert!(v.is_object(), "expected project envelope, got: {stdout}");
+    assert_eq!(v["success"], false);
+    assert_eq!(v["modules"], 0);
+    assert_eq!(v["errors"], 1);
+    let diags = v["diagnostics"].as_array().expect("diagnostics array");
+    assert_eq!(diags.len(), 1);
+    assert_eq!(diags[0]["code"], "A02010");
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 /// Empty `.assura` check --json keeps `file_info.vacuous` and also emits
 /// top-level `vacuous` / `vacuous_reason` / `success` (MCP-aligned).
 #[test]

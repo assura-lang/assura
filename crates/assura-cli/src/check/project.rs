@@ -59,31 +59,43 @@ pub(crate) fn run_check_project(
         match assura_resolve::discover_and_resolve_project_with_deps(&project_root, &dep_map) {
             Ok(pair) => pair,
             Err(errors) => {
+                // The only discover Err today is "no .assura files".
+                // Same object as a finished project check, not a bare array.
+                // Exit 2 matches a missing file and `assura fmt` on an empty dir.
+                let diags: Vec<_> = errors
+                    .iter()
+                    .map(|e| {
+                        let msg = e.to_string();
+                        // Map resolve errors onto real catalog codes only.
+                        let code = if msg.to_ascii_lowercase().contains("circular") {
+                            "A02005"
+                        } else {
+                            "A02010"
+                        };
+                        assura_diagnostics::Diagnostic::error(code, msg, 0..0)
+                            .with_file(project_root.display().to_string())
+                    })
+                    .collect();
                 if output_mode == OutputMode::Json {
-                    let diags: Vec<_> = errors
-                        .iter()
-                        .map(|e| {
-                            let msg = e.to_string();
-                            // Map resolve errors onto real catalog codes only.
-                            let code = if msg.to_ascii_lowercase().contains("circular") {
-                                "A02005"
-                            } else {
-                                "A02010"
-                            };
-                            assura_diagnostics::Diagnostic::error(code, msg, 0..0)
-                                .with_file(project_root.display().to_string())
-                        })
-                        .collect();
+                    let report = serde_json::json!({
+                        "project": project_root.display().to_string(),
+                        "modules": 0,
+                        "bindings": 0,
+                        "errors": diags.len(),
+                        "success": false,
+                        "results": [],
+                        "diagnostics": diags,
+                    });
                     println!(
                         "{}",
-                        serde_json::to_string_pretty(&diags).unwrap_or_default()
+                        serde_json::to_string_pretty(&report).unwrap_or_default()
                     );
                 } else {
                     for e in &errors {
                         eprintln!("Error: {e}");
                     }
                 }
-                process::exit(1);
+                process::exit(2);
             }
         };
 
