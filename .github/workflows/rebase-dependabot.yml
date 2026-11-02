@@ -228,16 +228,18 @@ jobs:
               pending=0
               while read -r n; do
                 [ -z "${n}" ] && continue
-                branch=$(gh pr view "${n}" --repo "${REPO}" --json headRefName \
-                  --jq .headRefName)
                 sha=$(gh pr view "${n}" --repo "${REPO}" --json headRefOid \
                   --jq .headRefOid)
-                stubs=$(gh run list --repo "${REPO}" --branch "${branch}" \
-                  --limit 15 --json conclusion,headSha \
-                  --jq "[.[] | select(.conclusion == \"action_required\" and .headSha == \"${sha}\")] | length")
-                live=$(gh run list --repo "${REPO}" --branch "${branch}" \
-                  --limit 15 --json status,conclusion,name,headSha \
-                  --jq "[.[] | select(.headSha == \"${sha}\" and .name == \"CI\" and (.status == \"in_progress\" or .status == \"queued\" or .conclusion == \"success\"))] | length")
+                # --commit, not --branch --limit. A busy Dependabot
+                # branch has Security, Auto-approve, and Code Quality
+                # ahead of CI, so a short branch list drops the CI row
+                # (#1730, run 41496170114).
+                stubs=$(gh run list --repo "${REPO}" --commit "${sha}" \
+                  --limit 20 --json conclusion \
+                  --jq "[.[] | select(.conclusion == \"action_required\")] | length")
+                live=$(gh run list --repo "${REPO}" --commit "${sha}" \
+                  --workflow ci.yml --limit 10 --json status,conclusion \
+                  --jq "[.[] | select(.status == \"in_progress\" or .status == \"queued\" or .status == \"waiting\" or .status == \"requested\" or .status == \"pending\" or .conclusion == \"success\" or .conclusion == \"failure\")] | length")
                 if [ "${stubs}" = "0" ] && [ "${live}" = "0" ]; then
                   echo "WAIT: #${n} ${sha:0:7} has no stubs and no live CI"
                   pending=1
@@ -262,8 +264,6 @@ jobs:
               --state open --json number,autoMergeRequest \
               --jq '.[] | select(.autoMergeRequest != null) | .number')
             for n in ${nums}; do
-              branch=$(gh pr view "${n}" --repo "${REPO}" --json headRefName \
-                --jq .headRefName)
               app_pushed=0
               if [ -s "${RUNNER_TEMP}/app-pushed-prs.txt" ] \
                 && grep -qx "${n}" "${RUNNER_TEMP}/app-pushed-prs.txt"; then
@@ -289,7 +289,9 @@ jobs:
                   fi
                 fi
               fi
-              ids=$(gh run list --repo "${REPO}" --branch "${branch}" --limit 15 \
+              sha=$(gh pr view "${n}" --repo "${REPO}" --json headRefOid \
+                --jq .headRefOid)
+              ids=$(gh run list --repo "${REPO}" --commit "${sha}" --limit 20 \
                 --json databaseId,conclusion \
                 --jq '.[] | select(.conclusion == "action_required") | .databaseId')
               if [ -z "${ids}" ]; then
@@ -337,7 +339,9 @@ jobs:
             for n in ${nums}; do
               branch=$(gh pr view "${n}" --repo "${REPO}" --json headRefName \
                 --jq .headRefName)
-              ids=$(gh run list --repo "${REPO}" --branch "${branch}" --limit 15 \
+              sha=$(gh pr view "${n}" --repo "${REPO}" --json headRefOid \
+                --jq .headRefOid)
+              ids=$(gh run list --repo "${REPO}" --commit "${sha}" --limit 20 \
                 --json databaseId,conclusion \
                 --jq '.[] | select(.conclusion == "action_required") | .databaseId')
               [ -z "${ids}" ] && continue
@@ -359,12 +363,12 @@ jobs:
               --jq .headRefName)
             sha=$(gh pr view "${n}" --repo "${REPO}" --json headRefOid \
               --jq .headRefOid)
-            ids=$(gh run list --repo "${REPO}" --branch "${branch}" --limit 8 \
-              --json conclusion,headSha \
-              --jq "[.[] | select(.conclusion == \"action_required\" and .headSha == \"${sha}\")] | length")
-            live=$(gh run list --repo "${REPO}" --branch "${branch}" --limit 8 \
-              --json status,conclusion,name,headSha \
-              --jq "[.[] | select(.headSha == \"${sha}\" and .name == \"CI\" and (.status == \"in_progress\" or .status == \"queued\" or .conclusion == \"success\"))] | length")
+            ids=$(gh run list --repo "${REPO}" --commit "${sha}" --limit 20 \
+              --json conclusion \
+              --jq "[.[] | select(.conclusion == \"action_required\")] | length")
+            live=$(gh run list --repo "${REPO}" --commit "${sha}" \
+              --workflow ci.yml --limit 10 --json status,conclusion \
+              --jq "[.[] | select(.status == \"in_progress\" or .status == \"queued\" or .status == \"waiting\" or .status == \"requested\" or .status == \"pending\" or .conclusion == \"success\" or .conclusion == \"failure\")] | length")
             rebased=0
             if [ -s "${RUNNER_TEMP}/rebased-prs.txt" ] \
               && grep -qx "${n}" "${RUNNER_TEMP}/rebased-prs.txt"; then
