@@ -32,7 +32,7 @@ fn parse_memory_ordering(s: &str) -> Option<MemoryOrdering> {
 }
 
 /// Extract a numeric argument from an expression tree (for eventually_within bounds).
-fn extract_numeric_arg(expr: &SpExpr) -> Option<u64> {
+pub(crate) fn extract_numeric_arg(expr: &SpExpr) -> Option<u64> {
     match &expr.node {
         Expr::Literal(assura_ast::Literal::Int(s)) => s.parse().ok(),
         Expr::Call { args, .. } => args.iter().find_map(extract_numeric_arg),
@@ -420,16 +420,25 @@ pub(crate) fn run_liveness_checks(typed: &TypedFile) -> Vec<VerificationResult> 
             }
             Decl::Contract(c) => {
                 for clause in &c.clauses {
-                    if clause.kind == ClauseKind::Ensures
-                        && (expr_references_var(&clause.body, "eventually")
-                            || expr_references_var(&clause.body, "leads_to"))
-                    {
-                        lc.add_obligation(
-                            format!("{}:liveness", c.name),
-                            LivenessKind::Eventually,
-                            expr_to_string(&clause.body),
-                            String::new(),
-                        );
+                    if clause.kind == ClauseKind::Ensures {
+                        let kind = if expr_references_var(&clause.body, "eventually_within") {
+                            let bound = extract_numeric_arg(&clause.body).unwrap_or(100);
+                            Some(LivenessKind::EventuallyWithin(bound))
+                        } else if expr_references_var(&clause.body, "leads_to") {
+                            Some(LivenessKind::LeadsTo)
+                        } else if expr_references_var(&clause.body, "eventually") {
+                            Some(LivenessKind::Eventually)
+                        } else {
+                            None
+                        };
+                        if let Some(kind) = kind {
+                            lc.add_obligation(
+                                format!("{}:liveness", c.name),
+                                kind,
+                                expr_to_string(&clause.body),
+                                String::new(),
+                            );
+                        }
                     }
                 }
             }
@@ -480,7 +489,7 @@ pub(crate) fn run_layer2_checks(typed: &TypedFile, timeout_ms: u64) -> Vec<Verif
                         l2.add_invariant(crate::layer2::QuantifiedInvariant {
                             name: format!("{name}:invariant"),
                             bound_vars: vec![(var.clone(), sort)],
-                            body: expr_to_string(body),
+                            body: super::layer_dispatch::expr_to_predicate_string(body),
                             triggers: Vec::new(),
                         });
                     }
@@ -489,7 +498,7 @@ pub(crate) fn run_layer2_checks(typed: &TypedFile, timeout_ms: u64) -> Vec<Verif
                         l2.add_invariant(crate::layer2::QuantifiedInvariant {
                             name: format!("{name}:invariant"),
                             bound_vars: vec![(var.clone(), sort)],
-                            body: expr_to_string(body),
+                            body: super::layer_dispatch::expr_to_predicate_string(body),
                             triggers: Vec::new(),
                         });
                     }

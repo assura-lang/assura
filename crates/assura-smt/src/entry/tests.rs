@@ -387,6 +387,55 @@ contract UsesP {
     );
 }
 
+/// `or` / `and` in a quantified invariant must reach the Layer 2 parser
+/// as `||` / `&&`. Source text uses `or`, and `expr_to_string` keeps that.
+#[test]
+fn smt_adv_layer2_or_invariant_parses() {
+    let src = r#"
+module t;
+contract C {
+    input(n: Int)
+    requires { n >= 0 }
+    invariant { forall x in Int: x >= 0 or x < 0 }
+    ensures { n >= 0 }
+}
+"#;
+    let typed = crate::test_util::typecheck_ok(src);
+    let results = super::advanced_passes::run_layer2_checks(&typed, 1_000);
+    assert!(
+        results.iter().all(|r| {
+            !matches!(
+                r,
+                VerificationResult::Unknown { reason, .. } if reason.contains("cannot parse")
+            )
+        }),
+        "or-invariant must parse, got {results:?}"
+    );
+}
+
+/// Contract ensures `eventually_within(goal, N)` keeps N. A bare
+/// `eventually` match must not drop the bound.
+#[test]
+fn smt_adv_liveness_ensures_eventually_within_keeps_bound() {
+    let src = r#"
+module t;
+contract C {
+    input(n: Int)
+    requires { n >= 0 }
+    ensures { eventually_within(n >= 0, 5) }
+}
+"#;
+    let typed = crate::test_util::typecheck_ok(src);
+    let results = super::advanced_passes::run_liveness_checks(&typed);
+    assert!(
+        results.iter().any(|r| {
+            matches!(r, VerificationResult::Unknown { reason, .. } if reason.contains("EventuallyWithin(5)"))
+                && r.is_known_limitation()
+        }),
+        "eventually_within bound must survive, got {results:?}"
+    );
+}
+
 /// A comparison on `resolve(p)` records the constraint. Full verify still
 /// counterexamples a bound, because the prophecy is not a solver term.
 #[test]

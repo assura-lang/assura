@@ -255,9 +255,11 @@ fn run_liveness_reduction(
                             .first()
                             .map(expr_to_predicate_string)
                             .unwrap_or_else(|| body_str.clone());
+                        let bound = super::advanced_passes::extract_numeric_arg(&clause.body)
+                            .unwrap_or(100);
                         checker.add_obligation(
                             format!("{decl_name}::eventually_within"),
-                            LivenessKind::EventuallyWithin(100),
+                            LivenessKind::EventuallyWithin(bound),
                             "true".into(),
                             goal,
                         );
@@ -412,7 +414,7 @@ fn domain_to_sort(domain: &SpExpr) -> String {
 ///
 /// Best-effort textual representation. The Layer 2 verifier has its own
 /// expression parser (`parse_predicate_to_z3`).
-fn expr_to_predicate_string(expr: &SpExpr) -> String {
+pub(crate) fn expr_to_predicate_string(expr: &SpExpr) -> String {
     match &expr.node {
         Expr::BinOp { op, lhs, rhs } => {
             let l = expr_to_predicate_string(lhs);
