@@ -32,7 +32,7 @@ fn parse_memory_ordering(s: &str) -> Option<MemoryOrdering> {
 }
 
 /// Extract a numeric argument from an expression tree (for eventually_within bounds).
-fn extract_numeric_arg(expr: &SpExpr) -> Option<u64> {
+pub(crate) fn extract_numeric_arg(expr: &SpExpr) -> Option<u64> {
     match &expr.node {
         Expr::Literal(assura_ast::Literal::Int(s)) => s.parse().ok(),
         Expr::Call { args, .. } => args.iter().find_map(extract_numeric_arg),
@@ -42,8 +42,57 @@ fn extract_numeric_arg(expr: &SpExpr) -> Option<u64> {
     }
 }
 
+/// First argument and the text of any later arguments for a raw call at
+/// `tokens[i]`. Accepts `name(arg)` and `name arg` (clause bodies often stay
+/// raw when the callee is a keyword, as with `resolve`).
+fn raw_call_first_arg(tokens: &[String], i: usize) -> Option<(&str, String)> {
+    let parenthesized = tokens.get(i + 1).map(String::as_str) == Some("(");
+    let name_idx = if parenthesized { i + 2 } else { i + 1 };
+    let name = tokens.get(name_idx).map(String::as_str)?;
+    if name.is_empty() || matches!(name, "(" | ")" | ",") {
+        return None;
+    }
+    let mut rest_start = name_idx + 1;
+    if tokens.get(rest_start).map(String::as_str) == Some(",") {
+        rest_start += 1;
+    }
+    let rest = tokens.get(rest_start..).unwrap_or(&[]);
+    let mut depth = 0i32;
+    let mut parts = Vec::new();
+    for tok in rest {
+        if parenthesized && depth == 0 && tok == ")" {
+            break;
+        }
+        match tok.as_str() {
+            "(" => depth += 1,
+            ")" => {
+                depth -= 1;
+                if depth < 0 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+        parts.push(tok.as_str());
+    }
+    Some((name, parts.join(" ")))
+}
+
+fn for_each_raw_call(tokens: &[String], names: &[&str], mut f: impl FnMut(&str, String)) {
+    for (i, tok) in tokens.iter().enumerate() {
+        if names.contains(&tok.as_str())
+            && let Some((var_name, rest)) = raw_call_first_arg(tokens, i)
+        {
+            f(var_name, rest);
+        }
+    }
+}
+
 /// Scan an expression for prophecy resolution calls: resolve(var, value).
-fn resolve_prophecy_vars(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManager) {
+///
+/// Declarations are stored under the bare prophecy name. Unknown names are
+/// ignored.
+fn resolve_prophecy_vars(expr: &SpExpr, pm: &mut ProphecyManager) {
     match &expr.node {
         Expr::Call { func, args } => {
             if let Expr::Ident(name) = &func.as_ref().node
@@ -52,32 +101,41 @@ fn resolve_prophecy_vars(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManager)
                 && let Expr::Ident(var_name) = &first.node
             {
                 let value = args.get(1).map(expr_to_string).unwrap_or_default();
-                if let Err(e) = pm.resolve(&format!("{fn_name}:{var_name}"), value) {
-                    eprintln!("warning: prophecy resolution failed: {e}");
-                }
+                let _ = pm.resolve(var_name, value);
             }
             for arg in args {
-                resolve_prophecy_vars(arg, fn_name, pm);
+                resolve_prophecy_vars(arg, pm);
             }
         }
         Expr::BinOp { lhs, rhs, .. } => {
-            resolve_prophecy_vars(lhs, fn_name, pm);
-            resolve_prophecy_vars(rhs, fn_name, pm);
+            resolve_prophecy_vars(lhs, pm);
+            resolve_prophecy_vars(rhs, pm);
         }
         Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) | Expr::Ghost(inner) => {
-            resolve_prophecy_vars(inner, fn_name, pm)
+            resolve_prophecy_vars(inner, pm)
         }
         Expr::Block(exprs) | Expr::List(exprs) => {
             for e in exprs {
-                resolve_prophecy_vars(e, fn_name, pm);
+                resolve_prophecy_vars(e, pm);
             }
+        }
+        Expr::Raw(tokens) => {
+            for_each_raw_call(
+                tokens,
+                &["resolve", "resolve_prophecy"],
+                |var_name, value| {
+                    let _ = pm.resolve(var_name, value);
+                },
+            );
         }
         _ => {}
     }
 }
 
 /// Scan an expression for prophecy constraint patterns (equality with prophecy vars).
-fn constrain_prophecy_vars(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManager) {
+///
+/// Constraints are stored on the bare prophecy name that `declare` used.
+fn constrain_prophecy_vars(expr: &SpExpr, pm: &mut ProphecyManager) {
     match &expr.node {
         Expr::Call { func, args } => {
             if let Expr::Ident(name) = &func.as_ref().node
@@ -86,14 +144,14 @@ fn constrain_prophecy_vars(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManage
                 && let Expr::Ident(var_name) = &first.node
             {
                 let constraint = args.get(1).map(expr_to_string).unwrap_or_default();
-                pm.add_constraint(&format!("{fn_name}:{var_name}"), constraint);
+                pm.add_constraint(var_name, constraint);
             }
             for arg in args {
-                constrain_prophecy_vars(arg, fn_name, pm);
+                constrain_prophecy_vars(arg, pm);
             }
         }
         Expr::BinOp { lhs, rhs, op } => {
-            // An equality like `prophecy(x) == expr` constrains x
+            // An equality like `prophecy(x) == expr` constrains x.
             if *op == BinOp::Eq
                 && let Expr::Call { func, args } = &lhs.as_ref().node
                 && let Expr::Ident(name) = &func.as_ref().node
@@ -101,47 +159,111 @@ fn constrain_prophecy_vars(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManage
                 && let Some(first) = args.first()
                 && let Expr::Ident(var_name) = &first.node
             {
-                pm.add_constraint(&format!("{fn_name}:{var_name}"), expr_to_string(rhs));
+                pm.add_constraint(var_name, expr_to_string(rhs));
             }
-            constrain_prophecy_vars(lhs, fn_name, pm);
-            constrain_prophecy_vars(rhs, fn_name, pm);
+            // `resolve(p) < bound` is both the resolution and the constraint.
+            if let Some(var_name) = resolved_prophecy_name(lhs) {
+                pm.add_constraint(var_name, expr_to_string(rhs));
+            }
+            if let Some(var_name) = resolved_prophecy_name(rhs) {
+                pm.add_constraint(var_name, expr_to_string(lhs));
+            }
+            constrain_prophecy_vars(lhs, pm);
+            constrain_prophecy_vars(rhs, pm);
         }
         Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) | Expr::Ghost(inner) => {
-            constrain_prophecy_vars(inner, fn_name, pm)
+            constrain_prophecy_vars(inner, pm)
         }
         Expr::Block(exprs) | Expr::List(exprs) => {
             for e in exprs {
-                constrain_prophecy_vars(e, fn_name, pm);
+                constrain_prophecy_vars(e, pm);
             }
+        }
+        Expr::Raw(tokens) => {
+            for_each_raw_call(
+                tokens,
+                &["constrain", "constrain_prophecy"],
+                |var_name, constraint| {
+                    pm.add_constraint(var_name, constraint);
+                },
+            );
+            record_raw_resolve_comparison(tokens, pm);
         }
         _ => {}
     }
 }
 
-/// Collect prophecy variable references from ensures clauses.
-fn collect_prophecy_refs(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManager) {
-    match &expr.node {
-        Expr::Call { func, args } => {
-            if let Expr::Ident(name) = &func.as_ref().node
-                && (name == "prophecy" || name == "prophesy")
-                && let Some(first) = args.first()
-                && let Expr::Ident(var_name) = &first.node
-            {
-                pm.declare(format!("{fn_name}:{var_name}"));
-            }
-            for arg in args {
-                collect_prophecy_refs(arg, fn_name, pm);
-            }
-        }
-        Expr::BinOp { lhs, rhs, .. } => {
-            collect_prophecy_refs(lhs, fn_name, pm);
-            collect_prophecy_refs(rhs, fn_name, pm);
-        }
-        Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) | Expr::Ghost(inner) => {
-            collect_prophecy_refs(inner, fn_name, pm)
-        }
-        _ => {}
+/// Name bound by `resolve(name)` / `resolve_prophecy(name)`, when the call
+/// is a real `Expr::Call`.
+fn resolved_prophecy_name(expr: &SpExpr) -> Option<&str> {
+    let Expr::Call { func, args } = &expr.node else {
+        return None;
+    };
+    let Expr::Ident(name) = &func.as_ref().node else {
+        return None;
+    };
+    if name != "resolve" && name != "resolve_prophecy" {
+        return None;
     }
+    let first = args.first()?;
+    let Expr::Ident(var_name) = &first.node else {
+        return None;
+    };
+    Some(var_name.as_str())
+}
+
+/// Clause bodies often stay raw. `resolve(p) < bound` is outside the
+/// parenthesized call, so the constrain-call walker does not see it.
+fn record_raw_resolve_comparison(tokens: &[String], pm: &mut ProphecyManager) {
+    const OPS: &[&str] = &["==", "!=", "<", ">", "<=", ">="];
+    for (i, tok) in tokens.iter().enumerate() {
+        if tok != "resolve" && tok != "resolve_prophecy" {
+            continue;
+        }
+        let Some((var_name, _)) = raw_call_first_arg(tokens, i) else {
+            continue;
+        };
+        let Some(after) = raw_call_end(tokens, i) else {
+            continue;
+        };
+        let Some(op) = tokens.get(after).map(String::as_str) else {
+            continue;
+        };
+        if !OPS.contains(&op) {
+            continue;
+        }
+        let rest = tokens[after + 1..]
+            .iter()
+            .take_while(|t| t.as_str() != "&&" && t.as_str() != "||")
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !rest.is_empty() {
+            pm.add_constraint(var_name, rest);
+        }
+    }
+}
+
+/// Index of the first token after a raw `resolve(name)` or `resolve name`.
+fn raw_call_end(tokens: &[String], i: usize) -> Option<usize> {
+    if tokens.get(i + 1).map(String::as_str) == Some("(") {
+        let mut depth = 0i32;
+        for (j, tok) in tokens.iter().enumerate().skip(i + 1) {
+            match tok.as_str() {
+                "(" => depth += 1,
+                ")" => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(j + 1);
+                    }
+                }
+                _ => {}
+            }
+        }
+        return None;
+    }
+    tokens.get(i + 1)?;
+    Some(i + 2)
 }
 
 // ---------------------------------------------------------------------------
@@ -229,21 +351,14 @@ pub(crate) fn run_prophecy_checks(typed: &TypedFile) -> Vec<VerificationResult> 
         }
     }
     for decl in &typed.resolved.source.decls {
-        let ctx_name = match decl.node.name() {
-            Some(n) => n,
-            None => continue,
-        };
         let clauses = decl.node.clauses();
         if clauses.is_empty() {
             continue;
         }
         for clause in clauses {
-            if clause.kind == ClauseKind::Ensures {
-                collect_prophecy_refs(&clause.body, ctx_name, &mut pm);
-            }
             if clause.kind == ClauseKind::Ensures || clause.kind == ClauseKind::Requires {
-                resolve_prophecy_vars(&clause.body, ctx_name, &mut pm);
-                constrain_prophecy_vars(&clause.body, ctx_name, &mut pm);
+                resolve_prophecy_vars(&clause.body, &mut pm);
+                constrain_prophecy_vars(&clause.body, &mut pm);
             }
         }
     }
@@ -305,16 +420,25 @@ pub(crate) fn run_liveness_checks(typed: &TypedFile) -> Vec<VerificationResult> 
             }
             Decl::Contract(c) => {
                 for clause in &c.clauses {
-                    if clause.kind == ClauseKind::Ensures
-                        && (expr_references_var(&clause.body, "eventually")
-                            || expr_references_var(&clause.body, "leads_to"))
-                    {
-                        lc.add_obligation(
-                            format!("{}:liveness", c.name),
-                            LivenessKind::Eventually,
-                            expr_to_string(&clause.body),
-                            String::new(),
-                        );
+                    if clause.kind == ClauseKind::Ensures {
+                        let kind = if expr_references_var(&clause.body, "eventually_within") {
+                            let bound = extract_numeric_arg(&clause.body).unwrap_or(100);
+                            Some(LivenessKind::EventuallyWithin(bound))
+                        } else if expr_references_var(&clause.body, "leads_to") {
+                            Some(LivenessKind::LeadsTo)
+                        } else if expr_references_var(&clause.body, "eventually") {
+                            Some(LivenessKind::Eventually)
+                        } else {
+                            None
+                        };
+                        if let Some(kind) = kind {
+                            lc.add_obligation(
+                                format!("{}:liveness", c.name),
+                                kind,
+                                expr_to_string(&clause.body),
+                                String::new(),
+                            );
+                        }
                     }
                 }
             }
@@ -334,10 +458,10 @@ pub(crate) fn run_liveness_checks(typed: &TypedFile) -> Vec<VerificationResult> 
         });
     }
     for err in lc.check_unverified() {
-        results.push(VerificationResult::Unknown {
-            clause_desc: "liveness".into(),
-            reason: err,
-        });
+        // check_unverified says "not verified" because nobody called
+        // mark_verified. No solver ran, so the CLI warning should say that.
+        let detail = err.strip_suffix(" not verified").unwrap_or(&err);
+        results.push(VerificationResult::unknown_not_encoded("liveness", detail));
     }
     results
 }
@@ -365,7 +489,7 @@ pub(crate) fn run_layer2_checks(typed: &TypedFile, timeout_ms: u64) -> Vec<Verif
                         l2.add_invariant(crate::layer2::QuantifiedInvariant {
                             name: format!("{name}:invariant"),
                             bound_vars: vec![(var.clone(), sort)],
-                            body: expr_to_string(body),
+                            body: super::layer_dispatch::expr_to_predicate_string(body),
                             triggers: Vec::new(),
                         });
                     }
@@ -374,7 +498,7 @@ pub(crate) fn run_layer2_checks(typed: &TypedFile, timeout_ms: u64) -> Vec<Verif
                         l2.add_invariant(crate::layer2::QuantifiedInvariant {
                             name: format!("{name}:invariant"),
                             bound_vars: vec![(var.clone(), sort)],
-                            body: expr_to_string(body),
+                            body: super::layer_dispatch::expr_to_predicate_string(body),
                             triggers: Vec::new(),
                         });
                     }

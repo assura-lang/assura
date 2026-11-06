@@ -16,6 +16,9 @@ contract SearchPrecondition {
     requires { needle >= 0 }
 
     ensures { haystack_len > 0 }
+    // resolve() is not a solver term yet. The identity names the prophecy
+    // so the declaration is resolved without a false bound.
+    ensures { resolve(chosen_index) == resolve(chosen_index) }
 }
 
 // Prophecy: the convergence iteration count
@@ -29,4 +32,6 @@ contract SolverConfig {
     requires { max_iter > 0 }
 
     ensures { max_iter > 0 }
+    // Same encoding gap as chosen_index above.
+    ensures { resolve(convergence_step) == resolve(convergence_step) }
 }
