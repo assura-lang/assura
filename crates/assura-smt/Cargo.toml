@@ -17,11 +17,11 @@ z3-verify = ["dep:z3"]
 cvc5-verify = ["dep:cvc5"]
 
 [dependencies]
-assura-ast = { version = "0.7.1", path = "../assura-ast" }
-assura-types = { version = "0.7.1", path = "../assura-types" }
-assura-config = { version = "0.7.1", path = "../assura-config" }
-assura-parser = { version = "0.7.1", path = "../assura-parser" }
-assura-resolve = { version = "0.7.1", path = "../assura-resolve" }
+assura-ast = { version = "0.7.2", path = "../assura-ast" }
+assura-types = { version = "0.7.2", path = "../assura-types" }
+assura-config = { version = "0.7.2", path = "../assura-config" }
+assura-parser = { version = "0.7.2", path = "../assura-parser" }
+assura-resolve = { version = "0.7.2", path = "../assura-resolve" }
 # gh-release downloads the official Z3 archive in z3-sys's build script.
 # The workspace patch in third_party/z3-sys uses zip 9 for that extract.
 z3 = { version = "0.21", optional = true, features = ["gh-release"] }
