@@ -149,17 +149,17 @@ SourceFile {
                                         node: Ident(
                                             "alphabet_size",
                                         ),
-                                        span: 3476..3489,
+                                        span: 3480..3493,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
                                         node: Ident(
                                             "MAX_ALPHABET_SIZE",
                                         ),
-                                        span: 3492..3510,
+                                        span: 3496..3514,
                                     },
                                 },
-                                span: 3476..3510,
+                                span: 3480..3514,
                             },
                             effect_variables: [],
                         },
@@ -171,7 +171,7 @@ SourceFile {
                                 node: Raw(
                                     [],
                                 ),
-                                span: 3512..3520,
+                                span: 3516..3524,
                             },
                             effect_variables: [],
                         },
@@ -207,14 +207,14 @@ SourceFile {
                                         "max_secondary",
                                     ],
                                 ),
-                                span: 3520..3943,
+                                span: 3524..3947,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 2895..3943,
+            span: 2895..3947,
         },
         Spanned {
             node: Block {
@@ -260,13 +260,13 @@ SourceFile {
                             node: Ident(
                                 "worst_case_table_size",
                             ),
-                            span: 4078..4116,
+                            span: 4082..4120,
                         },
                         effect_variables: [],
                     },
                 ],
             },
-            span: 3943..4116,
+            span: 3947..4120,
         },
         Spanned {
             node: FnDef(
@@ -311,14 +311,14 @@ SourceFile {
                                         "read",
                                     ],
                                 ),
-                                span: 4852..4869,
+                                span: 4863..4880,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 4116..4869,
+            span: 4120..4880,
         },
         Spanned {
             node: FnDef(
@@ -368,14 +368,14 @@ SourceFile {
                                         "read",
                                     ],
                                 ),
-                                span: 5056..5073,
+                                span: 5074..5091,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 4869..5389,
+            span: 4880..5406,
         },
         Spanned {
             node: FnDef(
@@ -421,14 +421,14 @@ SourceFile {
                                 node: Ident(
                                     "pure",
                                 ),
-                                span: 5874..5888,
+                                span: 5899..5913,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 5389..6780,
+            span: 5406..6833,
         },
         Spanned {
             node: Contract(
@@ -490,7 +490,7 @@ SourceFile {
                     ],
                 },
             ),
-            span: 6780..9055,
+            span: 6833..9149,
         },
         Spanned {
             node: FnDef(
@@ -528,17 +528,17 @@ SourceFile {
                                         node: Ident(
                                             "size",
                                         ),
-                                        span: 9651..9655,
+                                        span: 9749..9753,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
                                         node: Ident(
                                             "MAX_ALPHABET_SIZE",
                                         ),
-                                        span: 9658..9676,
+                                        span: 9756..9774,
                                     },
                                 },
-                                span: 9651..9676,
+                                span: 9749..9774,
                             },
                             effect_variables: [],
                         },
@@ -550,17 +550,17 @@ SourceFile {
                                         node: Ident(
                                             "max_len",
                                         ),
-                                        span: 9690..9697,
+                                        span: 9792..9799,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
                                         node: Ident(
                                             "MAX_CODE_LENGTH",
                                         ),
-                                        span: 9700..9716,
+                                        span: 9802..9818,
                                     },
                                 },
-                                span: 9690..9716,
+                                span: 9792..9818,
                             },
                             effect_variables: [],
                         },
@@ -574,17 +574,17 @@ SourceFile {
                                                 node: Ident(
                                                     "size",
                                                 ),
-                                                span: 9730..9734,
+                                                span: 9835..9839,
                                             },
                                             op: Add,
                                             rhs: Spanned {
                                                 node: Ident(
                                                     "max_len",
                                                 ),
-                                                span: 9736..9744,
+                                                span: 9841..9849,
                                             },
                                         },
-                                        span: 9730..9744,
+                                        span: 9835..9849,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
@@ -593,20 +593,20 @@ SourceFile {
                                                 node: Ident(
                                                     "MAX_ALPHABET_SIZE",
                                                 ),
-                                                span: 9747..9765,
+                                                span: 9852..9870,
                                             },
                                             op: Add,
                                             rhs: Spanned {
                                                 node: Ident(
                                                     "MAX_CODE_LENGTH",
                                                 ),
-                                                span: 9767..9783,
+                                                span: 9872..9888,
                                             },
                                         },
-                                        span: 9747..9783,
+                                        span: 9852..9888,
                                     },
                                 },
-                                span: 9730..9783,
+                                span: 9835..9888,
                             },
                             effect_variables: [],
                         },
@@ -616,14 +616,14 @@ SourceFile {
                                 node: Ident(
                                     "pure",
                                 ),
-                                span: 9785..9799,
+                                span: 9890..9904,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 9055..9799,
+            span: 9149..9904,
         },
         Spanned {
             node: FnDef(
@@ -669,17 +669,17 @@ SourceFile {
                                         node: Ident(
                                             "root_bits",
                                         ),
-                                        span: 9962..9971,
+                                        span: 10071..10080,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
                                         node: Ident(
                                             "MAX_CODE_LENGTH",
                                         ),
-                                        span: 9974..9990,
+                                        span: 10083..10099,
                                     },
                                 },
-                                span: 9962..9990,
+                                span: 10071..10099,
                             },
                             effect_variables: [],
                         },
@@ -691,17 +691,17 @@ SourceFile {
                                         node: Ident(
                                             "alphabet_size",
                                         ),
-                                        span: 10004..10017,
+                                        span: 10117..10130,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
                                         node: Ident(
                                             "MAX_ALPHABET_SIZE",
                                         ),
-                                        span: 10020..10038,
+                                        span: 10133..10151,
                                     },
                                 },
-                                span: 10004..10038,
+                                span: 10117..10151,
                             },
                             effect_variables: [],
                         },
@@ -713,7 +713,7 @@ SourceFile {
                                         node: Ident(
                                             "table_size",
                                         ),
-                                        span: 10052..10062,
+                                        span: 10169..10179,
                                     },
                                     op: Gte,
                                     rhs: Spanned {
@@ -722,20 +722,20 @@ SourceFile {
                                                 node: Ident(
                                                     "alphabet_size",
                                                 ),
-                                                span: 10065..10079,
+                                                span: 10182..10196,
                                             },
                                             op: Add,
                                             rhs: Spanned {
                                                 node: Ident(
                                                     "root_bits",
                                                 ),
-                                                span: 10081..10091,
+                                                span: 10198..10208,
                                             },
                                         },
-                                        span: 10065..10091,
+                                        span: 10182..10208,
                                     },
                                 },
-                                span: 10052..10091,
+                                span: 10169..10208,
                             },
                             effect_variables: [],
                         },
@@ -747,17 +747,17 @@ SourceFile {
                                         node: Ident(
                                             "table_size",
                                         ),
-                                        span: 10105..10115,
+                                        span: 10225..10235,
                                     },
                                     op: Gte,
                                     rhs: Spanned {
                                         node: Ident(
                                             "root_bits",
                                         ),
-                                        span: 10118..10128,
+                                        span: 10238..10248,
                                     },
                                 },
-                                span: 10105..10128,
+                                span: 10225..10248,
                             },
                             effect_variables: [],
                         },
@@ -769,17 +769,17 @@ SourceFile {
                                         node: Ident(
                                             "table_size",
                                         ),
-                                        span: 10142..10152,
+                                        span: 10265..10275,
                                     },
                                     op: Gte,
                                     rhs: Spanned {
                                         node: Ident(
                                             "alphabet_size",
                                         ),
-                                        span: 10155..10169,
+                                        span: 10278..10292,
                                     },
                                 },
-                                span: 10142..10169,
+                                span: 10265..10292,
                             },
                             effect_variables: [],
                         },
@@ -789,14 +789,14 @@ SourceFile {
                                 node: Ident(
                                     "pure",
                                 ),
-                                span: 10171..10185,
+                                span: 10294..10308,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 9799..10185,
+            span: 9904..10308,
         },
         Spanned {
             node: FnDef(
@@ -842,17 +842,17 @@ SourceFile {
                                         node: Ident(
                                             "code_len",
                                         ),
-                                        span: 10340..10348,
+                                        span: 10467..10475,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
                                         node: Ident(
                                             "max_code_len",
                                         ),
-                                        span: 10351..10364,
+                                        span: 10478..10491,
                                     },
                                 },
-                                span: 10340..10364,
+                                span: 10467..10491,
                             },
                             effect_variables: [],
                         },
@@ -864,17 +864,17 @@ SourceFile {
                                         node: Ident(
                                             "max_code_len",
                                         ),
-                                        span: 10378..10390,
+                                        span: 10509..10521,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
                                         node: Ident(
                                             "MAX_CODE_LENGTH",
                                         ),
-                                        span: 10393..10409,
+                                        span: 10524..10540,
                                     },
                                 },
-                                span: 10378..10409,
+                                span: 10509..10540,
                             },
                             effect_variables: [],
                         },
@@ -886,17 +886,17 @@ SourceFile {
                                         node: Ident(
                                             "root_bits",
                                         ),
-                                        span: 10423..10432,
+                                        span: 10558..10567,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
                                         node: Ident(
                                             "max_code_len",
                                         ),
-                                        span: 10435..10448,
+                                        span: 10570..10583,
                                     },
                                 },
-                                span: 10423..10448,
+                                span: 10558..10583,
                             },
                             effect_variables: [],
                         },
@@ -908,17 +908,17 @@ SourceFile {
                                         node: Ident(
                                             "code_len",
                                         ),
-                                        span: 10462..10470,
+                                        span: 10600..10608,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
                                         node: Ident(
                                             "MAX_CODE_LENGTH",
                                         ),
-                                        span: 10473..10489,
+                                        span: 10611..10627,
                                     },
                                 },
-                                span: 10462..10489,
+                                span: 10600..10627,
                             },
                             effect_variables: [],
                         },
@@ -930,17 +930,17 @@ SourceFile {
                                         node: Ident(
                                             "root_bits",
                                         ),
-                                        span: 10503..10512,
+                                        span: 10644..10653,
                                     },
                                     op: Lte,
                                     rhs: Spanned {
                                         node: Ident(
                                             "MAX_CODE_LENGTH",
                                         ),
-                                        span: 10515..10531,
+                                        span: 10656..10672,
                                     },
                                 },
-                                span: 10503..10531,
+                                span: 10644..10672,
                             },
                             effect_variables: [],
                         },
@@ -950,14 +950,14 @@ SourceFile {
                                 node: Ident(
                                     "pure",
                                 ),
-                                span: 10533..10547,
+                                span: 10674..10688,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 10185..10547,
+            span: 10308..10688,
         },
         Spanned {
             node: FnDef(
@@ -1004,14 +1004,14 @@ SourceFile {
                                         "read",
                                     ],
                                 ),
-                                span: 10936..10953,
+                                span: 11077..11094,
                             },
                             effect_variables: [],
                         },
                     ],
                 },
             ),
-            span: 10547..11526,
+            span: 10688..11679,
         },
     ],
 }
