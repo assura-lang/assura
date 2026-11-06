@@ -8,32 +8,54 @@ module examples.fmt.checksum_integrity;
 contract CRC32Compute {
     input(data_len: Nat)
 
-    requires { data_len > 0 }
+    requires {
+        data_len > 0
+    }
 
     must_be deterministic
 
-    ensures { data_len > 0 }
+    ensures {
+        data_len > 0
+    }
 }
 
 // Verify checksum matches stored value
 contract ChecksumVerify {
     input(computed: Nat, stored: Nat)
 
-    requires { computed <= 4294967295 }
-    requires { stored <= 4294967295 }
+    requires {
+        computed <= 4294967295
+    }
+    requires {
+        stored <= 4294967295
+    }
 
-    ensures { computed <= 4294967295 }
-    ensures { stored <= 4294967295 }
+    ensures {
+        computed <= 4294967295
+    }
+    ensures {
+        stored <= 4294967295
+    }
 }
 
 // Incremental checksum update
 contract IncrementalChecksum {
     input(new_byte: Nat, prev_checksum: Nat, data_len: Nat)
 
-    requires { new_byte <= 255 }
-    requires { prev_checksum <= 4294967295 }
-    requires { data_len > 0 }
+    requires {
+        new_byte <= 255
+    }
+    requires {
+        prev_checksum <= 4294967295
+    }
+    requires {
+        data_len > 0
+    }
 
-    ensures { new_byte <= 255 }
-    ensures { data_len > 0 }
+    ensures {
+        new_byte <= 255
+    }
+    ensures {
+        data_len > 0
+    }
 }

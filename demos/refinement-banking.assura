@@ -52,11 +52,21 @@ fn transfer_preserves_sender_balance(
 sender_balance: Nat,
 amount: Nat
 )
-requires { sender_balance >= 0 }
-requires { amount > 0 }
-requires { amount <= sender_balance }
-ensures  { sender_balance - amount >= 0 }
-ensures  { sender_balance >= amount }
+requires {
+    sender_balance >= 0
+}
+requires {
+    amount > 0
+}
+requires {
+    amount <= sender_balance
+}
+ensures {
+    sender_balance - amount >= 0
+}
+ensures {
+    sender_balance >= amount
+}
 effects: pure
 
 // ---------------------------------------------------------------------------
@@ -71,13 +81,27 @@ sender_bal: Nat,
 receiver_bal: Nat,
 amount: Nat
 )
-requires { sender_bal >= 0 }
-requires { receiver_bal >= 0 }
-requires { amount > 0 }
-requires { amount <= sender_bal }
-requires { sender_bal + receiver_bal >= sender_bal }
-ensures  { sender_bal - amount + receiver_bal + amount == sender_bal + receiver_bal }
-ensures  { sender_bal + receiver_bal >= amount }
+requires {
+    sender_bal >= 0
+}
+requires {
+    receiver_bal >= 0
+}
+requires {
+    amount > 0
+}
+requires {
+    amount <= sender_bal
+}
+requires {
+    sender_bal + receiver_bal >= sender_bal
+}
+ensures {
+    sender_bal - amount + receiver_bal + amount == sender_bal + receiver_bal
+}
+ensures {
+    sender_bal + receiver_bal >= amount
+}
 effects: pure
 
 // ---------------------------------------------------------------------------
@@ -95,13 +119,27 @@ balance: Nat,
 withdrawal: Nat,
 daily_withdrawn: Nat
 )
-requires { balance >= 0 }
-requires { withdrawal > 0 }
-requires { withdrawal <= balance }
-requires { daily_withdrawn >= 0 }
-requires { daily_withdrawn + withdrawal <= DAILY_WITHDRAWAL_LIMIT }
-ensures  { balance - withdrawal >= 0 }
-ensures  { daily_withdrawn + withdrawal <= DAILY_WITHDRAWAL_LIMIT }
+requires {
+    balance >= 0
+}
+requires {
+    withdrawal > 0
+}
+requires {
+    withdrawal <= balance
+}
+requires {
+    daily_withdrawn >= 0
+}
+requires {
+    daily_withdrawn + withdrawal <= DAILY_WITHDRAWAL_LIMIT
+}
+ensures {
+    balance - withdrawal >= 0
+}
+ensures {
+    daily_withdrawn + withdrawal <= DAILY_WITHDRAWAL_LIMIT
+}
 effects: pure
 
 // ---------------------------------------------------------------------------
@@ -117,14 +155,30 @@ balance: Nat,
 debit: Nat,
 min_balance: Nat
 )
-requires { balance >= 0 }
-requires { debit > 0 }
-requires { min_balance >= 0 }
-requires { balance >= debit }
-requires { debit + min_balance >= debit }
-requires { balance - debit >= min_balance }
-ensures  { balance - debit >= min_balance }
-ensures  { balance >= debit + min_balance }
+requires {
+    balance >= 0
+}
+requires {
+    debit > 0
+}
+requires {
+    min_balance >= 0
+}
+requires {
+    balance >= debit
+}
+requires {
+    debit + min_balance >= debit
+}
+requires {
+    balance - debit >= min_balance
+}
+ensures {
+    balance - debit >= min_balance
+}
+ensures {
+    balance >= debit + min_balance
+}
 effects: pure
 
 // ---------------------------------------------------------------------------
@@ -139,12 +193,24 @@ balance: Nat,
 amount: Nat,
 fee: Nat
 )
-requires { balance >= 0 }
-requires { amount > 0 }
-requires { fee >= 0 }
-requires { amount + fee <= balance }
-ensures  { balance - amount - fee >= 0 }
-ensures  { amount + fee <= balance }
+requires {
+    balance >= 0
+}
+requires {
+    amount > 0
+}
+requires {
+    fee >= 0
+}
+requires {
+    amount + fee <= balance
+}
+ensures {
+    balance - amount - fee >= 0
+}
+ensures {
+    amount + fee <= balance
+}
 effects: pure
 
 // ============================================================================

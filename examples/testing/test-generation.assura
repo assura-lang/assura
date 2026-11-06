@@ -8,36 +8,64 @@ module examples.testing.test_generation;
 contract SortProperty {
     input(input_len: Nat)
 
-    requires { input_len > 0 }
+    requires {
+        input_len > 0
+    }
 
-    example { input_len == 5 }
-    example { input_len == 100 }
+    example {
+        input_len == 5
+    }
+    example {
+        input_len == 100
+    }
 
-    ensures { input_len > 0 }
+    ensures {
+        input_len > 0
+    }
 }
 
 // Roundtrip: value is preserved
 contract RoundtripProperty {
     input(value: Int)
 
-    requires { value >= 0 }
+    requires {
+        value >= 0
+    }
 
-    example { value == 0 }
-    example { value == 42 }
+    example {
+        value == 0
+    }
+    example {
+        value == 42
+    }
 
-    ensures { value >= 0 }
+    ensures {
+        value >= 0
+    }
 }
 
 // Idempotency: applying twice equals applying once
 contract IdempotentNormalize {
     input(x: Int)
 
-    requires { x >= 0 }
-    requires { x <= 255 }
+    requires {
+        x >= 0
+    }
+    requires {
+        x <= 255
+    }
 
-    example { x == 0 }
-    example { x == 255 }
+    example {
+        x == 0
+    }
+    example {
+        x == 255
+    }
 
-    ensures { x >= 0 }
-    ensures { x <= 255 }
+    ensures {
+        x >= 0
+    }
+    ensures {
+        x <= 255
+    }
 }

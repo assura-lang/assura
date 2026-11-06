@@ -72,7 +72,9 @@ code_lengths: Sequence<Nat>
 
 // Generating function: compute the TRUE worst-case table size
 fn worst_case_table_size(alphabet_size: U16) -> U32
-requires { alphabet_size <= MAX_ALPHABET_SIZE }
+requires {
+    alphabet_size <= MAX_ALPHABET_SIZE
+}
 must_be deterministic
 {
     // Primary table: always 2^root_bits entries
@@ -105,22 +107,26 @@ verify_against: worst_case_table_size
 // Raw bitstream reader: everything it returns is untrusted
 fn vp8l_read_bits(
 br: &mut BitReader,
-n_bits: {b: Nat | b <= 24}
-) -> U32 @taint:untrusted
+n_bits: {
+    b: Nat | b <= 24
+}
+) -> U32 @taint: untrusted
 effects: io.read
 
 // Read the full code_lengths array from the bitstream
 fn read_huffman_code_lengths(
 br: &mut BitReader,
-alphabet_size: {a: Nat | a <= MAX_ALPHABET_SIZE}
-) -> List<U16> @taint:untrusted
+alphabet_size: {
+    a: Nat | a <= MAX_ALPHABET_SIZE
+}
+) -> List<U16> @taint: untrusted
 effects: io.read
 {
     // Each code length is read from attacker-controlled bits.
     // The entire returned list carries @taint:untrusted.
     let mut lengths = List.empty()
     for i in 0..alphabet_size {
-        let raw = vp8l_read_bits(br, 4)  // @taint:untrusted
+        let raw = vp8l_read_bits(br, 4) // @taint:untrusted
         lengths = lengths.append(raw as U16)
     }
     lengths
@@ -132,33 +138,40 @@ effects: io.read
 // ---------------------------------------------------------------------------
 
 fn validate_code_lengths(
-raw_lengths: List<U16> @taint:untrusted,
-alphabet_size: {a: Nat | a <= MAX_ALPHABET_SIZE}
-) -> ValidCodeLengths @taint:validated | HuffmanError
+raw_lengths: List<U16> @taint: untrusted,
+alphabet_size: {
+    a: Nat | a <= MAX_ALPHABET_SIZE
+}
+) -> ValidCodeLengths @taint: validated | HuffmanError
 effects: pure
 {
     // Step 1: Every code length must be <= MAX_CODE_LENGTH
     validate {
         forall cl in raw_lengths: cl <= MAX_CODE_LENGTH
-    } raw_lengths
+    }
+    raw_lengths
     or return HuffmanError("code length exceeds maximum")
 
     // Step 2: The code lengths must form a valid prefix-free code
     // (Kraft inequality: sum of 2^(-length) <= 1)
     validate {
         kraft_sum(raw_lengths) <= pow(2, MAX_CODE_LENGTH)
-    } raw_lengths
+    }
+    raw_lengths
     or return HuffmanError("invalid Huffman code: Kraft inequality violated")
 
     // Step 3: The resulting table size must fit within kTableSize bounds
     validate {
         compute_table_size(raw_lengths, ROOT_BITS)
         <= K_TABLE_SIZE[alphabet_size]
-    } raw_lengths
+    }
+    raw_lengths
     or return HuffmanError("table size exceeds pre-allocated buffer")
 
-    ValidCodeLengths { lengths: raw_lengths, alphabet_size }
-// Now @taint:validated — safe to use for table construction
+    ValidCodeLengths {
+        lengths: raw_lengths, alphabet_size
+    }
+    // Now @taint:validated — safe to use for table construction
 }
 
 // ---------------------------------------------------------------------------
@@ -176,10 +189,16 @@ contract BuildHuffmanTableContract {
 
     fn build_huffman_table(
     table: HuffmanTableBuffer,
-    root_bits: {r: Nat | r <= MAX_CODE_LENGTH},
-    code_lengths: ValidCodeLengths @taint:validated
-    ) -> {written: Nat | written <= TableSize}
-    modifies { table }
+    root_bits: {
+        r: Nat | r <= MAX_CODE_LENGTH
+    },
+    code_lengths: ValidCodeLengths @taint: validated
+    ) -> {
+        written: Nat | written <= TableSize
+    }
+    modifies {
+        table
+    }
     requires {
         // Buffer must be large enough for this alphabet's worst case.
         // This is THE precondition libwebp violated.
@@ -227,27 +246,53 @@ contract BuildHuffmanTableContract {
 
 // Alphabet size bounds: feature_max folds into concrete SMT integers
 fn check_alphabet_bounds(size: Nat, max_len: Nat)
-requires { size <= MAX_ALPHABET_SIZE }
-requires { max_len <= MAX_CODE_LENGTH }
-ensures  { size + max_len <= MAX_ALPHABET_SIZE + MAX_CODE_LENGTH }
+requires {
+    size <= MAX_ALPHABET_SIZE
+}
+requires {
+    max_len <= MAX_CODE_LENGTH
+}
+ensures {
+    size + max_len <= MAX_ALPHABET_SIZE + MAX_CODE_LENGTH
+}
 effects: pure
 
 // Table allocation safety: primary table fits within a conservative bound
 fn check_table_bounds(root_bits: Nat, alphabet_size: Nat, table_size: Nat)
-requires { root_bits <= MAX_CODE_LENGTH }
-requires { alphabet_size <= MAX_ALPHABET_SIZE }
-requires { table_size >= alphabet_size + root_bits }
-ensures  { table_size >= root_bits }
-ensures  { table_size >= alphabet_size }
+requires {
+    root_bits <= MAX_CODE_LENGTH
+}
+requires {
+    alphabet_size <= MAX_ALPHABET_SIZE
+}
+requires {
+    table_size >= alphabet_size + root_bits
+}
+ensures {
+    table_size >= root_bits
+}
+ensures {
+    table_size >= alphabet_size
+}
 effects: pure
 
 // Code length validation: validated lengths are within the max
 fn check_code_length_bounds(code_len: Nat, max_code_len: Nat, root_bits: Nat)
-requires { code_len <= max_code_len }
-requires { max_code_len <= MAX_CODE_LENGTH }
-requires { root_bits <= max_code_len }
-ensures  { code_len <= MAX_CODE_LENGTH }
-ensures  { root_bits <= MAX_CODE_LENGTH }
+requires {
+    code_len <= max_code_len
+}
+requires {
+    max_code_len <= MAX_CODE_LENGTH
+}
+requires {
+    root_bits <= max_code_len
+}
+ensures {
+    code_len <= MAX_CODE_LENGTH
+}
+ensures {
+    root_bits <= MAX_CODE_LENGTH
+}
 effects: pure
 
 // ---------------------------------------------------------------------------
@@ -272,7 +317,9 @@ effects: io.read
     //    Verified at compile time. If false, a compile-time overflow error.
     let written = build_huffman_table(table_buf, ROOT_BITS, validated)
 
-    HuffmanGroup { table: table_buf.slice(0, written) }
+    HuffmanGroup {
+        table: table_buf.slice(0, written)
+    }
 }
 
 // ============================================================================

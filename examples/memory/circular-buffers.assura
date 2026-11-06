@@ -9,38 +9,74 @@ module examples.memory.circular_buffers;
 contract RingBufferWrite {
     input(capacity: Nat, head: Nat, tail: Nat, count: Nat)
 
-    requires { capacity > 1 }
-    requires { head < capacity }
-    requires { tail < capacity }
-    requires { count < capacity }
+    requires {
+        capacity > 1
+    }
+    requires {
+        head < capacity
+    }
+    requires {
+        tail < capacity
+    }
+    requires {
+        count < capacity
+    }
 
-    ensures { count + 1 <= capacity }
+    ensures {
+        count + 1 <= capacity
+    }
 }
 
 // Ring buffer read: count stays non-negative
 contract RingBufferRead {
     input(capacity: Nat, head: Nat, tail: Nat, count: Nat)
 
-    requires { capacity > 0 }
-    requires { head < capacity }
-    requires { tail < capacity }
-    requires { count > 0 }
-    requires { count <= capacity }
+    requires {
+        capacity > 0
+    }
+    requires {
+        head < capacity
+    }
+    requires {
+        tail < capacity
+    }
+    requires {
+        count > 0
+    }
+    requires {
+        count <= capacity
+    }
 
-    ensures { count - 1 >= 0 }
+    ensures {
+        count - 1 >= 0
+    }
 }
 
 // Ring buffer index invariant
 contract RingBufferInvariant {
     input(capacity: Nat, head: Nat, tail: Nat)
 
-    requires { capacity > 0 }
-    requires { head < capacity }
-    requires { tail < capacity }
+    requires {
+        capacity > 0
+    }
+    requires {
+        head < capacity
+    }
+    requires {
+        tail < capacity
+    }
 
-    invariant { head < capacity }
-    invariant { tail < capacity }
+    invariant {
+        head < capacity
+    }
+    invariant {
+        tail < capacity
+    }
 
-    ensures { head < capacity }
-    ensures { tail < capacity }
+    ensures {
+        head < capacity
+    }
+    ensures {
+        tail < capacity
+    }
 }

@@ -24,18 +24,38 @@ contract PlatformFeeOverflowUint128 {
     one_share: Int
     )
     // uint128 for shares, uint96 for rate (actual Solidity types)
-    requires { total_shares >= 1 }
-    requires { total_shares <= 340282366920938463463374607431768211455 }
-    requires { exchange_rate >= 1 }
-    requires { exchange_rate <= 79228162514264337593543950335 }
-    requires { platform_fee >= 1 }
-    requires { platform_fee <= 2000 }
-    requires { time_delta >= 1 }
-    requires { time_delta <= 1209600 }
-    requires { one_share == 1000000000000000000 }
+    requires {
+        total_shares >= 1
+    }
+    requires {
+        total_shares <= 340282366920938463463374607431768211455
+    }
+    requires {
+        exchange_rate >= 1
+    }
+    requires {
+        exchange_rate <= 79228162514264337593543950335
+    }
+    requires {
+        platform_fee >= 1
+    }
+    requires {
+        platform_fee <= 2000
+    }
+    requires {
+        time_delta >= 1
+    }
+    requires {
+        time_delta <= 1209600
+    }
+    requires {
+        one_share == 1000000000000000000
+    }
 
     // Platform fee = shares * rate / ONE_SHARE * platformFee / 10000 * timeDelta / 31536000
-    ensures { total_shares * exchange_rate / one_share * platform_fee / 10000 * time_delta / 31536000 <= 340282366920938463463374607431768211455 }
+    ensures {
+        total_shares * exchange_rate / one_share * platform_fee / 10000 * time_delta / 31536000 <= 340282366920938463463374607431768211455
+    }
 }
 
 // ============================================================
@@ -55,14 +75,24 @@ contract CumulativeFeeDoS {
     new_fees: Int
     )
     // Both are uint128 (after the truncation cast)
-    requires { existing_fees >= 0 }
-    requires { existing_fees <= 340282366920938463463374607431768211455 }
-    requires { new_fees >= 0 }
-    requires { new_fees <= 340282366920938463463374607431768211455 }
+    requires {
+        existing_fees >= 0
+    }
+    requires {
+        existing_fees <= 340282366920938463463374607431768211455
+    }
+    requires {
+        new_fees >= 0
+    }
+    requires {
+        new_fees <= 340282366920938463463374607431768211455
+    }
 
     // The addition: existing + new must fit in uint128
     // If not, updateExchangeRate() reverts = DoS
-    ensures { existing_fees + new_fees <= 340282366920938463463374607431768211455 }
+    ensures {
+        existing_fees + new_fees <= 340282366920938463463374607431768211455
+    }
 }
 
 // ============================================================
@@ -85,15 +115,25 @@ contract FeeClaimDecimalTruncation {
     base_decimals: Int,
     fee_asset_decimals: Int
     )
-    requires { fees_owed_base >= 1 }
-    requires { fees_owed_base <= 340282366920938463463374607431768211455 }
-    requires { base_decimals == 18 }
-    requires { fee_asset_decimals == 6 }
+    requires {
+        fees_owed_base >= 1
+    }
+    requires {
+        fees_owed_base <= 340282366920938463463374607431768211455
+    }
+    requires {
+        base_decimals == 18
+    }
+    requires {
+        fee_asset_decimals == 6
+    }
 
     // _changeDecimals: fees / 10^(18-6) = fees / 10^12
     // For small fees, this truncates to 0
     // INVARIANT: converted fees should be > 0 when base fees > 0
-    ensures { fees_owed_base / 1000000000000 >= 1 }
+    ensures {
+        fees_owed_base / 1000000000000 >= 1
+    }
 }
 
 // ============================================================
@@ -117,14 +157,28 @@ contract RateJumpMEVOpportunity {
     rate_after: Int,
     one_share: Int
     )
-    requires { deposit_amount >= 1000000000000000000 }
-    requires { deposit_amount <= 1000000000000000000000000 }
-    requires { rate_before >= 1000000000000000000 }
-    requires { rate_before <= 79228162514264337593543950335 }
-    requires { one_share == 1000000000000000000 }
+    requires {
+        deposit_amount >= 1000000000000000000
+    }
+    requires {
+        deposit_amount <= 1000000000000000000000000
+    }
+    requires {
+        rate_before >= 1000000000000000000
+    }
+    requires {
+        rate_before <= 79228162514264337593543950335
+    }
+    requires {
+        one_share == 1000000000000000000
+    }
     // rate_after is up to 6.5535x rate_before (max allowed)
-    requires { rate_after >= rate_before }
-    requires { rate_after <= rate_before * 65535 / 10000 }
+    requires {
+        rate_after >= rate_before
+    }
+    requires {
+        rate_after <= rate_before * 65535 / 10000
+    }
 
     // Deposit at rate_before, withdraw at rate_after
     // Profit = withdraw_amount - deposit_amount
@@ -135,7 +189,9 @@ contract RateJumpMEVOpportunity {
 
     // INVARIANT: profit should be bounded (not exploitable)
     // Can someone extract > 2x their deposit in one cycle?
-    ensures { deposit_amount * rate_after / rate_before <= deposit_amount * 2 }
+    ensures {
+        deposit_amount * rate_after / rate_before <= deposit_amount * 2
+    }
 }
 
 // ============================================================
@@ -166,17 +222,39 @@ contract PerformanceFeeSplitManipulation {
     perf_fee: Int,
     one_share: Int
     )
-    requires { initial_hwm >= 1000000000000000000 }
-    requires { initial_hwm <= 79228162514264337593543950335 }
-    requires { total_increase >= 1 }
-    requires { total_increase <= 1000000000000000000 }
-    requires { split_point >= 1 }
-    requires { split_point < total_increase }
-    requires { total_shares >= 1 }
-    requires { total_shares <= 340282366920938463463374607431768211455 }
-    requires { perf_fee >= 1 }
-    requires { perf_fee <= 5000 }
-    requires { one_share == 1000000000000000000 }
+    requires {
+        initial_hwm >= 1000000000000000000
+    }
+    requires {
+        initial_hwm <= 79228162514264337593543950335
+    }
+    requires {
+        total_increase >= 1
+    }
+    requires {
+        total_increase <= 1000000000000000000
+    }
+    requires {
+        split_point >= 1
+    }
+    requires {
+        split_point < total_increase
+    }
+    requires {
+        total_shares >= 1
+    }
+    requires {
+        total_shares <= 340282366920938463463374607431768211455
+    }
+    requires {
+        perf_fee >= 1
+    }
+    requires {
+        perf_fee <= 5000
+    }
+    requires {
+        one_share == 1000000000000000000
+    }
 
     // Single update: fee = total_increase * total_shares / ONE_SHARE * perf_fee / 10000
     // Two updates:
@@ -185,7 +263,9 @@ contract PerformanceFeeSplitManipulation {
     //   total_split = fee1 + fee2
 
     // INVARIANT: splitting should not reduce fees (protocol should not be cheated)
-    ensures { split_point * total_shares / one_share * perf_fee / 10000 + (total_increase - split_point) * total_shares / one_share * perf_fee / 10000 >= total_increase * total_shares / one_share * perf_fee / 10000 }
+    ensures {
+        split_point * total_shares / one_share * perf_fee / 10000 + (total_increase - split_point) * total_shares / one_share * perf_fee / 10000 >= total_increase * total_shares / one_share * perf_fee / 10000
+    }
 }
 
 // ============================================================
@@ -211,16 +291,36 @@ contract ShareLockBypassCheck {
     lock_period: Int,
     time_since_deposit: Int
     )
-    requires { deposit_amount >= 1 }
-    requires { deposit_amount <= 1000000000000000000000000000 }
-    requires { rate >= 1 }
-    requires { rate <= 79228162514264337593543950335 }
-    requires { one_share == 1000000000000000000 }
-    requires { premium >= 0 }
-    requires { premium <= 1000 }
-    requires { lock_period >= 0 }
-    requires { lock_period <= 259200 }
-    requires { time_since_deposit >= 0 }
+    requires {
+        deposit_amount >= 1
+    }
+    requires {
+        deposit_amount <= 1000000000000000000000000000
+    }
+    requires {
+        rate >= 1
+    }
+    requires {
+        rate <= 79228162514264337593543950335
+    }
+    requires {
+        one_share == 1000000000000000000
+    }
+    requires {
+        premium >= 0
+    }
+    requires {
+        premium <= 1000
+    }
+    requires {
+        lock_period >= 0
+    }
+    requires {
+        lock_period <= 259200
+    }
+    requires {
+        time_since_deposit >= 0
+    }
 
     // Shares received from deposit
     // shares = deposit_amount * ONE_SHARE / rate * (10000 - premium) / 10000
@@ -231,5 +331,7 @@ contract ShareLockBypassCheck {
     // withdraw value <= deposit value (rounding favors vault)
 
     // This holds regardless of who holds the shares
-    ensures { deposit_amount * one_share / rate * (10000 - premium) / 10000 * rate / one_share <= deposit_amount }
+    ensures {
+        deposit_amount * one_share / rate * (10000 - premium) / 10000 * rate / one_share <= deposit_amount
+    }
 }

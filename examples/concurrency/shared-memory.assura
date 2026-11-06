@@ -8,31 +8,55 @@ module examples.conc.shared_mem;
 contract AtomicCAS {
     input(current: Int, expected: Int, desired: Int)
 
-    requires { current >= 0 }
-    requires { desired >= 0 }
+    requires {
+        current >= 0
+    }
+    requires {
+        desired >= 0
+    }
 
-    ensures { current >= 0 }
-    ensures { desired >= 0 }
+    ensures {
+        current >= 0
+    }
+    ensures {
+        desired >= 0
+    }
 }
 
 // Atomic increment is bounded
 contract AtomicIncrement {
     input(counter: Nat, delta: Nat)
 
-    requires { delta > 0 }
-    requires { counter >= 0 }
-    requires { counter + delta > counter }
-    requires { counter + delta <= 4294967295 }
+    requires {
+        delta > 0
+    }
+    requires {
+        counter >= 0
+    }
+    requires {
+        counter + delta > counter
+    }
+    requires {
+        counter + delta <= 4294967295
+    }
 
-    ensures { counter + delta > counter }
-    ensures { counter + delta <= 4294967295 }
+    ensures {
+        counter + delta > counter
+    }
+    ensures {
+        counter + delta <= 4294967295
+    }
 }
 
 // Atomic flag: set count is non-negative
 contract AtomicOnceFlag {
     input(set_count: Nat)
 
-    requires { set_count >= 1 }
+    requires {
+        set_count >= 1
+    }
 
-    ensures { set_count >= 1 }
+    ensures {
+        set_count >= 1
+    }
 }

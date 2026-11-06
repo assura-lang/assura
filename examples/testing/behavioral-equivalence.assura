@@ -8,28 +8,48 @@ module examples.testing.behavioral_equivalence;
 contract EquivalentAdd {
     input(a: Int, b: Int)
 
-    requires { a >= 0 }
-    requires { b >= 0 }
-    requires { a + b >= a }
-    requires { a + b >= b }
+    requires {
+        a >= 0
+    }
+    requires {
+        b >= 0
+    }
+    requires {
+        a + b >= a
+    }
+    requires {
+        a + b >= b
+    }
 
-    ensures { a + b >= a }
-    ensures { a + b >= b }
-    ensures { a + b >= 0 }
+    ensures {
+        a + b >= a
+    }
+    ensures {
+        a + b >= b
+    }
+    ensures {
+        a + b >= 0
+    }
 }
 
 // Before/after refactoring: divisor is non-zero
 contract RefactorSafe {
     input(x: Int, y: Int)
 
-    requires { y != 0 }
+    requires {
+        y != 0
+    }
 
-    ensures { y != 0 }
+    ensures {
+        y != 0
+    }
 }
 
 // Commutative property: addition is commutative
 contract CommutativeOp {
     input(a: Int, b: Int)
 
-    ensures { a + b == b + a }
+    ensures {
+        a + b == b + a
+    }
 }

@@ -21,10 +21,20 @@ axiomatic AbsValue {
 contract NonNegativeAbs {
     input(x: Int, abs_val: Nat)
 
-    requires { x >= 0 }
-    requires { abs_val >= 0 }
-    requires { AbsValue >= 0 }
+    requires {
+        x >= 0
+    }
+    requires {
+        abs_val >= 0
+    }
+    requires {
+        AbsValue >= 0
+    }
 
-    ensures { x >= 0 }
-    ensures { abs_val >= 0 }
+    ensures {
+        x >= 0
+    }
+    ensures {
+        abs_val >= 0
+    }
 }

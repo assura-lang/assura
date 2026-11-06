@@ -23,21 +23,39 @@ contract PngInterlaceImgLen {
     )
 
     // img_n: 1-4 (PNG channels)
-    requires { img_n >= 1 }
-    requires { img_n <= 4 }
+    requires {
+        img_n >= 1
+    }
+    requires {
+        img_n <= 4
+    }
     // depth: 1,2,4,8,16
-    requires { depth >= 1 }
-    requires { depth <= 16 }
+    requires {
+        depth >= 1
+    }
+    requires {
+        depth <= 16
+    }
     // x, y from interlace pass: derived from image dimensions / spacing
     // STBI_MAX_DIMENSIONS = 16777216
-    requires { x >= 1 }
-    requires { x <= 16777216 }
-    requires { y >= 1 }
-    requires { y <= 16777216 }
+    requires {
+        x >= 1
+    }
+    requires {
+        x <= 16777216
+    }
+    requires {
+        y >= 1
+    }
+    requires {
+        y <= 16777216
+    }
 
     // The code checks: stbi__mad3sizes_valid(img_n, x, depth, 7)
     // which validates: img_n*x*depth + 7 <= INT_MAX
-    requires { img_n * x * depth + 7 <= 2147483647 }
+    requires {
+        img_n * x * depth + 7 <= 2147483647
+    }
 
     // Then computes: img_width_bytes = (img_n*x*depth + 7) >> 3
     //                img_len = (img_width_bytes + 1) * y
@@ -54,7 +72,9 @@ contract PngInterlaceImgLen {
     //
     // Are there values where the check passes but the actual computation overflows?
 
-    ensures { x * y <= 2147483647 }
+    ensures {
+        x * y <= 2147483647
+    }
 }
 
 // =========================================================================
@@ -75,16 +95,28 @@ contract GifPcountOverflow {
     h: Nat
     )
 
-    requires { w >= 1 }
-    requires { h >= 1 }
-    requires { w <= 16777216 }
-    requires { h <= 16777216 }
+    requires {
+        w >= 1
+    }
+    requires {
+        h >= 1
+    }
+    requires {
+        w <= 16777216
+    }
+    requires {
+        h <= 16777216
+    }
 
     // mad3sizes_valid(4, w, h, 0) says: 4*w*h+0 <= INT_MAX
-    requires { 4 * w * h <= 2147483647 }
+    requires {
+        4 * w * h <= 2147483647
+    }
 
     // pcount = w * h should not overflow INT_MAX
-    ensures { w * h <= 2147483647 }
+    ensures {
+        w * h <= 2147483647
+    }
 }
 
 // =========================================================================
@@ -108,16 +140,32 @@ contract PngInterlaceUncheckedImgLen {
     y: Nat
     )
 
-    requires { img_n >= 1 }
-    requires { img_n <= 4 }
-    requires { depth >= 1 }
-    requires { depth <= 16 }
+    requires {
+        img_n >= 1
+    }
+    requires {
+        img_n <= 4
+    }
+    requires {
+        depth >= 1
+    }
+    requires {
+        depth <= 16
+    }
     // In interlace pass, x and y are derived from image dims / spacing
     // max img_x/img_y = 16777216, spacing min = 1, so x,y can be up to 16777216
-    requires { x >= 1 }
-    requires { x <= 16777216 }
-    requires { y >= 1 }
-    requires { y <= 16777216 }
+    requires {
+        x >= 1
+    }
+    requires {
+        x <= 16777216
+    }
+    requires {
+        y >= 1
+    }
+    requires {
+        y <= 16777216
+    }
 
     // The interlace path does NOT call mad3sizes_valid on (img_n*x*depth+7)
     // for each sub-pass. It only checks the full image once.
@@ -126,7 +174,9 @@ contract PngInterlaceUncheckedImgLen {
     // img_width_bytes = ((img_n * x * depth + 7) >> 3)
     // img_len = (img_width_bytes + 1) * y
     // stored in uint32, so must fit in 0..4294967295
-    ensures { img_n * x * depth + 7 <= 2147483647 }
+    ensures {
+        img_n * x * depth + 7 <= 2147483647
+    }
 }
 
 // =========================================================================
@@ -150,22 +200,40 @@ contract Mad2Boundary {
     add: Nat
     )
 
-    requires { a >= 0 }
-    requires { b >= 0 }
-    requires { add >= 0 }
-    requires { a <= 2147483647 }
-    requires { b <= 2147483647 }
-    requires { add <= 2147483647 }
+    requires {
+        a >= 0
+    }
+    requires {
+        b >= 0
+    }
+    requires {
+        add >= 0
+    }
+    requires {
+        a <= 2147483647
+    }
+    requires {
+        b <= 2147483647
+    }
+    requires {
+        add <= 2147483647
+    }
 
     // mul2sizes_valid: a <= INT_MAX / b (when b > 0)
     // This means a*b <= INT_MAX (safe)
-    requires { b >= 1 }
-    requires { a * b <= 2147483647 }
+    requires {
+        b >= 1
+    }
+    requires {
+        a * b <= 2147483647
+    }
 
     // addsizes_valid: a*b + add <= INT_MAX
     // Since a*b <= INT_MAX and add >= 0, this CAN still overflow
     // a*b could be INT_MAX and add could be 1
-    ensures { a * b + add <= 2147483647 }
+    ensures {
+        a * b + add <= 2147483647
+    }
 }
 
 // =========================================================================
@@ -200,11 +268,23 @@ contract GifFramePcount {
     h: Nat
     )
 
-    requires { w >= 1 }
-    requires { h >= 1 }
-    requires { w <= 2147483647 }
-    requires { h <= 2147483647 }
-    requires { 4 * w * h <= 2147483647 }
+    requires {
+        w >= 1
+    }
+    requires {
+        h >= 1
+    }
+    requires {
+        w <= 2147483647
+    }
+    requires {
+        h <= 2147483647
+    }
+    requires {
+        4 * w * h <= 2147483647
+    }
 
-    ensures { 4 * w * h <= 2147483647 }
+    ensures {
+        4 * w * h <= 2147483647
+    }
 }

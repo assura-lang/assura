@@ -9,36 +9,58 @@ module examples.conc.determinism;
 contract DeterministicHash {
     input(key: Int, seed: Nat)
 
-    requires { seed > 0 }
-    requires { key >= 0 }
+    requires {
+        seed > 0
+    }
+    requires {
+        key >= 0
+    }
 
     must_be deterministic
 
-    ensures { seed > 0 }
-    ensures { key >= 0 }
+    ensures {
+        seed > 0
+    }
+    ensures {
+        key >= 0
+    }
 }
 
 // Merge of two sorted halves preserves total count
 contract DeterministicMerge {
     input(left_len: Nat, right_len: Nat)
 
-    requires { left_len >= 0 }
-    requires { right_len >= 0 }
+    requires {
+        left_len >= 0
+    }
+    requires {
+        right_len >= 0
+    }
 
     must_be deterministic
 
-    ensures { left_len + right_len >= 0 }
+    ensures {
+        left_len + right_len >= 0
+    }
 }
 
 // Fold with identity element
 contract AssociativeFold {
     input(n: Nat, identity: Int)
 
-    requires { n > 0 }
-    requires { identity == 0 }
+    requires {
+        n > 0
+    }
+    requires {
+        identity == 0
+    }
 
     must_be deterministic
 
-    ensures { n > 0 }
-    ensures { identity == 0 }
+    ensures {
+        n > 0
+    }
+    ensures {
+        identity == 0
+    }
 }

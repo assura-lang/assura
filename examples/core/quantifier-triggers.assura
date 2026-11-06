@@ -9,30 +9,52 @@ module examples.core.quantifier_triggers;
 contract BoundedProperty {
     input(n: Nat)
 
-    requires { n > 0 }
+    requires {
+        n > 0
+    }
 
-    ensures { n > 0 }
+    ensures {
+        n > 0
+    }
 }
 
 // There exists a value in a range
 contract ExistentialWitness {
     input(lo: Int, hi: Int)
 
-    requires { lo < hi }
+    requires {
+        lo < hi
+    }
 
-    ensures { lo < hi }
+    ensures {
+        lo < hi
+    }
 }
 
 // All positive inputs produce positive sums
 contract MonotonePlus {
     input(a: Int, b: Int)
 
-    requires { a > 0 }
-    requires { b > 0 }
-    requires { a + b > a }
-    requires { a + b > b }
+    requires {
+        a > 0
+    }
+    requires {
+        b > 0
+    }
+    requires {
+        a + b > a
+    }
+    requires {
+        a + b > b
+    }
 
-    ensures { a + b > 0 }
-    ensures { a + b > a }
-    ensures { a + b > b }
+    ensures {
+        a + b > 0
+    }
+    ensures {
+        a + b > a
+    }
+    ensures {
+        a + b > b
+    }
 }

@@ -319,6 +319,69 @@ fn indentation_inside_braces() {
 }
 
 #[test]
+fn one_line_requires_expands_decreases_stays_one_line() {
+    let src = "\
+contract BoundedRetry {
+    requires { max_attempts > 0 }
+    decreases max_attempts - current
+    ensures { current < max_attempts }
+}
+";
+    let out = fmt(src);
+    assert!(
+        out.contains("requires {\n        max_attempts > 0\n    }"),
+        "one-line requires should expand: {out}"
+    );
+    assert!(
+        out.contains("decreases max_attempts - current\n"),
+        "decreases has no braces and stays one line: {out}"
+    );
+    assert!(
+        !out.contains("decreases {"),
+        "decreases must not grow braces: {out}"
+    );
+    assert_idempotent(src);
+}
+
+#[test]
+fn shipped_examples_and_demos_match_formatter() {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut misses = Vec::new();
+    for tree in ["examples", "demos"] {
+        collect_unformatted(&root.join(tree), &mut misses);
+    }
+    assert!(
+        misses.is_empty(),
+        "assura fmt would change:\n{}",
+        misses.join("\n")
+    );
+}
+
+fn collect_unformatted(dir: &std::path::Path, misses: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && (name == "target" || name == "generated" || name == ".git")
+            {
+                continue;
+            }
+            collect_unformatted(&path, misses);
+        } else if path.extension().and_then(|e| e.to_str()) == Some("assura") {
+            let Ok(source) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            if format_source(&source) != source {
+                misses.push(path.display().to_string());
+            }
+        }
+    }
+}
+
+#[test]
 fn closing_brace_dedented() {
     let src = "contract Foo {\n    requires { x > 0 }\n}\n";
     let out = fmt(src);

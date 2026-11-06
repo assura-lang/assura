@@ -39,18 +39,36 @@ contract DtlsFragmentBounds {
     fragment_length: Nat
     )
 
-    requires { message_length > 0 }
-    requires { fragment_offset >= 0 }
-    requires { fragment_length > 0 }
-    requires { fragment_offset + fragment_length >= fragment_offset }
-    requires { fragment_length <= message_length }
-    requires { fragment_offset + fragment_length <= message_length }
+    requires {
+        message_length > 0
+    }
+    requires {
+        fragment_offset >= 0
+    }
+    requires {
+        fragment_length > 0
+    }
+    requires {
+        fragment_offset + fragment_length >= fragment_offset
+    }
+    requires {
+        fragment_length <= message_length
+    }
+    requires {
+        fragment_offset + fragment_length <= message_length
+    }
 
     // PROVEN BY Z3: fragment stays within message bounds
-    ensures { fragment_offset + fragment_length <= message_length }
-    ensures { fragment_length <= message_length }
+    ensures {
+        fragment_offset + fragment_length <= message_length
+    }
+    ensures {
+        fragment_length <= message_length
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -70,17 +88,33 @@ contract FragmentNonOverlap {
     )
 
     // Fragment A ends before fragment B starts
-    requires { frag_a_length > 0 }
-    requires { frag_b_length > 0 }
-    requires { frag_a_offset + frag_a_length >= frag_a_offset }
-    requires { frag_a_length <= frag_b_offset }
-    requires { frag_a_offset + frag_a_length <= frag_b_offset }
+    requires {
+        frag_a_length > 0
+    }
+    requires {
+        frag_b_length > 0
+    }
+    requires {
+        frag_a_offset + frag_a_length >= frag_a_offset
+    }
+    requires {
+        frag_a_length <= frag_b_offset
+    }
+    requires {
+        frag_a_offset + frag_a_length <= frag_b_offset
+    }
 
     // PROVEN BY Z3: fragments do not overlap
-    ensures { frag_a_offset + frag_a_length <= frag_b_offset }
-    ensures { frag_b_offset >= frag_a_length }
+    ensures {
+        frag_a_offset + frag_a_length <= frag_b_offset
+    }
+    ensures {
+        frag_b_offset >= frag_a_length
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -96,14 +130,24 @@ contract ReassemblyBufferSize {
     buffer_size: Nat
     )
 
-    requires { total_message_length > 0 }
-    requires { buffer_size >= total_message_length }
+    requires {
+        total_message_length > 0
+    }
+    requires {
+        buffer_size >= total_message_length
+    }
 
     // PROVEN BY Z3: buffer is large enough for the complete message
-    ensures { buffer_size >= total_message_length }
-    ensures { buffer_size - total_message_length >= 0 }
+    ensures {
+        buffer_size >= total_message_length
+    }
+    ensures {
+        buffer_size - total_message_length >= 0
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -120,18 +164,36 @@ contract FragmentCopyBounds {
     fragment_length: Nat
     )
 
-    requires { buffer_size > 0 }
-    requires { fragment_offset >= 0 }
-    requires { fragment_length > 0 }
-    requires { fragment_offset + fragment_length >= fragment_offset }
-    requires { fragment_length <= buffer_size }
-    requires { fragment_offset + fragment_length <= buffer_size }
+    requires {
+        buffer_size > 0
+    }
+    requires {
+        fragment_offset >= 0
+    }
+    requires {
+        fragment_length > 0
+    }
+    requires {
+        fragment_offset + fragment_length >= fragment_offset
+    }
+    requires {
+        fragment_length <= buffer_size
+    }
+    requires {
+        fragment_offset + fragment_length <= buffer_size
+    }
 
     // PROVEN BY Z3: copy stays within buffer
-    ensures { fragment_offset + fragment_length <= buffer_size }
-    ensures { fragment_length <= buffer_size }
+    ensures {
+        fragment_offset + fragment_length <= buffer_size
+    }
+    ensures {
+        fragment_length <= buffer_size
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -142,12 +204,24 @@ fn validate_fragment_sequence(
 sequence_num: Nat,
 expected_next: Nat
 )
-requires { sequence_num >= 0 }
-requires { expected_next >= 0 }
-requires { sequence_num >= expected_next }
-ensures  { sequence_num >= expected_next }
-ensures  { sequence_num - expected_next >= 0 }
-effects { pure }
+requires {
+    sequence_num >= 0
+}
+requires {
+    expected_next >= 0
+}
+requires {
+    sequence_num >= expected_next
+}
+ensures {
+    sequence_num >= expected_next
+}
+ensures {
+    sequence_num - expected_next >= 0
+}
+effects {
+    pure
+}
 
 // ============================================================================
 // Summary: What Assura proves at compile time
