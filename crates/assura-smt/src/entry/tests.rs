@@ -361,6 +361,69 @@ fn parallel_verify_runs_advanced_passes() {
     );
 }
 
+/// `declare` stores the bare prophecy name. `resolve` / `constrain` in an
+/// ensures clause must use that name, or a resolved prophecy still reports
+/// A05025 and an unconstrained one still reports A05026.
+#[test]
+fn smt_adv_prophecy_bare_resolve_clears_unresolved() {
+    let src = r#"
+module demo.core;
+prophecy p: Int
+contract UsesP {
+    input(x: Int)
+    requires { x >= 0 }
+    ensures { resolve(p) }
+    ensures { constrain(p, x >= 0) }
+}
+"#;
+    let typed = crate::test_util::typecheck_ok(src);
+    let results = super::advanced_passes::run_prophecy_checks(&typed);
+    assert!(
+        results.iter().all(|r| {
+            let desc = r.clause_desc();
+            !desc.contains("A05025") && !desc.contains("A05026")
+        }),
+        "resolved and constrained prophecy must not report A05025 or A05026, got {results:?}"
+    );
+}
+
+/// A `prove` block is not a solver run. Unverified obligations are a known
+/// encoding gap. `leads_to` with no fairness assumption stays a real failure.
+#[test]
+fn smt_adv_liveness_prove_is_known_limitation() {
+    let typed =
+        crate::test_util::typecheck_ok("liveness QueueDrain {\n    prove { queue_len >= 0 }\n}\n");
+    let results = super::advanced_passes::run_liveness_checks(&typed);
+    let unknowns: Vec<_> = results
+        .iter()
+        .filter(|r| matches!(r, VerificationResult::Unknown { .. }))
+        .collect();
+    assert!(
+        !unknowns.is_empty(),
+        "prove block must yield an unknown, got {results:?}"
+    );
+    assert!(
+        unknowns.iter().all(|r| r.is_known_limitation()),
+        "unverified prove must be a known SMT limitation, got {results:?}"
+    );
+
+    // `== true` keeps `leads_to` off the type checker's root scan (A31007).
+    // The SMT pass still classifies the prove body as LeadsTo.
+    let typed = crate::test_util::typecheck_ok(
+        "liveness NeedsFair {\n    prove { leads_to(true, true) == true }\n}\n",
+    );
+    let results = super::advanced_passes::run_liveness_checks(&typed);
+    assert!(
+        results.iter().any(|r| {
+            matches!(
+                r,
+                VerificationResult::Unknown { clause_desc, .. } if clause_desc.contains("fairness")
+            ) && !r.is_known_limitation()
+        }),
+        "leads_to without fairness must stay a non-limitation unknown, got {results:?}"
+    );
+}
+
 /// Single-contract API has no TypedFile; apply with no lemma map must still run.
 #[test]
 fn verify_contract_apply_without_typedfile_lemmas() {

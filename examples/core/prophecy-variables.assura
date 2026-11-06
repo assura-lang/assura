@@ -16,6 +16,10 @@ contract SearchPrecondition {
     requires { needle >= 0 }
 
     ensures { haystack_len > 0 }
+    ensures { resolve(chosen_index) == resolve(chosen_index) }
+    ensures {
+        constrain(chosen_index, haystack_len > 0) == constrain(chosen_index, haystack_len > 0)
+    }
 }
 
 // Prophecy: the convergence iteration count
@@ -29,4 +33,8 @@ contract SolverConfig {
     requires { max_iter > 0 }
 
     ensures { max_iter > 0 }
+    ensures { resolve(convergence_step) == resolve(convergence_step) }
+    ensures {
+        constrain(convergence_step, max_iter > 0) == constrain(convergence_step, max_iter > 0)
+    }
 }
