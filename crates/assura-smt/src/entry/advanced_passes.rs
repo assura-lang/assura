@@ -151,7 +151,7 @@ fn constrain_prophecy_vars(expr: &SpExpr, pm: &mut ProphecyManager) {
             }
         }
         Expr::BinOp { lhs, rhs, op } => {
-            // An equality like `prophecy(x) == expr` constrains x
+            // An equality like `prophecy(x) == expr` constrains x.
             if *op == BinOp::Eq
                 && let Expr::Call { func, args } = &lhs.as_ref().node
                 && let Expr::Ident(name) = &func.as_ref().node
@@ -160,6 +160,13 @@ fn constrain_prophecy_vars(expr: &SpExpr, pm: &mut ProphecyManager) {
                 && let Expr::Ident(var_name) = &first.node
             {
                 pm.add_constraint(var_name, expr_to_string(rhs));
+            }
+            // `resolve(p) < bound` is both the resolution and the constraint.
+            if let Some(var_name) = resolved_prophecy_name(lhs) {
+                pm.add_constraint(var_name, expr_to_string(rhs));
+            }
+            if let Some(var_name) = resolved_prophecy_name(rhs) {
+                pm.add_constraint(var_name, expr_to_string(lhs));
             }
             constrain_prophecy_vars(lhs, pm);
             constrain_prophecy_vars(rhs, pm);
@@ -180,35 +187,83 @@ fn constrain_prophecy_vars(expr: &SpExpr, pm: &mut ProphecyManager) {
                     pm.add_constraint(var_name, constraint);
                 },
             );
+            record_raw_resolve_comparison(tokens, pm);
         }
         _ => {}
     }
 }
 
-/// Collect prophecy variable references from ensures clauses.
-fn collect_prophecy_refs(expr: &SpExpr, fn_name: &str, pm: &mut ProphecyManager) {
-    match &expr.node {
-        Expr::Call { func, args } => {
-            if let Expr::Ident(name) = &func.as_ref().node
-                && (name == "prophecy" || name == "prophesy")
-                && let Some(first) = args.first()
-                && let Expr::Ident(var_name) = &first.node
-            {
-                pm.declare(format!("{fn_name}:{var_name}"));
-            }
-            for arg in args {
-                collect_prophecy_refs(arg, fn_name, pm);
-            }
-        }
-        Expr::BinOp { lhs, rhs, .. } => {
-            collect_prophecy_refs(lhs, fn_name, pm);
-            collect_prophecy_refs(rhs, fn_name, pm);
-        }
-        Expr::UnaryOp { expr: inner, .. } | Expr::Old(inner) | Expr::Ghost(inner) => {
-            collect_prophecy_refs(inner, fn_name, pm)
-        }
-        _ => {}
+/// Name bound by `resolve(name)` / `resolve_prophecy(name)`, when the call
+/// is a real `Expr::Call`.
+fn resolved_prophecy_name(expr: &SpExpr) -> Option<&str> {
+    let Expr::Call { func, args } = &expr.node else {
+        return None;
+    };
+    let Expr::Ident(name) = &func.as_ref().node else {
+        return None;
+    };
+    if name != "resolve" && name != "resolve_prophecy" {
+        return None;
     }
+    let first = args.first()?;
+    let Expr::Ident(var_name) = &first.node else {
+        return None;
+    };
+    Some(var_name.as_str())
+}
+
+/// Clause bodies often stay raw. `resolve(p) < bound` is outside the
+/// parenthesized call, so the constrain-call walker does not see it.
+fn record_raw_resolve_comparison(tokens: &[String], pm: &mut ProphecyManager) {
+    const OPS: &[&str] = &["==", "!=", "<", ">", "<=", ">="];
+    for (i, tok) in tokens.iter().enumerate() {
+        if tok != "resolve" && tok != "resolve_prophecy" {
+            continue;
+        }
+        let Some((var_name, _)) = raw_call_first_arg(tokens, i) else {
+            continue;
+        };
+        let Some(after) = raw_call_end(tokens, i) else {
+            continue;
+        };
+        let Some(op) = tokens.get(after).map(String::as_str) else {
+            continue;
+        };
+        if !OPS.contains(&op) {
+            continue;
+        }
+        let rest = tokens[after + 1..]
+            .iter()
+            .take_while(|t| t.as_str() != "&&" && t.as_str() != "||")
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !rest.is_empty() {
+            pm.add_constraint(var_name, rest);
+        }
+    }
+}
+
+/// Index of the first token after a raw `resolve(name)` or `resolve name`.
+fn raw_call_end(tokens: &[String], i: usize) -> Option<usize> {
+    if tokens.get(i + 1).map(String::as_str) == Some("(") {
+        let mut depth = 0i32;
+        for (j, tok) in tokens.iter().enumerate().skip(i + 1) {
+            match tok.as_str() {
+                "(" => depth += 1,
+                ")" => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(j + 1);
+                    }
+                }
+                _ => {}
+            }
+        }
+        return None;
+    }
+    tokens.get(i + 1)?;
+    Some(i + 2)
 }
 
 // ---------------------------------------------------------------------------
@@ -296,18 +351,11 @@ pub(crate) fn run_prophecy_checks(typed: &TypedFile) -> Vec<VerificationResult> 
         }
     }
     for decl in &typed.resolved.source.decls {
-        let ctx_name = match decl.node.name() {
-            Some(n) => n,
-            None => continue,
-        };
         let clauses = decl.node.clauses();
         if clauses.is_empty() {
             continue;
         }
         for clause in clauses {
-            if clause.kind == ClauseKind::Ensures {
-                collect_prophecy_refs(&clause.body, ctx_name, &mut pm);
-            }
             if clause.kind == ClauseKind::Ensures || clause.kind == ClauseKind::Requires {
                 resolve_prophecy_vars(&clause.body, &mut pm);
                 constrain_prophecy_vars(&clause.body, &mut pm);
@@ -401,8 +449,10 @@ pub(crate) fn run_liveness_checks(typed: &TypedFile) -> Vec<VerificationResult> 
         });
     }
     for err in lc.check_unverified() {
-        // No solver ran. This is an encoding gap, not a failed proof.
-        results.push(VerificationResult::unknown_not_encoded("liveness", err));
+        // check_unverified says "not verified" because nobody called
+        // mark_verified. No solver ran, so the CLI warning should say that.
+        let detail = err.strip_suffix(" not verified").unwrap_or(&err);
+        results.push(VerificationResult::unknown_not_encoded("liveness", detail));
     }
     results
 }

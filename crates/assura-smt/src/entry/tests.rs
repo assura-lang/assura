@@ -387,6 +387,30 @@ contract UsesP {
     );
 }
 
+/// A comparison on `resolve(p)` records the constraint. Full verify still
+/// counterexamples a bound, because the prophecy is not a solver term.
+#[test]
+fn smt_adv_prophecy_resolve_comparison_constrains() {
+    let src = r#"
+module demo.core;
+prophecy p: Int
+contract UsesP {
+    input(x: Int)
+    requires { x > 0 }
+    ensures { resolve(p) < x }
+}
+"#;
+    let typed = crate::test_util::typecheck_ok(src);
+    let results = super::advanced_passes::run_prophecy_checks(&typed);
+    assert!(
+        results.iter().all(|r| {
+            let desc = r.clause_desc();
+            !desc.contains("A05025") && !desc.contains("A05026")
+        }),
+        "resolve(p) < x must resolve and constrain p, got {results:?}"
+    );
+}
+
 /// A `prove` block is not a solver run. Unverified obligations are a known
 /// encoding gap. `leads_to` with no fairness assumption stays a real failure.
 #[test]
