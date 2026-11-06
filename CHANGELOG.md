@@ -3,6 +3,15 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.2](https://github.com/assura-lang/assura/compare/v0.7.1...v0.7.2) (2026-11-06)
+
+
+### Bug Fixes
+
+* **cli:** empty directory check --json uses the project envelope ([#1725](https://github.com/assura-lang/assura/issues/1725)) ([988721b](https://github.com/assura-lang/assura/commit/988721b500a408808e2a2053e0383c95fc76e330))
+* **deps:** bump pulldown-cmark to 0.13.6 ([#1733](https://github.com/assura-lang/assura/issues/1733)) ([0089575](https://github.com/assura-lang/assura/commit/0089575c24dc416a058fd11e083fb0bd64d83525))
+* **smt:** clear false prophecy and liveness check errors ([#1735](https://github.com/assura-lang/assura/issues/1735)) ([56f4d99](https://github.com/assura-lang/assura/commit/56f4d9965bde9c4f7f5b7877aecd80372129f76a))
+
 ## [0.7.1](https://github.com/assura-lang/assura/compare/v0.7.0...v0.7.1) (2026-10-26)
 
 
