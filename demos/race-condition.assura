@@ -41,18 +41,34 @@ contract AtomicCheckAndWrite {
     )
 
     // Permission must meet the required level
-    requires { permission_level >= required_level }
-    requires { required_level > 0 }
+    requires {
+        permission_level >= required_level
+    }
+    requires {
+        required_level > 0
+    }
     // Write must be within the page
-    requires { page_offset >= 0 }
-    requires { page_size > 0 }
-    requires { page_offset < page_size }
+    requires {
+        page_offset >= 0
+    }
+    requires {
+        page_size > 0
+    }
+    requires {
+        page_offset < page_size
+    }
 
     // PROVEN BY Z3: permission is sufficient and write is in bounds
-    ensures { permission_level >= required_level }
-    ensures { page_offset < page_size }
+    ensures {
+        permission_level >= required_level
+    }
+    ensures {
+        page_offset < page_size
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -72,17 +88,33 @@ contract PageTableConsistency {
     // present=1 means the page is in physical memory
     // writable=1 means write permission is granted
     // A writable page must be present
-    requires { is_present >= is_writable }
-    requires { is_present >= 0 }
-    requires { is_present <= 1 }
-    requires { is_writable >= 0 }
-    requires { is_writable <= 1 }
+    requires {
+        is_present >= is_writable
+    }
+    requires {
+        is_present >= 0
+    }
+    requires {
+        is_present <= 1
+    }
+    requires {
+        is_writable >= 0
+    }
+    requires {
+        is_writable <= 1
+    }
 
     // PROVEN BY Z3: writable implies present
-    ensures { is_present >= is_writable }
-    ensures { is_present <= 1 }
+    ensures {
+        is_present >= is_writable
+    }
+    ensures {
+        is_present <= 1
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -99,15 +131,27 @@ contract CowPageAllocation {
     copy_length: Nat
     )
 
-    requires { original_page_size > 0 }
-    requires { new_page_size == original_page_size }
-    requires { copy_length == original_page_size }
+    requires {
+        original_page_size > 0
+    }
+    requires {
+        new_page_size == original_page_size
+    }
+    requires {
+        copy_length == original_page_size
+    }
 
     // PROVEN BY Z3: new page matches original and copy is complete
-    ensures { new_page_size == original_page_size }
-    ensures { copy_length == new_page_size }
+    ensures {
+        new_page_size == original_page_size
+    }
+    ensures {
+        copy_length == new_page_size
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -124,15 +168,27 @@ contract MemoryLockOrdering {
     pt_lock_rank: Nat
     )
 
-    requires { mmap_sem_rank >= 1 }
-    requires { pt_lock_rank > mmap_sem_rank }
-    requires { pt_lock_rank <= 10 }
+    requires {
+        mmap_sem_rank >= 1
+    }
+    requires {
+        pt_lock_rank > mmap_sem_rank
+    }
+    requires {
+        pt_lock_rank <= 10
+    }
 
     // PROVEN BY Z3: lock ordering is maintained
-    ensures { pt_lock_rank > mmap_sem_rank }
-    ensures { mmap_sem_rank >= 1 }
+    ensures {
+        pt_lock_rank > mmap_sem_rank
+    }
+    ensures {
+        mmap_sem_rank >= 1
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -143,12 +199,24 @@ fn validate_page_alignment(
 address: Nat,
 page_size: Nat
 )
-requires { address >= 0 }
-requires { page_size > 0 }
-requires { page_size <= 65536 }
-ensures  { page_size <= 65536 }
-ensures  { page_size > 0 }
-effects { pure }
+requires {
+    address >= 0
+}
+requires {
+    page_size > 0
+}
+requires {
+    page_size <= 65536
+}
+ensures {
+    page_size <= 65536
+}
+ensures {
+    page_size > 0
+}
+effects {
+    pure
+}
 
 // ============================================================================
 // Summary: What Assura proves at compile time

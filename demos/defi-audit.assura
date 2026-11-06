@@ -23,24 +23,38 @@
 // ============================================================
 contract TokenTransferConservation {
     input(
-    balance_sender: Int,        // sender's balance before
-    balance_receiver: Int,      // receiver's balance before
-    total_supply: Int,          // total token supply
-    other_balances: Int,        // sum of ALL other balances
-    amount: Int                 // transfer amount
+    balance_sender: Int, // sender's balance before
+    balance_receiver: Int, // receiver's balance before
+    total_supply: Int, // total token supply
+    other_balances: Int, // sum of ALL other balances
+    amount: Int // transfer amount
     )
     // Valid initial state
-    requires { balance_sender >= 0 }
-    requires { balance_receiver >= 0 }
-    requires { total_supply >= 0 }
-    requires { other_balances >= 0 }
-    requires { amount >= 0 }
+    requires {
+        balance_sender >= 0
+    }
+    requires {
+        balance_receiver >= 0
+    }
+    requires {
+        total_supply >= 0
+    }
+    requires {
+        other_balances >= 0
+    }
+    requires {
+        amount >= 0
+    }
 
     // Conservation holds before transfer
-    requires { balance_sender + balance_receiver + other_balances == total_supply }
+    requires {
+        balance_sender + balance_receiver + other_balances == total_supply
+    }
 
     // Transfer is valid (sender has enough)
-    requires { amount <= balance_sender }
+    requires {
+        amount <= balance_sender
+    }
 
     // After transfer:
     // sender_new = balance_sender - amount
@@ -48,7 +62,9 @@ contract TokenTransferConservation {
     // total_supply unchanged
 
     // INVARIANT: conservation still holds after transfer
-    ensures { (balance_sender - amount) + (balance_receiver + amount) + other_balances == total_supply }
+    ensures {
+        (balance_sender - amount) + (balance_receiver + amount) + other_balances == total_supply
+    }
 }
 
 // ============================================================
@@ -72,17 +88,35 @@ contract UncheckedTransferOverflow {
     other_balances: Int,
     amount: Int
     )
-    requires { balance_sender >= 0 }
-    requires { balance_sender <= 4294967295 }
-    requires { balance_receiver >= 0 }
-    requires { balance_receiver <= 4294967295 }
-    requires { total_supply >= 0 }
-    requires { other_balances >= 0 }
-    requires { amount >= 0 }
-    requires { amount <= 4294967295 }
+    requires {
+        balance_sender >= 0
+    }
+    requires {
+        balance_sender <= 4294967295
+    }
+    requires {
+        balance_receiver >= 0
+    }
+    requires {
+        balance_receiver <= 4294967295
+    }
+    requires {
+        total_supply >= 0
+    }
+    requires {
+        other_balances >= 0
+    }
+    requires {
+        amount >= 0
+    }
+    requires {
+        amount <= 4294967295
+    }
 
     // Conservation holds before
-    requires { balance_sender + balance_receiver + other_balances == total_supply }
+    requires {
+        balance_sender + balance_receiver + other_balances == total_supply
+    }
 
     // NO underflow check (the bug): amount can exceed balance_sender
     // Solidity uint256 wraps: balance_sender - amount mod 2^256
@@ -97,7 +131,9 @@ contract UncheckedTransferOverflow {
     // INVARIANT: conservation must hold
     // If amount > balance_sender: sender_new is HUGE (wrapped)
     // sender_new + receiver_new + others != total_supply
-    ensures { balance_sender - amount + balance_receiver + amount + other_balances == total_supply }
+    ensures {
+        balance_sender - amount + balance_receiver + amount + other_balances == total_supply
+    }
 }
 
 // ============================================================
@@ -116,20 +152,34 @@ contract UncheckedTransferOverflow {
 // ============================================================
 contract ReentrancyWithdrawBug {
     input(
-    user_balance: Int,          // attacker's deposited balance
-    contract_eth: Int,          // contract's total ETH
-    withdraw_amount: Int,       // amount per withdrawal
-    num_reentrant_calls: Int    // how many times attacker re-enters
+    user_balance: Int, // attacker's deposited balance
+    contract_eth: Int, // contract's total ETH
+    withdraw_amount: Int, // amount per withdrawal
+    num_reentrant_calls: Int // how many times attacker re-enters
     )
-    requires { user_balance >= 0 }
-    requires { contract_eth >= 0 }
-    requires { withdraw_amount >= 0 }
-    requires { num_reentrant_calls >= 1 }
-    requires { num_reentrant_calls <= 10 }
+    requires {
+        user_balance >= 0
+    }
+    requires {
+        contract_eth >= 0
+    }
+    requires {
+        withdraw_amount >= 0
+    }
+    requires {
+        num_reentrant_calls >= 1
+    }
+    requires {
+        num_reentrant_calls <= 10
+    }
 
     // Attacker has legitimately deposited this much
-    requires { user_balance <= contract_eth }
-    requires { withdraw_amount <= user_balance }
+    requires {
+        user_balance <= contract_eth
+    }
+    requires {
+        withdraw_amount <= user_balance
+    }
 
     // The bug: balance check passes every time because
     // state isn't updated until all calls complete
@@ -139,7 +189,9 @@ contract ReentrancyWithdrawBug {
     // But attacker only had user_balance
 
     // INVARIANT: total withdrawn should not exceed user's balance
-    ensures { withdraw_amount * num_reentrant_calls <= user_balance }
+    ensures {
+        withdraw_amount * num_reentrant_calls <= user_balance
+    }
 }
 
 // ============================================================
@@ -160,20 +212,36 @@ contract ReentrancyWithdrawBug {
 // ============================================================
 contract FlashLoanOracleManipulation {
     input(
-    reserve_a: Int,             // AMM pool reserve of token A
-    reserve_b: Int,             // AMM pool reserve of token B
-    flash_amount: Int,          // flash loaned amount of A
-    lending_collateral: Int,    // collateral in lending protocol
-    lending_debt: Int           // debt in lending protocol
+    reserve_a: Int, // AMM pool reserve of token A
+    reserve_b: Int, // AMM pool reserve of token B
+    flash_amount: Int, // flash loaned amount of A
+    lending_collateral: Int, // collateral in lending protocol
+    lending_debt: Int // debt in lending protocol
     )
-    requires { reserve_a >= 1 }
-    requires { reserve_a <= 1000000000 }
-    requires { reserve_b >= 1 }
-    requires { reserve_b <= 1000000000 }
-    requires { flash_amount >= 1 }
-    requires { flash_amount <= 1000000000 }
-    requires { lending_collateral >= 0 }
-    requires { lending_debt >= 0 }
+    requires {
+        reserve_a >= 1
+    }
+    requires {
+        reserve_a <= 1000000000
+    }
+    requires {
+        reserve_b >= 1
+    }
+    requires {
+        reserve_b <= 1000000000
+    }
+    requires {
+        flash_amount >= 1
+    }
+    requires {
+        flash_amount <= 1000000000
+    }
+    requires {
+        lending_collateral >= 0
+    }
+    requires {
+        lending_debt >= 0
+    }
 
     // Constant product invariant
     // k = reserve_a * reserve_b
@@ -198,7 +266,9 @@ contract FlashLoanOracleManipulation {
     // price_after / price_before >= 0.5
     // reserve_a^2 / (reserve_a + flash_amount)^2 >= 0.5
     // reserve_a^2 * 2 >= (reserve_a + flash_amount)^2
-    ensures { reserve_a * reserve_a * 2 >= (reserve_a + flash_amount) * (reserve_a + flash_amount) }
+    ensures {
+        reserve_a * reserve_a * 2 >= (reserve_a + flash_amount) * (reserve_a + flash_amount)
+    }
 }
 
 // ============================================================
@@ -218,37 +288,61 @@ contract ApproveRaceCondition {
     input(
     alice_balance: Int,
     bob_balance: Int,
-    old_approval: Int,          // current approval (100)
-    new_approval: Int,          // Alice's new approval (50)
+    old_approval: Int, // current approval (100)
+    new_approval: Int, // Alice's new approval (50)
 
     // Bob's actions
-    bob_uses_old: Int,          // Bob transfers using old approval
-    bob_uses_new: Int           // Bob transfers using new approval
+    bob_uses_old: Int, // Bob transfers using old approval
+    bob_uses_new: Int // Bob transfers using new approval
     )
-    requires { alice_balance >= 0 }
-    requires { bob_balance >= 0 }
-    requires { old_approval >= 0 }
-    requires { new_approval >= 0 }
-    requires { bob_uses_old >= 0 }
-    requires { bob_uses_new >= 0 }
+    requires {
+        alice_balance >= 0
+    }
+    requires {
+        bob_balance >= 0
+    }
+    requires {
+        old_approval >= 0
+    }
+    requires {
+        new_approval >= 0
+    }
+    requires {
+        bob_uses_old >= 0
+    }
+    requires {
+        bob_uses_new >= 0
+    }
 
     // Valid: approvals don't exceed balance
-    requires { old_approval <= alice_balance }
-    requires { new_approval <= alice_balance }
+    requires {
+        old_approval <= alice_balance
+    }
+    requires {
+        new_approval <= alice_balance
+    }
 
     // Bob front-runs: uses old approval first
-    requires { bob_uses_old <= old_approval }
+    requires {
+        bob_uses_old <= old_approval
+    }
     // Then uses new approval
-    requires { bob_uses_new <= new_approval }
+    requires {
+        bob_uses_new <= new_approval
+    }
     // Both are valid transfers (Alice has enough after first)
-    requires { bob_uses_old + bob_uses_new <= alice_balance }
+    requires {
+        bob_uses_old + bob_uses_new <= alice_balance
+    }
 
     // Alice intended: Bob gets at most max(old_approval, new_approval)
     // In this case: max(100, 50) = 100
     // But Bob got: bob_uses_old + bob_uses_new
 
     // INVARIANT: Bob should not get more than Alice's intended maximum
-    ensures { bob_uses_old + bob_uses_new <= old_approval }
+    ensures {
+        bob_uses_old + bob_uses_new <= old_approval
+    }
 }
 
 // ============================================================
@@ -266,25 +360,39 @@ contract ApproveRaceCondition {
 // ============================================================
 contract VaultShareInflation {
     input(
-    attacker_deposit: Int,      // attacker's initial deposit (1 wei)
-    donation: Int,              // attacker donates directly to vault
-    victim_deposit: Int,        // victim's deposit
+    attacker_deposit: Int, // attacker's initial deposit (1 wei)
+    donation: Int, // attacker donates directly to vault
+    victim_deposit: Int, // victim's deposit
 
     // Share calculation
-    total_shares_before: Int,   // shares outstanding before victim
-    total_assets_before: Int    // assets in vault before victim
+    total_shares_before: Int, // shares outstanding before victim
+    total_assets_before: Int // assets in vault before victim
     )
-    requires { attacker_deposit >= 1 }
-    requires { donation >= 0 }
-    requires { victim_deposit >= 1 }
-    requires { total_shares_before >= 1 }
-    requires { total_assets_before >= 1 }
+    requires {
+        attacker_deposit >= 1
+    }
+    requires {
+        donation >= 0
+    }
+    requires {
+        victim_deposit >= 1
+    }
+    requires {
+        total_shares_before >= 1
+    }
+    requires {
+        total_assets_before >= 1
+    }
 
     // Attacker is first depositor: 1 share for attacker_deposit
-    requires { total_shares_before == attacker_deposit }
+    requires {
+        total_shares_before == attacker_deposit
+    }
 
     // After donation: assets increase but shares don't
-    requires { total_assets_before == attacker_deposit + donation }
+    requires {
+        total_assets_before == attacker_deposit + donation
+    }
 
     // Victim's shares = victim_deposit * total_shares / total_assets
     // With integer division (Solidity has no floats):
@@ -293,7 +401,9 @@ contract VaultShareInflation {
     // INVARIANT: victim should get at least 1 share for a non-zero deposit
     // victim_shares = victim_deposit * attacker_deposit / (attacker_deposit + donation)
     // If donation >= victim_deposit * attacker_deposit, victim gets 0 shares!
-    ensures { victim_deposit * total_shares_before / total_assets_before >= 1 }
+    ensures {
+        victim_deposit * total_shares_before / total_assets_before >= 1
+    }
 }
 
 // ============================================================
@@ -316,14 +426,26 @@ contract AMMConstantProductFee {
     input(
     reserve_x: Int,
     reserve_y: Int,
-    amount_in: Int              // amount of X being swapped in
+    amount_in: Int // amount of X being swapped in
     )
-    requires { reserve_x >= 1 }
-    requires { reserve_x <= 1000000000 }
-    requires { reserve_y >= 1 }
-    requires { reserve_y <= 1000000000 }
-    requires { amount_in >= 1 }
-    requires { amount_in <= 1000000000 }
+    requires {
+        reserve_x >= 1
+    }
+    requires {
+        reserve_x <= 1000000000
+    }
+    requires {
+        reserve_y >= 1
+    }
+    requires {
+        reserve_y <= 1000000000
+    }
+    requires {
+        amount_in >= 1
+    }
+    requires {
+        amount_in <= 1000000000
+    }
 
     // Uniswap V2 formula with 0.3% fee:
     // amount_out = reserve_y * amount_in * 997 / (reserve_x * 1000 + amount_in * 997)
@@ -356,7 +478,9 @@ contract AMMConstantProductFee {
     // 1000 >= 997 (always true!)
 
     // So the invariant holds. Z3 should verify this.
-    ensures { (reserve_x + amount_in) * 1000 >= reserve_x * 1000 + amount_in * 997 }
+    ensures {
+        (reserve_x + amount_in) * 1000 >= reserve_x * 1000 + amount_in * 997
+    }
 }
 
 // ============================================================
@@ -373,19 +497,35 @@ contract AMMConstantProductFee {
 // ============================================================
 contract VaultRoundingExtraction {
     input(
-    total_assets: Int,          // vault total assets
-    total_shares: Int,          // vault total shares
-    deposit_amount: Int,        // attacker deposits
-    rounds: Int                 // number of deposit/withdraw cycles
+    total_assets: Int, // vault total assets
+    total_shares: Int, // vault total shares
+    deposit_amount: Int, // attacker deposits
+    rounds: Int // number of deposit/withdraw cycles
     )
-    requires { total_assets >= 1 }
-    requires { total_assets <= 1000000000 }
-    requires { total_shares >= 1 }
-    requires { total_shares <= 1000000000 }
-    requires { deposit_amount >= 1 }
-    requires { deposit_amount <= 1000000000 }
-    requires { rounds >= 1 }
-    requires { rounds <= 1000 }
+    requires {
+        total_assets >= 1
+    }
+    requires {
+        total_assets <= 1000000000
+    }
+    requires {
+        total_shares >= 1
+    }
+    requires {
+        total_shares <= 1000000000
+    }
+    requires {
+        deposit_amount >= 1
+    }
+    requires {
+        deposit_amount <= 1000000000
+    }
+    requires {
+        rounds >= 1
+    }
+    requires {
+        rounds <= 1000
+    }
 
     // Deposit: shares_minted = deposit_amount * total_shares / total_assets (round down)
     // Withdraw all shares: assets_out = shares_minted * total_assets_new / total_shares_new
@@ -411,5 +551,7 @@ contract VaultRoundingExtraction {
 
     // In repeated rounds, rounding errors accumulate
     // INVARIANT: net gain over N rounds must be <= 0
-    ensures { rounds * deposit_amount * total_shares / total_assets * (total_assets + deposit_amount) / (total_shares + deposit_amount * total_shares / total_assets) <= rounds * deposit_amount }
+    ensures {
+        rounds * deposit_amount * total_shares / total_assets * (total_assets + deposit_amount) / (total_shares + deposit_amount * total_shares / total_assets) <= rounds * deposit_amount
+    }
 }

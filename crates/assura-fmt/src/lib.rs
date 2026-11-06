@@ -4,6 +4,8 @@
 //! and all declaration types are preserved. Only whitespace is normalized:
 //! indentation follows brace nesting (4 spaces per level), trailing
 //! whitespace is stripped, and the file ends with a single newline.
+//! A one-line brace body such as `requires { x > 0 }` is expanded.
+//! A clause with no braces, such as `decreases n`, stays on one line.
 
 use assura_parser::syntax_kind::SyntaxKind;
 

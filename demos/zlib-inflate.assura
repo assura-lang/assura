@@ -31,7 +31,9 @@ feature_max EXTRA_BUFFER_CAP: Nat = 65535
 
 type GzipExtraBuffer<MaxLen: Nat> {
     data: Region<MaxLen>,
-    extra_max: {v: Nat | v == MaxLen},
+    extra_max: {
+        v: Nat | v == MaxLen
+    },
 
     // Tracks how many bytes have been written so far (for incremental path)
     ghost var bytes_written: Nat,
@@ -57,19 +59,21 @@ type GzipHeader {
 // ---------------------------------------------------------------------------
 
 // Read 2 bytes from the compressed stream — returns untrusted
-fn read_u16_le(stream: &mut InflateStream) -> U16 @taint:untrusted
+fn read_u16_le(stream: &mut InflateStream) -> U16 @taint: untrusted
 effects: io.read
 
 // Validated XLEN: after checking against the caller's buffer capacity
 type ValidXlen {
-    value: U16 @taint:validated,
-    capped_len: {v: Nat | v <= EXTRA_MAX}
+    value: U16 @taint: validated,
+    capped_len: {
+        v: Nat | v <= EXTRA_MAX
+    }
 }
 
 fn validate_xlen(
-raw_xlen: U16 @taint:untrusted,
+raw_xlen: U16 @taint: untrusted,
 extra_max: Nat
-) -> ValidXlen @taint:validated
+) -> ValidXlen @taint: validated
 effects: pure
 {
     // THIS IS THE FIX. The original code skipped this clamp.
@@ -77,7 +81,8 @@ effects: pure
     // is compile error A28001 ("untrusted data used as trusted").
     let capped = validate {
         raw_xlen <= extra_max
-    } raw_xlen
+    }
+    raw_xlen
     or raw_xlen.min(extra_max as U16)
     // ^ If XLEN exceeds buffer capacity, clamp it.
 
@@ -100,12 +105,16 @@ contract InflateExtraFieldContract {
     fn copy_extra_field(
     head: &mut GzipHeader,
     stream: &InflateStream,
-    xlen: ValidXlen @taint:validated,
+    xlen: ValidXlen @taint: validated,
     available: Nat
     ) -> Nat
     // Frame condition: ONLY extra.data is modified, and ONLY within bounds
-    modifies { head.extra.data }
-    reads { stream, xlen }
+    modifies {
+        head.extra.data
+    }
+    reads {
+        stream, xlen
+    }
     requires {
         // Bytes already written + new bytes must not exceed capacity
         head.extra.bytes_written + available <= head.extra.extra_max
@@ -131,11 +140,17 @@ contract InflateExtraFieldContract {
 
 fn zmemcpy_safe(
 dst: Region<DstSize>,
-dst_offset: {off: Nat | off <= DstSize},
+dst_offset: {
+    off: Nat | off <= DstSize
+},
 src: &[U8],
-len: {n: Nat | dst_offset + n <= DstSize and n <= src.len()}
+len: {
+    n: Nat | dst_offset + n <= DstSize and n <= src.len()
+}
 ) -> Region<DstSize>
-modifies { dst }
+modifies {
+    dst
+}
 effects: pure
 // ^ The refined type on `len` is the key:
 //   dst_offset + len <= DstSize is checked at COMPILE TIME.
@@ -155,19 +170,21 @@ incremental InflateDecoder {
     yields: InflateChunk
     completes: InflateResult
 
-    states { Init, Header, ExtraField, Name, Comment, HdrCheck, Data, Done }
+    states {
+        Init, Header, ExtraField, Name, Comment, HdrCheck, Data, Done
+    }
 
     // Valid transitions through gzip header parsing
     transition Init -> Header via step
-    transition Header -> ExtraField via step     // if FEXTRA flag set
-    transition Header -> Name via step           // skip to name if no extra
+    transition Header -> ExtraField via step // if FEXTRA flag set
+    transition Header -> Name via step // skip to name if no extra
     transition ExtraField -> ExtraField via step // PARTIAL extra (multi-call!)
-    transition ExtraField -> Name via step       // extra field complete
+    transition ExtraField -> Name via step // extra field complete
     transition Name -> Comment via step
     transition Comment -> HdrCheck via step
     transition HdrCheck -> Data via step
-    transition Data -> Data via step             // decompressing
-    transition Data -> Done via step             // stream end
+    transition Data -> Data via step // decompressing
+    transition Data -> Done via step // stream end
 
     // THE CRITICAL INVARIANT: the extra field state tracks partial progress
     // and never exceeds the buffer.
@@ -202,8 +219,12 @@ incremental InflateDecoder {
     }
 
     on abort {
-        requires { self.state != Done }
-        ensures { self.state @ Done }
+        requires {
+            self.state != Done
+        }
+        ensures {
+            self.state @ Done
+        }
         effects: pure
     }
 }
@@ -222,8 +243,10 @@ requires {
 requires {
     state.extra_bytes_copied <= state.head.extra.extra_max
 }
-modifies { state.head.extra.data, state.extra_bytes_copied,
-    state.extra_bytes_remaining }
+modifies {
+    state.head.extra.data, state.extra_bytes_copied,
+    state.extra_bytes_remaining
+}
 ensures {
     // SAFETY: after this step, we have not overflowed the buffer
     state.extra_bytes_copied <= state.head.extra.extra_max
@@ -242,9 +265,9 @@ effects: pure
     //   capped_len <= extra_max (from validate_xlen)
     zmemcpy_safe(
     state.head.extra.data,
-    state.extra_bytes_copied,  // offset: current position
+    state.extra_bytes_copied, // offset: current position
     input,
-    available                   // length: clamped to remaining
+    available // length: clamped to remaining
     )
 
     // Ghost update: track progress
@@ -255,7 +278,8 @@ effects: pure
 
     if state.extra_bytes_remaining == 0 {
         InflateStepResult.StateChange(Name)
-    } else {
+    }
+    else {
         InflateStepResult.NeedMore
     }
 }
@@ -292,15 +316,31 @@ effects: pure
 // ---------------------------------------------------------------------------
 
 fn check_extra_max_bound(written: Nat, chunk: Nat)
-requires { written <= EXTRA_BUFFER_CAP }
-requires { chunk <= EXTRA_BUFFER_CAP }
-requires { written + chunk <= EXTRA_BUFFER_CAP }
-ensures  { written + chunk <= 65535 }
+requires {
+    written <= EXTRA_BUFFER_CAP
+}
+requires {
+    chunk <= EXTRA_BUFFER_CAP
+}
+requires {
+    written + chunk <= EXTRA_BUFFER_CAP
+}
+ensures {
+    written + chunk <= 65535
+}
 effects: pure
 
 fn check_xlen_cap(raw_xlen: Nat, extra_max: Nat)
-requires { extra_max == EXTRA_BUFFER_CAP }
-requires { raw_xlen <= extra_max }
-ensures  { raw_xlen <= EXTRA_BUFFER_CAP }
-ensures  { raw_xlen <= 65535 }
+requires {
+    extra_max == EXTRA_BUFFER_CAP
+}
+requires {
+    raw_xlen <= extra_max
+}
+ensures {
+    raw_xlen <= EXTRA_BUFFER_CAP
+}
+ensures {
+    raw_xlen <= 65535
+}
 effects: pure

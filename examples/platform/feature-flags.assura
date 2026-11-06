@@ -6,7 +6,7 @@ module examples.plat.feature_flags;
 
 feature encryption = enabled
 feature compression = enabled
-  requires: encryption
+requires: encryption
 feature networking = enabled
 
 feature_max MAX_CONNECTIONS: Nat = 1024
@@ -16,20 +16,36 @@ feature_max MAX_BUFFER_SIZE: Nat = 65536
 contract ConnectionPool {
     input(active: Nat, pending: Nat)
 
-    requires { active <= 1024 }
-    requires { pending <= 1024 }
-    requires { active + pending <= 1024 }
+    requires {
+        active <= 1024
+    }
+    requires {
+        pending <= 1024
+    }
+    requires {
+        active + pending <= 1024
+    }
 
-    ensures { active + pending <= 1024 }
+    ensures {
+        active + pending <= 1024
+    }
 }
 
 // Buffer allocation respects the configured maximum
 contract BufferAlloc {
     input(requested: Nat)
 
-    requires { requested > 0 }
-    requires { requested <= 65536 }
+    requires {
+        requested > 0
+    }
+    requires {
+        requested <= 65536
+    }
 
-    ensures { requested <= 65536 }
-    ensures { requested > 0 }
+    ensures {
+        requested <= 65536
+    }
+    ensures {
+        requested > 0
+    }
 }

@@ -84,6 +84,7 @@ jobs:
               - 'crates/assura-config/**'
               - 'crates/assura-diagnostics/**'
               - 'demos/**'
+              - 'examples/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
             tooling-only:
@@ -353,6 +354,11 @@ jobs:
 
       - name: Build compiler
         run: cargo build --bin assura --locked
+
+      - name: Assura fmt check examples and demos
+        run: |
+          cargo run --locked --bin assura -- fmt --check examples
+          cargo run --locked --bin assura -- fmt --check demos
 
       - name: E2E check all demos (parse + resolve + typecheck + verify)
         run: |

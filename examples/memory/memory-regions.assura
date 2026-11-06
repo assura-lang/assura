@@ -9,30 +9,52 @@ module examples.memory.memory_regions;
 contract RegionSeparation {
     input(r1_base: Nat, r1_size: Nat, r2_base: Nat, r2_size: Nat)
 
-    requires { r1_size > 0 }
-    requires { r2_size > 0 }
-    requires { r1_base + r1_size <= r2_base }
+    requires {
+        r1_size > 0
+    }
+    requires {
+        r2_size > 0
+    }
+    requires {
+        r1_base + r1_size <= r2_base
+    }
 
-    ensures { r1_base + r1_size <= r2_base }
+    ensures {
+        r1_base + r1_size <= r2_base
+    }
 }
 
 // Safe copy between two non-overlapping regions
 contract SafeMemcpy {
     input(dst_base: Nat, dst_cap: Nat, src_base: Nat, src_len: Nat, count: Nat)
 
-    requires { count <= src_len }
-    requires { count <= dst_cap }
-    requires { dst_base + dst_cap <= src_base }
+    requires {
+        count <= src_len
+    }
+    requires {
+        count <= dst_cap
+    }
+    requires {
+        dst_base + dst_cap <= src_base
+    }
 
-    ensures { count <= dst_cap }
+    ensures {
+        count <= dst_cap
+    }
 }
 
 // Sub-region slicing stays within parent bounds
 contract SubRegion {
     input(parent_size: Nat, offset: Nat, slice_len: Nat)
 
-    requires { offset + slice_len <= parent_size }
-    requires { parent_size > 0 }
+    requires {
+        offset + slice_len <= parent_size
+    }
+    requires {
+        parent_size > 0
+    }
 
-    ensures { offset + slice_len <= parent_size }
+    ensures {
+        offset + slice_len <= parent_size
+    }
 }

@@ -70,11 +70,21 @@ fn handshake_step_bounded(
 current_step: Nat,
 total_steps: Nat
 )
-requires { current_step >= 0 }
-requires { current_step < total_steps }
-requires { total_steps == 7 }
-ensures  { current_step <= 6 }
-ensures  { total_steps - current_step >= 1 }
+requires {
+    current_step >= 0
+}
+requires {
+    current_step < total_steps
+}
+requires {
+    total_steps == 7
+}
+ensures {
+    current_step <= 6
+}
+ensures {
+    total_steps - current_step >= 1
+}
 effects: pure
 
 // ---------------------------------------------------------------------------
@@ -88,11 +98,21 @@ fn validate_cipher_suite(
 key_length: Nat,
 min_key_length: Nat
 )
-requires { key_length >= min_key_length }
-requires { min_key_length >= 128 }
-requires { key_length <= 256 }
-ensures  { key_length >= 128 }
-ensures  { key_length <= 256 }
+requires {
+    key_length >= min_key_length
+}
+requires {
+    min_key_length >= 128
+}
+requires {
+    key_length <= 256
+}
+ensures {
+    key_length >= 128
+}
+ensures {
+    key_length <= 256
+}
 effects: pure
 
 // ---------------------------------------------------------------------------
@@ -107,10 +127,18 @@ fn message_ordering_valid(
 prev_type: Nat,
 curr_type: Nat
 )
-requires { prev_type >= 0 }
-requires { curr_type > prev_type }
-ensures  { curr_type > prev_type }
-ensures  { curr_type >= 1 }
+requires {
+    prev_type >= 0
+}
+requires {
+    curr_type > prev_type
+}
+ensures {
+    curr_type > prev_type
+}
+ensures {
+    curr_type >= 1
+}
 effects: pure
 
 // ---------------------------------------------------------------------------
@@ -128,12 +156,24 @@ fn certificate_chain_bounded(
 chain_depth: Nat,
 current_cert: Nat
 )
-requires { chain_depth >= 1 }
-requires { chain_depth <= MAX_CHAIN_DEPTH }
-requires { current_cert >= 0 }
-requires { current_cert < chain_depth }
-ensures  { current_cert < MAX_CHAIN_DEPTH }
-ensures  { chain_depth - current_cert >= 1 }
+requires {
+    chain_depth >= 1
+}
+requires {
+    chain_depth <= MAX_CHAIN_DEPTH
+}
+requires {
+    current_cert >= 0
+}
+requires {
+    current_cert < chain_depth
+}
+ensures {
+    current_cert < MAX_CHAIN_DEPTH
+}
+ensures {
+    chain_depth - current_cert >= 1
+}
 effects: pure
 
 // ---------------------------------------------------------------------------
@@ -148,12 +188,24 @@ issued_at: Nat,
 current_time: Nat,
 max_lifetime: Nat
 )
-requires { issued_at >= 0 }
-requires { current_time >= issued_at }
-requires { max_lifetime == MAX_TICKET_LIFETIME }
-requires { current_time - issued_at <= max_lifetime }
-ensures  { current_time - issued_at <= MAX_TICKET_LIFETIME }
-ensures  { current_time >= issued_at }
+requires {
+    issued_at >= 0
+}
+requires {
+    current_time >= issued_at
+}
+requires {
+    max_lifetime == MAX_TICKET_LIFETIME
+}
+requires {
+    current_time - issued_at <= max_lifetime
+}
+ensures {
+    current_time - issued_at <= MAX_TICKET_LIFETIME
+}
+ensures {
+    current_time >= issued_at
+}
 effects: pure
 
 // ============================================================================

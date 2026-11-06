@@ -9,33 +9,59 @@ module examples.plat.resource_limits;
 contract FdBudget {
     input(open_fds: Nat, fd_limit: Nat)
 
-    requires { fd_limit > 0 }
-    requires { open_fds < fd_limit }
+    requires {
+        fd_limit > 0
+    }
+    requires {
+        open_fds < fd_limit
+    }
 
-    ensures { open_fds < fd_limit }
+    ensures {
+        open_fds < fd_limit
+    }
 }
 
 // Memory budget: total allocation stays within quota
 contract MemoryBudget {
     input(allocated: Nat, quota: Nat, request: Nat)
 
-    requires { quota > 0 }
-    requires { request > 0 }
-    requires { allocated + request > allocated }
-    requires { allocated + request <= quota }
+    requires {
+        quota > 0
+    }
+    requires {
+        request > 0
+    }
+    requires {
+        allocated + request > allocated
+    }
+    requires {
+        allocated + request <= quota
+    }
 
-    ensures { allocated + request > allocated }
-    ensures { allocated + request <= quota }
+    ensures {
+        allocated + request > allocated
+    }
+    ensures {
+        allocated + request <= quota
+    }
 }
 
 // Thread pool: active threads never exceed pool size
 contract ThreadPoolLimit {
     input(active: Nat, pool_size: Nat)
 
-    requires { pool_size > 0 }
-    requires { active <= pool_size }
+    requires {
+        pool_size > 0
+    }
+    requires {
+        active <= pool_size
+    }
 
-    invariant { active <= pool_size }
+    invariant {
+        active <= pool_size
+    }
 
-    ensures { active <= pool_size }
+    ensures {
+        active <= pool_size
+    }
 }

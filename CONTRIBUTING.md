@@ -167,6 +167,10 @@ skips those jobs and runs codegen-validation instead (step 3).
 
 ```bash
 cargo fmt --all -- --check
+# Language sources. One-line `requires { ... }` expands. A clause with
+# no braces, such as `decreases n`, stays on one line.
+cargo run --bin assura -- fmt --check examples
+cargo run --bin assura -- fmt --check demos
 cargo clippy --workspace --locked -- -D warnings
 cargo deny check
 bash scripts/guards.sh
@@ -446,7 +450,11 @@ Use `assura explain <code>` to look up any error code.
 
 ## Code Style
 
-- `cargo fmt` is the formatter; do not deviate
+- `cargo fmt` formats Rust. Do not deviate.
+- `assura fmt` formats `.assura` sources. One-line brace bodies such as
+  `requires { x > 0 }` expand. A clause with no braces, such as
+  `decreases n`, stays on one line. `examples/` and `demos/` must pass
+  `assura fmt --check`.
 - `cargo clippy -- -D warnings` must pass with zero warnings
 - Use `pub(crate)` for internal visibility; `pub` only for cross-crate API
 - No `unwrap()` in library code (OK in tests and CLI)

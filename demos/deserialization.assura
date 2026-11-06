@@ -34,20 +34,34 @@ module sec.deserialization;
 
 contract LogMessageValidation {
     input(
-    message: Bytes @taint:untrusted,
-    max_message_length: Nat @taint:trusted
+    message: Bytes @taint: untrusted,
+    max_message_length: Nat @taint: trusted
     )
 
-    requires { message.length() > 0 }
-    requires { max_message_length > 0 }
-    requires { message.length() <= max_message_length }
-    requires { max_message_length <= 65536 }
+    requires {
+        message.length() > 0
+    }
+    requires {
+        max_message_length > 0
+    }
+    requires {
+        message.length() <= max_message_length
+    }
+    requires {
+        max_message_length <= 65536
+    }
 
     // PROVEN BY Z3: message is within safe bounds
-    ensures { message.length() <= 65536 }
-    ensures { max_message_length >= message.length() }
+    ensures {
+        message.length() <= 65536
+    }
+    ensures {
+        max_message_length >= message.length()
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -65,16 +79,30 @@ contract SanitizedFieldLength {
     buffer_size: Nat
     )
 
-    requires { raw_length > 0 }
-    requires { sanitized_length > 0 }
-    requires { sanitized_length <= raw_length }
-    requires { raw_length <= buffer_size }
+    requires {
+        raw_length > 0
+    }
+    requires {
+        sanitized_length > 0
+    }
+    requires {
+        sanitized_length <= raw_length
+    }
+    requires {
+        raw_length <= buffer_size
+    }
 
     // PROVEN BY Z3: sanitized output fits in the buffer
-    ensures { sanitized_length <= buffer_size }
-    ensures { sanitized_length <= raw_length }
+    ensures {
+        sanitized_length <= buffer_size
+    }
+    ensures {
+        sanitized_length <= raw_length
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -91,16 +119,30 @@ contract DeserializationSizeLimit {
     max_payload_size: Nat
     )
 
-    requires { payload.length() > 0 }
-    requires { max_payload_size > 0 }
-    requires { payload.length() <= max_payload_size }
-    requires { max_payload_size <= 1048576 }
+    requires {
+        payload.length() > 0
+    }
+    requires {
+        max_payload_size > 0
+    }
+    requires {
+        payload.length() <= max_payload_size
+    }
+    requires {
+        max_payload_size <= 1048576
+    }
 
     // PROVEN BY Z3: payload is within size limits
-    ensures { payload.length() <= 1048576 }
-    ensures { max_payload_size >= payload.length() }
+    ensures {
+        payload.length() <= 1048576
+    }
+    ensures {
+        max_payload_size >= payload.length()
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -116,16 +158,30 @@ contract NestingDepthLimit {
     max_depth: Nat
     )
 
-    requires { current_depth >= 0 }
-    requires { max_depth > 0 }
-    requires { current_depth < max_depth }
-    requires { max_depth <= 128 }
+    requires {
+        current_depth >= 0
+    }
+    requires {
+        max_depth > 0
+    }
+    requires {
+        current_depth < max_depth
+    }
+    requires {
+        max_depth <= 128
+    }
 
     // PROVEN BY Z3: depth is within safe bounds
-    ensures { current_depth < 128 }
-    ensures { max_depth - current_depth >= 1 }
+    ensures {
+        current_depth < 128
+    }
+    ensures {
+        max_depth - current_depth >= 1
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -136,13 +192,27 @@ fn validate_field_count(
 field_count: Nat,
 max_fields: Nat
 )
-requires { field_count >= 0 }
-requires { max_fields > 0 }
-requires { field_count <= max_fields }
-requires { max_fields <= 1024 }
-ensures  { field_count <= 1024 }
-ensures  { max_fields >= field_count }
-effects { pure }
+requires {
+    field_count >= 0
+}
+requires {
+    max_fields > 0
+}
+requires {
+    field_count <= max_fields
+}
+requires {
+    max_fields <= 1024
+}
+ensures {
+    field_count <= 1024
+}
+ensures {
+    max_fields >= field_count
+}
+effects {
+    pure
+}
 
 // ============================================================================
 // Summary: What Assura proves at compile time

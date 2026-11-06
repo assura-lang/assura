@@ -9,8 +9,12 @@ module examples.core.ghost_variables;
 contract GhostAccumulator {
     input(count: Nat, limit: Nat)
 
-    requires { limit > 0 }
-    requires { count <= limit }
+    requires {
+        limit > 0
+    }
+    requires {
+        count <= limit
+    }
 
     ensures {
         ghost(count) <= limit
@@ -21,8 +25,12 @@ contract GhostAccumulator {
 contract GhostAuditTrail {
     input(value: Int, seq_len: Nat)
 
-    requires { value > 0 }
-    requires { seq_len >= 0 }
+    requires {
+        value > 0
+    }
+    requires {
+        seq_len >= 0
+    }
 
     ensures {
         ghost(seq_len) >= 0
@@ -33,8 +41,12 @@ contract GhostAuditTrail {
 contract GhostProvenance {
     input(origin_id: Nat, validated: Bool)
 
-    requires { origin_id > 0 }
-    requires { validated == true }
+    requires {
+        origin_id > 0
+    }
+    requires {
+        validated == true
+    }
 
     ensures {
         ghost(origin_id) > 0

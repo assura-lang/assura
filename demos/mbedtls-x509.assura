@@ -41,7 +41,7 @@ module tls.ecdh;
 
 feature ecdsa = enabled
 feature x509 = enabled
-requires: ecdsa    // X.509 signature verification NEEDS ECDSA
+requires: ecdsa // X.509 signature verification NEEDS ECDSA
 // Disabling ecdsa while x509 is enabled = compile error A38002
 feature ecdh = enabled
 feature rsa = enabled
@@ -54,7 +54,7 @@ feature_max MAX_HANDSHAKE_LEN: Nat = 65535
 // Assura's feature_max narrows ALL refinement types that reference it.
 // Changing MAX_CONTENT_LEN automatically re-verifies every function that
 // uses a buffer sized by it. In C, you change the macro and hope.
-feature_max MAX_EC_POINT_SIZE: Nat = 256   // P-521 worst case: 133 bytes
+feature_max MAX_EC_POINT_SIZE: Nat = 256 // P-521 worst case: 133 bytes
 
 // ---------------------------------------------------------------------------
 // SEC.1 — Taint tracking: everything from the wire is untrusted
@@ -65,27 +65,29 @@ feature_max MAX_EC_POINT_SIZE: Nat = 256   // P-521 worst case: 133 bytes
 // without checking it against the curve's actual point size.
 // ---------------------------------------------------------------------------
 
-fn read_from_wire(conn: &mut TlsConnection, max: Nat) -> Bytes @taint:untrusted
+fn read_from_wire(conn: &mut TlsConnection, max: Nat) -> Bytes @taint: untrusted
 effects: io.read
 
-fn read_u16_from_wire(conn: &mut TlsConnection) -> U16 @taint:untrusted
+fn read_u16_from_wire(conn: &mut TlsConnection) -> U16 @taint: untrusted
 effects: io.read
 
-fn read_u24_from_wire(conn: &mut TlsConnection) -> U32 @taint:untrusted
+fn read_u24_from_wire(conn: &mut TlsConnection) -> U32 @taint: untrusted
 effects: io.read
 
 // Validated peer key: length proven to fit in the ECDH point buffer
 type ValidPeerKey {
-    data: Bytes @taint:validated,
-    length: {v: Nat | v <= MAX_EC_POINT_SIZE},
+    data: Bytes @taint: validated,
+    length: {
+        v: Nat | v <= MAX_EC_POINT_SIZE
+    },
     curve_id: CurveId
 }
 
 fn validate_peer_key(
-raw_data: Bytes @taint:untrusted,
-raw_length: U16 @taint:untrusted,
+raw_data: Bytes @taint: untrusted,
+raw_length: U16 @taint: untrusted,
 expected_curve: CurveId
-) -> ValidPeerKey @taint:validated | HandshakeError
+) -> ValidPeerKey @taint: validated | HandshakeError
 effects: pure
 {
     // Step 1: Validate length against the curve's known point size
@@ -95,13 +97,15 @@ effects: pure
         raw_length as Nat <= curve_point_size
         and curve_point_size <= MAX_EC_POINT_SIZE
         and raw_length as Nat <= raw_data.len()
-    } raw_data
+    }
+    raw_data
     or return HandshakeError("peer key length exceeds curve point size")
 
     // Step 2: Validate the point is on the curve (not just any bytes)
     validate {
         is_point_on_curve(raw_data.slice(0, raw_length as Nat), expected_curve)
-    } raw_data
+    }
+    raw_data
     or return HandshakeError("peer key not on expected curve")
 
     ValidPeerKey {
@@ -132,23 +136,32 @@ type EcdhContext {
 //   alloc_size = header_len + content_len  (overflows if both are large)
 // Assura's refined types catch this at compile time.
 fn parse_x509_length(
-raw_len: U32 @taint:untrusted
-) -> {v: Nat | v <= MAX_HANDSHAKE_LEN} @taint:validated | ParseError
+raw_len: U32 @taint: untrusted
+) -> {
+    v: Nat | v <= MAX_HANDSHAKE_LEN
+} @taint: validated | ParseError
 effects: pure
 {
     // Validate before any arithmetic — no overflow possible
     validate {
         raw_len as Nat <= MAX_HANDSHAKE_LEN
-    } raw_len
+    }
+    raw_len
     or return ParseError("X.509 length exceeds maximum handshake size")
 
     raw_len as Nat
 }
 
 fn safe_alloc_size(
-header_len: {h: Nat | h <= MAX_HANDSHAKE_LEN},
-content_len: {c: Nat | c <= MAX_HANDSHAKE_LEN}
-) -> {v: Nat | v <= 2 * MAX_HANDSHAKE_LEN}
+header_len: {
+    h: Nat | h <= MAX_HANDSHAKE_LEN
+},
+content_len: {
+    c: Nat | c <= MAX_HANDSHAKE_LEN
+}
+) -> {
+    v: Nat | v <= 2 * MAX_HANDSHAKE_LEN
+}
 requires {
     // Explicit overflow check — U32 arithmetic is verified
     header_len + content_len <= 2 * MAX_HANDSHAKE_LEN
@@ -156,7 +169,7 @@ requires {
 effects: pure
 {
     header_len + content_len
-// If this could overflow U32, the verifier rejects it (compile-time bound failure)
+    // If this could overflow U32, the verifier rejects it (compile-time bound failure)
 }
 
 // ---------------------------------------------------------------------------
@@ -169,11 +182,13 @@ effects: pure
 contract EcdhParseContract {
     fn parse_ecdh_peer_key(
     ctx: &mut EcdhContext,
-    peer: ValidPeerKey @taint:validated
+    peer: ValidPeerKey @taint: validated
     ) -> ()
     // Frame: ONLY peer_point is modified. shared_secret, our_keypair,
     // and everything else stays unchanged.
-    modifies { ctx.peer_point }
+    modifies {
+        ctx.peer_point
+    }
     requires {
         peer.curve_id == ctx.curve,
         peer.length <= MAX_EC_POINT_SIZE
@@ -195,9 +210,11 @@ contract EcdhParseContract {
 #[constant_time]
 fn ecdh_compute_shared(
 our_private: U256 #[secret],
-peer_public: ValidPeerKey @taint:validated
+peer_public: ValidPeerKey @taint: validated
 ) -> Region<MAX_EC_POINT_SIZE>
-requires { peer_public.curve_id == our_curve }
+requires {
+    peer_public.curve_id == our_curve
+}
 effects: pure
 {
     // Montgomery ladder: both branches execute identical operations.
@@ -239,7 +256,7 @@ spec NIST_SP_800_56A_ECDH {
 #[conforms("NIST_SP_800_56A_ECDH")]
 fn ecdh_derive_secret(
 private_key: U256 #[secret],
-peer_point: ValidPeerKey @taint:validated,
+peer_point: ValidPeerKey @taint: validated,
 curve: CurveParams
 ) -> SharedSecret
 requires {
@@ -267,15 +284,18 @@ fn process_incoming_record(
 conn: &mut TlsConnection,
 record_buf: Region<MAX_CONTENT_LEN>
 ) -> RecordResult
-modifies { record_buf }
+modifies {
+    record_buf
+}
 effects: io.read
 {
-    let record_len_raw = read_u16_from_wire(conn)  // @taint:untrusted
+    let record_len_raw = read_u16_from_wire(conn) // @taint:untrusted
 
     // Validate record length against the ACTUAL buffer size
     let record_len = validate {
         record_len_raw as Nat <= MAX_CONTENT_LEN
-    } record_len_raw
+    }
+    record_len_raw
     or return RecordResult.Error("record exceeds MAX_CONTENT_LEN")
 
     // MEM.1: Region write with validated length.
@@ -301,20 +321,42 @@ feature_max SMT_CONTENT_BOUND: Nat = 16384
 feature_max SMT_HANDSHAKE_BOUND: Nat = 65535
 
 fn check_ec_point_bounds(point_len: Nat, content_len: Nat)
-requires { point_len <= SMT_EC_POINT_BOUND }
-requires { content_len <= SMT_CONTENT_BOUND }
-ensures  { point_len <= 256 }
-ensures  { content_len <= 16384 }
-ensures  { SMT_EC_POINT_BOUND == 256 }
-ensures  { SMT_CONTENT_BOUND == 16384 }
+requires {
+    point_len <= SMT_EC_POINT_BOUND
+}
+requires {
+    content_len <= SMT_CONTENT_BOUND
+}
+ensures {
+    point_len <= 256
+}
+ensures {
+    content_len <= 16384
+}
+ensures {
+    SMT_EC_POINT_BOUND == 256
+}
+ensures {
+    SMT_CONTENT_BOUND == 16384
+}
 effects: pure
 
 fn check_handshake_alloc_bounds(header_len: Nat, content_len: Nat)
-requires { header_len <= SMT_HANDSHAKE_BOUND }
-requires { content_len <= SMT_HANDSHAKE_BOUND }
-requires { header_len + content_len <= 2 * SMT_HANDSHAKE_BOUND }
-ensures  { header_len + content_len <= 131070 }
-ensures  { SMT_HANDSHAKE_BOUND == 65535 }
+requires {
+    header_len <= SMT_HANDSHAKE_BOUND
+}
+requires {
+    content_len <= SMT_HANDSHAKE_BOUND
+}
+requires {
+    header_len + content_len <= 2 * SMT_HANDSHAKE_BOUND
+}
+ensures {
+    header_len + content_len <= 131070
+}
+ensures {
+    SMT_HANDSHAKE_BOUND == 65535
+}
 effects: pure
 
 // ============================================================================

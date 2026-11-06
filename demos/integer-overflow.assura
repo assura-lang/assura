@@ -42,18 +42,34 @@ contract SafeSizeAccumulation {
     max_buffer_size: Nat
     )
 
-    requires { running_total >= 0 }
-    requires { new_arg_length > 0 }
-    requires { max_buffer_size > 0 }
-    requires { running_total + new_arg_length >= running_total }
-    requires { new_arg_length <= max_buffer_size }
-    requires { running_total + new_arg_length <= max_buffer_size }
+    requires {
+        running_total >= 0
+    }
+    requires {
+        new_arg_length > 0
+    }
+    requires {
+        max_buffer_size > 0
+    }
+    requires {
+        running_total + new_arg_length >= running_total
+    }
+    requires {
+        new_arg_length <= max_buffer_size
+    }
+    requires {
+        running_total + new_arg_length <= max_buffer_size
+    }
 
     // Follows from the no-wrap requires and new_arg_length > 0.
     // Not a copy of a requires.
-    ensures { running_total < max_buffer_size }
+    ensures {
+        running_total < max_buffer_size
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -69,15 +85,25 @@ contract BufferMatchesCalculatedSize {
     allocated_size: Nat
     )
 
-    requires { calculated_size > 0 }
-    requires { calculated_size + 1 > calculated_size }
+    requires {
+        calculated_size > 0
+    }
+    requires {
+        calculated_size + 1 > calculated_size
+    }
     // Buffer must have room for data plus null terminator
-    requires { allocated_size >= calculated_size + 1 }
+    requires {
+        allocated_size >= calculated_size + 1
+    }
 
     // Follows from allocated_size >= calculated_size + 1 and calculated_size > 0.
-    ensures { allocated_size > calculated_size }
+    ensures {
+        allocated_size > calculated_size
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -94,15 +120,27 @@ contract ArgumentLengthBounded {
     max_arg_length: Nat
     )
 
-    requires { arg_length > 0 }
-    requires { max_arg_length > 0 }
-    requires { arg_length <= max_arg_length }
-    requires { max_arg_length <= 131072 }
+    requires {
+        arg_length > 0
+    }
+    requires {
+        max_arg_length > 0
+    }
+    requires {
+        arg_length <= max_arg_length
+    }
+    requires {
+        max_arg_length <= 131072
+    }
 
     // Follows from arg_length <= max_arg_length and max_arg_length <= 131072.
-    ensures { arg_length <= 131072 }
+    ensures {
+        arg_length <= 131072
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -120,17 +158,33 @@ contract SafeMultiplication {
     max_total: Nat
     )
 
-    requires { element_count > 0 }
-    requires { element_size > 0 }
-    requires { max_total > 0 }
-    requires { element_count * element_size >= element_count }
-    requires { element_size <= max_total }
-    requires { element_count * element_size <= max_total }
+    requires {
+        element_count > 0
+    }
+    requires {
+        element_size > 0
+    }
+    requires {
+        max_total > 0
+    }
+    requires {
+        element_count * element_size >= element_count
+    }
+    requires {
+        element_size <= max_total
+    }
+    requires {
+        element_count * element_size <= max_total
+    }
 
     // Follows from product <= max_total and product >= element_count.
-    ensures { element_count <= max_total }
+    ensures {
+        element_count <= max_total
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -141,12 +195,24 @@ fn validate_argument_count(
 argc: Nat,
 max_argc: Nat
 )
-requires { argc >= 1 }
-requires { max_argc > 0 }
-requires { argc <= max_argc }
-requires { max_argc <= 4096 }
-ensures  { argc <= 4096 }
-effects { pure }
+requires {
+    argc >= 1
+}
+requires {
+    max_argc > 0
+}
+requires {
+    argc <= max_argc
+}
+requires {
+    max_argc <= 4096
+}
+ensures {
+    argc <= 4096
+}
+effects {
+    pure
+}
 
 // ============================================================================
 // Summary: What Assura proves at compile time

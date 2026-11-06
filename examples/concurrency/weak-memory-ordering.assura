@@ -12,9 +12,13 @@ contract ReleaseAcquirePair {
     ordering: release
     ordering: acquire
 
-    requires { writer_value > 0 }
+    requires {
+        writer_value > 0
+    }
 
-    ensures { writer_value > 0 }
+    ensures {
+        writer_value > 0
+    }
 }
 
 // Sequentially consistent counter
@@ -23,11 +27,19 @@ contract SeqCstCounter {
 
     ordering: seq_cst
 
-    requires { increment > 0 }
-    requires { value >= 0 }
-    requires { value + increment > value }
+    requires {
+        increment > 0
+    }
+    requires {
+        value >= 0
+    }
+    requires {
+        value + increment > value
+    }
 
-    ensures { value + increment > value }
+    ensures {
+        value + increment > value
+    }
 }
 
 // Relaxed load for non-critical statistics
@@ -36,5 +48,7 @@ contract RelaxedStats {
 
     ordering: relaxed
 
-    requires { counter >= 0 }
+    requires {
+        counter >= 0
+    }
 }

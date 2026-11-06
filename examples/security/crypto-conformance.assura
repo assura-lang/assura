@@ -9,42 +9,72 @@ module examples.security.crypto_conformance;
 contract AESBlockContract {
     input(block_size: Nat, key_size: Nat)
 
-    requires { block_size == 16 }
-    requires { key_size == 16 }
+    requires {
+        block_size == 16
+    }
+    requires {
+        key_size == 16
+    }
 
-    ensures { block_size == 16 }
-    ensures { key_size == 16 }
+    ensures {
+        block_size == 16
+    }
+    ensures {
+        key_size == 16
+    }
 }
 
 // HMAC output length matches the hash function
 contract HMACLength {
     input(hash_output_len: Nat, hmac_len: Nat)
 
-    requires { hash_output_len == 32 }
-    requires { hmac_len == hash_output_len }
+    requires {
+        hash_output_len == 32
+    }
+    requires {
+        hmac_len == hash_output_len
+    }
 
-    ensures { hmac_len == 32 }
+    ensures {
+        hmac_len == 32
+    }
 }
 
 // RSA key size must be at least 2048 bits
 contract RSAKeySize {
     input(key_bits: Nat, modulus_bytes: Nat)
 
-    requires { key_bits >= 2048 }
-    requires { modulus_bytes == key_bits / 8 }
+    requires {
+        key_bits >= 2048
+    }
+    requires {
+        modulus_bytes == key_bits / 8
+    }
 
-    ensures { modulus_bytes >= 256 }
+    ensures {
+        modulus_bytes >= 256
+    }
 }
 
 // Nonce must never repeat for AES-GCM
 contract AESGCMNonce {
     input(nonce_a: Nat, nonce_b: Nat, nonce_len: Nat)
 
-    requires { nonce_len == 12 }
-    requires { nonce_a != nonce_b }
+    requires {
+        nonce_len == 12
+    }
+    requires {
+        nonce_a != nonce_b
+    }
 
-    key_size { 128 }
-    nonce_size { 12 }
+    key_size {
+        128
+    }
+    nonce_size {
+        12
+    }
 
-    ensures { nonce_a != nonce_b }
+    ensures {
+        nonce_a != nonce_b
+    }
 }

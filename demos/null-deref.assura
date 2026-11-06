@@ -40,16 +40,30 @@ contract AlgorithmListBounds {
     max_algorithms: Nat
     )
 
-    requires { algorithm_count > 0 }
-    requires { max_algorithms > 0 }
-    requires { algorithm_count <= max_algorithms }
-    requires { max_algorithms <= 64 }
+    requires {
+        algorithm_count > 0
+    }
+    requires {
+        max_algorithms > 0
+    }
+    requires {
+        algorithm_count <= max_algorithms
+    }
+    requires {
+        max_algorithms <= 64
+    }
 
     // PROVEN BY Z3: algorithm count within safe limits
-    ensures { algorithm_count <= 64 }
-    ensures { max_algorithms >= algorithm_count }
+    ensures {
+        algorithm_count <= 64
+    }
+    ensures {
+        max_algorithms >= algorithm_count
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -65,16 +79,30 @@ contract KexMessageBounds {
     max_message_size: Nat
     )
 
-    requires { message.length() > 0 }
-    requires { max_message_size > 0 }
-    requires { message.length() <= max_message_size }
-    requires { max_message_size <= 262144 }
+    requires {
+        message.length() > 0
+    }
+    requires {
+        max_message_size > 0
+    }
+    requires {
+        message.length() <= max_message_size
+    }
+    requires {
+        max_message_size <= 262144
+    }
 
     // PROVEN BY Z3: message size is within limits
-    ensures { message.length() <= 262144 }
-    ensures { max_message_size >= message.length() }
+    ensures {
+        message.length() <= 262144
+    }
+    ensures {
+        max_message_size >= message.length()
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -92,16 +120,30 @@ contract SafeStringExtraction {
     )
 
     // Length prefix is 4 bytes, then the string content
-    requires { remaining_bytes >= 4 }
-    requires { declared_length > 0 }
-    requires { declared_length + 4 >= declared_length }
-    requires { declared_length + 4 <= remaining_bytes }
+    requires {
+        remaining_bytes >= 4
+    }
+    requires {
+        declared_length > 0
+    }
+    requires {
+        declared_length + 4 >= declared_length
+    }
+    requires {
+        declared_length + 4 <= remaining_bytes
+    }
 
     // PROVEN BY Z3: string fits within remaining message
-    ensures { declared_length + 4 <= remaining_bytes }
-    ensures { declared_length <= remaining_bytes - 4 }
+    ensures {
+        declared_length + 4 <= remaining_bytes
+    }
+    ensures {
+        declared_length <= remaining_bytes - 4
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -118,16 +160,30 @@ contract SessionKeySizeValidation {
     required_key_size: Nat
     )
 
-    requires { key_size > 0 }
-    requires { required_key_size > 0 }
-    requires { key_size == required_key_size }
-    requires { required_key_size <= 64 }
+    requires {
+        key_size > 0
+    }
+    requires {
+        required_key_size > 0
+    }
+    requires {
+        key_size == required_key_size
+    }
+    requires {
+        required_key_size <= 64
+    }
 
     // PROVEN BY Z3: key size matches requirement
-    ensures { key_size == required_key_size }
-    ensures { key_size <= 64 }
+    ensures {
+        key_size == required_key_size
+    }
+    ensures {
+        key_size <= 64
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -138,13 +194,27 @@ fn validate_banner_length(
 banner_length: Nat,
 max_banner_length: Nat
 )
-requires { banner_length >= 0 }
-requires { max_banner_length > 0 }
-requires { banner_length <= max_banner_length }
-requires { max_banner_length <= 8192 }
-ensures  { banner_length <= 8192 }
-ensures  { max_banner_length >= banner_length }
-effects { pure }
+requires {
+    banner_length >= 0
+}
+requires {
+    max_banner_length > 0
+}
+requires {
+    banner_length <= max_banner_length
+}
+requires {
+    max_banner_length <= 8192
+}
+ensures {
+    banner_length <= 8192
+}
+ensures {
+    max_banner_length >= banner_length
+}
+effects {
+    pure
+}
 
 // ============================================================================
 // Summary: What Assura proves at compile time

@@ -32,21 +32,35 @@ module sec.sql_injection;
 
 contract ValidateQueryParam {
     input(
-    param_length: Nat @taint:untrusted,
-    max_param_length: Nat @taint:trusted
+    param_length: Nat @taint: untrusted,
+    max_param_length: Nat @taint: trusted
     )
 
     // Parameter must be non-empty and within the maximum allowed length
-    requires { param_length > 0 }
-    requires { max_param_length > 0 }
-    requires { param_length <= max_param_length }
-    requires { max_param_length <= 4096 }
+    requires {
+        param_length > 0
+    }
+    requires {
+        max_param_length > 0
+    }
+    requires {
+        param_length <= max_param_length
+    }
+    requires {
+        max_param_length <= 4096
+    }
 
     // PROVEN BY Z3: validated parameter is within safe bounds
-    ensures { param_length <= 4096 }
-    ensures { max_param_length >= param_length }
+    ensures {
+        param_length <= 4096
+    }
+    ensures {
+        max_param_length >= param_length
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -65,20 +79,42 @@ contract SafeQueryConstruction {
     max_query_size: Nat
     )
 
-    requires { template_length > 0 }
-    requires { param_count > 0 }
-    requires { max_param_size > 0 }
-    requires { max_query_size > 0 }
-    requires { param_count * max_param_size >= param_count }
-    requires { template_length + param_count * max_param_size >= template_length }
-    requires { template_length <= max_query_size }
-    requires { template_length + param_count * max_param_size <= max_query_size }
+    requires {
+        template_length > 0
+    }
+    requires {
+        param_count > 0
+    }
+    requires {
+        max_param_size > 0
+    }
+    requires {
+        max_query_size > 0
+    }
+    requires {
+        param_count * max_param_size >= param_count
+    }
+    requires {
+        template_length + param_count * max_param_size >= template_length
+    }
+    requires {
+        template_length <= max_query_size
+    }
+    requires {
+        template_length + param_count * max_param_size <= max_query_size
+    }
 
     // PROVEN BY Z3: total query size is bounded
-    ensures { template_length + param_count * max_param_size <= max_query_size }
-    ensures { template_length <= max_query_size }
+    ensures {
+        template_length + param_count * max_param_size <= max_query_size
+    }
+    ensures {
+        template_length <= max_query_size
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -96,18 +132,34 @@ contract SanitizeInputBounds {
     buffer_size: Nat
     )
 
-    requires { raw_length > 0 }
-    requires { buffer_size > 0 }
+    requires {
+        raw_length > 0
+    }
+    requires {
+        buffer_size > 0
+    }
     // Worst-case expansion: each character could double (escape)
-    requires { raw_length * 2 >= raw_length }
-    requires { raw_length <= buffer_size }
-    requires { raw_length * 2 <= buffer_size }
+    requires {
+        raw_length * 2 >= raw_length
+    }
+    requires {
+        raw_length <= buffer_size
+    }
+    requires {
+        raw_length * 2 <= buffer_size
+    }
 
     // PROVEN BY Z3: sanitized output fits in the buffer
-    ensures { raw_length * 2 <= buffer_size }
-    ensures { raw_length <= buffer_size }
+    ensures {
+        raw_length * 2 <= buffer_size
+    }
+    ensures {
+        raw_length <= buffer_size
+    }
 
-    effects { pure }
+    effects {
+        pure
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -115,13 +167,27 @@ contract SanitizeInputBounds {
 // ---------------------------------------------------------------------------
 
 fn validate_param_count(param_count: Nat, max_params: Nat)
-requires { param_count >= 0 }
-requires { max_params > 0 }
-requires { param_count <= max_params }
-requires { max_params <= 100 }
-ensures  { param_count <= 100 }
-ensures  { max_params >= param_count }
-effects { pure }
+requires {
+    param_count >= 0
+}
+requires {
+    max_params > 0
+}
+requires {
+    param_count <= max_params
+}
+requires {
+    max_params <= 100
+}
+ensures {
+    param_count <= 100
+}
+ensures {
+    max_params >= param_count
+}
+effects {
+    pure
+}
 
 // ============================================================================
 // Summary: What Assura proves at compile time

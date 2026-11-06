@@ -8,5 +8,7 @@
 contract ShowcaseEcho {
     input(x: Int)
     output(result: Int)
-    ensures { result == x }
+    ensures {
+        result == x
+    }
 }

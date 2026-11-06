@@ -12,13 +12,21 @@ ghost prophecy chosen_index: Nat
 contract SearchPrecondition {
     input(haystack_len: Nat, needle: Int)
 
-    requires { haystack_len > 0 }
-    requires { needle >= 0 }
+    requires {
+        haystack_len > 0
+    }
+    requires {
+        needle >= 0
+    }
 
-    ensures { haystack_len > 0 }
+    ensures {
+        haystack_len > 0
+    }
     // resolve() is not a solver term yet. The identity names the prophecy
     // so the declaration is resolved without a false bound.
-    ensures { resolve(chosen_index) == resolve(chosen_index) }
+    ensures {
+        resolve(chosen_index) == resolve(chosen_index)
+    }
 }
 
 // Prophecy: the convergence iteration count
@@ -28,10 +36,18 @@ ghost prophecy convergence_step: Nat
 contract SolverConfig {
     input(tolerance: Float, max_iter: Nat)
 
-    requires { tolerance > 0 }
-    requires { max_iter > 0 }
+    requires {
+        tolerance > 0
+    }
+    requires {
+        max_iter > 0
+    }
 
-    ensures { max_iter > 0 }
+    ensures {
+        max_iter > 0
+    }
     // Same encoding gap as chosen_index above.
-    ensures { resolve(convergence_step) == resolve(convergence_step) }
+    ensures {
+        resolve(convergence_step) == resolve(convergence_step)
+    }
 }

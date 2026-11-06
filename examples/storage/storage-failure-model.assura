@@ -8,27 +8,43 @@ module examples.storage.storage_failure_model;
 contract PartialWrite {
     input(intended_len: Nat, written_len: Nat)
 
-    requires { written_len <= intended_len }
-    requires { intended_len > 0 }
+    requires {
+        written_len <= intended_len
+    }
+    requires {
+        intended_len > 0
+    }
 
-    ensures { written_len <= intended_len }
+    ensures {
+        written_len <= intended_len
+    }
 }
 
 // Checksum detects a torn write
 contract TornWriteDetection {
     input(data_len: Nat, checksum_valid: Bool)
 
-    requires { data_len > 0 }
+    requires {
+        data_len > 0
+    }
 
-    ensures { data_len > 0 }
+    ensures {
+        data_len > 0
+    }
 }
 
 // Double-write: write data to two locations for redundancy
 contract DoubleWrite {
     input(primary_writes: Nat, replica_writes: Nat)
 
-    requires { primary_writes > 0 }
-    requires { replica_writes >= 0 }
+    requires {
+        primary_writes > 0
+    }
+    requires {
+        replica_writes >= 0
+    }
 
-    ensures { primary_writes > 0 }
+    ensures {
+        primary_writes > 0
+    }
 }

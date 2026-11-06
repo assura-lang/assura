@@ -25,18 +25,32 @@
 // ============================================================
 contract DepositShareRounding {
     input(
-    deposit_amount: Int,        // amount of deposit asset (18 decimals)
-    rate: Int,                  // exchange rate from accountant (18 decimals)
-    one_share: Int,             // 10^18 for 18-decimal vault
-    share_premium: Int          // 0-1000 (basis points, max 10%)
+    deposit_amount: Int, // amount of deposit asset (18 decimals)
+    rate: Int, // exchange rate from accountant (18 decimals)
+    one_share: Int, // 10^18 for 18-decimal vault
+    share_premium: Int // 0-1000 (basis points, max 10%)
     )
-    requires { deposit_amount >= 1 }
-    requires { deposit_amount <= 1000000000000000000000000000 }
-    requires { rate >= 1 }
-    requires { rate <= 79228162514264337593543950335 }
-    requires { one_share == 1000000000000000000 }
-    requires { share_premium >= 0 }
-    requires { share_premium <= 1000 }
+    requires {
+        deposit_amount >= 1
+    }
+    requires {
+        deposit_amount <= 1000000000000000000000000000
+    }
+    requires {
+        rate >= 1
+    }
+    requires {
+        rate <= 79228162514264337593543950335
+    }
+    requires {
+        one_share == 1000000000000000000
+    }
+    requires {
+        share_premium >= 0
+    }
+    requires {
+        share_premium <= 1000
+    }
 
     // Step 1: shares = deposit_amount * ONE_SHARE / rate (floor)
     // Step 2: if premium > 0: shares = shares * (10000 - premium) / 10000 (floor)
@@ -52,7 +66,9 @@ contract DepositShareRounding {
 
     // INVARIANT: value of shares received <= deposit amount
     // deposit_amount * ONE_SHARE / rate * rate / ONE_SHARE <= deposit_amount
-    ensures { (deposit_amount * one_share / rate) * rate / one_share <= deposit_amount }
+    ensures {
+        (deposit_amount * one_share / rate) * rate / one_share <= deposit_amount
+    }
 }
 
 // ============================================================
@@ -66,15 +82,25 @@ contract DepositShareRounding {
 // ============================================================
 contract WithdrawRounding {
     input(
-    share_amount: Int,          // shares to burn
-    rate: Int,                  // exchange rate
-    one_share: Int              // 10^18
+    share_amount: Int, // shares to burn
+    rate: Int, // exchange rate
+    one_share: Int // 10^18
     )
-    requires { share_amount >= 1 }
-    requires { share_amount <= 1000000000000000000000000000 }
-    requires { rate >= 1 }
-    requires { rate <= 79228162514264337593543950335 }
-    requires { one_share == 1000000000000000000 }
+    requires {
+        share_amount >= 1
+    }
+    requires {
+        share_amount <= 1000000000000000000000000000
+    }
+    requires {
+        rate >= 1
+    }
+    requires {
+        rate <= 79228162514264337593543950335
+    }
+    requires {
+        one_share == 1000000000000000000
+    }
 
     // assetsOut = share_amount * rate / ONE_SHARE (floor)
     // Value check: assetsOut <= share_amount * rate / ONE_SHARE (exact)
@@ -86,7 +112,9 @@ contract WithdrawRounding {
     //                            = (X * ONE_SHARE / rate) * rate / ONE_SHARE
 
     // INVARIANT: roundtrip should not be profitable
-    ensures { (share_amount * one_share / rate) * rate / one_share <= share_amount }
+    ensures {
+        (share_amount * one_share / rate) * rate / one_share <= share_amount
+    }
 }
 
 // ============================================================
@@ -103,30 +131,60 @@ contract WithdrawRounding {
 // ============================================================
 contract FeeUint128Truncation {
     input(
-    total_shares: Int,          // total supply (uint128, 18 decimals)
-    exchange_rate: Int,         // current rate (uint96, 18 decimals)
-    new_rate: Int,              // new rate (uint96)
-    highwater_mark: Int,        // previous high (uint96)
-    platform_fee: Int,          // platform fee in bps (max 2000 = 20%)
-    performance_fee: Int,       // performance fee in bps (max 5000 = 50%)
-    time_delta: Int,            // seconds since last update
+    total_shares: Int, // total supply (uint128, 18 decimals)
+    exchange_rate: Int, // current rate (uint96, 18 decimals)
+    new_rate: Int, // new rate (uint96)
+    highwater_mark: Int, // previous high (uint96)
+    platform_fee: Int, // platform fee in bps (max 2000 = 20%)
+    performance_fee: Int, // performance fee in bps (max 5000 = 50%)
+    time_delta: Int, // seconds since last update
     one_share: Int
     )
-    requires { total_shares >= 0 }
-    requires { total_shares <= 340282366920938463463374607431768211455 }
-    requires { exchange_rate >= 1 }
-    requires { exchange_rate <= 79228162514264337593543950335 }
-    requires { new_rate >= 1 }
-    requires { new_rate <= 79228162514264337593543950335 }
-    requires { highwater_mark >= 1 }
-    requires { highwater_mark <= 79228162514264337593543950335 }
-    requires { platform_fee >= 0 }
-    requires { platform_fee <= 2000 }
-    requires { performance_fee >= 0 }
-    requires { performance_fee <= 5000 }
-    requires { time_delta >= 0 }
-    requires { time_delta <= 1209600 }
-    requires { one_share == 1000000000000000000 }
+    requires {
+        total_shares >= 0
+    }
+    requires {
+        total_shares <= 340282366920938463463374607431768211455
+    }
+    requires {
+        exchange_rate >= 1
+    }
+    requires {
+        exchange_rate <= 79228162514264337593543950335
+    }
+    requires {
+        new_rate >= 1
+    }
+    requires {
+        new_rate <= 79228162514264337593543950335
+    }
+    requires {
+        highwater_mark >= 1
+    }
+    requires {
+        highwater_mark <= 79228162514264337593543950335
+    }
+    requires {
+        platform_fee >= 0
+    }
+    requires {
+        platform_fee <= 2000
+    }
+    requires {
+        performance_fee >= 0
+    }
+    requires {
+        performance_fee <= 5000
+    }
+    requires {
+        time_delta >= 0
+    }
+    requires {
+        time_delta <= 1209600
+    }
+    requires {
+        one_share == 1000000000000000000
+    }
 
     // Platform fee calculation (line 504-510):
     //   minimumAssets = total_shares * min(new_rate, exchange_rate) / ONE_SHARE
@@ -163,8 +221,12 @@ contract FeeUint128Truncation {
 
     // Let's check: can fees exceed uint128 with valid parameters?
     // Worst case: max shares, max rate, max fees, max time
-    requires { new_rate > highwater_mark }
-    ensures { (new_rate - highwater_mark) * total_shares / one_share * performance_fee / 10000 <= 340282366920938463463374607431768211455 }
+    requires {
+        new_rate > highwater_mark
+    }
+    ensures {
+        (new_rate - highwater_mark) * total_shares / one_share * performance_fee / 10000 <= 340282366920938463463374607431768211455
+    }
 }
 
 // ============================================================
@@ -181,25 +243,45 @@ contract FeeUint128Truncation {
 // ============================================================
 contract ExchangeRateBoundsCheck {
     input(
-    current_rate: Int,          // current exchange rate (uint96)
-    new_rate: Int,              // proposed new rate (uint96)
-    upper_bound: Int,           // max allowed ratio (>= 10000)
-    lower_bound: Int            // min allowed ratio (<= 10000)
+    current_rate: Int, // current exchange rate (uint96)
+    new_rate: Int, // proposed new rate (uint96)
+    upper_bound: Int, // max allowed ratio (>= 10000)
+    lower_bound: Int // min allowed ratio (<= 10000)
     )
-    requires { current_rate >= 1 }
-    requires { current_rate <= 79228162514264337593543950335 }
-    requires { new_rate >= 0 }
-    requires { new_rate <= 79228162514264337593543950335 }
-    requires { upper_bound >= 10000 }
-    requires { upper_bound <= 65535 }
-    requires { lower_bound >= 0 }
-    requires { lower_bound <= 10000 }
+    requires {
+        current_rate >= 1
+    }
+    requires {
+        current_rate <= 79228162514264337593543950335
+    }
+    requires {
+        new_rate >= 0
+    }
+    requires {
+        new_rate <= 79228162514264337593543950335
+    }
+    requires {
+        upper_bound >= 10000
+    }
+    requires {
+        upper_bound <= 65535
+    }
+    requires {
+        lower_bound >= 0
+    }
+    requires {
+        lower_bound <= 10000
+    }
 
     // The check: NOT paused means:
     // new_rate <= current_rate * upper_bound / 10000
     // AND new_rate >= current_rate * lower_bound / 10000
-    requires { new_rate <= current_rate * upper_bound / 10000 }
-    requires { new_rate >= current_rate * lower_bound / 10000 }
+    requires {
+        new_rate <= current_rate * upper_bound / 10000
+    }
+    requires {
+        new_rate >= current_rate * lower_bound / 10000
+    }
 
     // INVARIANT: the actual ratio new/current should be within bounds
     // new_rate / current_rate <= upper_bound / 10000
@@ -210,7 +292,9 @@ contract ExchangeRateBoundsCheck {
     // The max possible rate increase without pause:
     // new_rate <= floor(current_rate * 65535 / 10000) = floor(current_rate * 6.5535)
     // That's a 555% increase in one update - is this intentional?
-    ensures { new_rate * 10000 <= current_rate * 65535 }
+    ensures {
+        new_rate * 10000 <= current_rate * 65535
+    }
 }
 
 // ============================================================
@@ -233,15 +317,33 @@ contract DepositWithdrawExtraction {
     one_share: Int,
     share_premium: Int
     )
-    requires { deposit_amount >= 1 }
-    requires { deposit_amount <= 1000000000000000000000000000 }
-    requires { rate_at_deposit >= 1 }
-    requires { rate_at_deposit <= 79228162514264337593543950335 }
-    requires { rate_at_withdraw >= 1 }
-    requires { rate_at_withdraw <= 79228162514264337593543950335 }
-    requires { one_share == 1000000000000000000 }
-    requires { share_premium >= 0 }
-    requires { share_premium <= 1000 }
+    requires {
+        deposit_amount >= 1
+    }
+    requires {
+        deposit_amount <= 1000000000000000000000000000
+    }
+    requires {
+        rate_at_deposit >= 1
+    }
+    requires {
+        rate_at_deposit <= 79228162514264337593543950335
+    }
+    requires {
+        rate_at_withdraw >= 1
+    }
+    requires {
+        rate_at_withdraw <= 79228162514264337593543950335
+    }
+    requires {
+        one_share == 1000000000000000000
+    }
+    requires {
+        share_premium >= 0
+    }
+    requires {
+        share_premium <= 1000
+    }
 
     // Deposit: shares = deposit_amount * ONE_SHARE / rate_deposit
     // Apply premium: shares = shares * (10000 - premium) / 10000
@@ -250,11 +352,17 @@ contract DepositWithdrawExtraction {
     // If rate doesn't change (rate_deposit == rate_withdraw):
     // assets = floor(floor(deposit * ONE_SHARE / rate) * rate / ONE_SHARE)
     //        <= deposit (rounding favors vault)
-    requires { rate_at_deposit == rate_at_withdraw }
-    requires { share_premium == 0 }
+    requires {
+        rate_at_deposit == rate_at_withdraw
+    }
+    requires {
+        share_premium == 0
+    }
 
     // Same rate, no premium: roundtrip should not be profitable
-    ensures { (deposit_amount * one_share / rate_at_deposit) * rate_at_deposit / one_share <= deposit_amount }
+    ensures {
+        (deposit_amount * one_share / rate_at_deposit) * rate_at_deposit / one_share <= deposit_amount
+    }
 }
 
 // ============================================================
@@ -269,19 +377,35 @@ contract DepositWithdrawExtraction {
 // ============================================================
 contract PlatformFeeTimeProportional {
     input(
-    minimum_assets: Int,        // min(shares * old_rate, shares * new_rate) / ONE_SHARE
-    platform_fee: Int,          // fee in bps (max 2000)
-    time_total: Int,            // total time period
-    time_split: Int             // split point for two updates
+    minimum_assets: Int, // min(shares * old_rate, shares * new_rate) / ONE_SHARE
+    platform_fee: Int, // fee in bps (max 2000)
+    time_total: Int, // total time period
+    time_split: Int // split point for two updates
     )
-    requires { minimum_assets >= 1 }
-    requires { minimum_assets <= 1000000000000000000000000000 }
-    requires { platform_fee >= 1 }
-    requires { platform_fee <= 2000 }
-    requires { time_total >= 2 }
-    requires { time_total <= 1209600 }
-    requires { time_split >= 1 }
-    requires { time_split < time_total }
+    requires {
+        minimum_assets >= 1
+    }
+    requires {
+        minimum_assets <= 1000000000000000000000000000
+    }
+    requires {
+        platform_fee >= 1
+    }
+    requires {
+        platform_fee <= 2000
+    }
+    requires {
+        time_total >= 2
+    }
+    requires {
+        time_total <= 1209600
+    }
+    requires {
+        time_split >= 1
+    }
+    requires {
+        time_split < time_total
+    }
 
     // One update for full period:
     //   fee_single = minimum_assets * platform_fee / 10000 * time_total / 31536000
@@ -297,7 +421,9 @@ contract PlatformFeeTimeProportional {
 
     // INVARIANT: splitting should never yield MORE fees than one period
     // This would mean the protocol could game fee collection by updating frequently
-    ensures { minimum_assets * platform_fee / 10000 * time_split / 31536000 + minimum_assets * platform_fee / 10000 * (time_total - time_split) / 31536000 <= minimum_assets * platform_fee / 10000 * time_total / 31536000 + 1 }
+    ensures {
+        minimum_assets * platform_fee / 10000 * time_split / 31536000 + minimum_assets * platform_fee / 10000 * (time_total - time_split) / 31536000 <= minimum_assets * platform_fee / 10000 * time_total / 31536000 + 1
+    }
 }
 
 // ============================================================
@@ -310,16 +436,28 @@ contract PlatformFeeTimeProportional {
 // ============================================================
 contract ChangeDecimalsPrecision {
     input(
-    amount: Int,                // fee amount in base decimals
-    from_decimals: Int,         // base decimals (e.g. 18)
-    to_decimals: Int            // fee asset decimals (e.g. 6 for USDC)
+    amount: Int, // fee amount in base decimals
+    from_decimals: Int, // base decimals (e.g. 18)
+    to_decimals: Int // fee asset decimals (e.g. 6 for USDC)
     )
-    requires { amount >= 1 }
-    requires { amount <= 340282366920938463463374607431768211455 }
-    requires { from_decimals >= 6 }
-    requires { from_decimals <= 18 }
-    requires { to_decimals >= 6 }
-    requires { to_decimals <= 18 }
+    requires {
+        amount >= 1
+    }
+    requires {
+        amount <= 340282366920938463463374607431768211455
+    }
+    requires {
+        from_decimals >= 6
+    }
+    requires {
+        from_decimals <= 18
+    }
+    requires {
+        to_decimals >= 6
+    }
+    requires {
+        to_decimals <= 18
+    }
 
     // When from_decimals > to_decimals:
     //   result = amount / 10^(from_decimals - to_decimals)
@@ -332,8 +470,12 @@ contract ChangeDecimalsPrecision {
 
     // INVARIANT: when converting down then back up, we don't exceed original
     // amount / 10^diff * 10^diff <= amount
-    requires { from_decimals > to_decimals }
-    ensures { amount / (from_decimals - to_decimals) * (from_decimals - to_decimals) <= amount }
+    requires {
+        from_decimals > to_decimals
+    }
+    ensures {
+        amount / (from_decimals - to_decimals) * (from_decimals - to_decimals) <= amount
+    }
 }
 
 // ============================================================
@@ -347,21 +489,39 @@ contract ChangeDecimalsPrecision {
 // ============================================================
 contract SharePremiumSplitAttack {
     input(
-    total_deposit: Int,         // total amount to deposit
+    total_deposit: Int, // total amount to deposit
     rate: Int,
     one_share: Int,
-    premium: Int,               // share premium in bps
-    num_splits: Int             // number of deposits to split into
+    premium: Int, // share premium in bps
+    num_splits: Int // number of deposits to split into
     )
-    requires { total_deposit >= 2 }
-    requires { total_deposit <= 1000000000000000000000000000 }
-    requires { rate >= 1 }
-    requires { rate <= 79228162514264337593543950335 }
-    requires { one_share == 1000000000000000000 }
-    requires { premium >= 1 }
-    requires { premium <= 1000 }
-    requires { num_splits >= 2 }
-    requires { num_splits <= 10 }
+    requires {
+        total_deposit >= 2
+    }
+    requires {
+        total_deposit <= 1000000000000000000000000000
+    }
+    requires {
+        rate >= 1
+    }
+    requires {
+        rate <= 79228162514264337593543950335
+    }
+    requires {
+        one_share == 1000000000000000000
+    }
+    requires {
+        premium >= 1
+    }
+    requires {
+        premium <= 1000
+    }
+    requires {
+        num_splits >= 2
+    }
+    requires {
+        num_splits <= 10
+    }
 
     // Single deposit:
     //   shares_single = floor(total_deposit * ONE_SHARE / rate) * (10000 - premium) / 10000
@@ -376,6 +536,10 @@ contract SharePremiumSplitAttack {
     // (if it does, attacker can bypass the premium by depositing small amounts)
 
     // Simplified to 2 splits for Z3:
-    requires { num_splits == 2 }
-    ensures { ((total_deposit / 2) * one_share / rate * (10000 - premium) / 10000) * 2 <= total_deposit * one_share / rate * (10000 - premium) / 10000 + 1 }
+    requires {
+        num_splits == 2
+    }
+    ensures {
+        ((total_deposit / 2) * one_share / rate * (10000 - premium) / 10000) * 2 <= total_deposit * one_share / rate * (10000 - premium) / 10000 + 1
+    }
 }
