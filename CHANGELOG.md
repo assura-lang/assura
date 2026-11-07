@@ -3,6 +3,14 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.3](https://github.com/assura-lang/assura/compare/v0.7.2...v0.7.3) (2026-11-07)
+
+
+### Bug Fixes
+
+* **fmt:** check examples and demos with assura fmt ([#1739](https://github.com/assura-lang/assura/issues/1739)) ([2bde541](https://github.com/assura-lang/assura/commit/2bde54105c1ab82087d5ab103eaf2d9b3bad9ae8))
+* **vscode:** stop forcing minimatch 11 ([#1736](https://github.com/assura-lang/assura/issues/1736)) ([36efe54](https://github.com/assura-lang/assura/commit/36efe54b2ef0806a337afe924e0f68969ff21fd7))
+
 ## [0.7.2](https://github.com/assura-lang/assura/compare/v0.7.1...v0.7.2) (2026-11-06)
 
 
