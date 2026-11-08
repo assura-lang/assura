@@ -24,9 +24,9 @@
 | A08xxx | types | assura-types | checks/info_flow.rs, checkers/taint.rs, checkers/info_flow.rs |
 | A09xxx | types | assura-types | checkers/totality.rs (decreases). Match exhaustiveness is A10001/A10002 |
 | A10xxx | types | assura-types | checks/meta.rs, match exhaustiveness |
-| A11xxx | smt+types | assura-smt / assura-types | entry/, invariant checks |
-| A12xxx | types | assura-types | checks/concurrency.rs, checkers/security/ |
-| A13xxx | types | assura-types | checks/numeric.rs, domain/numeric.rs |
+| A11xxx | types | assura-types | checkers/ffi.rs (trust boundary). Spec §7.2 still says business invariants |
+| A12xxx | types | assura-types | checkers/error_propagation.rs (must_propagate / must_check) |
+| A13xxx | types | assura-types | checkers/interface.rs (missing method, signature, reentrancy) |
 | A31xxx | types | assura-types | checks/core.rs (liveness prove/fairness) |
 | A05 (impl) | smt+cli | assura-smt / assura-cli | `A05100` CE, `A05101` timeout, `A05102` known limitation, `A05103` inconclusive |
 
@@ -63,16 +63,16 @@
 | A09002 | types | assura-types | Decreases measure does not strictly shrink | Recursive call leaves the measure unchanged or larger | Totality (A09xxx) | checkers/totality.rs |
 | A09003 | types | assura-types | Decreases measure is not well-founded | Measure may be negative | Totality (A09xxx) | checkers/totality.rs |
 | A09004 | types | assura-types | Mutual recursion without a `decreases` clause | No collective termination proof | Totality (A09xxx) | checkers/totality.rs |
-| A11001 | smt+types | assura-smt / assura-types | Invariant violated | SMT found counterexample | Business Invariant (A11xxx) | entry/, invariant checks |
-| A11002 | smt+types | assura-smt / assura-types | Invariant not preserved by operation | Mutation breaks invariant | Business Invariant (A11xxx) | entry/, invariant checks |
-| A11003 | smt+types | assura-smt / assura-types | Invariant verification timeout | SMT solver timed out | Business Invariant (A11xxx) | entry/, invariant checks |
-| A11004 | smt+types | assura-smt / assura-types | Rule clause violated | Business rule not satisfied | Business Invariant (A11xxx) | entry/, invariant checks |
-| A12001 | types | assura-types | Exclusive resource accessed concurrently | Data race possible | Concurrency (A12xxx) | checks/concurrency.rs, checkers/security/ |
-| A12002 | types | assura-types | Actor isolation violated | Cross-actor mutable access | Concurrency (A12xxx) | checks/concurrency.rs, checkers/security/ |
-| A12003 | types | assura-types | Shared-read resource modified | Write in shared-read context | Concurrency (A12xxx) | checks/concurrency.rs, checkers/security/ |
-| A13001 | types | assura-types | Unit mismatch: `U1` vs `U2` | e.g., USD + EUR | Numerical Precision (A13xxx) | checks/numeric.rs, domain/numeric.rs |
-| A13002 | types | assura-types | Dimensionally invalid operation | e.g., Money * Money | Numerical Precision (A13xxx) | checks/numeric.rs, domain/numeric.rs |
-| A13003 | types | assura-types | Float used where fixed-point required | Precision loss | Numerical Precision (A13xxx) | checks/numeric.rs, domain/numeric.rs |
+| A11001 | types | assura-types | Extern has no trust boundary | Spec §7.2 says invariant violated | FFI (A11xxx) | checkers/ffi.rs |
+| A11002 | types | assura-types | Untrusted extern has no contract | Spec §7.2 says invariant not preserved | FFI (A11xxx) | checkers/ffi.rs |
+| A11003 | types | assura-types | Untrusted FFI result used without validation | Spec §7.2 says invariant timeout | FFI (A11xxx) | checkers/ffi.rs |
+| A11004 | types | assura-types | Unsafe code outside an FFI wrapper | Spec §7.2 says rule clause violated | FFI (A11xxx) | checkers/ffi.rs |
+| A12001 | types | assura-types | must_propagate error was swallowed | Spec §7.2 says exclusive concurrent access | Error policy (A12xxx) | checkers/error_propagation.rs |
+| A12002 | types | assura-types | must_not_mask forbids this translation | Spec §7.2 says actor isolation | Error policy (A12xxx) | checkers/error_propagation.rs |
+| A12003 | types | assura-types | must_check return value was ignored | Spec §7.2 says shared-read write | Error policy (A12xxx) | checkers/error_propagation.rs |
+| A13001 | types | assura-types | Interface method is missing | Spec §7.2 says unit mismatch | Interface (A13xxx) | checkers/interface.rs |
+| A13002 | types | assura-types | Interface method signature does not match | Spec §7.2 says dimensional mismatch | Interface (A13xxx) | checkers/interface.rs |
+| A13003 | types | assura-types | no_reentrancy method called reentrantly | Spec §7.2 says float vs fixed-point | Interface (A13xxx) | checkers/interface.rs |
 | A16001 | ? | ? | Purpose violation | Data used outside declared purposes | Privacy (A16xxx) | rg code in crates |
 | A16002 | ? | ? | Retention policy missing | No retention declared for PII | Privacy (A16xxx) | rg code in crates |
 | A16003 | ? | ? | Anonymization required | Retention period expired | Privacy (A16xxx) | rg code in crates |
