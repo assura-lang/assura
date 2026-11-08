@@ -510,18 +510,40 @@ pub(crate) fn discover_workspace_src_dirs(root: &Path) -> Vec<std::path::PathBuf
 
 pub(crate) fn discover_rs_files(dir: &Path) -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                files.extend(discover_rs_files(&path));
-            } else if path.extension().is_some_and(|ext| ext == "rs") {
-                files.push(path);
-            }
-        }
-    }
+    let mut seen = std::collections::HashSet::new();
+    discover_rs_files_inner(dir, &mut files, &mut seen);
     files.sort();
     files
+}
+
+fn discover_rs_files_inner(
+    dir: &Path,
+    files: &mut Vec<std::path::PathBuf>,
+    seen: &mut std::collections::HashSet<std::path::PathBuf>,
+) {
+    let key = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    if !seen.insert(key) {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && (name.starts_with('.')
+                    || name == "target"
+                    || name == "generated"
+                    || name == "node_modules")
+            {
+                continue;
+            }
+            discover_rs_files_inner(&path, files, seen);
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            files.push(path);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -588,6 +610,20 @@ mod tests {
             .map(|f| f.file_name().unwrap().to_str().unwrap().to_string())
             .collect();
         assert_eq!(names, vec!["a.rs", "m.rs", "z.rs"]);
+    }
+
+    #[test]
+    fn discover_rs_files_skips_symlink_cycle() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("lib.rs"), "fn lib() {}\n").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(tmp.path(), tmp.path().join("self")).unwrap();
+        let files = discover_rs_files(tmp.path());
+        assert_eq!(files.len(), 1, "walked {files:?}");
+        assert_eq!(
+            files[0].file_name().and_then(|n| n.to_str()),
+            Some("lib.rs")
+        );
     }
 
     #[test]
