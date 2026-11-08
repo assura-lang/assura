@@ -16,7 +16,7 @@ pub(crate) fn run_fmt(filename: &str, check_only: bool, output_mode: assura_conf
     let path = Path::new(filename);
     if path.is_dir() {
         let mut files = Vec::new();
-        collect_assura_files(path, &mut files);
+        assura_resolve::collect_assura_files(path, &mut files);
         if files.is_empty() {
             if json {
                 let report = serde_json::json!({
@@ -283,25 +283,6 @@ fn file_fmt_json(file: &str, check_only: bool, outcome: &FmtOutcome) -> serde_js
                     "wrote": true,
                 })
             }
-        }
-    }
-}
-
-fn collect_assura_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let p = entry.path();
-        if p.is_dir() {
-            if let Some(name) = p.file_name().and_then(|n| n.to_str())
-                && (name == "target" || name == "generated" || name == ".git")
-            {
-                continue;
-            }
-            collect_assura_files(&p, out);
-        } else if p.extension().and_then(|e| e.to_str()) == Some("assura") {
-            out.push(p);
         }
     }
 }

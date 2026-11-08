@@ -352,7 +352,7 @@ pub(crate) fn run_check_project(
 fn collect_showcase_module_names(project_root: &Path) -> std::collections::HashSet<String> {
     let mut names = std::collections::HashSet::new();
     let mut files = Vec::new();
-    collect_assura_files_under(project_root, &mut files);
+    assura_resolve::collect_assura_files(project_root, &mut files);
     for file_path in files {
         let Ok(src) = std::fs::read_to_string(&file_path) else {
             continue;
@@ -380,26 +380,6 @@ fn collect_showcase_module_names(project_root: &Path) -> std::collections::HashS
     names
 }
 
-fn collect_assura_files_under(dir: &Path, files: &mut Vec<std::path::PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            // Skip generated/target noise if present under a project tree.
-            if let Some(name) = path.file_name().and_then(|n| n.to_str())
-                && (name == "target" || name == "generated" || name == ".git")
-            {
-                continue;
-            }
-            collect_assura_files_under(&path, files);
-        } else if path.extension().and_then(|e| e.to_str()) == Some("assura") {
-            files.push(path);
-        }
-    }
-}
-
 #[cfg(test)]
 mod showcase_path_tests {
     use super::collect_showcase_module_names;
@@ -424,6 +404,41 @@ mod showcase_path_tests {
             "expected declared module name, got {names:?}"
         );
         assert!(!names.contains("other"));
+    }
+
+    #[test]
+    fn collect_showcase_skips_node_modules_and_target() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("node_modules")).unwrap();
+        fs::create_dir_all(dir.path().join("target")).unwrap();
+        fs::write(
+            dir.path().join("ok.assura"),
+            "// SHOWCASE\ncontract E { requires { true } ensures { true } }\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("node_modules/v.assura"),
+            "// SHOWCASE\ncontract V { requires { true } ensures { false } }\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("target/h.assura"),
+            "// SHOWCASE\ncontract H { requires { true } ensures { false } }\n",
+        )
+        .unwrap();
+        let names = collect_showcase_module_names(dir.path());
+        assert!(
+            names.contains("ok"),
+            "expected the project file, got {names:?}"
+        );
+        assert!(
+            !names.contains("node_modules.v"),
+            "vendor file was collected: {names:?}"
+        );
+        assert!(
+            !names.contains("target.h"),
+            "target file was collected: {names:?}"
+        );
     }
 
     #[test]
