@@ -587,13 +587,42 @@ fn collect_rs_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
         }
         if path.is_dir() {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if name.starts_with('.') || name == "target" || name == "generated" {
+            if name.starts_with('.')
+                || name == "target"
+                || name == "generated"
+                || name == "node_modules"
+            {
                 continue;
             }
             collect_rs_files(&path, out);
         } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
             out.push(path);
         }
+    }
+}
+
+#[cfg(test)]
+mod collect_rs_tests {
+    use super::collect_rs_files;
+
+    #[test]
+    fn suggest_walk_skips_node_modules() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("node_modules/pkg")).unwrap();
+        std::fs::write(dir.path().join("lib.rs"), "fn local() {}\n").unwrap();
+        std::fs::write(
+            dir.path().join("node_modules/pkg/lib.rs"),
+            "fn vendored() {}\n",
+        )
+        .unwrap();
+        let mut found = Vec::new();
+        collect_rs_files(dir.path(), &mut found);
+        assert_eq!(found.len(), 1, "walked {found:?}");
+        assert_eq!(
+            found[0].file_name().and_then(|n| n.to_str()),
+            Some("lib.rs")
+        );
+        assert!(found[0].parent().is_some_and(|p| p == dir.path()));
     }
 }
 
