@@ -5,7 +5,7 @@
 **How to use**
 1. Note the code prefix (`A01` = parser, `A02` = resolve, `A03` = types, ...).
 2. Open the primary crate/files below (or `rg 'A0xxxx' crates --glob '*.rs'`).
-3. Do **not** fix a types error by changing the SMT backend unless the code is `A04`/`A11`/`A05100` and the failure is genuinely solver-side.
+3. Do **not** fix a types error by changing the SMT backend unless the code is `A04` or `A05100` and the failure is genuinely solver-side. `A11` is the FFI trust-boundary checker (`checkers/ffi.rs`), not an SMT invariant failure.
 4. For unknown codes not listed here: `rg 'A0xxxx' docs/SPECIFICATION.md` then `rg 'A0xxxx' crates`.
 5. Do **not** invent `Axxxxx` numbers until emit + catalog + index land in the
    same PR (guards sections 14–15). Planned work uses prose, not reserved codes.
