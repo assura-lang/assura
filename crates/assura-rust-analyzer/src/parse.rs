@@ -499,9 +499,14 @@ fn scan_dir_recursive(
             continue;
         }
         if path.is_dir() {
-            // Skip target, hidden dirs, and generated dirs
+            // Skip build, vendor, and hidden dirs. A broken .rs file under
+            // node_modules would fail the whole scan.
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if name.starts_with('.') || name == "target" || name == "generated" {
+            if name.starts_with('.')
+                || name == "target"
+                || name == "generated"
+                || name == "node_modules"
+            {
                 continue;
             }
             scan_dir_recursive(&path, opts, results, visited)?;

@@ -1349,6 +1349,33 @@ fn parse_rust_file_rejects_garbage() {
 }
 
 #[test]
+fn scan_directory_skips_node_modules() {
+    let dir = std::env::temp_dir().join(format!(
+        "assura_ra_scan_nm_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("node_modules/pkg")).unwrap();
+    std::fs::write(
+        dir.join("ok.rs"),
+        "/// @requires x > 0\nfn ok(x: i32) { let _ = x; }\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("node_modules/pkg/broken.rs"), "fn (\n").unwrap();
+    let found = scan_directory(&dir).expect("vendor rust must not fail the scan");
+    assert_eq!(found.len(), 1, "scanned {found:?}");
+    assert_eq!(
+        found[0].0.file_name().and_then(|n| n.to_str()),
+        Some("ok.rs")
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn scan_directory_skips_symlink_dirs() {
     let dir = std::env::temp_dir().join(format!(
         "assura_ra_scan_link_{}_{}",
