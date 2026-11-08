@@ -83,6 +83,15 @@ its README contains `mcp-name: io.github.assura-lang/assura`. The publish job
 is `Publish MCP Registry`. A copy of `server.json` in git does not by itself
 create the listing.
 
+[Glama](https://glama.ai/mcp/servers) indexes public GitHub repos.
+[`glama.json`](../glama.json) names the maintainers (`SebTardif`). That file
+does not create the directory entry. A signed-in maintainer submits
+`https://github.com/assura-lang/assura` once with Add Server. There is no
+Glama token and no release job. Do not say the server is listed until
+`https://glama.ai/api/mcp/v1/servers?query=assura` returns it. The short
+description must match `server.json`: a check returns Verified,
+Counterexample, or Unknown.
+
 ### JSON envelopes (`assura_check`, `assura_infer`)
 
 Both tools return a JSON object, not raw diagnostic text or raw contract

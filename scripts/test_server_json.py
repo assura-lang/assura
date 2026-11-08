@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SERVER = ROOT / "server.json"
+GLAMA = ROOT / "glama.json"
 README = ROOT / "crates" / "assura-cli" / "README.md"
 # Official MCP Registry rejects body.description longer than this (HTTP 422).
 MAX_DESCRIPTION = 100
@@ -59,6 +60,11 @@ def main() -> int:
         return 1
     if f"<!-- {MARKER} -->" in readme or f"<!--{MARKER}-->" in readme:
         print("cargo marker must be visible markdown, not an HTML comment", file=sys.stderr)
+        return 1
+    glama = json.loads(GLAMA.read_text(encoding="utf-8"))
+    maintainers = glama.get("maintainers")
+    if maintainers != ["SebTardif"]:
+        print(f"glama.json maintainers must be ['SebTardif'], got {maintainers!r}", file=sys.stderr)
         return 1
     print(f"ok: description {len(desc)}/{MAX_DESCRIPTION} chars")
     return 0
