@@ -668,15 +668,46 @@ fn load_dep_modules_for_project(
     }
 }
 
-fn collect_assura_files(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                collect_assura_files(&path, files);
-            } else if path.extension().is_some_and(|e| e == "assura") {
-                files.push(path);
+/// Directory names that hold build output or vendor trees, not project sources.
+const SKIP_WALK_DIRS: &[&str] = &["target", "generated", ".git", "node_modules"];
+
+/// Collect `.assura` sources under `dir`.
+///
+/// Skips [`SKIP_WALK_DIRS`]. A directory reached again through a symlink
+/// is not walked a second time, so a link back to the project root does
+/// not repeat the same contracts.
+///
+/// Crate-private. The CLI has its own copy: `cargo package` of `assura`
+/// compiles against the crates.io release of this crate, which does not
+/// export this function until the next publish.
+pub(crate) fn collect_assura_files(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
+    let mut seen = std::collections::HashSet::new();
+    collect_assura_files_inner(dir, files, &mut seen);
+}
+
+fn collect_assura_files_inner(
+    dir: &std::path::Path,
+    files: &mut Vec<std::path::PathBuf>,
+    seen: &mut std::collections::HashSet<std::path::PathBuf>,
+) {
+    let key = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    if !seen.insert(key) {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && SKIP_WALK_DIRS.contains(&name)
+            {
+                continue;
             }
+            collect_assura_files_inner(&path, files, seen);
+        } else if path.extension().is_some_and(|e| e == "assura") {
+            files.push(path);
         }
     }
 }
@@ -826,6 +857,28 @@ mod tests {
         let mut files = Vec::new();
         collect_assura_files(&tmp, &mut files);
         assert_eq!(files.len(), 2);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn collect_assura_files_skips_vendor_dirs_and_symlink_cycles() {
+        let tmp = std::env::temp_dir().join("assura_test_collect_skip");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("src")).unwrap();
+        for name in ["target", "generated", ".git", "node_modules"] {
+            std::fs::create_dir_all(tmp.join(name)).unwrap();
+            std::fs::write(tmp.join(name).join("hidden.assura"), "contract Hidden {}\n").unwrap();
+        }
+        std::fs::write(tmp.join("src/ok.assura"), "contract Ok {}\n").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&tmp, tmp.join("self")).unwrap();
+        let mut files = Vec::new();
+        collect_assura_files(&tmp, &mut files);
+        assert_eq!(files.len(), 1, "walked {files:?}");
+        assert!(
+            files[0].ends_with("src/ok.assura"),
+            "expected src/ok.assura, got {files:?}"
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
