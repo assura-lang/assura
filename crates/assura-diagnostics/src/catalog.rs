@@ -413,50 +413,40 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
         },
         ErrorInfo {
             code: "A08002",
-            name: "Information flow: implicit leak",
-            description: "A secret value influences a public output through \
-                          control flow (e.g., an if-branch on a secret condition). \
-                          This is an implicit information flow violation.",
-            example: r#"  fn check(secret: @Confidential Bool) -> @Public Int
-  {
-      if secret then 1 else 0   // A08002: implicit leak
-  }"#,
-            fix: "Remove the dependency of the public output on the secret \
-                 value, or explicitly declassify the information.",
+            name: "Declassification without annotation",
+            description: "A value is lowered from a higher security label to a \
+                          lower one without an explicit `@declassify` annotation.",
+            example: r#"  // Confidential value assigned to a Public variable
+  // without @declassify -> A08002"#,
+            fix: "Add an explicit `@declassify` annotation, or keep the higher label.",
         },
         ErrorInfo {
             code: "A08003",
-            name: "Declassification without justification",
-            description: "A declassify operation lowers the security label of data \
-                          without providing the required justification label.",
-            example: r#"  fn leak(x: @Confidential Int) -> @Public Int
-  {
-      declassify(x)   // missing purpose -> A08003
-  }"#,
-            fix: "Provide a purpose label for the declassification: \
-                 declassify(x, purpose: \"user_consent\").",
+            name: "Purpose label mismatch",
+            description: "Data labeled for one purpose is used in a context that \
+                          requires a different purpose.",
+            example: r#"  // `user_id` labeled billing, used in analytics -> A08003"#,
+            fix: "Use the value only for its declared purpose, or change the purpose label.",
         },
         ErrorInfo {
             code: "A08004",
-            name: "Missing taint label",
-            description: "A function accepts external input without a taint label. \
-                          All data from external sources must be explicitly labeled.",
-            example: r#"  extern fn read_input() -> String   // missing @Untrusted
-  // Should be: -> @Untrusted String"#,
-            fix: "Add a taint annotation to the return type: @Untrusted.",
+            name: "Implicit information flow",
+            description: "A condition at a higher security level influences an \
+                          assignment to a variable at a lower level.",
+            example: r#"  if secret then public_flag = 1 else public_flag = 0
+  // secret condition writes a public variable -> A08004"#,
+            fix: "Do not write a lower-security variable inside a branch on \
+                 higher-security data, or raise the target label.",
         },
         ErrorInfo {
             code: "A08005",
-            name: "Security label hierarchy violation",
-            description: "An assignment or operation violates the security label \
-                          hierarchy. Data cannot flow from higher security levels \
-                          to lower ones without explicit declassification.",
-            example: r#"  fn bad(secret: @Restricted Data) -> @Public Data
-  {
-      secret   // Restricted -> Public without declassify -> A08005
-  }"#,
-            fix: "Add a declassify operation with appropriate justification, \
-                 or adjust the security labels.",
+            name: "Covert channel",
+            description: "Data above Public controls a call to a timing-sensitive \
+                          or exception function, so the secret can leak through \
+                          timing or control effects.",
+            example: r#"  if secret then sleep(1)
+  // secret controls a timing call -> A08005"#,
+            fix: "Do not let secret data decide whether to sleep, delay, throw, or panic.",
         },
         // NOTE: Spec Section 7.2 defines A09001 as "Non-exhaustive pattern match",
         // but this implementation uses A09001 for "Missing decreases clause"
@@ -2155,6 +2145,21 @@ mod tests {
             catalog.len() >= 50,
             "catalog has only {} entries, expected 50+",
             catalog.len()
+        );
+    }
+
+    #[test]
+    fn explain_a08002_is_missing_declassify() {
+        let info = explain("A08002").expect("A08002 should exist");
+        let text = format!("{} {}", info.name, info.description);
+        assert!(
+            text.contains("declassify") || text.contains("@declassify"),
+            "explain A08002 must describe a missing declassify annotation, got: {text}"
+        );
+        assert!(
+            !info.description.contains("if-branch"),
+            "explain A08002 must not describe an implicit branch leak, got: {}",
+            info.description
         );
     }
 

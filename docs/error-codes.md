@@ -55,10 +55,10 @@
 | A07002 | types | assura-types | Pure function performs effect `E` | Side effect in pure context | Effect Violation (A07xxx) | checks/effects.rs, checkers/effects.rs |
 | A07003 | types | assura-types | Effect `E` in must-not list | Explicitly forbidden effect | Effect Violation (A07xxx) | checks/effects.rs, checkers/effects.rs |
 | A08001 | types | assura-types | Data flow violation: `L1` to `L2` | High to low flow | Information Flow (A08xxx) | checks/info_flow.rs, checkers/taint.rs, checkers/info_flow.rs |
-| A08002 | types | assura-types | PII leaked to logs | Restricted data in Public sink | Information Flow (A08xxx) | checks/info_flow.rs, checkers/taint.rs, checkers/info_flow.rs |
-| A08003 | types | assura-types | Implicit flow via branch | Secret in branch condition | Information Flow (A08xxx) | checks/info_flow.rs, checkers/taint.rs, checkers/info_flow.rs |
-| A08004 | types | assura-types | Purpose violation | Data used for undeclared purpose | Information Flow (A08xxx) | checks/info_flow.rs, checkers/taint.rs, checkers/info_flow.rs |
-| A08005 | types | assura-types | Missing declassification | Label downgrade without `declassify` | Information Flow (A08xxx) | checks/info_flow.rs, checkers/taint.rs, checkers/info_flow.rs |
+| A08002 | types | assura-types | Label lowered without `@declassify` | Declassification has no annotation | Information Flow (A08xxx) | checkers/info_flow.rs |
+| A08003 | types | assura-types | Purpose label mismatch | Data used for a different purpose | Information Flow (A08xxx) | checkers/info_flow.rs |
+| A08004 | types | assura-types | Implicit flow through a branch | Secret condition writes a lower label | Information Flow (A08xxx) | checkers/info_flow.rs |
+| A08005 | types | assura-types | Covert channel via timing or exceptions | Secret controls sleep, throw, or panic | Information Flow (A08xxx) | checkers/info_flow.rs |
 | A09001 | types | assura-types | Recursive function has no `decreases` clause | Add `decreases` or `partial` | Totality (A09xxx) | checkers/totality.rs |
 | A09002 | types | assura-types | Decreases measure does not strictly shrink | Recursive call leaves the measure unchanged or larger | Totality (A09xxx) | checkers/totality.rs |
 | A09003 | types | assura-types | Decreases measure is not well-founded | Measure may be negative | Totality (A09xxx) | checkers/totality.rs |
