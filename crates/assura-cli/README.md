@@ -55,6 +55,12 @@ assura check-rust src/          # verify inline contracts in Rust source
 assura mcp                      # run the MCP server for agent hosts
 ```
 
+The official MCP Registry name, once this version is on crates.io, is:
+
+- MCP Registry name: `mcp-name: io.github.assura-lang/assura`
+
+Start it with `assura mcp`. A check returns Verified, a Counterexample, or Unknown.
+
 ## Requirements
 
 A [Rust toolchain](https://rustup.rs/) (edition 2024 / rustc 1.88+). Z3 ships

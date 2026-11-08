@@ -107,7 +107,9 @@ Config files:
 | `scripts/check-publish-plan.sh` | Assert publish order matches the 13-crate library stack |
 | `scripts/check-cargo-package.sh` | `cargo package` gate; full verify when version is on crates.io, `--list` on co-publish version-bump PRs (#814, co-publish skew) |
 | `.github/workflows/release-please.yml` | Opens release PR on main push; syncs path-deps + lock on that PR; dispatches Release only if tag-push did not (#1380) |
-| `.github/workflows/release.yml` | cargo-dist installers + publish-crates (`tag` / dispatch); concurrency by tag name |
+| `.github/workflows/release.yml` | cargo-dist installers + publish-crates (`tag` / dispatch); concurrency by tag name; then calls Publish MCP Registry |
+| `.github/workflows/publish-mcp-registry.yml` | After crates.io has `mcp-name:` for that version, publish `server.json` with GitHub OIDC |
+| `server.json` | Official MCP Registry metadata. `assura mcp` over stdio. Description max 100 characters |
 | `dist-workspace.toml` | cargo-dist targets / installers |
 
 ## Preflight (before merging a release PR)

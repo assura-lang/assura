@@ -451,6 +451,21 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bash scripts/publish-crates.sh
 
+  # Official MCP Registry after the crates.io README for this version
+  # contains the mcp-name marker. Do not run on the GitHub Release event
+  # alone: publish-crates is still in progress then.
+  publish-mcp-registry:
+    needs:
+      - plan
+      - publish-crates
+    if: ${{ always() && !cancelled() && needs.publish-crates.result == 'success' && needs.plan.outputs.publishing == 'true' }}
+    uses: ./.github/workflows/publish-mcp-registry.yml
+    with:
+      version: ${{ needs.plan.outputs.tag }}
+    permissions:
+      contents: read
+      id-token: write
+
   announce:
     needs:
       - plan

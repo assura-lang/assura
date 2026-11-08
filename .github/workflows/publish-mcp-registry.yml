@@ -1,0 +1,182 @@
+# Publish server.json to the official MCP Registry after the crates.io
+# ownership marker exists for that version.
+#
+# Triggers:
+#   - workflow_call from release.yml after publish-crates
+#     (the GitHub Release exists before crates.io finishes, so this must
+#     not run on release:published alone)
+#   - workflow_dispatch for a manual retry after the marker is live
+#
+# Ownership: visible `mcp-name: io.github.assura-lang/assura` in the
+# crates.io README for the `assura` package. Auth is GitHub OIDC.
+# The org namespace requires this workflow to run in assura-lang/assura.
+name: Publish MCP Registry
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Package version or v-prefixed tag (e.g. 0.7.3 or v0.7.3)"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.7.3). Empty uses the latest GitHub Release tag."
+        required: false
+        type: string
+
+concurrency:
+  group: publish-mcp-registry-${{ inputs.version || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    if: ${{ !github.event.repository.private }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION:-}"
+          if [ -z "$version" ]; then
+            tag=$(gh release view --json tagName --jq .tagName)
+            version="${tag}"
+          fi
+          version="${version#v}"
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "Could not resolve a package version" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${version}"
+
+      - name: Wait for the crates.io ownership marker
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MCP_NAME: io.github.assura-lang/assura
+          CRATES_UA: assura-mcp-registry-ci (https://github.com/assura-lang/assura)
+        run: |
+          set -euo pipefail
+          # 20 * 30s = 10 minutes. crates.io can lag the GitHub Release.
+          attempts=20
+          sleep_s=30
+          for i in $(seq 1 "$attempts"); do
+            echo "Attempt ${i}/${attempts}: checking crates.io README"
+            http_code=$(curl -sS -L -o /tmp/crates-readme.html -w '%{http_code}' \
+              -A "$CRATES_UA" \
+              "https://crates.io/api/v1/crates/assura/${VERSION}/readme" \
+              || echo "000")
+            if [ "$http_code" = "200" ] \
+              && grep -Fq "mcp-name: ${MCP_NAME}" /tmp/crates-readme.html; then
+              echo "cargo marker present on crates.io ${VERSION}"
+              exit 0
+            fi
+            echo "cargo marker not yet visible for ${VERSION} (http=${http_code})"
+            if [ "$i" -lt "$attempts" ]; then
+              sleep "$sleep_s"
+            fi
+          done
+          echo "Timed out waiting for mcp-name on crates.io ${VERSION}" >&2
+          echo "That version's README must contain the marker before publish." >&2
+          exit 1
+
+      - name: Stamp server.json version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          jq --arg v "$VERSION" '
+            .version = $v
+            | .packages |= map(.version = $v)
+          ' server.json > server.json.tmp
+          mv server.json.tmp server.json
+          desc_len=$(jq -r '.description | length' server.json)
+          if [ "$desc_len" -gt 100 ]; then
+            echo "server.json description is ${desc_len} chars; registry max is 100" >&2
+            jq -r '.description' server.json >&2
+            exit 1
+          fi
+          echo "server.json version fields set to ${VERSION} (description ${desc_len} chars)"
+          jq '{name, version, description, packages: [.packages[] | {registryType, identifier, version}]}' server.json
+
+      - name: Install mcp-publisher
+        run: |
+          set -euo pipefail
+          version=1.8.1
+          file="mcp-publisher_linux_amd64.tar.gz"
+          curl -fsSL -o "$file" \
+            "https://github.com/modelcontextprotocol/registry/releases/download/v${version}/${file}"
+          echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  ${file}" \
+            | sha256sum -c -
+          tar xzf "$file" mcp-publisher
+          ./mcp-publisher --help >/dev/null
+
+      - name: Authenticate (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Validate server.json
+        run: ./mcp-publisher validate server.json
+
+      - name: Publish to MCP Registry
+        run: |
+          set -euo pipefail
+          set +e
+          out="$(./mcp-publisher publish server.json 2>&1)"
+          code=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$code" -eq 0 ]; then
+            exit 0
+          fi
+          if printf '%s' "$out" | grep -Eqi 'duplicate|already exists|already published'; then
+            echo "OK: this version is already on the registry"
+            exit 0
+          fi
+          exit "$code"
+
+      - name: Verify listing
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5 6; do
+            body=$(curl -fsSL \
+              "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.assura-lang/assura")
+            if printf '%s' "$body" | jq -e --arg v "$VERSION" '
+              .servers[]?
+              | .server
+              | select(.name == "io.github.assura-lang/assura")
+              | select(.version == $v)
+            ' >/dev/null; then
+              echo "Verified io.github.assura-lang/assura@${VERSION} in registry search"
+              exit 0
+            fi
+            echo "Listing not visible yet (attempt ${i})"
+            if [ "$i" -lt 6 ]; then
+              sleep 15
+            fi
+          done
+          echo "Published, but search verification timed out; check the registry UI" >&2
+          exit 0
