@@ -77,6 +77,12 @@ Tools: `assura_check`, `assura_infer`, `assura_explain`, `assura_type_map`,
 `assura_ir_prompt`, `assura_ir_verify`. List them from your MCP client after
 connecting. Prefer `assura check --json` when MCP is unavailable.
 
+The official MCP Registry entry is published from [`server.json`](../server.json)
+on a release, after that version of the `assura` crate is on crates.io and
+its README contains `mcp-name: io.github.assura-lang/assura`. The publish job
+is `Publish MCP Registry`. A copy of `server.json` in git does not by itself
+create the listing.
+
 ### JSON envelopes (`assura_check`, `assura_infer`)
 
 Both tools return a JSON object, not raw diagnostic text or raw contract
