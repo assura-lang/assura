@@ -387,19 +387,13 @@ pub(crate) fn collect_contract_names_from_dir(
     }
 }
 
-/// Recursively discover all .assura files under a directory.
+/// Recursively discover `.assura` files under a directory.
+///
+/// Uses the project walker, which skips `target`, `generated`, `.git`,
+/// and `node_modules`, and does not walk a directory twice through a symlink.
 pub(crate) fn discover_assura_files(dir: &Path) -> Vec<std::path::PathBuf> {
     let mut found = Vec::new();
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                found.extend(discover_assura_files(&path));
-            } else if path.extension().is_some_and(|ext| ext == "assura") {
-                found.push(path);
-            }
-        }
-    }
+    assura_resolve::collect_assura_files(dir, &mut found);
     found.sort();
     found
 }
@@ -447,6 +441,23 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let found = discover_assura_files(tmp.path());
         assert!(found.is_empty());
+    }
+
+    #[test]
+    fn discover_assura_files_skips_vendor_and_symlink_cycles() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("node_modules")).unwrap();
+        fs::write(tmp.path().join("ok.assura"), "contract Ok {}\n").unwrap();
+        fs::write(
+            tmp.path().join("node_modules/bad.assura"),
+            "contract Bad {}\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(tmp.path(), tmp.path().join("self")).unwrap();
+        let found = discover_assura_files(tmp.path());
+        assert_eq!(found.len(), 1, "walked {found:?}");
+        assert_eq!(found[0].file_name().unwrap(), "ok.assura");
     }
 
     #[test]
