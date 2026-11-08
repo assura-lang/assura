@@ -63,6 +63,11 @@ than its absolute one. A fuzzer might find this. A complete decision
 procedure for this fragment does not miss it. Where the encoding is
 incomplete, the result is **Unknown**, not a green check.
 
+The human line keeps the raw digits. A value on a width bound, within 32
+of one, or an exact power of two from 2^8 up also gets a note, for
+example `18446744073709551586  (u64::MAX - 29)`. `--json` leaves
+`variables` as the raw digits.
+
 You get **Verified**, a **Counterexample**, or an honest **Unknown**.
 
 ![Assura check demo](assets/demo/assura-check.gif)

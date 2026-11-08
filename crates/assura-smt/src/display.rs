@@ -272,13 +272,29 @@ pub fn format_counterexample_lines(
     lines
 }
 
+/// How far from a named integer bound still gets a human annotation.
+///
+/// `u64::MAX - 29` is the zip-crate counterexample. 32 covers that gap.
+/// The slack applies only to 32-bit and 64-bit bounds. The same gap
+/// around `i8::MAX` would annotate ordinary values such as 99.
+const BOUNDARY_WINDOW: i128 = 32;
+
 /// Clean up Z3 value formatting for human display.
 ///
 /// Handles several Z3 output patterns:
 /// - `(- N)` negative numbers -> `-N`
 /// - Multi-line `{\n  value\n}` blocks -> just the inner value
 /// - `(/ p q)` rationals -> `p/q`
+/// - integers on a width bound, within [`BOUNDARY_WINDOW`] of one, or an
+///   exact power of two at 2^8 or above get a parenthetical note
+///
+/// The raw digits stay in the string. Human lines and the A05100 summary
+/// use this. JSON `variables` keep the solver text and do not.
 pub fn clean_z3_value(value: &str) -> String {
+    annotate_integer_boundary(clean_z3_value_inner(value))
+}
+
+fn clean_z3_value_inner(value: &str) -> String {
     let v = value.trim();
     // Z3 outputs negative numbers as `(- N)`, convert to `-N`
     if v.starts_with("(- ") && v.ends_with(')') {
@@ -296,10 +312,149 @@ pub fn clean_z3_value(value: &str) -> String {
     if v.starts_with('{') && v.ends_with('}') {
         let inner = v[1..v.len() - 1].trim();
         if !inner.is_empty() {
-            return clean_z3_value(inner);
+            return clean_z3_value_inner(inner);
         }
     }
     v.to_string()
+}
+
+struct NamedBound {
+    label: &'static str,
+    value: i128,
+}
+
+fn named_integer_bounds() -> &'static [NamedBound] {
+    &[
+        NamedBound {
+            label: "i8::MIN",
+            value: i8::MIN as i128,
+        },
+        NamedBound {
+            label: "i8::MAX",
+            value: i8::MAX as i128,
+        },
+        NamedBound {
+            label: "u8::MAX",
+            value: u8::MAX as i128,
+        },
+        NamedBound {
+            label: "i16::MIN",
+            value: i16::MIN as i128,
+        },
+        NamedBound {
+            label: "i16::MAX",
+            value: i16::MAX as i128,
+        },
+        NamedBound {
+            label: "u16::MAX",
+            value: u16::MAX as i128,
+        },
+        NamedBound {
+            label: "i32::MIN",
+            value: i32::MIN as i128,
+        },
+        NamedBound {
+            label: "i32::MAX",
+            value: i32::MAX as i128,
+        },
+        NamedBound {
+            label: "u32::MAX",
+            value: u32::MAX as i128,
+        },
+        NamedBound {
+            label: "i64::MIN",
+            value: i64::MIN as i128,
+        },
+        NamedBound {
+            label: "i64::MAX",
+            value: i64::MAX as i128,
+        },
+        NamedBound {
+            label: "u64::MAX",
+            value: u64::MAX as i128,
+        },
+    ]
+}
+
+fn parse_decimal_i128(text: &str) -> Option<i128> {
+    let (neg, digits) = if let Some(rest) = text.strip_prefix('-') {
+        (true, rest)
+    } else {
+        (false, text)
+    };
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let magnitude: i128 = digits.parse().ok()?;
+    if neg {
+        magnitude.checked_neg()
+    } else {
+        Some(magnitude)
+    }
+}
+
+fn boundary_note(n: i128) -> Option<String> {
+    let bounds = named_integer_bounds();
+    for bound in bounds {
+        if n == bound.value {
+            return Some(bound.label.to_string());
+        }
+    }
+    if let Some(note) = power_of_two_note(n) {
+        return Some(note);
+    }
+    let mut nearest: Option<(u128, &'static str, i128)> = None;
+    for bound in bounds {
+        let Some(delta) = n.checked_sub(bound.value) else {
+            continue;
+        };
+        if !near_window_applies(bound.label) {
+            continue;
+        }
+        let distance = delta.unsigned_abs();
+        if distance == 0 || distance > u128::try_from(BOUNDARY_WINDOW).unwrap_or(u128::MAX) {
+            continue;
+        }
+        match nearest {
+            Some((best, _, _)) if distance >= best => {}
+            _ => nearest = Some((distance, bound.label, delta)),
+        }
+    }
+    if let Some((_, label, delta)) = nearest {
+        if delta > 0 {
+            return Some(format!("{label} + {delta}"));
+        }
+        return Some(format!("{label} - {}", -delta));
+    }
+    None
+}
+
+fn near_window_applies(label: &str) -> bool {
+    matches!(
+        label,
+        "i32::MIN" | "i32::MAX" | "u32::MAX" | "i64::MIN" | "i64::MAX" | "u64::MAX"
+    )
+}
+
+fn power_of_two_note(n: i128) -> Option<String> {
+    if n < 256 {
+        return None;
+    }
+    let magnitude = u128::try_from(n).ok()?;
+    if !magnitude.is_power_of_two() {
+        return None;
+    }
+    Some(format!("2^{}", magnitude.trailing_zeros()))
+}
+
+fn annotate_integer_boundary(cleaned: String) -> String {
+    let Some(n) = parse_decimal_i128(&cleaned) else {
+        return cleaned;
+    };
+    match boundary_note(n) {
+        Some(note) => format!("{cleaned}  ({note})"),
+        None => cleaned,
+    }
 }
 
 /// Collect names of all contracts, services, and extern fns that could
@@ -444,6 +599,57 @@ mod tests {
     #[test]
     fn test_clean_z3_value_non_numeric() {
         assert_eq!(clean_z3_value("true"), "true");
+    }
+
+    #[test]
+    fn boundary_annotation_exact_u64_max() {
+        let raw = u64::MAX.to_string();
+        assert_eq!(clean_z3_value(&raw), format!("{raw}  (u64::MAX)"));
+    }
+
+    #[test]
+    fn boundary_annotation_near_u64_max() {
+        let raw = (u64::MAX - 29).to_string();
+        assert_eq!(clean_z3_value(&raw), format!("{raw}  (u64::MAX - 29)"));
+    }
+
+    #[test]
+    fn boundary_annotation_outside_window_stays_raw() {
+        let raw = (u64::MAX - BOUNDARY_WINDOW as u64 - 1).to_string();
+        assert_eq!(clean_z3_value(&raw), raw);
+    }
+
+    #[test]
+    fn boundary_annotation_small_number_unchanged() {
+        assert_eq!(clean_z3_value("42"), "42");
+        assert_eq!(clean_z3_value("0"), "0");
+        assert_eq!(clean_z3_value("1"), "1");
+        // Inside the numeric window of i8::MAX, but that slack is not applied.
+        assert_eq!(clean_z3_value("99"), "99");
+    }
+
+    #[test]
+    fn boundary_annotation_power_of_two() {
+        assert_eq!(clean_z3_value("4294967296"), "4294967296  (2^32)");
+    }
+
+    #[test]
+    fn boundary_annotation_shows_on_the_human_line() {
+        let hdr = (u64::MAX - 29).to_string();
+        let model = CounterexampleModel {
+            variables: vec![
+                ("extra_field_length".to_string(), "0".to_string()),
+                ("hdr_start".to_string(), hdr.clone()),
+            ],
+        };
+        let lines = format_counterexample_lines(&Some(model), "");
+        let text = lines.join("\n");
+        assert!(
+            text.contains(&format!("hdr_start = {hdr}  (u64::MAX - 29)")),
+            "{text}"
+        );
+        assert!(text.contains("extra_field_length = 0"), "{text}");
+        assert!(!text.contains("extra_field_length = 0  ("), "{text}");
     }
 
     #[test]
