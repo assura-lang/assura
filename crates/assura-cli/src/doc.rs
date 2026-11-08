@@ -8,10 +8,10 @@ use assura_parser::ast::*;
 
 /// `.assura` files under `dir`, including nested directories.
 ///
-/// Skips build and vendor trees via [`assura_resolve::collect_assura_files`].
+/// Skips build and vendor trees via [`crate::shared::collect_assura_files`].
 fn collect_doc_sources(dir: &Path) -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
-    assura_resolve::collect_assura_files(dir, &mut files);
+    crate::shared::collect_assura_files(dir, &mut files);
     files.sort();
     files
 }

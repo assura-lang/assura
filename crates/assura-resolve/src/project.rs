@@ -676,7 +676,11 @@ const SKIP_WALK_DIRS: &[&str] = &["target", "generated", ".git", "node_modules"]
 /// Skips [`SKIP_WALK_DIRS`]. A directory reached again through a symlink
 /// is not walked a second time, so a link back to the project root does
 /// not repeat the same contracts.
-pub fn collect_assura_files(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
+///
+/// Crate-private. The CLI has its own copy: `cargo package` of `assura`
+/// compiles against the crates.io release of this crate, which does not
+/// export this function until the next publish.
+pub(crate) fn collect_assura_files(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
     let mut seen = std::collections::HashSet::new();
     collect_assura_files_inner(dir, files, &mut seen);
 }

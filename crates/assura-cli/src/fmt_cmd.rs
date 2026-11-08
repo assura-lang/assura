@@ -16,7 +16,7 @@ pub(crate) fn run_fmt(filename: &str, check_only: bool, output_mode: assura_conf
     let path = Path::new(filename);
     if path.is_dir() {
         let mut files = Vec::new();
-        assura_resolve::collect_assura_files(path, &mut files);
+        crate::shared::collect_assura_files(path, &mut files);
         if files.is_empty() {
             if json {
                 let report = serde_json::json!({

@@ -352,7 +352,7 @@ pub(crate) fn run_check_project(
 fn collect_showcase_module_names(project_root: &Path) -> std::collections::HashSet<String> {
     let mut names = std::collections::HashSet::new();
     let mut files = Vec::new();
-    assura_resolve::collect_assura_files(project_root, &mut files);
+    crate::shared::collect_assura_files(project_root, &mut files);
     for file_path in files {
         let Ok(src) = std::fs::read_to_string(&file_path) else {
             continue;

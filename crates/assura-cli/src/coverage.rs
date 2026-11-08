@@ -389,11 +389,12 @@ pub(crate) fn collect_contract_names_from_dir(
 
 /// Recursively discover `.assura` files under a directory.
 ///
-/// Uses the project walker, which skips `target`, `generated`, `.git`,
-/// and `node_modules`, and does not walk a directory twice through a symlink.
+/// Uses [`crate::shared::collect_assura_files`], which skips `target`,
+/// `generated`, `.git`, and `node_modules`, and does not walk a directory
+/// twice through a symlink.
 pub(crate) fn discover_assura_files(dir: &Path) -> Vec<std::path::PathBuf> {
     let mut found = Vec::new();
-    assura_resolve::collect_assura_files(dir, &mut found);
+    crate::shared::collect_assura_files(dir, &mut found);
     found.sort();
     found
 }

@@ -155,6 +155,50 @@ pub(crate) fn compile_with_config(
     assura_pipeline::compile(source, filename, config)
 }
 
+/// Directory names that hold build output or vendor trees, not project sources.
+///
+/// This list matches `collect_assura_files` in assura-resolve. The CLI keeps
+/// its own copy because `cargo package` builds this crate against the
+/// crates.io release of assura-resolve, which does not have that function
+/// until the next publish.
+const SKIP_WALK_DIRS: &[&str] = &["target", "generated", ".git", "node_modules"];
+
+/// Collect `.assura` sources under `dir`.
+///
+/// Skips [`SKIP_WALK_DIRS`]. A directory reached again through a symlink
+/// is not walked a second time.
+pub(crate) fn collect_assura_files(dir: &Path, files: &mut Vec<std::path::PathBuf>) {
+    let mut seen = std::collections::HashSet::new();
+    collect_assura_files_inner(dir, files, &mut seen);
+}
+
+fn collect_assura_files_inner(
+    dir: &Path,
+    files: &mut Vec<std::path::PathBuf>,
+    seen: &mut std::collections::HashSet<std::path::PathBuf>,
+) {
+    let key = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    if !seen.insert(key) {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && SKIP_WALK_DIRS.contains(&name)
+            {
+                continue;
+            }
+            collect_assura_files_inner(&path, files, seen);
+        } else if path.extension().is_some_and(|e| e == "assura") {
+            files.push(path);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

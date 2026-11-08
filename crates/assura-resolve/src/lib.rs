@@ -22,7 +22,7 @@ use assura_parser::ast::{BlockKind, ClauseKind, Decl, ServiceItem, SourceFile, S
 pub use errors::{ResolutionError, ResolvedFile};
 pub use imports::{ImportStatus, ModuleMap, ResolvedImport};
 pub use project::{
-    DependencyMap, ProjectResult, collect_assura_files, discover_and_resolve_project,
+    DependencyMap, ProjectResult, discover_and_resolve_project,
     discover_and_resolve_project_with_deps, find_project_root, resolve_dependency_map,
     resolve_project, resolve_project_with_deps,
 };
