@@ -98,7 +98,7 @@ this table over guessing the phase.
 
 | Code | Phase | Primary crate | Typical meaning | Start in tree |
 |------|-------|---------------|-----------------|---------------|
-| A01000 | cli/pipeline | assura-cli / assura-pipeline | Source file read/IO failure | check/run.rs, pipeline |
+| A01000 | cli/pipeline | assura-cli / assura-pipeline | Source file read/IO failure, including invalid UTF-8 | check/run.rs, pipeline |
 | A02006 | resolve | assura-resolve | Duplicate import | imports.rs |
 | A02007 | resolve | assura-resolve | Unused import | unused.rs |
 | A02008 | resolve | assura-resolve | Invalid import path segment | imports.rs |
