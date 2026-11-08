@@ -3,6 +3,24 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.8.0](https://github.com/assura-lang/assura/compare/v0.7.2...v0.8.0) (2026-11-08)
+
+
+### Features
+
+* **mcp:** publish the official MCP Registry listing on release ([#1744](https://github.com/assura-lang/assura/issues/1744)) ([8cd7a8d](https://github.com/assura-lang/assura/commit/8cd7a8df8c8fa1be6fd00d04b4be86630d02ef49))
+* **smt:** annotate integer bounds in counterexample output ([#1750](https://github.com/assura-lang/assura/issues/1750)) ([0226b62](https://github.com/assura-lang/assura/commit/0226b62b1b43cb32dd71275e219316b7d81d8bd8))
+
+
+### Bug Fixes
+
+* **cli:** skip vendor trees and include nested sources when walking directories ([#1740](https://github.com/assura-lang/assura/issues/1740)) ([179ff94](https://github.com/assura-lang/assura/commit/179ff94c4beb8c97f2002fdeb2633b9a45e34d66))
+* **cli:** skip vendor trees and symlink cycles in Rust directory walks ([#1741](https://github.com/assura-lang/assura/issues/1741)) ([20118cd](https://github.com/assura-lang/assura/commit/20118cdc20c3def5fbc71aad02932f6b0c689171))
+* **diagnostics:** match explain text to the codes the checker emits ([#1743](https://github.com/assura-lang/assura/issues/1743)) ([40ac2f3](https://github.com/assura-lang/assura/commit/40ac2f34565e25851abe4f4d92aeef3ac196cb1f))
+* **diagnostics:** mention invalid UTF-8 in the A01000 explanation ([#1742](https://github.com/assura-lang/assura/issues/1742)) ([5f17c34](https://github.com/assura-lang/assura/commit/5f17c34aa7b84abdfc627892dd32b43561ec3746))
+* **fmt:** check examples and demos with assura fmt ([#1739](https://github.com/assura-lang/assura/issues/1739)) ([2bde541](https://github.com/assura-lang/assura/commit/2bde54105c1ab82087d5ab103eaf2d9b3bad9ae8))
+* **vscode:** stop forcing minimatch 11 ([#1736](https://github.com/assura-lang/assura/issues/1736)) ([36efe54](https://github.com/assura-lang/assura/commit/36efe54b2ef0806a337afe924e0f68969ff21fd7))
+
 ## [0.7.2](https://github.com/assura-lang/assura/compare/v0.7.1...v0.7.2) (2026-11-06)
 
 
