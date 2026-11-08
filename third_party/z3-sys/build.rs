@@ -185,9 +185,9 @@ mod gh_release {
 
     use super::*;
     use reqwest::blocking::{Client, ClientBuilder};
-    use reqwest::header::{AUTHORIZATION, HeaderMap};
-    use zip::ZipArchive;
+    use reqwest::header::{HeaderMap, AUTHORIZATION};
     use zip::read::root_dir_common_filter;
+    use zip::ZipArchive;
 
     pub(super) fn install_from_gh_release() -> Option<crate::version::Version> {
         let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
@@ -259,17 +259,32 @@ mod gh_release {
     }
 
     pub fn download_unzip(client: &Client, url: String, dir: &Path) -> reqwest::Result<()> {
-        let response = client.get(url).send()?;
-        assert_eq!(response.status(), 200);
-        let ziplib = response.bytes()?;
-
-        println!("Downloaded {:0.2}MB", ziplib.len() as f64 / 1024.0 / 1024.0);
-
-        ZipArchive::new(std::io::Cursor::new(ziplib))
-            .unwrap()
-            .extract_unwrapped_root_dir(dir, root_dir_common_filter)
-            .expect("Failed to extract z3 release asset");
-        Ok(())
+        // GitHub release downloads return 504 often enough to fail CI.
+        // Retry those, and other server errors, before giving up.
+        const ATTEMPTS: u32 = 4;
+        let mut last_status = None;
+        for attempt in 1..=ATTEMPTS {
+            let response = client.get(&url).send()?;
+            let status = response.status();
+            if status == reqwest::StatusCode::OK {
+                let ziplib = response.bytes()?;
+                println!("Downloaded {:0.2}MB", ziplib.len() as f64 / 1024.0 / 1024.0);
+                ZipArchive::new(std::io::Cursor::new(ziplib))
+                    .unwrap()
+                    .extract_unwrapped_root_dir(dir, root_dir_common_filter)
+                    .expect("Failed to extract z3 release asset");
+                return Ok(());
+            }
+            println!("z3 download attempt {attempt}/{ATTEMPTS} got HTTP {status}");
+            last_status = Some(status);
+            let retry = status.as_u16() == 429 || status.is_server_error();
+            if attempt < ATTEMPTS && retry {
+                std::thread::sleep(std::time::Duration::from_secs(2_u64.pow(attempt)));
+                continue;
+            }
+            break;
+        }
+        panic!("z3 download failed after {ATTEMPTS} attempts, last HTTP status {last_status:?}");
     }
 
     fn get_release_asset_url(
