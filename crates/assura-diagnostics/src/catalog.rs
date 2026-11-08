@@ -701,10 +701,10 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
             code: "A01000",
             name: "File read error",
             description: "The compiler could not read the source file. The file may \
-                          not exist, the path may be incorrect, or the process may \
-                          lack permission to read it.",
+                          not exist, the path may be incorrect, the process may \
+                          lack permission to read it, or the bytes are not valid UTF-8.",
             example: r#"  assura check nonexistent_file.assura"#,
-            fix: "Check that the file path is correct and the file exists.",
+            fix: "Check that the file path exists and is readable. Save the source as UTF-8.",
         },
         ErrorInfo {
             code: "A03007",
@@ -2153,6 +2153,16 @@ mod tests {
             catalog.len() >= 50,
             "catalog has only {} entries, expected 50+",
             catalog.len()
+        );
+    }
+
+    #[test]
+    fn explain_a01000_covers_invalid_utf8() {
+        let info = explain("A01000").expect("A01000 should exist");
+        assert!(
+            info.description.contains("UTF-8"),
+            "explain A01000 must mention invalid UTF-8, got: {}",
+            info.description
         );
     }
 
