@@ -6,6 +6,16 @@ use std::path::Path;
 use assura_config::{CompilerConfig, OutputMode, Verbosity};
 use assura_parser::ast::*;
 
+/// `.assura` files under `dir`, including nested directories.
+///
+/// Skips build and vendor trees via [`assura_resolve::collect_assura_files`].
+fn collect_doc_sources(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    assura_resolve::collect_assura_files(dir, &mut files);
+    files.sort();
+    files
+}
+
 /// Run the `doc` command.
 pub(crate) fn run_doc(
     file: &str,
@@ -17,29 +27,24 @@ pub(crate) fn run_doc(
     let path = Path::new(file);
 
     let json = output_mode == OutputMode::Json;
-    // Collect source files (single file or directory)
+    // Collect source files (single file or directory). Nested trees such
+    // as examples/core/*.assura are included. Vendor directories are not.
     let files: Vec<std::path::PathBuf> = if path.is_dir() {
-        let mut entries: Vec<_> = std::fs::read_dir(path)
-            .unwrap_or_else(|e| {
-                if json {
-                    let report = serde_json::json!({
-                        "ok": false,
-                        "error": "cannot_read_directory",
-                        "path": file,
-                        "message": format!("cannot read directory {file}: {e}"),
-                    });
-                    println!("{}", serde_json::to_string_pretty(&report).unwrap());
-                } else {
-                    eprintln!("error: cannot read directory {file}: {e}");
-                }
-                std::process::exit(2);
-            })
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|ext| ext == "assura"))
-            .collect();
-        entries.sort();
-        entries
+        if let Err(e) = std::fs::read_dir(path) {
+            if json {
+                let report = serde_json::json!({
+                    "ok": false,
+                    "error": "cannot_read_directory",
+                    "path": file,
+                    "message": format!("cannot read directory {file}: {e}"),
+                });
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                eprintln!("error: cannot read directory {file}: {e}");
+            }
+            std::process::exit(2);
+        }
+        collect_doc_sources(path)
     } else {
         vec![path.to_path_buf()]
     };
@@ -554,6 +559,33 @@ fn write_verification_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn doc_sources_include_nested_files_and_skip_vendor() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("core");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::create_dir_all(dir.path().join("node_modules")).unwrap();
+        std::fs::write(nested.join("one.assura"), "contract One {}\n").unwrap();
+        std::fs::write(
+            dir.path().join("node_modules/skip.assura"),
+            "contract Skip {}\n",
+        )
+        .unwrap();
+        let found = collect_doc_sources(dir.path());
+        assert_eq!(found.len(), 1, "collected {found:?}");
+        assert_eq!(
+            found[0].file_name().and_then(|n| n.to_str()),
+            Some("one.assura")
+        );
+        assert_eq!(
+            found[0]
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str()),
+            Some("core")
+        );
+    }
 
     #[test]
     fn doc_generates_markdown_for_demo() {
