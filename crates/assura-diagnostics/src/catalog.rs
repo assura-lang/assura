@@ -494,16 +494,18 @@ pub fn error_catalog() -> Vec<ErrorInfo> {
         },
         ErrorInfo {
             code: "A09003",
-            name: "Partial function without 'partial' marker",
-            description: "A function may not terminate but is not marked as 'partial'. \
-                          Functions that may loop forever must be explicitly annotated.",
-            example: r#"  fn server_loop() -> Never
+            name: "Decreases measure is not well-founded",
+            description: "The compiler could not prove that a decreases measure stays \
+                          non-negative. A measure that can become negative does not \
+                          prove that recursion terminates.",
+            example: r#"  fn count_down(n: Int) -> Int
+      decreases { n }
   {
-      loop { handle_request() }
-      // infinite loop without 'partial' -> A09003
+      count_down(n - 1)
+      // n may be negative -> A09003
   }"#,
-            fix: "Mark the function as 'partial' to acknowledge it may not \
-                 terminate, or add a termination proof with 'decreases'.",
+            fix: "Add a requires clause that keeps the measure non-negative, \
+                 for example `requires { n >= 0 }`.",
         },
         ErrorInfo {
             code: "A09004",
@@ -2153,6 +2155,22 @@ mod tests {
             catalog.len() >= 50,
             "catalog has only {} entries, expected 50+",
             catalog.len()
+        );
+    }
+
+    #[test]
+    fn explain_a09003_is_well_founded_measure() {
+        let info = explain("A09003").expect("A09003 should exist");
+        let text = format!("{} {}", info.name, info.description);
+        assert!(
+            text.to_lowercase().contains("well-founded")
+                || text.to_lowercase().contains("non-negative"),
+            "explain A09003 must describe the measure, got: {text}"
+        );
+        assert!(
+            !info.description.contains("partial"),
+            "explain A09003 must not describe a missing partial marker, got: {}",
+            info.description
         );
     }
 

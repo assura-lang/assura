@@ -22,7 +22,7 @@
 | A06xxx | types | assura-types | checks/linear_typestate.rs, checkers/typestate.rs |
 | A07xxx | types | assura-types | checks/effects.rs, checkers/effects.rs |
 | A08xxx | types | assura-types | checks/info_flow.rs, checkers/taint.rs, checkers/info_flow.rs |
-| A09xxx | types | assura-types | checks/meta.rs (match), checkers/totality.rs |
+| A09xxx | types | assura-types | checkers/totality.rs (decreases). Match exhaustiveness is A10001/A10002 |
 | A10xxx | types | assura-types | checks/meta.rs, match exhaustiveness |
 | A11xxx | smt+types | assura-smt / assura-types | entry/, invariant checks |
 | A12xxx | types | assura-types | checks/concurrency.rs, checkers/security/ |
@@ -59,10 +59,10 @@
 | A08003 | types | assura-types | Implicit flow via branch | Secret in branch condition | Information Flow (A08xxx) | checks/info_flow.rs, checkers/taint.rs, checkers/info_flow.rs |
 | A08004 | types | assura-types | Purpose violation | Data used for undeclared purpose | Information Flow (A08xxx) | checks/info_flow.rs, checkers/taint.rs, checkers/info_flow.rs |
 | A08005 | types | assura-types | Missing declassification | Label downgrade without `declassify` | Information Flow (A08xxx) | checks/info_flow.rs, checkers/taint.rs, checkers/info_flow.rs |
-| A09001 | types | assura-types | Non-exhaustive pattern match | Missing cases | Totality (A09xxx) | checks/meta.rs (match), checkers/totality.rs |
-| A09002 | types | assura-types | Recursion may not terminate | No decreasing measure | Totality (A09xxx) | checks/meta.rs (match), checkers/totality.rs |
-| A09003 | types | assura-types | Decreasing measure not well-founded | Measure does not decrease | Totality (A09xxx) | checks/meta.rs (match), checkers/totality.rs |
-| A09004 | types | assura-types | Partial function called from total context | Missing `trust` | Totality (A09xxx) | checks/meta.rs (match), checkers/totality.rs |
+| A09001 | types | assura-types | Recursive function has no `decreases` clause | Add `decreases` or `partial` | Totality (A09xxx) | checkers/totality.rs |
+| A09002 | types | assura-types | Decreases measure does not strictly shrink | Recursive call leaves the measure unchanged or larger | Totality (A09xxx) | checkers/totality.rs |
+| A09003 | types | assura-types | Decreases measure is not well-founded | Measure may be negative | Totality (A09xxx) | checkers/totality.rs |
+| A09004 | types | assura-types | Mutual recursion without a `decreases` clause | No collective termination proof | Totality (A09xxx) | checkers/totality.rs |
 | A11001 | smt+types | assura-smt / assura-types | Invariant violated | SMT found counterexample | Business Invariant (A11xxx) | entry/, invariant checks |
 | A11002 | smt+types | assura-smt / assura-types | Invariant not preserved by operation | Mutation breaks invariant | Business Invariant (A11xxx) | entry/, invariant checks |
 | A11003 | smt+types | assura-smt / assura-types | Invariant verification timeout | SMT solver timed out | Business Invariant (A11xxx) | entry/, invariant checks |
