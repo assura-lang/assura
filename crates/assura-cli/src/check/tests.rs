@@ -5,18 +5,27 @@ fn success_summary_distinguishes_vacuous_cases() {
     use super::report::success_summary_message;
 
     assert!(
-        success_summary_message(true, false, false, 0)
+        success_summary_message(true, false, false, 0, 1)
             .contains("no contracts or functions to verify")
     );
-    assert!(success_summary_message(false, true, false, 0).contains("no verifiable clauses"));
-    assert!(success_summary_message(false, true, true, 0).contains("no SMT proof obligations"));
+    assert!(success_summary_message(false, true, false, 0, 1).contains("no verifiable clauses"));
+    assert!(success_summary_message(false, true, true, 0, 1).contains("no SMT proof obligations"));
     assert_eq!(
-        success_summary_message(false, false, false, 0),
+        success_summary_message(false, false, false, 0, 1),
         "check passed (no errors)"
     );
     assert_eq!(
-        success_summary_message(false, false, false, 2),
+        success_summary_message(false, false, false, 2, 1),
         "check passed (2 warnings)"
+    );
+    let layer0 = success_summary_message(false, false, true, 0, 0);
+    assert!(
+        layer0.contains("structural only"),
+        "layer 0 must not use the proved-clean line: {layer0}"
+    );
+    assert!(
+        !layer0.contains("no errors"),
+        "layer 0 must not use the proved-clean line: {layer0}"
     );
 }
 

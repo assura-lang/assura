@@ -69,6 +69,9 @@ jobs:
           filters: |
             rust:
               - 'crates/**'
+              # Patched z3-sys lives here. crates/** does not match it, so a
+              # third_party-only change skipped clippy and test (PR 1755).
+              - 'third_party/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'deny.toml'
