@@ -87,9 +87,14 @@ create the listing.
 [`glama.json`](../glama.json) names the maintainers (`SebTardif`). That file
 does not create the directory entry. A signed-in maintainer submits
 `https://github.com/assura-lang/assura` once with Add Server. There is no
-Glama token and no release job. Do not say the server is listed until
-`https://glama.ai/api/mcp/v1/servers?query=assura` returns it. The short
-description must match `server.json`: a check returns Verified,
+Glama token and no release job. Review reads the root
+[README](../README.md). On 2026-11-08 Glama rejected the listing because
+that README only mentioned an MCP server as a documentation-link label.
+The [MCP server](../README.md#mcp-server) section has to name the crate,
+the `rmcp` SDK, `assura mcp` on stdio, and the tools. Resubmit only after
+that section is on the default branch. Do not say the server is listed
+until `https://glama.ai/api/mcp/v1/servers?query=assura` returns it. The
+short description must match `server.json`: a check returns Verified,
 Counterexample, or Unknown.
 
 ### JSON envelopes (`assura_check`, `assura_infer`)
