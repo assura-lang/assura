@@ -97,6 +97,9 @@
 
 mod types;
 
+#[cfg(test)]
+mod github_status;
+
 pub use types::*;
 
 #[cfg(not(feature = "bindgen"))]

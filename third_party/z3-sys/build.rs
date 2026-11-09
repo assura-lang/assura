@@ -179,6 +179,9 @@ fn link_against_cxx_stdlib() {
 }
 
 #[cfg(feature = "gh-release")]
+// Inline modules take their name as the nested-file directory. "." keeps
+// #[path = "src/github_status.rs"] relative to this build script.
+#[path = "."]
 mod gh_release {
     use std::path::Path;
     use std::time::Duration;
@@ -188,6 +191,9 @@ mod gh_release {
     use reqwest::header::{HeaderMap, AUTHORIZATION};
     use zip::read::root_dir_common_filter;
     use zip::ZipArchive;
+
+    #[path = "src/github_status.rs"]
+    mod github_status;
 
     pub(super) fn install_from_gh_release() -> Option<crate::version::Version> {
         let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
@@ -259,8 +265,8 @@ mod gh_release {
     }
 
     pub fn download_unzip(client: &Client, url: String, dir: &Path) -> reqwest::Result<()> {
-        // GitHub release downloads return 504 often enough to fail CI.
-        // Retry those, and other server errors, before giving up.
+        // GitHub release downloads return 403, 429, and 5xx often enough to fail CI.
+        // Retry those before giving up.
         const ATTEMPTS: u32 = 4;
         let mut last_status = None;
         for attempt in 1..=ATTEMPTS {
@@ -277,7 +283,7 @@ mod gh_release {
             }
             println!("z3 download attempt {attempt}/{ATTEMPTS} got HTTP {status}");
             last_status = Some(status);
-            let retry = status.as_u16() == 429 || status.is_server_error();
+            let retry = github_status::retryable_github_status(status.as_u16());
             if attempt < ATTEMPTS && retry {
                 std::thread::sleep(std::time::Duration::from_secs(2_u64.pow(attempt)));
                 continue;
@@ -295,36 +301,57 @@ mod gh_release {
     ) -> String {
         let release_url =
             format!("https://api.github.com/repos/Z3Prover/z3/releases/tags/z3-{z3_version}");
-        let Ok(response) = client.get(release_url).send() else {
-            panic!("Could not find release for z3-{}", z3_version);
-        };
+        const ATTEMPTS: u32 = 4;
+        let mut last_status = None;
+        for attempt in 1..=ATTEMPTS {
+            let response = match client.get(&release_url).send() {
+                Ok(response) => response,
+                Err(err) => {
+                    println!(
+                        "z3 release API attempt {attempt}/{ATTEMPTS} failed to connect: {err}"
+                    );
+                    if attempt < ATTEMPTS {
+                        std::thread::sleep(Duration::from_secs(2_u64.pow(attempt)));
+                    }
+                    continue;
+                }
+            };
+            let status = response.status();
+            if status == reqwest::StatusCode::OK {
+                let release_json: serde_json::Value =
+                    serde_json::from_str(&response.text().unwrap()).unwrap();
 
-        assert_eq!(response.status(), 200);
+                let assets = release_json.get("assets").unwrap().as_array().unwrap();
 
-        let release_json: serde_json::Value =
-            serde_json::from_str(&response.text().unwrap()).unwrap();
+                let Some(asset) = assets.iter().find(|a| {
+                    let name = a.get("name").unwrap().as_str().unwrap();
+                    name.contains(target_os)
+                        && name.contains(target_arch)
+                        && name.ends_with(".zip")
+                        && name.starts_with("z3-")
+                }) else {
+                    panic!(
+                        "Could not find asset for z3-{} with os={} and arch={}",
+                        z3_version, target_os, target_arch
+                    );
+                };
 
-        let assets = release_json.get("assets").unwrap().as_array().unwrap();
-
-        let Some(asset) = assets.iter().find(|a| {
-            let name = a.get("name").unwrap().as_str().unwrap();
-            name.contains(target_os)
-                && name.contains(target_arch)
-                && name.ends_with(".zip")
-                && name.starts_with("z3-")
-        }) else {
-            panic!(
-                "Could not find asset for z3-{} with os={} and arch={}",
-                z3_version, target_os, target_arch
-            );
-        };
-
-        asset
-            .get("browser_download_url")
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .to_owned()
+                return asset
+                    .get("browser_download_url")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_owned();
+            }
+            println!("z3 release API attempt {attempt}/{ATTEMPTS} got HTTP {status}");
+            last_status = Some(status);
+            if attempt < ATTEMPTS && github_status::retryable_github_status(status.as_u16()) {
+                std::thread::sleep(Duration::from_secs(2_u64.pow(attempt)));
+                continue;
+            }
+            break;
+        }
+        panic!("z3 release API failed after {ATTEMPTS} attempts, last HTTP status {last_status:?}");
     }
 
     pub fn get_github_client() -> Client {
