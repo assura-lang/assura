@@ -4279,10 +4279,10 @@ fn check_rust_layer_zero_json_is_vacuous() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
-/// Non-empty `check-rust --json` must emit `vacuous: false` and `success`/`ok`.
+/// Requires-only `check-rust --json` parses the annotation and proves nothing.
 #[test]
-fn check_rust_annotated_json_has_success_and_not_vacuous() {
-    let tmp = unique_temp("assura_check_rust_not_vacuous");
+fn check_rust_requires_only_json_is_vacuous() {
+    let tmp = unique_temp("assura_check_rust_requires_only");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
     let src = tmp.join("ann.rs");
@@ -4296,22 +4296,30 @@ fn check_rust_annotated_json_has_success_and_not_vacuous() {
         .args(["check-rust", src.to_str().unwrap(), "--json"])
         .current_dir(workspace_root())
         .output()
-        .expect("failed to run check-rust --json on annotated file");
+        .expect("failed to run check-rust --json on requires-only file");
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         out.status.success(),
-        "annotated check-rust should succeed: stdout={stdout} stderr={stderr}"
+        "requires-only check-rust should exit 0: stdout={stdout} stderr={stderr}"
     );
     let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
-        panic!("check-rust --json annotated must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+        panic!(
+            "check-rust --json requires-only must be JSON: {e}\nstdout={stdout}\nstderr={stderr}"
+        )
     });
-    assert_eq!(
-        v["vacuous"], false,
-        "non-empty summary must emit vacuous false: {v}"
-    );
     assert_eq!(v["ok"], true, "{v}");
     assert_eq!(v["success"], true, "{v}");
+    assert_eq!(v["verified"], 0, "{v}");
+    assert_eq!(
+        v["vacuous"], true,
+        "nothing SMT-verified must be vacuous: {v}"
+    );
+    let reason = v["vacuous_reason"].as_str().unwrap_or("");
+    assert!(
+        reason.contains("SMT-verified"),
+        "reason should say nothing was SMT-verified: {v}"
+    );
     assert!(v["items"].as_u64().unwrap_or(0) >= 1, "{v}");
     let _ = std::fs::remove_dir_all(&tmp);
 }

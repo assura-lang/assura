@@ -433,7 +433,8 @@ pub(crate) fn run_check_rust(
     // Summary
     if output_mode == OutputMode::Json {
         let ok = total_errors == 0 && total_body_not_modeled == 0;
-        let (vacuous, vacuous_reason) = check_rust_layer_vacuous(layer);
+        let (vacuous, vacuous_reason) =
+            check_rust_summary_vacuous(layer, total_verified, total_errors, total_body_not_modeled);
         let mut summary = serde_json::json!({
             "ok": ok,
             "success": ok,
@@ -1381,13 +1382,24 @@ fn rust_int_range_bounds(rust_ty: &str) -> Option<(&'static str, &'static str)> 
     }
 }
 
-/// Layer 0 parses annotations and does not run SMT. JSON must not look proved.
-pub(crate) fn check_rust_layer_vacuous(layer: u8) -> (bool, Option<&'static str>) {
+/// JSON vacuous flag for a check-rust summary.
+///
+/// Layer 0 never runs SMT. A later layer with nothing verified, and no
+/// error or unmodeled body, parsed annotations only. Either case must
+/// not look like a proof.
+pub(crate) fn check_rust_summary_vacuous(
+    layer: u8,
+    verified: usize,
+    errors: usize,
+    body_not_modeled: usize,
+) -> (bool, Option<&'static str>) {
     if layer == 0 {
         (
             true,
             Some("verification skipped (--layer 0: structural checks only)"),
         )
+    } else if verified == 0 && errors == 0 && body_not_modeled == 0 {
+        (true, Some("no clauses SMT-verified"))
     } else {
         (false, None)
     }
@@ -1420,7 +1432,7 @@ pub(crate) fn should_mark_body_not_modeled(
 
 #[cfg(test)]
 mod body_policy_tests {
-    use super::{check_rust_layer_vacuous, should_mark_body_not_modeled};
+    use super::{check_rust_summary_vacuous, should_mark_body_not_modeled};
 
     #[test]
     fn rust_int_range_i64() {
@@ -1433,15 +1445,20 @@ mod body_policy_tests {
 
     #[test]
     fn layer_zero_json_is_vacuous() {
-        let (vacuous, reason) = check_rust_layer_vacuous(0);
+        let (vacuous, reason) = check_rust_summary_vacuous(0, 0, 0, 0);
         assert!(vacuous);
         assert_eq!(
             reason,
             Some("verification skipped (--layer 0: structural checks only)")
         );
-        let (vacuous, reason) = check_rust_layer_vacuous(1);
+        let (vacuous, reason) = check_rust_summary_vacuous(1, 0, 0, 0);
+        assert!(vacuous);
+        assert_eq!(reason, Some("no clauses SMT-verified"));
+        let (vacuous, reason) = check_rust_summary_vacuous(1, 1, 0, 0);
         assert!(!vacuous);
         assert_eq!(reason, None);
+        assert!(!check_rust_summary_vacuous(1, 0, 1, 0).0);
+        assert!(!check_rust_summary_vacuous(1, 0, 0, 1).0);
     }
 
     #[test]
