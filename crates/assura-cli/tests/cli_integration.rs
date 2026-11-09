@@ -4233,6 +4233,52 @@ fn check_rust_no_annotations_json_is_vacuous() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// `check-rust --layer 0 --json` on an annotated file is structural only.
+#[test]
+fn check_rust_layer_zero_json_is_vacuous() {
+    let tmp = unique_temp("assura_check_rust_layer0");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let src = tmp.join("ann.rs");
+    std::fs::write(
+        &src,
+        "/// @requires a > 0\n/// @ensures result == a\nfn only_positive(a: i32) -> i32 { a }\n",
+    )
+    .unwrap();
+
+    let out = Command::new(assura_bin())
+        .args([
+            "check-rust",
+            src.to_str().unwrap(),
+            "--layer",
+            "0",
+            "--json",
+        ])
+        .current_dir(workspace_root())
+        .output()
+        .expect("failed to run check-rust --layer 0 --json");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "layer 0 check-rust should exit 0: stdout={stdout} stderr={stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("layer 0 check-rust must be JSON: {e}\nstdout={stdout}\nstderr={stderr}")
+    });
+    assert_eq!(v["success"], true, "{v}");
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["vacuous"], true, "layer 0 must not look proved: {v}");
+    assert_eq!(v["verified"], 0, "{v}");
+    let reason = v["vacuous_reason"].as_str().unwrap_or("");
+    assert!(
+        reason.contains("layer 0"),
+        "reason should say verification was skipped: {v}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 /// Non-empty `check-rust --json` must emit `vacuous: false` and `success`/`ok`.
 #[test]
 fn check_rust_annotated_json_has_success_and_not_vacuous() {
