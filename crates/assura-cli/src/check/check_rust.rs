@@ -433,10 +433,12 @@ pub(crate) fn run_check_rust(
     // Summary
     if output_mode == OutputMode::Json {
         let ok = total_errors == 0 && total_body_not_modeled == 0;
+        let (vacuous, vacuous_reason) = check_rust_layer_vacuous(layer);
         let mut summary = serde_json::json!({
             "ok": ok,
             "success": ok,
-            "vacuous": false,
+            "vacuous": vacuous,
+            "vacuous_reason": vacuous_reason,
             "files": file_items.len(),
             "items": file_items.iter().map(|(_, items)| items.len()).sum::<usize>(),
             "clauses": total_clauses,
@@ -1379,6 +1381,18 @@ fn rust_int_range_bounds(rust_ty: &str) -> Option<(&'static str, &'static str)> 
     }
 }
 
+/// Layer 0 parses annotations and does not run SMT. JSON must not look proved.
+pub(crate) fn check_rust_layer_vacuous(layer: u8) -> (bool, Option<&'static str>) {
+    if layer == 0 {
+        (
+            true,
+            Some("verification skipped (--layer 0: structural checks only)"),
+        )
+    } else {
+        (false, None)
+    }
+}
+
 /// Whether check-rust should report `body_not_modeled` instead of a soft pass.
 ///
 /// See #951: without co-located IR or an encoded Rust body, ensures must not
@@ -1406,6 +1420,8 @@ pub(crate) fn should_mark_body_not_modeled(
 
 #[cfg(test)]
 mod body_policy_tests {
+    use super::{check_rust_layer_vacuous, should_mark_body_not_modeled};
+
     #[test]
     fn rust_int_range_i64() {
         assert_eq!(
@@ -1415,7 +1431,18 @@ mod body_policy_tests {
         assert!(super::rust_int_range_bounds("u64").is_none());
     }
 
-    use super::should_mark_body_not_modeled;
+    #[test]
+    fn layer_zero_json_is_vacuous() {
+        let (vacuous, reason) = check_rust_layer_vacuous(0);
+        assert!(vacuous);
+        assert_eq!(
+            reason,
+            Some("verification skipped (--layer 0: structural checks only)")
+        );
+        let (vacuous, reason) = check_rust_layer_vacuous(1);
+        assert!(!vacuous);
+        assert_eq!(reason, None);
+    }
 
     #[test]
     fn marks_synthesized_ensures_without_ir() {
