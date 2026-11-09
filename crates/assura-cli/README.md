@@ -47,9 +47,10 @@ the preconditions that makes the ensures false. You get **Verified**, a
 ## Commands
 
 ```bash
-assura init my-project          # scaffold a project
-assura check contract.assura    # verify (--json for agents, --stats for timings)
-assura build contract.assura    # emit Rust
+assura init my-project                 # scaffold a project
+cd my-project
+assura check contracts/lib.assura      # verify (--json for agents, --stats for timings)
+assura build contracts/lib.assura      # emit Rust
 assura explain A05100           # explain any error code
 assura check-rust src/          # verify inline contracts in Rust source
 assura mcp                      # run the MCP server for agent hosts

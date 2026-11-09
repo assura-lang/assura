@@ -84,8 +84,8 @@ enabled in the repo settings. Without that, the build still runs when the
 container is created. After the build:
 
 ```bash
-cargo run -- check demos/zip-crate-audit.assura   # counterexamples (intentional)
-cargo run -- check demos/heartbleed.assura        # a clean proof
+cargo run --bin assura -- check demos/zip-crate-audit.assura   # counterexamples (intentional)
+cargo run --bin assura -- check demos/heartbleed.assura        # a clean proof
 ```
 
 ## Install
@@ -110,13 +110,57 @@ curl --proto '=https' --tlsv1.2 -LsSf \
 Then:
 
 ```bash
-assura init my-project          # scaffold a project
-assura check contract.assura    # prove it (add --json for agents)
-assura build contract.assura    # emit Rust
+assura init my-project
+cd my-project
+assura check contracts/lib.assura    # prove the scaffold (add --json for agents)
+assura build contracts/lib.assura    # emit Rust
 ```
 
 Full command reference, LSP, VS Code extension, and library embedding:
 **[Getting started](docs/GETTING-STARTED.md)** · [Cheatsheet](docs/CHEATSHEET.md)
+
+## MCP server
+
+This repository contains the MCP server. The implementation is the Rust crate
+[`crates/assura-mcp`](crates/assura-mcp). It uses the [`rmcp`](https://crates.io/crates/rmcp)
+SDK with the `server` and `transport-io` features. There is no separate
+`assura-mcp` binary. The `assura` command starts that server on stdio:
+
+```bash
+assura mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "assura": {
+      "command": "assura",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+The process speaks MCP on stdin and stdout. With no host attached, the
+terminal looks idle.
+
+`crates/assura-mcp` registers these tools:
+
+| Tool | What it does |
+| --- | --- |
+| `assura_check` | Parse, type-check, and verify a contract. Pass `source` or `file`. |
+| `assura_infer` | Infer skeleton contracts from Rust source. |
+| `assura_explain` | Explain an Assura error code. |
+| `assura_type_map` | Map a Rust type such as `Vec<i64>` to an Assura type. |
+| `assura_ir_prompt` | Render a prompt that asks for Implementation IR. |
+| `assura_ir_verify` | Check that IR against the contract with Z3 or CVC5. |
+
+A check returns **Verified**, a **Counterexample**, or **Unknown**. Unknown
+means the solver did not decide. Stop when there is no Counterexample. Do
+not keep rewriting because a clause is Unknown.
+
+The official MCP Registry name is `io.github.assura-lang/assura`. Agent
+details: [For AI agents](docs/AI-AGENTS.md).
 
 ## Why this exists
 
@@ -198,7 +242,7 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md). Architecture and crate map:
 | [Cookbook](docs/COOKBOOK.md) | Ready-to-copy contract patterns |
 | [What we prove](docs/WHAT-WE-PROVE.md) | The honesty map: Verified / Unknown / Counterexample |
 | [Compared to other tools](docs/COMPARE.md) | Dafny, Verus, Liquid Haskell, tests |
-| [For AI agents](docs/AI-AGENTS.md) | JSON output, IR acceptance, MCP server |
+| [For AI agents](docs/AI-AGENTS.md) | JSON output and IR acceptance. The MCP server in this repo is [above](#mcp-server). |
 | [Scenarios](docs/SCENARIOS.md) | Greenfield, retrofit, audit, CI, onboarding |
 | [FAQ](docs/FAQ.md) | Z3 timeouts, counterexamples, common errors |
 | [Internals](docs/INTERNALS.md) | Architecture, crate map, SMT encoding |

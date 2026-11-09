@@ -65,10 +65,11 @@ If you only want to see a check result before installing:
    requires Codespaces prebuilds enabled for the repo. Without them the
    first `cargo` command compiles. Then:
    ```bash
-   cargo run -- check demos/zip-crate-audit.assura   # counterexamples (intentional)
-   cargo run -- check demos/heartbleed.assura        # clean proof
+   cargo run --bin assura -- check demos/zip-crate-audit.assura   # counterexamples (intentional)
+   cargo run --bin assura -- check demos/heartbleed.assura        # clean proof
    ```
-   The same `cargo run --` form works on any machine that already has
+   The workspace has three binaries, so `cargo run` needs `--bin assura`.
+   The same form works on any machine that already has
    Rust 1.88+ and a built workspace. `libz3-dev` (or the `z3` crate's
    prebuilt download) is required to compile.
 2. **Watch the demo GIF** (no install):  
