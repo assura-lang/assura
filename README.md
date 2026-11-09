@@ -84,8 +84,8 @@ enabled in the repo settings. Without that, the build still runs when the
 container is created. After the build:
 
 ```bash
-cargo run -- check demos/zip-crate-audit.assura   # counterexamples (intentional)
-cargo run -- check demos/heartbleed.assura        # a clean proof
+cargo run --bin assura -- check demos/zip-crate-audit.assura   # counterexamples (intentional)
+cargo run --bin assura -- check demos/heartbleed.assura        # a clean proof
 ```
 
 ## Install
@@ -110,9 +110,10 @@ curl --proto '=https' --tlsv1.2 -LsSf \
 Then:
 
 ```bash
-assura init my-project          # scaffold a project
-assura check contract.assura    # prove it (add --json for agents)
-assura build contract.assura    # emit Rust
+assura init my-project
+cd my-project
+assura check contracts/lib.assura    # prove the scaffold (add --json for agents)
+assura build contracts/lib.assura    # emit Rust
 ```
 
 Full command reference, LSP, VS Code extension, and library embedding:
