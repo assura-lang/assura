@@ -266,7 +266,7 @@ For existing Rust code:
 1. Run `assura infer src/lib.rs -o contracts.assura` to generate skeletons
 2. Refine the skeleton contracts with real invariants
 3. Run `assura check contracts.assura` to verify
-4. Counterexamples reveal bugs in the original code
+4. A counterexample means an ensures does not follow from the requires. `assura check` does not read the Rust body, so do not change the Rust file for that result. Use `assura check-rust` to check the Rust.
 
 ## Example Contracts
 
@@ -330,6 +330,18 @@ mod tests {
         assert!(
             !md.contains("a mod b"),
             "agent-instructions must not copy-paste the remainder identity"
+        );
+        assert!(
+            !md.contains("reveal bugs in the original code"),
+            "a counterexample from assura check does not reveal bugs in the original Rust"
+        );
+        let rust_steps = md
+            .split_once("For existing Rust code:")
+            .expect("existing Rust workflow")
+            .1;
+        assert!(
+            rust_steps.contains("assura check-rust"),
+            "existing-Rust steps must name assura check-rust for checking Rust"
         );
     }
 

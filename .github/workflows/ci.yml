@@ -33,7 +33,7 @@ permissions:
 #
 # Filter groups:
 #   rust           - any Rust crate or workspace file changed
-#   codegen        - crates that affect code generation + demo files
+#   codegen        - codegen crates, assura fmt, and demo files
 #   tooling-only   - only CLI/LSP/server/fmt changed (not core pipeline)
 #   editors-ts     - tree-sitter grammar
 #   editors-vscode - VS Code extension
@@ -90,6 +90,10 @@ jobs:
               - 'examples/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              # assura fmt --check on examples and demos runs in codegen-validation.
+              # Keep it off lint-fast: that job sets install-system-deps false.
+              - 'crates/assura-fmt/**'
+              - 'crates/assura-cli/src/fmt_cmd.rs'
             tooling-only:
               - 'crates/assura-cli/**'
               - 'crates/assura-lsp/**'
