@@ -1,6 +1,4 @@
 use std::env;
-#[cfg(feature = "gh-release")]
-use std::path::PathBuf;
 
 #[cfg(not(feature = "bindgen"))]
 mod enum_compat;
@@ -40,6 +38,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=Z3_SYS_Z3_VERSION");
+    println!("cargo:rerun-if-env-changed=Z3_SYS_CACHE_DIR");
     let override_version = env::var("Z3_SYS_Z3_VERSION")
         .ok()
         .and_then(|s| version::parse_dotted(&s));
@@ -183,7 +182,8 @@ fn link_against_cxx_stdlib() {
 // #[path = "src/github_status.rs"] relative to this build script.
 #[path = "."]
 mod gh_release {
-    use std::path::Path;
+    use std::fs;
+    use std::path::{Path, PathBuf};
     use std::time::Duration;
 
     use super::*;
@@ -194,6 +194,9 @@ mod gh_release {
 
     #[path = "src/github_status.rs"]
     mod github_status;
+
+    #[path = "src/z3_cache.rs"]
+    mod z3_cache;
 
     pub(super) fn install_from_gh_release() -> Option<crate::version::Version> {
         let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
@@ -232,36 +235,84 @@ mod gh_release {
         };
         let z3_version = env::var("Z3_SYS_Z3_VERSION").unwrap_or(GH_RELEASE_VERSION.to_string());
         let version = crate::version::parse_dotted(&z3_version);
-        let z3_dir = PathBuf::from(env::var("OUT_DIR").unwrap()).join(format!("z3-{z3_version}"));
+        let lib = install_cached_z3(target_os, os, arch, &z3_version);
+        (lib, version)
+    }
 
-        if !z3_dir.exists() {
-            let client = get_github_client();
-
-            let url = get_release_asset_url(&client, &z3_version, os, arch);
-            if let Err(err) = download_unzip(&client, url, &z3_dir) {
-                println!("error: {err}");
-                panic!(
-                    "Could not get release asset for z3-{} with os={} and arch={}",
-                    z3_version, os, arch
-                );
-            };
-        } else {
-            println!("Found cached z3 at {}", z3_dir.display());
+    /// Extracted static library, outside Cargo's `OUT_DIR`.
+    /// A hit does not call GitHub.
+    fn install_cached_z3(target_os: &str, os: &str, arch: &str, z3_version: &str) -> PathBuf {
+        let root = z3_cache_root();
+        let lib = z3_cache::cached_static_lib(&root, z3_version, os, arch, target_os);
+        if lib.is_file() {
+            println!("Found cached z3 at {}", lib.display());
+            return lib;
         }
 
-        let lib = if target_os == "windows" {
-            z3_dir.join("bin/libz3.lib")
+        let _ = fs::create_dir_all(&root);
+        let tmp = root.join(format!(
+            ".partial-{z3_version}-{os}-{arch}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap_or_else(|err| {
+            panic!("could not create {}: {err}", tmp.display());
+        });
+
+        let client = get_github_client();
+        let url = get_release_asset_url(&client, z3_version, os, arch);
+        if let Err(err) = download_unzip(&client, url, &tmp) {
+            let _ = fs::remove_dir_all(&tmp);
+            println!("error: {err}");
+            panic!(
+                "Could not get release asset for z3-{z3_version} with os={os} and arch={arch}"
+            );
+        }
+
+        let dest_dir = lib
+            .parent()
+            .and_then(|bin| bin.parent())
+            .expect("cached lib path includes bin/");
+        if dest_dir.exists() && !lib.is_file() {
+            let _ = fs::remove_dir_all(dest_dir);
+        }
+        if !lib.is_file() {
+            if let Err(err) = fs::rename(&tmp, dest_dir) {
+                let _ = fs::remove_dir_all(&tmp);
+                if !lib.is_file() {
+                    panic!(
+                        "could not install cached z3 at {}: {err}",
+                        dest_dir.display()
+                    );
+                }
+            }
         } else {
-            z3_dir.join("bin/libz3.a")
-        };
+            let _ = fs::remove_dir_all(&tmp);
+        }
 
         assert!(
-            lib.exists(),
+            lib.is_file(),
             "could not find static libz3 in downloaded archive at {}",
-            z3_dir.display()
+            lib.display()
         );
+        lib
+    }
 
-        (lib, version)
+    fn z3_cache_root() -> PathBuf {
+        let cache_dir = env::var("Z3_SYS_CACHE_DIR").ok();
+        let xdg = env::var("XDG_CACHE_HOME").ok();
+        let home = env::var("HOME").ok();
+        let userprofile = env::var("USERPROFILE").ok();
+        let local_app_data = env::var("LOCALAPPDATA").ok();
+        let out_dir = env::var("OUT_DIR").unwrap();
+        z3_cache::cache_root_from_env(
+            cache_dir.as_deref(),
+            xdg.as_deref(),
+            home.as_deref(),
+            userprofile.as_deref(),
+            local_app_data.as_deref(),
+            Path::new(&out_dir),
+        )
     }
 
     pub fn download_unzip(client: &Client, url: String, dir: &Path) -> reqwest::Result<()> {

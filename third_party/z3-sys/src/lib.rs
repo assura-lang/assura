@@ -95,10 +95,16 @@
 #![allow(clippy::doc_lazy_continuation)]
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
 mod types;
 
 #[cfg(test)]
 mod github_status;
+
+#[cfg(test)]
+mod z3_cache;
 
 pub use types::*;
 

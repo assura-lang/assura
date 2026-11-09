@@ -16,6 +16,11 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # z3-sys stores the static library outside target/. The token is used
+  # only when that cache misses and the GitHub release API is called.
+  READ_ONLY_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 # ---------------------------------------------------------------------------
 # Path filter: determine which groups of files changed so jobs can skip
 # themselves when their inputs are untouched.
@@ -124,6 +129,9 @@ jobs:
   # so deny failures do not force a full re-clippy when only deny.toml changed.
   lint-fast:
     name: Fast lint
+    permissions:
+      contents: read
+      actions: write
     needs: changes
     if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
@@ -183,6 +191,9 @@ jobs:
 
   # ── Clippy (parallel with test / lint-fast / heavy jobs) ──────────────────
   clippy:
+    permissions:
+      contents: read
+      actions: write
     needs: changes
     if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
@@ -264,6 +275,9 @@ jobs:
 
   # ── Tests (parallel with clippy) ──────────────────────────────────────────
   test:
+    permissions:
+      contents: read
+      actions: write
     needs: changes
     if: ${{ needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
@@ -302,6 +316,9 @@ jobs:
   # ── Pipeline benchmarks (parallel; free hosted VMs, no self-host throttle) ─
   benchmark:
     name: Pipeline benchmarks
+    permissions:
+      contents: read
+      actions: write
     needs: changes
     if: ${{ (needs.changes.outputs.codegen == 'true' || needs.changes.outputs.tooling-only == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')) }}
     runs-on: ubuntu-latest
@@ -341,6 +358,9 @@ jobs:
   # ── Generated code compiles (parallel with test on free hosted runners) ──
   codegen-validation:
     name: Generated code compiles
+    permissions:
+      contents: read
+      actions: write
     needs: changes
     if: ${{ (needs.changes.outputs.codegen == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')) }}
     runs-on: ubuntu-latest
@@ -402,6 +422,9 @@ jobs:
 
   # ── No-Z3 fallback check (~30s on ubuntu) ───────────────────────────────
   no-z3:
+    permissions:
+      contents: read
+      actions: write
     needs: changes
     if: ${{ (needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')) }}
     runs-on: ubuntu-latest
@@ -428,6 +451,9 @@ jobs:
   # and Rust 1.88 rejects.
   msrv:
     name: MSRV 1.88.0
+    permissions:
+      contents: read
+      actions: write
     needs: changes
     if: ${{ (needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')) }}
     runs-on: ubuntu-latest
@@ -454,6 +480,9 @@ jobs:
   # ── CVC5 native integration tests (parallel with test) ──────────────────
   cvc5:
     name: CVC5 native tests
+    permissions:
+      contents: read
+      actions: write
     needs: changes
     if: ${{ (needs.changes.outputs.smt == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')) }}
     runs-on: ubuntu-latest
@@ -566,6 +595,9 @@ jobs:
   # resolve inside the monorepo. cargo package --locked verifies each tarball.
   cargo-package:
     name: Cargo package (publishable)
+    permissions:
+      contents: read
+      actions: write
     needs: changes
     if: ${{ (needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please')) }}
     runs-on: ubuntu-latest
