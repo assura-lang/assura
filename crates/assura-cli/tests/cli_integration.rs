@@ -1553,6 +1553,21 @@ fn mcp_tools_list_returns_all_tools() {
         names.contains(&"assura_ir_prompt"),
         "missing assura_ir_prompt"
     );
+    let ir_verify = tools
+        .iter()
+        .find(|t| t["name"] == "assura_ir_verify")
+        .expect("missing assura_ir_verify");
+    let description = ir_verify["description"]
+        .as_str()
+        .expect("assura_ir_verify description");
+    assert!(
+        !description.contains("until all clauses verify"),
+        "assura_ir_verify must not tell agents to resubmit until every clause verifies: {description}"
+    );
+    assert!(
+        description.contains("Counterexample") || description.contains("Unknown"),
+        "assura_ir_verify must mention Counterexample or Unknown: {description}"
+    );
 }
 
 #[test]

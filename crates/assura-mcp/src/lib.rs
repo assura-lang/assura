@@ -197,7 +197,7 @@ impl AssuraMcpServer {
     }
 
     #[tool(
-        description = "Verify an Implementation IR against an Assura contract using SMT solvers (Z3/CVC5). Returns per-clause verification results with counterexamples and progress tracking. The core tool for the AI verification loop: generate IR, submit for verification, read feedback, fix IR, resubmit until all clauses verify. Provide contract via `source`/`file` and IR via `ir`/`ir_file`. When the file has more than one contract, pass `decl` (same names as `assura_ir_prompt`) so IR is not checked against the first contract only."
+        description = "Verify an Implementation IR against an Assura contract using SMT solvers (Z3/CVC5). Returns per-clause verification results with counterexamples and progress tracking. The core tool for the AI verification loop: generate IR, submit for verification, and read feedback. Stop when there is no Counterexample. Unknown is acceptable because some features are not encoded in SMT; do not keep rewriting the IR because a clause is Unknown. Provide contract via `source`/`file` and IR via `ir`/`ir_file`. When the file has more than one contract, pass `decl` (same names as `assura_ir_prompt`) so IR is not checked against the first contract only."
     )]
     fn assura_ir_verify(&self, Parameters(params): Parameters<IrVerifyParams>) -> String {
         let contract = match resolve_source_with_path(params.source, params.file) {
