@@ -30,6 +30,16 @@ runs:
         shared-key: ${{ inputs.shared-key }}
         save-if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'workflow_dispatch' }}
 
+    # build.rs keeps extracted Z3 under $HOME/.cache/z3-sys (see
+    # third_party/z3-sys/src/z3_cache.rs). rust-cache does not cover that
+    # directory, and OUT_DIR is discarded when build.rs changes.
+    # Key version matches GH_RELEASE_VERSION in third_party/z3-sys/build.rs.
+    - name: Cache Z3 static library
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        path: ~/.cache/z3-sys
+        key: z3-sys-5.1.0-${{ runner.os }}-${{ runner.arch }}
+
     - name: Install system dependencies (Linux)
       if: ${{ runner.os == 'Linux' && inputs.install-system-deps == 'true' }}
       shell: bash

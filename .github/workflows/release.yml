@@ -7,6 +7,7 @@
 name: Release
 permissions:
   contents: read
+  actions: write
 
 on:
   push:
@@ -175,6 +176,13 @@ jobs:
       - name: Install dependencies
         run: |
           ${{ matrix.packages_install }}
+      # Same directory as third_party/z3-sys/src/z3_cache.rs ($HOME/.cache/z3-sys).
+      # Key version matches GH_RELEASE_VERSION in third_party/z3-sys/build.rs.
+      - name: Cache Z3 static library
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/z3-sys
+          key: z3-sys-5.1.0-${{ runner.os }}-${{ runner.arch }}
       - name: Build artifacts
         run: |
           # Actually do builds and make zips and whatnot

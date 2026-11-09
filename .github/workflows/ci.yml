@@ -15,6 +15,12 @@ concurrency:
 
 permissions:
   contents: read
+  actions: write
+
+env:
+  # z3-sys stores the static library outside target/. The token is used
+  # only when that cache misses and the GitHub release API is called.
+  READ_ONLY_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 # ---------------------------------------------------------------------------
 # Path filter: determine which groups of files changed so jobs can skip
