@@ -284,6 +284,7 @@ pub(crate) fn verify_and_report(ctx: VerifyContext<'_>) -> Vec<assura_smt::Verif
                     decls_without_results,
                     has_clauses,
                     warning_count,
+                    layer,
                 );
                 eprintln!("{shown_file}: {summary}");
             } else if warning_count > 0 {
@@ -385,9 +386,20 @@ pub(crate) fn success_summary_message(
     contracts_without_results: bool,
     has_clause_kinds: bool,
     warning_count: usize,
+    layer: u8,
 ) -> String {
     if no_decls {
         "check passed (no contracts or functions to verify)".into()
+    } else if layer == 0 {
+        // Same final line as a finished proof would hide that SMT did not run.
+        if warning_count > 0 {
+            format!(
+                "check passed (structural only; verification skipped; {warning_count} warning{})",
+                if warning_count == 1 { "" } else { "s" }
+            )
+        } else {
+            "check passed (structural only; verification skipped)".into()
+        }
     } else if contracts_without_results {
         if has_clause_kinds {
             "check passed (no SMT proof obligations; add ensures or invariant)".into()
