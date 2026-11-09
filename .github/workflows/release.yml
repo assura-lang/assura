@@ -7,7 +7,6 @@
 name: Release
 permissions:
   contents: read
-  actions: write
 
 on:
   push:
@@ -117,6 +116,9 @@ jobs:
   # Build and packages all the platform-specific things
   build-local-artifacts:
     name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
+    permissions:
+      contents: read
+      actions: write
     # Let the initial task tell us to not run (currently very blunt)
     needs:
       - plan
