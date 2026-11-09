@@ -293,7 +293,7 @@ When editing `.github/workflows/**` or `.github/actions/**`, also run:
 
 ```bash
 actionlint -color
-zizmor --config .github/zizmor.yml .github/workflows/*.yml
+zizmor --config .github/zizmor.yml .github/workflows/ .github/actions/
 ```
 
 When you touch `assura-smt`, the CI job **CVC5 native tests** is more
