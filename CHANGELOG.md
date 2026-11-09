@@ -3,6 +3,17 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.8.1](https://github.com/assura-lang/assura/compare/v0.8.0...v0.8.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **cli:** correct agent verify instructions and formatter CI ([#1752](https://github.com/assura-lang/assura/issues/1752)) ([4409e9d](https://github.com/assura-lang/assura/commit/4409e9d3afbfb6567b4d58a9713b90ae60f92024))
+* **cli:** do not call a layer 0 check a clean proof ([#1756](https://github.com/assura-lang/assura/issues/1756)) ([d623674](https://github.com/assura-lang/assura/commit/d623674be1e20532a065ed6df007df456d74c62a))
+* **cli:** mark check-rust layer 0 JSON as not a proof ([#1757](https://github.com/assura-lang/assura/issues/1757)) ([c43b570](https://github.com/assura-lang/assura/commit/c43b5709d3ad3f6baccd01aa6049daf8cff16abd))
+* **cli:** mark unproved check-rust JSON as vacuous ([#1758](https://github.com/assura-lang/assura/issues/1758)) ([0eda0d5](https://github.com/assura-lang/assura/commit/0eda0d5646a5aa4ed4f175a499f80228b8a4b160))
+* **smt:** retry GitHub 403 when fetching the Z3 release ([#1755](https://github.com/assura-lang/assura/issues/1755)) ([1f862fc](https://github.com/assura-lang/assura/commit/1f862fcac3b6263a08e57c3668bc816d8f89b2d6))
+
 ## [0.8.0](https://github.com/assura-lang/assura/compare/v0.7.2...v0.8.0) (2026-11-08)
 
 
