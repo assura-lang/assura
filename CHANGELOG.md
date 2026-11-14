@@ -3,6 +3,13 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.8.2](https://github.com/assura-lang/assura/compare/v0.8.1...v0.8.2) (2026-11-14)
+
+
+### Bug Fixes
+
+* **smt:** reuse a cached Z3 release library ([#1759](https://github.com/assura-lang/assura/issues/1759)) ([20df7b7](https://github.com/assura-lang/assura/commit/20df7b7bb3bd29cb47873ac7b6719e547cf06c44))
+
 ## [0.8.1](https://github.com/assura-lang/assura/compare/v0.8.0...v0.8.1) (2026-11-09)
 
 
