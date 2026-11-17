@@ -21,8 +21,9 @@ jobs:
     name: Dependency audit
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # rustsec/audit-check opens a check run for warnings. contents: read
-    # cannot create that run, so the step exits on the API error.
+    # rustsec/audit-check opens a check run when cargo audit reports a
+    # warning. That update 404s on push. .cargo/audit.toml drops the
+    # known unmaintained chrono warning so this step does not annotate.
     permissions:
       contents: read
       checks: write
