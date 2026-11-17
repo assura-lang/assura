@@ -8,6 +8,11 @@ all-features = false
 [advisories]
 version = 2
 yanked = "warn"
+# chrono is pulled only by rmcp and schemars. RUSTSEC-2026-0543 marks
+# every published version unmaintained and names no patched release.
+ignore = [
+    { id = "RUSTSEC-2026-0543", reason = "transitive via rmcp and schemars; no patched chrono release" },
+]
 
 [licenses]
 version = 2
