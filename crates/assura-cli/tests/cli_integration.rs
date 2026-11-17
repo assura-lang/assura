@@ -3007,23 +3007,29 @@ fn build_produces_native_artifact() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    // The generated project should have been compiled by cargo
-    let target_dir = tmp.join("target/debug/deps");
-    assert!(
-        target_dir.exists(),
-        "target/debug/deps should exist after cargo build"
-    );
-
-    // Check that an .rlib artifact was produced
-    let has_rlib = std::fs::read_dir(&target_dir)
-        .expect("should be able to read deps dir")
-        .flatten()
-        .any(|e| {
-            e.path()
-                .extension()
-                .is_some_and(|ext| ext == "rlib" || ext == "rmeta")
+    // Cargo 1.100 uplifts the library to target/debug/lib<name>.rlib.
+    // Older Cargo kept rlibs under target/debug/deps/.
+    let profile_dir = tmp.join("target/debug");
+    let has_rlib = [profile_dir.clone(), profile_dir.join("deps")]
+        .into_iter()
+        .filter(|dir| dir.is_dir())
+        .any(|dir| {
+            std::fs::read_dir(&dir)
+                .expect("should be able to read build dir")
+                .flatten()
+                .any(|e| {
+                    let path = e.path();
+                    path.is_file()
+                        && path
+                            .extension()
+                            .is_some_and(|ext| ext == "rlib" || ext == "rmeta")
+                })
         });
-    assert!(has_rlib, "should produce an rlib or rmeta artifact");
+    assert!(
+        has_rlib,
+        "should produce an rlib or rmeta in {} or its deps/",
+        profile_dir.display()
+    );
 
     // CLI output should mention the artifact path and size
     let stdout = String::from_utf8_lossy(&out.stdout);

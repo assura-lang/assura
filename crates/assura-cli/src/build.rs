@@ -750,17 +750,20 @@ pub(crate) fn find_wasm_artifact(dir: &Path) -> Option<std::path::PathBuf> {
     None
 }
 
-/// Find a native build artifact (`.rlib`) in the `deps/` subdirectory.
+/// Find the generated crate's native library (`.rlib`).
 ///
-/// Cargo places library artifacts as `lib{crate_name}-{hash}.rlib` in `deps/`.
-/// Returns the first `.rlib` file found (the generated project is the only
-/// crate built in that directory).
+/// Cargo 1.100 uplifts that library to `target/<profile>/lib<name>.rlib`.
+/// Older Cargo left every rlib under `deps/`. Prefer the profile file so
+/// a dependency rlib is not reported as the build output.
 pub(crate) fn find_native_artifact(dir: &Path) -> Option<std::path::PathBuf> {
-    let deps_dir = dir.join("deps");
-    let rd = fs::read_dir(&deps_dir).ok()?;
+    first_rlib(dir).or_else(|| first_rlib(&dir.join("deps")))
+}
+
+fn first_rlib(dir: &Path) -> Option<std::path::PathBuf> {
+    let rd = fs::read_dir(dir).ok()?;
     for entry in rd.flatten() {
         let path = entry.path();
-        if path.extension().is_some_and(|e| e == "rlib") {
+        if path.is_file() && path.extension().is_some_and(|e| e == "rlib") {
             return Some(path);
         }
     }
@@ -2068,12 +2071,23 @@ mod tests {
     }
 
     #[test]
-    fn build_find_native_artifact_returns_none_without_deps() {
+    fn build_find_native_artifact_finds_uplifted_profile_rlib() {
         let dir = tempfile::tempdir().unwrap();
-        // rlib in the dir itself (not deps/) should not be found
-        fs::write(dir.path().join("libfoo.rlib"), b"not in deps").unwrap();
-        let result = find_native_artifact(dir.path());
-        assert!(result.is_none());
+        // Cargo 1.100 puts the package rlib in the profile directory.
+        fs::write(dir.path().join("libfoo.rlib"), b"uplifted").unwrap();
+        let result = find_native_artifact(dir.path()).expect("should find profile rlib");
+        assert_eq!(result.file_name().unwrap(), "libfoo.rlib");
+    }
+
+    #[test]
+    fn build_find_native_artifact_prefers_profile_rlib_over_deps() {
+        let dir = tempfile::tempdir().unwrap();
+        let deps = dir.path().join("deps");
+        fs::create_dir_all(&deps).unwrap();
+        fs::write(deps.join("libdep-hash.rlib"), b"dep").unwrap();
+        fs::write(dir.path().join("libfoo.rlib"), b"pkg").unwrap();
+        let result = find_native_artifact(dir.path()).expect("should find profile rlib");
+        assert_eq!(result.file_name().unwrap(), "libfoo.rlib");
     }
 
     // ---------------------------------------------------------------
