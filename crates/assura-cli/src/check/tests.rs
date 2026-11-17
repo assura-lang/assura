@@ -226,6 +226,65 @@ fn project_a04008_kept_when_ensures_is_also_a_counterexample() {
 }
 
 #[test]
+fn project_counterexample_line_uses_summary_not_raw_model() {
+    use assura_smt::CounterexampleModel;
+
+    let filename = "src/pay.assura";
+    let clause = "Pay::ensures";
+    let raw = "RAW_SOLVER_DUMP_ZZZ\n(internal model text)\n";
+    let counter_model = Some(CounterexampleModel {
+        variables: vec![
+            ("amount".into(), "(- 2)".into()),
+            ("limit".into(), "10".into()),
+        ],
+    });
+    let summary = crate::format_counterexample_summary(&counter_model, raw);
+    let line = super::format_project_counterexample_line(filename, clause, &counter_model, raw);
+
+    assert!(
+        summary.contains("amount = -2"),
+        "precondition: structured model must format cleaned values, got: {summary}"
+    );
+    assert!(
+        !summary.contains("RAW_SOLVER_DUMP_ZZZ"),
+        "precondition: summary must not be the raw dump, got: {summary}"
+    );
+    assert!(
+        line.contains(filename),
+        "counterexample line must include the on-disk path, got: {line}"
+    );
+    assert!(
+        line.contains(&summary),
+        "counterexample line must include the summary, got: {line}"
+    );
+    assert!(
+        !line.contains("RAW_SOLVER_DUMP_ZZZ"),
+        "counterexample line must not go back to the raw SMT model, got: {line}"
+    );
+    assert_ne!(
+        line,
+        format!("    {clause} ... COUNTEREXAMPLE\n      | {raw}"),
+        "raw-model counterexample line must not return"
+    );
+
+    // No structured model: the raw solver text still has to reach the summary.
+    let raw_assign = "amount -> (- 5)\n";
+    let from_raw = super::format_project_counterexample_line(filename, clause, &None, raw_assign);
+    assert!(
+        from_raw.contains(filename),
+        "path is required when only the raw model is present, got: {from_raw}"
+    );
+    assert!(
+        from_raw.contains("amount = -5"),
+        "raw model must be passed into the summary, got: {from_raw}"
+    );
+    assert!(
+        !from_raw.contains("->"),
+        "raw solver syntax must not be the human line, got: {from_raw}"
+    );
+}
+
+#[test]
 fn project_smt_diagnostics_use_clause_spans() {
     let src = include_str!("project.rs");
     assert!(
