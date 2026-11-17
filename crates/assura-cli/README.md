@@ -39,6 +39,8 @@ $ assura check demos/zip-crate-audit.assura
       | cd_offset = 0, eocd_offset = 0, relative_cd_offset = 1
 ```
 
+That table is the single-file check. A directory check prints `path: Contract::ensures ... counterexample: name = value`.
+
 This demo has no implementation. The counterexample is an input allowed by
 the preconditions that makes the ensures false. You get **Verified**, a
 **Counterexample**, or an honest **Unknown**. An incomplete encoding is

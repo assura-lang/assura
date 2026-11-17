@@ -55,6 +55,12 @@ $ assura check demos/zip-crate-audit.assura
       | cd_offset = 0, eocd_offset = 0, relative_cd_offset = 1
 ```
 
+That table is the single-file check. `assura check` on a directory prints one line per failure, with the path and a cleaned summary:
+
+```console
+src/zip.assura: FindCdSubtractSafe::ensures ... counterexample: cd_offset = 0; eocd_offset = 0; relative_cd_offset = 1
+```
+
 This file has no implementation body. The check asks whether those
 preconditions imply the ensures. They do not. For this linear query the
 solver returns one input inside the preconditions that underflows: a

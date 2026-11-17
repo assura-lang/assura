@@ -71,7 +71,9 @@ If you only want to see a check result before installing:
    The workspace has three binaries, so `cargo run` needs `--bin assura`.
    The same form works on any machine that already has
    Rust 1.88+ and a built workspace. `libz3-dev` (or the `z3` crate's
-   prebuilt download) is required to compile.
+   prebuilt download) is required to compile. The prebuilt library is
+   cached under `~/.cache/z3-sys`. Set `Z3_SYS_CACHE_DIR` to put it
+   somewhere else. The first build after an upgrade downloads it once.
 2. **Watch the demo GIF** (no install):  
    https://github.com/assura-lang/assura/blob/main/assets/demo/assura-check.gif
 3. **Copy-paste the showcase** from section 2 into a file after

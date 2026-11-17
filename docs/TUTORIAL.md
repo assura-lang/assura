@@ -259,7 +259,7 @@ dependencies), and type-checks every module.
 
 ## Step 6: Understand Errors
 
-When a contract fails verification, Assura shows a counterexample:
+When a contract fails verification, a single-file check shows a counterexample:
 
 ```
 Verification (1 clause(s)):
@@ -268,6 +268,12 @@ Verification (1 clause(s)):
       | result -> 0
       | a -> 1
       | b -> 2
+```
+
+`assura check .` prints one line per failure instead of that table:
+
+```
+contracts/lib.assura: SafeDivision::ensures ... counterexample: result = 0; a = 1; b = 2
 ```
 
 Use `assura explain` to learn about specific error codes:

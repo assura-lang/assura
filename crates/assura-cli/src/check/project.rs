@@ -44,8 +44,31 @@ pub(crate) fn format_project_counterexample_line(
     counter_model: &Option<assura_smt::CounterexampleModel>,
     model: &str,
 ) -> String {
-    let summary = format_counterexample_summary(counter_model, model);
+    let summary = project_counterexample_summary(counter_model, model);
     format!("{filename}: {clause_desc} ... {summary}")
+}
+
+/// Cleaned counterexample text shared by the human line and the A05100 diagnostic.
+pub(crate) fn project_counterexample_summary(
+    counter_model: &Option<assura_smt::CounterexampleModel>,
+    model: &str,
+) -> String {
+    format_counterexample_summary(counter_model, model)
+}
+
+/// A05100 message for one project-mode counterexample.
+pub(crate) fn project_counterexample_diag_message(clause_desc: &str, summary: &str) -> String {
+    format!("verification failed for {clause_desc}: {summary}")
+}
+
+/// `ERR` header for type errors in one project file.
+pub(crate) fn format_project_error_header(filename: &str, count: usize) -> String {
+    format!("ERR {filename}: {count} error(s)")
+}
+
+/// One type-error line in project mode. `filename` is the on-disk path.
+pub(crate) fn format_project_type_error_line(filename: &str, code: &str, message: &str) -> String {
+    format!("  {filename}: {code}: {message}")
 }
 
 pub(crate) fn run_check_project(
@@ -199,6 +222,7 @@ pub(crate) fn run_check_project(
                             } => {
                                 module_verify_errors += 1;
                                 total_errors += 1;
+                                let summary = project_counterexample_summary(counter_model, model);
                                 if output_mode == OutputMode::Human {
                                     eprintln!(
                                         "    {}",
@@ -213,9 +237,7 @@ pub(crate) fn run_check_project(
                                 all_diags.push(
                                     assura_diagnostics::Diagnostic::error(
                                         "A05100",
-                                        format!(
-                                            "verification failed for {clause_desc}: counterexample: {model}"
-                                        ),
+                                        project_counterexample_diag_message(clause_desc, &summary),
                                         span,
                                     )
                                     .with_file(filename.clone()),
@@ -294,9 +316,16 @@ pub(crate) fn run_check_project(
             Err((errors, _returned_resolved)) => {
                 total_errors += errors.len();
                 if output_mode == OutputMode::Human {
-                    eprintln!("ERR {module_path}: {} error(s)", errors.len());
+                    eprintln!("{}", format_project_error_header(&filename, errors.len()));
                     for err in &errors {
-                        eprintln!("  {filename}: {}: {}", err.code, err.message);
+                        eprintln!(
+                            "{}",
+                            format_project_type_error_line(
+                                &filename,
+                                err.code.as_str(),
+                                &err.message
+                            )
+                        );
                     }
                 } else {
                     module_results.push(serde_json::json!({
