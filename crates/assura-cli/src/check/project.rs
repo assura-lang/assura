@@ -33,6 +33,21 @@ fn module_key_to_path(project_root: &Path, module_path: &str) -> std::path::Path
     path
 }
 
+/// Human line for one project-mode counterexample.
+///
+/// `filename` is the on-disk path. `model` is the raw solver text and is
+/// passed through so the summary can fall back to it when `counter_model`
+/// has no variables.
+pub(crate) fn format_project_counterexample_line(
+    filename: &str,
+    clause_desc: &str,
+    counter_model: &Option<assura_smt::CounterexampleModel>,
+    model: &str,
+) -> String {
+    let summary = format_counterexample_summary(counter_model, model);
+    format!("{filename}: {clause_desc} ... {summary}")
+}
+
 pub(crate) fn run_check_project(
     project_dir: &Path,
     output_mode: OutputMode,
@@ -180,13 +195,19 @@ pub(crate) fn run_check_project(
                             assura_smt::VerificationResult::Counterexample {
                                 clause_desc,
                                 model,
-                                ..
+                                counter_model,
                             } => {
                                 module_verify_errors += 1;
                                 total_errors += 1;
                                 if output_mode == OutputMode::Human {
                                     eprintln!(
-                                        "    {clause_desc} ... COUNTEREXAMPLE\n      | {model}"
+                                        "    {}",
+                                        format_project_counterexample_line(
+                                            &filename,
+                                            clause_desc,
+                                            counter_model,
+                                            model,
+                                        )
                                     );
                                 }
                                 all_diags.push(
@@ -275,7 +296,7 @@ pub(crate) fn run_check_project(
                 if output_mode == OutputMode::Human {
                     eprintln!("ERR {module_path}: {} error(s)", errors.len());
                     for err in &errors {
-                        eprintln!("  {}: {}", err.code, err.message);
+                        eprintln!("  {filename}: {}: {}", err.code, err.message);
                     }
                 } else {
                     module_results.push(serde_json::json!({
