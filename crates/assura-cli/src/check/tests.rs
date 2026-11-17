@@ -282,6 +282,34 @@ fn project_counterexample_line_uses_summary_not_raw_model() {
         !from_raw.contains("->"),
         "raw solver syntax must not be the human line, got: {from_raw}"
     );
+
+    let summary_only = super::project_counterexample_summary(&counter_model, raw);
+    let diag = super::project_counterexample_diag_message(clause, &summary_only);
+    assert!(
+        diag.contains("amount = -2"),
+        "A05100 message must use the cleaned summary, got: {diag}"
+    );
+    assert!(
+        !diag.contains("RAW_SOLVER_DUMP_ZZZ"),
+        "A05100 message must not embed the raw solver dump, got: {diag}"
+    );
+    assert_eq!(
+        diag,
+        format!("verification failed for {clause}: {summary_only}")
+    );
+}
+
+#[test]
+fn project_type_error_lines_include_filename() {
+    let filename = "src/pay.assura";
+    let header = super::format_project_error_header(filename, 2);
+    let line = super::format_project_type_error_line(filename, "A03001", "type mismatch");
+    assert_eq!(header, "ERR src/pay.assura: 2 error(s)");
+    assert_eq!(line, "  src/pay.assura: A03001: type mismatch");
+    assert!(
+        !header.starts_with("ERR pkg.sub:"),
+        "header must not use the module key, got: {header}"
+    );
 }
 
 #[test]

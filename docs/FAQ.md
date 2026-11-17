@@ -45,6 +45,11 @@ dumps yourself.
 They are not required after the prebuilt shell installer if you only
 run `assura check`.
 
+The prebuilt static library is cached under `~/.cache/z3-sys` after
+the first compile that downloads it. Set `Z3_SYS_CACHE_DIR` to keep
+that cache somewhere else. A later build of the same Z3 version and
+target reuses the file and does not call GitHub.
+
 ```bash
 # Optional standalone Z3 CLI (macOS / Ubuntu)
 brew install z3
