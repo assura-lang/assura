@@ -1,0 +1,6 @@
+# cargo-audit config. cargo-deny uses deny.toml for the same advisory.
+# chrono is pulled only by rmcp and schemars. RUSTSEC-2026-0543 marks
+# every published version unmaintained and names no patched release.
+
+[advisories]
+ignore = ["RUSTSEC-2026-0543"]
