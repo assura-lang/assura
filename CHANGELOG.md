@@ -3,6 +3,18 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.8.2](https://github.com/assura-lang/assura/compare/v0.8.1...v0.8.2) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ci:** ignore unmaintained chrono from rmcp ([#1767](https://github.com/assura-lang/assura/issues/1767)) ([58a2fec](https://github.com/assura-lang/assura/commit/58a2fec5b1434566964dc1e0becd14bb705f1911))
+* **ci:** let cargo audit ignore unmaintained chrono ([#1768](https://github.com/assura-lang/assura/issues/1768)) ([d1a7dbc](https://github.com/assura-lang/assura/commit/d1a7dbc329fd2dccde6c12a015887ed21d775bde))
+* **ci:** load the chrono audit ignore from .cargo/audit.toml ([#1770](https://github.com/assura-lang/assura/issues/1770)) ([a63f9f0](https://github.com/assura-lang/assura/commit/a63f9f0c637eeb59e186d0e52f02e78d765f4f01))
+* **cli:** find Cargo 1.100 rlibs and patch quinn-udp ([#1766](https://github.com/assura-lang/assura/issues/1766)) ([bc39484](https://github.com/assura-lang/assura/commit/bc394846e5074a857b0638c13bc275ea77c1e42b))
+* **cli:** show cleaned project counterexamples in JSON and docs ([#1769](https://github.com/assura-lang/assura/issues/1769)) ([3f26942](https://github.com/assura-lang/assura/commit/3f2694238d67bfbdfeefab3777b3a7c35d115426))
+* **smt:** reuse a cached Z3 release library ([#1759](https://github.com/assura-lang/assura/issues/1759)) ([20df7b7](https://github.com/assura-lang/assura/commit/20df7b7bb3bd29cb47873ac7b6719e547cf06c44))
+
 ## [0.8.1](https://github.com/assura-lang/assura/compare/v0.8.0...v0.8.1) (2026-11-09)
 
 
