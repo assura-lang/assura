@@ -67,14 +67,19 @@ solver returns one input inside the preconditions that underflows: a
 crafted archive whose central directory claims a relative offset larger
 than its absolute one. A fuzzer might find this. A complete decision
 procedure for this fragment does not miss it. Where the encoding is
-incomplete, the result is **Unknown**, not a green check.
+incomplete, the human line says `skipped (not yet encoded in SMT)`.
+That is a warning, and the process still exits 0. It is not a proof.
+An inconclusive result that is not that known limit says `unknown` and
+fails the check.
 
 The human line keeps the raw digits. A value on a width bound, within 32
 of one, or an exact power of two from 2^8 up also gets a note, for
 example `18446744073709551586  (u64::MAX - 29)`. `--json` leaves
 `variables` as the raw digits.
 
-You get **Verified**, a **Counterexample**, or an honest **Unknown**.
+You get **Verified**, a **Counterexample**, **Unknown** (the check
+fails), or **skipped** (a known encoding limit, exit 0). A timeout
+fails the check too.
 
 ![Assura check demo](assets/demo/assura-check.gif)
 
