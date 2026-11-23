@@ -515,8 +515,9 @@ Run `assura check buggy_clamp.assura` and you will see:
 
 ```
   BuggyClamp:
-    ensures              ... counterexample found
-      result = -1, low = 0
+    ensures              ... COUNTEREXAMPLE
+      | low = 0
+      | result = -1
 ```
 
 **Why it fails:** `result` is an unconstrained output variable. Z3 can

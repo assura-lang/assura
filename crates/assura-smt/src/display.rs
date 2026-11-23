@@ -134,7 +134,12 @@ pub fn write_grouped_verification_with_cores(
                 } => {
                     let kind = clause_desc.split("::").nth(1).unwrap_or(clause_desc);
                     let kind = truncate_display_name(kind, 32);
-                    writeln!(w, "{indent}  {kind:<20} ... skipped ({reason})")?;
+                    let tag = if crate::is_known_smt_limitation(reason) {
+                        "skipped"
+                    } else {
+                        "unknown"
+                    };
+                    writeln!(w, "{indent}  {kind:<20} ... {tag} ({reason})")?;
                 }
             }
         }
@@ -794,15 +799,37 @@ mod tests {
 
     #[test]
     fn test_write_grouped_unknown() {
-        let results = vec![VerificationResult::Unknown {
+        let inconclusive = vec![VerificationResult::Unknown {
             clause_desc: "Qux::requires".to_string(),
             reason: "non-linear arithmetic".to_string(),
         }];
         let mut buf = Vec::new();
-        write_grouped_verification(&mut buf, &results, "").unwrap();
+        write_grouped_verification(&mut buf, &inconclusive, "").unwrap();
         let output = String::from_utf8(buf).unwrap();
-        assert!(output.contains("skipped"));
-        assert!(output.contains("non-linear arithmetic"));
+        assert!(
+            output.contains("unknown"),
+            "inconclusive Unknown must say unknown: {output}"
+        );
+        assert!(
+            !output.contains("skipped"),
+            "inconclusive Unknown must not say skipped: {output}"
+        );
+        assert!(output.contains("non-linear arithmetic"), "{output}");
+
+        let limitation = crate::KNOWN_SMT_LIMITATION_MARKER;
+        assert!(crate::is_known_smt_limitation(limitation));
+        let skipped = vec![VerificationResult::Unknown {
+            clause_desc: "Qux::requires".to_string(),
+            reason: limitation.to_string(),
+        }];
+        let mut buf = Vec::new();
+        write_grouped_verification(&mut buf, &skipped, "").unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(
+            output.contains("skipped"),
+            "known limitation must say skipped: {output}"
+        );
+        assert!(output.contains(limitation), "{output}");
     }
 
     #[test]
