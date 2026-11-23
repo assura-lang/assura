@@ -3,6 +3,14 @@
 All notable changes to Assura are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.8.3](https://github.com/assura-lang/assura/compare/v0.8.2...v0.8.3) (2026-11-23)
+
+
+### Bug Fixes
+
+* **cli:** report the checked file and label inconclusive results ([#1777](https://github.com/assura-lang/assura/issues/1777)) ([cfb21cf](https://github.com/assura-lang/assura/commit/cfb21cf9e3488466f68131fa3df898437e4c9e0b))
+* **deps:** upgrade url to 2.5.9 ([#1775](https://github.com/assura-lang/assura/issues/1775)) ([c78999f](https://github.com/assura-lang/assura/commit/c78999fd1ad3eacf4fbc3edca83098556dd7763d))
+
 ## [0.8.2](https://github.com/assura-lang/assura/compare/v0.8.1...v0.8.2) (2026-11-18)
 
 
