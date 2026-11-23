@@ -38,4 +38,4 @@ tonic-prost-build = "0.14"
 protoc-bin-vendored = "3"
 
 [package.metadata.cargo-machete]
-ignored = ["prost", "tonic-prost"]
+ignored = ["prost", "tonic-prost", "tonic-prost-build", "protoc-bin-vendored"]
