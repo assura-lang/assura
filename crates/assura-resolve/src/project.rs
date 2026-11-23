@@ -461,11 +461,8 @@ pub fn discover_and_resolve_project_with_deps(
         )]);
     }
 
-    // Build a combined module map from all local files.
-    // `source_paths` keeps the path that was read. The module map key is the
-    // declared module name, which is not that path.
+    // Build a combined module map from all local files
     let mut all_modules = ModuleMap::new();
-    let mut source_paths: HashMap<String, std::path::PathBuf> = HashMap::new();
     let mut errors = Vec::new();
 
     for file_path in &assura_files {
@@ -488,7 +485,6 @@ pub fn discover_and_resolve_project_with_deps(
                         .as_ref()
                         .map(|m| m.path.join("."))
                         .unwrap_or(fs_path);
-                    source_paths.insert(key.clone(), file_path.clone());
                     all_modules.insert(key, ast);
                 }
             }
@@ -501,13 +497,7 @@ pub fn discover_and_resolve_project_with_deps(
     // Also load modules from external dependencies that are imported.
     // Clone local modules as the read-only snapshot; insert deps into the real map.
     let local_snapshot = all_modules.clone();
-    load_dep_modules_for_project(
-        &local_snapshot,
-        deps,
-        &mut all_modules,
-        &mut errors,
-        &mut source_paths,
-    );
+    load_dep_modules_for_project(&local_snapshot, deps, &mut all_modules, &mut errors);
 
     // Project-wide import cycle detection (A02005). Per-module resolve only
     // sees its own name in `visited`, so a↔b cycles never trigger the
@@ -523,10 +513,7 @@ pub fn discover_and_resolve_project_with_deps(
         let mut visited = HashSet::new();
         visited.insert(module_path.clone());
         match resolve_with_modules(source, &all_modules, &mut visited) {
-            Ok(mut result) => {
-                if let Some(path) = source_paths.get(module_path) {
-                    result.source_path = Some(path.clone());
-                }
+            Ok(result) => {
                 resolved.insert(module_path.clone(), result);
             }
             Err(errs) => {
@@ -632,7 +619,6 @@ fn load_dep_modules_for_project(
     deps: &DependencyMap,
     all_modules: &mut ModuleMap,
     errors: &mut Vec<String>,
-    source_paths: &mut HashMap<String, std::path::PathBuf>,
 ) {
     if deps.is_empty() {
         return;
@@ -671,7 +657,6 @@ fn load_dep_modules_for_project(
                         ));
                     }
                     if let Some(ast) = ast {
-                        source_paths.insert(module_key.clone(), file_path.clone());
                         all_modules.insert(module_key, ast);
                     }
                 }
@@ -872,45 +857,6 @@ mod tests {
         let mut files = Vec::new();
         collect_assura_files(&tmp, &mut files);
         assert_eq!(files.len(), 2);
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-
-    #[test]
-    fn declared_module_keeps_on_disk_source_path() {
-        let tmp =
-            std::env::temp_dir().join(format!("assura_test_source_path_hb_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp).unwrap();
-        let file = tmp.join("hb.assura");
-        std::fs::write(
-            &file,
-            "\
-module tls.heartbeat;
-
-contract Heartbeat {
-  input(payload_length: Nat)
-  requires { payload_length <= 64 }
-}
-",
-        )
-        .unwrap();
-
-        let (resolved, errors) =
-            discover_and_resolve_project_with_deps(&tmp, &DependencyMap::new())
-                .expect("project resolves");
-        assert!(errors.is_empty(), "{errors:?}");
-        let hb = resolved
-            .get("tls.heartbeat")
-            .expect("keyed by declared module name");
-        let path = hb.source_path.as_ref().expect("on-disk path recorded");
-        let text = path.to_string_lossy().replace('\\', "/");
-        assert!(text.ends_with("hb.assura"), "{text}");
-        assert!(
-            !text.contains("tls/heartbeat.assura"),
-            "must not invent a path from the module name: {text}"
-        );
-        assert_eq!(path, &file);
-
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

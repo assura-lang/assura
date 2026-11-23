@@ -181,7 +181,10 @@ pub(crate) fn run_check_project(
     }
 
     // Module map keys are declared `module a.b` names (or filesystem-derived
-    // dotted paths), not on-disk paths. Scan source files once for SHOWCASE.
+    // dotted paths), not on-disk paths. Walk the files once so reports use
+    // the path that was read. This stays in the CLI: cargo package verifies
+    // this crate against the published assura-resolve, which has no path field.
+    let module_files = collect_module_source_paths(&project_root);
     let showcase_modules = if showcase_only {
         collect_showcase_module_names(&project_root)
     } else {
@@ -195,8 +198,13 @@ pub(crate) fn run_check_project(
             continue;
         }
         total_modules += 1;
-        let filename =
-            project_report_path(&project_root, &module_path, resolved.source_path.as_deref());
+        let filename = project_report_path(
+            &project_root,
+            &module_path,
+            module_files
+                .get(&module_path)
+                .map(std::path::PathBuf::as_path),
+        );
         match assura_types::TypeChecker::new()
             .config(config.type_check.clone())
             .modules(modules_map.clone())
@@ -411,6 +419,43 @@ pub(crate) fn run_check_project(
     }
 }
 
+/// Declared `module a.b` key, or the filesystem-derived dotted path.
+fn module_key_for_source(project_root: &Path, file_path: &Path, src: &str) -> String {
+    let fs_path = file_path
+        .strip_prefix(project_root)
+        .unwrap_or(file_path)
+        .with_extension("")
+        .to_string_lossy()
+        .replace(['/', '\\'], ".");
+    match assura_parser::parse(src) {
+        (Some(ast), _) => ast
+            .module
+            .as_ref()
+            .map(|m| m.path.join("."))
+            .unwrap_or(fs_path),
+        (None, _) => fs_path,
+    }
+}
+
+/// Map each module key to the `.assura` file that was read.
+fn collect_module_source_paths(
+    project_root: &Path,
+) -> std::collections::HashMap<String, std::path::PathBuf> {
+    let mut paths = std::collections::HashMap::new();
+    let mut files = Vec::new();
+    crate::shared::collect_assura_files(project_root, &mut files);
+    for file_path in files {
+        let Ok(src) = std::fs::read_to_string(&file_path) else {
+            continue;
+        };
+        paths.insert(
+            module_key_for_source(project_root, &file_path, &src),
+            file_path,
+        );
+    }
+    paths
+}
+
 /// Walk `.assura` files under `project_root` and return module keys whose
 /// first few lines contain `SHOWCASE` (must-pass demos).
 ///
@@ -428,21 +473,7 @@ fn collect_showcase_module_names(project_root: &Path) -> std::collections::HashS
         if !head.contains("SHOWCASE") {
             continue;
         }
-        let fs_path = file_path
-            .strip_prefix(project_root)
-            .unwrap_or(&file_path)
-            .with_extension("")
-            .to_string_lossy()
-            .replace(['/', '\\'], ".");
-        let key = match assura_parser::parse(&src) {
-            (Some(ast), _) => ast
-                .module
-                .as_ref()
-                .map(|m| m.path.join("."))
-                .unwrap_or(fs_path),
-            (None, _) => fs_path,
-        };
-        names.insert(key);
+        names.insert(module_key_for_source(project_root, &file_path, &src));
     }
     names
 }
@@ -471,6 +502,23 @@ mod showcase_path_tests {
             "expected declared module name, got {names:?}"
         );
         assert!(!names.contains("other"));
+    }
+
+    #[test]
+    fn module_source_path_keeps_hb_assura() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("hb.assura");
+        fs::write(
+            &file,
+            "module tls.heartbeat;\ncontract C { requires { true } ensures { true } }\n",
+        )
+        .unwrap();
+        let paths = super::collect_module_source_paths(dir.path());
+        let found = paths.get("tls.heartbeat").expect("declared module key");
+        assert_eq!(found, &file);
+        let shown = super::project_report_path(dir.path(), "tls.heartbeat", Some(found));
+        assert!(shown.ends_with("hb.assura"), "{shown}");
+        assert!(!shown.contains("tls/heartbeat.assura"), "{shown}");
     }
 
     #[test]

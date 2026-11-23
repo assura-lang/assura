@@ -45,8 +45,6 @@ pub struct ResolvedFile {
     /// Non-fatal warnings (e.g., unused imports). These don't prevent
     /// resolution from succeeding.
     pub warnings: Vec<ResolutionError>,
-    /// Path of the file that was read. `None` when resolve had no filesystem path.
-    pub source_path: Option<std::path::PathBuf>,
 }
 
 #[cfg(test)]
