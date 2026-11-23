@@ -1,6 +1,24 @@
 //! Unit tests for check / SMT Unknown classification.
 
 #[test]
+fn project_report_path_prefers_on_disk_source_path() {
+    let root = std::path::Path::new("/proj");
+    let invented = super::project::project_report_path(root, "tls.heartbeat", None);
+    assert!(
+        invented.ends_with("tls/heartbeat.assura") || invented.ends_with("tls\\heartbeat.assura"),
+        "{invented}"
+    );
+
+    let on_disk = std::path::Path::new("hb.assura");
+    let shown = super::project::project_report_path(root, "tls.heartbeat", Some(on_disk));
+    assert!(shown.ends_with("hb.assura"), "{shown}");
+    assert!(
+        !shown.contains("tls/heartbeat.assura") && !shown.contains("tls\\heartbeat.assura"),
+        "must not invent a path from the module name: {shown}"
+    );
+}
+
+#[test]
 fn success_summary_distinguishes_vacuous_cases() {
     use super::report::success_summary_message;
 

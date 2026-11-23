@@ -765,6 +765,7 @@ pub fn resolve_with_modules(
             symbols: table,
             imports: resolved_imports,
             warnings,
+            source_path: None,
         })
     } else {
         Err(errors)

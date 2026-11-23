@@ -33,6 +33,24 @@ fn module_key_to_path(project_root: &Path, module_path: &str) -> std::path::Path
     path
 }
 
+/// Path printed for one project module.
+///
+/// Uses the file that was read when `source_path` is set. Falls back to
+/// [`module_key_to_path`] only when resolve had no filesystem path.
+pub(crate) fn project_report_path(
+    project_root: &Path,
+    module_path: &str,
+    source_path: Option<&Path>,
+) -> String {
+    if let Some(path) = source_path {
+        path.display().to_string()
+    } else {
+        module_key_to_path(project_root, module_path)
+            .display()
+            .to_string()
+    }
+}
+
 /// Human line for one project-mode counterexample.
 ///
 /// `filename` is the on-disk path. `model` is the raw solver text and is
@@ -177,9 +195,8 @@ pub(crate) fn run_check_project(
             continue;
         }
         total_modules += 1;
-        let filename = module_key_to_path(&project_root, &module_path)
-            .display()
-            .to_string();
+        let filename =
+            project_report_path(&project_root, &module_path, resolved.source_path.as_deref());
         match assura_types::TypeChecker::new()
             .config(config.type_check.clone())
             .modules(modules_map.clone())
